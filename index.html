@@ -3594,8 +3594,9 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       if (currentType === 'PurchaseInvoice') {
         const warehouseId = val('pv_WarehouseID');
         if (!warehouseId) throw new Error(t('গুদাম বাছাই করা আবশ্যক।','Warehouse is required.'));
-        const headerData = Object.assign({}, common, { InvoiceDate: val('pv_Date'), GRNID: val('pv_GRNID') || null, WarehouseID: warehouseId });
         const lineData = lines.map(function (l) { return Object.assign({}, l, { Amount: l.Quantity * l.Rate }); });
+        const totalAmount = lineData.reduce(function (s, l) { return s + (Number(l.Amount) || 0); }, 0);
+        const headerData = Object.assign({}, common, { InvoiceDate: val('pv_Date'), GRNID: val('pv_GRNID') || null, WarehouseID: warehouseId, TotalAmount: totalAmount });
         if (isEdit) {
           await api('updateDocument', { headerSheet:'PurchaseInvoice', idField:'PIID', linesSheet:'PI_Lines', lineIdField:'PIID', idValue: existingId, headerData: headerData, lines: lineData });
         } else {
@@ -3958,7 +3959,8 @@ async function openSalesVoucherForm(defaultType, existingId) {
       const common = { CustomerID: customerId, SalespersonID: val('sv_SalespersonID') || null, WarehouseID: warehouseId };
 
       if (currentType === 'SalesInvoice') {
-        const headerData = Object.assign({}, common, { InvoiceDate: val('sv_Date'), DCID: val('sv_DCID') || null });
+        const totalAmount = lines.reduce(function (s, l) { return s + (Number(l.Amount) || 0); }, 0);
+        const headerData = Object.assign({}, common, { InvoiceDate: val('sv_Date'), DCID: val('sv_DCID') || null, TotalAmount: totalAmount });
         if (isEdit) {
           await api('updateDocument', { headerSheet:'SalesInvoice', idField:'SIID', linesSheet:'SI_Lines', lineIdField:'SIID', idValue: existingId, headerData: headerData, lines: lines });
         } else {
