@@ -3337,40 +3337,72 @@ async function deletePurchaseVoucherRecord(docType, docId) {
  *  "পেজ সেটাপ" ব্রাউজারের নিজস্ব প্রিন্ট ডায়ালগেই থাকে (কাগজের সাইজ/মার্জিন) —
  *  আলাদা করে কাস্টম বানানো সম্ভব না, তাই সেই বাটনও প্রিন্ট ডায়ালগেই নিয়ে যায়। */
 async function openPrintableVoucherView(docType, docId) {
-  const isReturn = docType === 'PurchaseReturn';
-  const headerSheet = isReturn ? 'PurchaseReturn' : 'PurchaseInvoice';
-  const idField = isReturn ? 'PRetID' : 'PIID';
-  const linesSheet = isReturn ? 'PR_Return_Lines' : 'PI_Lines';
-  const lineIdField = isReturn ? 'PRetID' : 'PIID';
+  const isSales = docType === 'SalesInvoice' || docType === 'SalesReturn';
+  const isReturn = docType === 'PurchaseReturn' || docType === 'SalesReturn';
 
-  const [doc, suppliers, purchasers, items, units, company] = await Promise.all([
+  const cfg = isSales
+    ? { headerSheet: isReturn ? 'SalesReturn' : 'SalesInvoice', idField: isReturn ? 'SRID' : 'SIID', linesSheet: isReturn ? 'SR_Lines' : 'SI_Lines', lineIdField: isReturn ? 'SRID' : 'SIID' }
+    : { headerSheet: isReturn ? 'PurchaseReturn' : 'PurchaseInvoice', idField: isReturn ? 'PRetID' : 'PIID', linesSheet: isReturn ? 'PR_Return_Lines' : 'PI_Lines', lineIdField: isReturn ? 'PRetID' : 'PIID' };
+  const headerSheet = cfg.headerSheet, idField = cfg.idField, linesSheet = cfg.linesSheet, lineIdField = cfg.lineIdField;
+
+  const [doc, parties, personRefs, items, units, groups, categories, company] = await Promise.all([
     api('getDocument', { headerSheet: headerSheet, idField: idField, linesSheet: linesSheet, lineIdField: lineIdField, idValue: docId }),
-    cachedList('Suppliers'), cachedList('Purchasers'), cachedList('Items'), cachedList('UOM'),
+    isSales ? cachedList('Customers') : cachedList('Suppliers'),
+    isSales ? cachedList('Salespersons') : cachedList('Purchasers'),
+    cachedList('Items'), cachedList('UOM'),
+    cachedList('ItemGroups'), cachedList('Categories'),
     api('getSingleton', { sheet:'CompanyProfile' })
   ]);
   const header = doc.header, lines = doc.lines;
-  const supplier = suppliers.find(function (s) { return s.SupplierID === header.SupplierID; });
-  const purchaser = purchasers.find(function (p) { return p.PurchaserID === header.PurchaserID; });
+  const partyIdField = isSales ? 'CustomerID' : 'SupplierID';
+  const party = parties.find(function (p) { return p[partyIdField] === header[partyIdField]; });
+  const personIdField = isSales ? 'SalespersonID' : 'PurchaserID';
+  const personNameField = isSales ? 'SalespersonName' : 'PurchaserName';
+  const person = personRefs.find(function (p) { return p[personIdField] === header[personIdField]; });
   const itemMap = {}; items.forEach(function (i) { itemMap[i.ItemID] = i; });
   const unitMap = {}; units.forEach(function (u) { unitMap[u.UOMID] = u.UOMName; });
+  const groupMap = {}; groups.forEach(function (g) { groupMap[g.GroupID] = g.GroupName; });
+  const catMap = {}; categories.forEach(function (c) { catMap[c.CategoryID] = c.CategoryName; });
 
-  let totalQty = 0, totalValue = 0;
+  // এন্ট্রি ফর্মের মতোই — প্রতিটা লাইন আইটেম, গ্রুপ, ক্যাটাগরি, একক দেখাবে;
+  // ওজন(কেজি)+দর উপরের সারিতে, আর "ওজন + পিস" আইটেমের পিস সংখ্যা নিচের সারিতে
+  let totalQty = 0, totalPieces = 0, totalValue = 0;
   const rowsHtml = lines.map(function (l) {
     const item = itemMap[l.ItemID] || {};
     const qty = Number(l.Quantity) || 0, rate = Number(l.Rate) || 0, amt = qty * rate;
-    totalQty += qty; totalValue += amt;
+    const pieces = Number(l.Pieces) || 0;
+    const isDual = item.TrackingType === 'WeightPieces';
+    totalQty += qty; totalValue += amt; if (isDual) totalPieces += pieces;
+
+    const piecesRow = isDual
+      ? `<tr>
+          <td colspan="4" style="padding-top:0;padding-bottom:6px;color:#666;font-size:12px;font-style:italic;">
+            ${t('পিস','Pieces')}: ${pieces.toFixed(2)} ${pieces > 0 ? '(' + t('প্রতি পিস','per piece') + ' ' + (amt/pieces).toFixed(2) + ')' : ''}
+          </td>
+        </tr>`
+      : '';
+
     return `<tr>
       <td>${escapeHtml(item.ItemName || l.ItemID)}</td>
+      <td>${escapeHtml(groupMap[item.GroupID] || '—')}</td>
+      <td>${escapeHtml(catMap[item.CategoryID] || '—')}</td>
       <td style="text-align:center;">${escapeHtml(unitMap[item.UOMID] || '')}</td>
       <td style="text-align:right;">${qty}</td>
       <td style="text-align:right;">${rate.toFixed(2)}</td>
       <td style="text-align:right;">${amt.toFixed(2)}</td>
-    </tr>`;
+    </tr>${piecesRow}`;
   }).join('');
 
-  const titleBn = isReturn ? 'ক্রয় ফেরত ভাউচার' : 'ক্রয় ভাউচার';
-  const titleEn = isReturn ? 'Purchase Return Voucher' : 'Purchase Voucher';
+  const titleMap = {
+    PurchaseInvoice: ['ক্রয় ভাউচার', 'Purchase Voucher'],
+    PurchaseReturn: ['ক্রয় ফেরত ভাউচার', 'Purchase Return Voucher'],
+    SalesInvoice: ['বিক্রয় ভাউচার', 'Sales Voucher'],
+    SalesReturn: ['বিক্রয় ফেরত ভাউচার', 'Sales Return Voucher']
+  };
+  const titleBn = titleMap[docType][0], titleEn = titleMap[docType][1];
   const voucherDate = header.InvoiceDate || header.Date || '';
+  const partyLabelBn = isSales ? 'গ্রাহক' : 'সাপ্লায়ার', partyLabelEn = isSales ? 'Customer' : 'Supplier';
+  const personLabelBn = isSales ? 'বিক্রয়কারী' : 'ক্রয়কারী', personLabelEn = isSales ? 'Salesperson' : 'Purchaser';
 
   const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8">
 <title>${titleBn} — ${escapeHtml(docId)}</title>
@@ -3413,23 +3445,24 @@ async function openPrintableVoucherView(docType, docId) {
     </div>
   </div>
   <div class="meta-grid">
-    <div><b>${t('সাপ্লায়ার','Supplier')}:</b> ${escapeHtml(supplier ? supplier.Name : header.SupplierID)}</div>
-    <div><b>${t('ক্রয়কারী','Purchaser')}:</b> ${escapeHtml(purchaser ? purchaser.PurchaserName : '—')}</div>
+    <div><b>${t(partyLabelBn, partyLabelEn)}:</b> ${escapeHtml(party ? party.Name : header[partyIdField])}</div>
+    <div><b>${t(personLabelBn, personLabelEn)}:</b> ${escapeHtml(person ? person[personNameField] : '—')}</div>
     ${header.SupplierInvoiceNo ? `<div><b>${t('নিঃভাউঃনম্বর','Supplier Voucher No')}:</b> ${escapeHtml(header.SupplierInvoiceNo)}</div>` : ''}
     ${header.SupplierInvoiceDate ? `<div><b>${t('নিঃভাউঃতারিখ','Supplier Voucher Date')}:</b> ${escapeHtml(header.SupplierInvoiceDate)}</div>` : ''}
     ${header.GRNID ? `<div><b>GRN:</b> ${escapeHtml(header.GRNID)}</div>` : ''}
+    ${header.DCID ? `<div><b>DC:</b> ${escapeHtml(header.DCID)}</div>` : ''}
     ${header.Reason ? `<div><b>${t('কারণ','Reason')}:</b> ${escapeHtml(header.Reason)}</div>` : ''}
   </div>
   <table>
-    <thead><tr><th>${t('আইটেম','Item')}</th><th>${t('একক','Unit')}</th><th style="text-align:right;">${t('পরিমাণ','Qty')}</th><th style="text-align:right;">${t('দর','Rate')}</th><th style="text-align:right;">${t('মূল্য','Amount')}</th></tr></thead>
+    <thead><tr><th>${t('আইটেম','Item')}</th><th>${t('গ্রুপ','Group')}</th><th>${t('ক্যাটাগরি','Category')}</th><th>${t('একক','Unit')}</th><th style="text-align:right;">${t('পরিমাণ (ওজন)','Qty (Weight)')}</th><th style="text-align:right;">${t('দর','Rate')}</th><th style="text-align:right;">${t('মূল্য','Amount')}</th></tr></thead>
     <tbody>${rowsHtml}</tbody>
-    <tfoot><tr><td colspan="2">${t('মোট','Total')}</td><td style="text-align:right;">${totalQty}</td><td></td><td style="text-align:right;">${totalValue.toFixed(2)}</td></tr></tfoot>
+    <tfoot><tr><td colspan="4">${t('মোট','Total')}</td><td style="text-align:right;">${totalQty}${totalPieces > 0 ? ' (' + totalPieces.toFixed(2) + ' ' + t('পিস','pcs') + ')' : ''}</td><td></td><td style="text-align:right;">${totalValue.toFixed(2)}</td></tr></tfoot>
   </table>
   <p class="footer-note">${t('তৈরি হয়েছে','Generated on')}: ${new Date().toLocaleString()}</p>
   <script>
     document.getElementById('shareBtn').addEventListener('click', async function () {
       const text = ${JSON.stringify(t(titleBn, titleEn))} + ' ' + ${JSON.stringify(docId)} + '\\n' +
-        ${JSON.stringify(t('সাপ্লায়ার','Supplier'))} + ': ' + ${JSON.stringify(supplier ? supplier.Name : header.SupplierID)} + '\\n' +
+        ${JSON.stringify(t(partyLabelBn, partyLabelEn))} + ': ' + ${JSON.stringify(party ? party.Name : String(header[partyIdField] || ''))} + '\\n' +
         ${JSON.stringify(t('মোট','Total'))} + ': ' + ${JSON.stringify(totalValue.toFixed(2))};
       if (navigator.share) {
         try { await navigator.share({ title: document.title, text: text }); } catch (e) {}
