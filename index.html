@@ -810,7 +810,7 @@ async function runSupabaseAction(action, p) {
     }
 
     case 'postOpeningStock': {
-      await postStockMovement(p.itemId, p.warehouseId, new Date().toISOString().slice(0,10), 'Opening', 'Items', p.itemId, p.quantity, 0);
+      await postStockMovement(p.itemId, p.warehouseId, new Date().toISOString().slice(0,10), 'Opening', 'Items', p.itemId, p.quantity, p.pieces || 0);
       return {};
     }
 
@@ -1660,7 +1660,7 @@ async function renderItemMasterPage(content) {
     const bodyRows = active.map(function (r) {
       const unit = unitMap[r.UOMID];
       const rateWeight = Number(r.StandardCost) || 0;
-      const kgPerPiece = Number(unit && unit.ConversionFactor) || 0;
+      const isDual = r.TrackingType === 'WeightPieces';
       const statusCell = isTrue(r.IsActive)
         ? `<span class="badge active i18n" data-bn="সক্রিয়" data-en="Active">${t('সক্রিয়','Active')}</span>`
         : `<span class="badge inactive i18n" data-bn="নিষ্ক্রিয়" data-en="Inactive">${t('নিষ্ক্রিয়','Inactive')}</span>`;
@@ -1671,8 +1671,10 @@ async function renderItemMasterPage(content) {
       return stockRows.map(function (s) {
         const qtyNum = s ? (Number(s.QtyOnHand) || 0) : 0;
         const value = qtyNum * rateWeight;
-        const pieces = kgPerPiece > 0 ? qtyNum / kgPerPiece : null;
-        const ratePerPiece = (pieces && pieces > 0) ? value / pieces : null;
+        // "ওজন + পিস" আইটেমে পিস সংখ্যা সরাসরি সংরক্ষিত ডেটা (current_stock.QtyPieces) থেকে
+        // দেখানো হচ্ছে — কোনো স্থির কনভার্সন ফ্যাক্টর দিয়ে অনুমান করা হচ্ছে না
+        const pieces = isDual && s ? (Number(s.QtyPieces) || 0) : null;
+        const ratePerPiece = (pieces !== null && pieces > 0) ? value / pieces : null;
         return `<tr>
           <td>${escapeHtml(r.ItemID)}</td><td>${escapeHtml(r.ItemName)}</td>
           <td>${escapeHtml(groupMap[r.GroupID] || '—')}</td><td>${escapeHtml(catMap[r.CategoryID] || '—')}</td>
@@ -1790,9 +1792,10 @@ async function openItemForm(existing) {
       } else {
         savedItem = await api('create', { sheet:'Items', idField:'ItemID', idPrefix:'ITM', requiredFields:['ItemName'], data: data });
         const openQty = Number(val('it_OpQty')) || 0;
+        const openPieces = Number(val('it_OpPieces')) || 0;
         const openWh = val('it_WarehouseID');
         if (openQty > 0 && openWh) {
-          await api('postOpeningStock', { itemId: savedItem.ItemID, warehouseId: openWh, quantity: openQty });
+          await api('postOpeningStock', { itemId: savedItem.ItemID, warehouseId: openWh, quantity: openQty, pieces: openPieces });
         }
       }
 
