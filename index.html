@@ -1779,6 +1779,12 @@ async function openItemForm(existing) {
       const name = val('it_ItemName');
       if (!name) throw new Error(t('নাম আবশ্যক।','Name is required.'));
 
+      const openQtyCheck = Number(val('it_OpQty')) || 0;
+      const openPiecesCheck = Number(val('it_OpPieces')) || 0;
+      if (val('it_TrackingType') === 'WeightPieces' && openQtyCheck > 0 && openPiecesCheck <= 0) {
+        throw new Error(t('এই আইটেম "ওজন + পিস" ধরনের — ওপেনিং স্টকে ওজন দিলে পিস সংখ্যাও (নিচের সারিতে) দেওয়া আবশ্যক।', 'This item is tracked as "Weight + Pieces" — if you enter an opening weight, you must also enter the pieces count (bottom row).'));
+      }
+
       const data = {
         ItemName: name, GroupID: val('it_GroupID') || null, CategoryID: val('it_CategoryID') || null, UOMID: val('it_UOMID') || null, UnitMode: val('it_UnitMode'),
         TrackingType: val('it_TrackingType'),
