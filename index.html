@@ -3365,30 +3365,24 @@ async function openPrintableVoucherView(docType, docId) {
   const catMap = {}; categories.forEach(function (c) { catMap[c.CategoryID] = c.CategoryName; });
 
   // এন্ট্রি ফর্মের মতোই — প্রতিটা লাইন আইটেম, গ্রুপ, ক্যাটাগরি, একক দেখাবে;
-  // ওজন(কেজি)+দর উপরের সারিতে, আর "ওজন + পিস" আইটেমের পিস সংখ্যা নিচের সারিতে
+  // আইটেম | পরিমাণ(ওজন) | দর | পিস | দর(পিস) | মূল্য — সবকিছু একই সারিতে
   let totalQty = 0, totalPieces = 0, totalValue = 0;
   const rowsHtml = lines.map(function (l) {
     const item = itemMap[l.ItemID] || {};
     const qty = Number(l.Quantity) || 0, rate = Number(l.Rate) || 0, amt = qty * rate;
     const pieces = Number(l.Pieces) || 0;
     const isDual = item.TrackingType === 'WeightPieces';
+    const ratePerPiece = (isDual && pieces > 0) ? amt / pieces : null;
     totalQty += qty; totalValue += amt; if (isDual) totalPieces += pieces;
-
-    const piecesRow = isDual
-      ? `<tr>
-          <td colspan="2" style="padding-top:0;padding-bottom:6px;color:#666;font-size:12px;font-style:italic;">
-            ${t('পিস','Pieces')}: ${pieces.toFixed(2)} ${pieces > 0 ? '(' + t('প্রতি পিস','per piece') + ' ' + (amt/pieces).toFixed(2) + ')' : ''}
-          </td>
-        </tr>`
-      : '';
 
     return `<tr>
       <td>${escapeHtml(item.ItemName || l.ItemID)}</td>
-      <td style="text-align:center;">${escapeHtml(unitMap[item.UOMID] || '')}</td>
       <td style="text-align:right;">${qty}</td>
       <td style="text-align:right;">${rate.toFixed(2)}</td>
+      <td style="text-align:right;">${isDual ? pieces.toFixed(2) : '—'}</td>
+      <td style="text-align:right;">${ratePerPiece !== null ? ratePerPiece.toFixed(2) : '—'}</td>
       <td style="text-align:right;">${amt.toFixed(2)}</td>
-    </tr>${piecesRow}`;
+    </tr>`;
   }).join('');
 
   const titleMap = {
@@ -3452,9 +3446,9 @@ async function openPrintableVoucherView(docType, docId) {
     ${header.Reason ? `<div><b>${t('কারণ','Reason')}:</b> ${escapeHtml(header.Reason)}</div>` : ''}
   </div>
   <table>
-    <thead><tr><th>${t('আইটেম','Item')}</th><th>${t('একক','Unit')}</th><th style="text-align:right;">${t('পরিমাণ (ওজন)','Qty (Weight)')}</th><th style="text-align:right;">${t('দর','Rate')}</th><th style="text-align:right;">${t('মূল্য','Amount')}</th></tr></thead>
+    <thead><tr><th>${t('আইটেম','Item')}</th><th style="text-align:right;">${t('পরিমাণ (ওজন)','Qty (Weight)')}</th><th style="text-align:right;">${t('দর','Rate')}</th><th style="text-align:right;">${t('পিস','Pieces')}</th><th style="text-align:right;">${t('দর (পিস)','Rate (Piece)')}</th><th style="text-align:right;">${t('মূল্য','Amount')}</th></tr></thead>
     <tbody>${rowsHtml}</tbody>
-    <tfoot><tr><td colspan="2">${t('মোট','Total')}</td><td style="text-align:right;">${totalQty}${totalPieces > 0 ? ' (' + totalPieces.toFixed(2) + ' ' + t('পিস','pcs') + ')' : ''}</td><td></td><td style="text-align:right;">${totalValue.toFixed(2)}</td></tr></tfoot>
+    <tfoot><tr><td>${t('মোট','Total')}</td><td style="text-align:right;">${totalQty}</td><td></td><td style="text-align:right;">${totalPieces > 0 ? totalPieces.toFixed(2) : '—'}</td><td></td><td style="text-align:right;">${totalValue.toFixed(2)}</td></tr></tfoot>
   </table>
   <p class="footer-note">${t('তৈরি হয়েছে','Generated on')}: ${new Date().toLocaleString()}</p>
   <script>
@@ -3497,9 +3491,15 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
 
   if (isEdit) {
     const config = type === 'PurchaseReturn'
-      ? { headerSheet:'PurchaseReturn', idField:'PRetID', linesSheet:'PR_Return_Lines', lineIdField:'PRetID' }
-      : { headerSheet:'PurchaseInvoice', idField:'PIID', linesSheet:'PI_Lines', lineIdField:'PIID' };
-    const doc = await api('getDocument', config);
+      ? { headerSheet:'PurchaseReturn', idField:'PRetID', linesSheet:'PR_Return_Lines', lineIdField:'PRetID', idValue: existingId }
+      : { headerSheet:'PurchaseInvoice', idField:'PIID', linesSheet:'PI_Lines', lineIdField:'PIID', idValue: existingId };
+    let doc;
+    try {
+      doc = await api('getDocument', config);
+    } catch (err) {
+      showToast(err.message, 'error');
+      return;
+    }
     existingHeader = doc.header;
     existingLines = doc.lines;
     if (existingHeader.Status === 'Posted') {
@@ -3878,9 +3878,15 @@ async function openSalesVoucherForm(defaultType, existingId) {
 
   if (isEdit) {
     const config = type === 'SalesReturn'
-      ? { headerSheet:'SalesReturn', idField:'SRID', linesSheet:'SR_Lines', lineIdField:'SRID' }
-      : { headerSheet:'SalesInvoice', idField:'SIID', linesSheet:'SI_Lines', lineIdField:'SIID' };
-    const doc = await api('getDocument', config);
+      ? { headerSheet:'SalesReturn', idField:'SRID', linesSheet:'SR_Lines', lineIdField:'SRID', idValue: existingId }
+      : { headerSheet:'SalesInvoice', idField:'SIID', linesSheet:'SI_Lines', lineIdField:'SIID', idValue: existingId };
+    let doc;
+    try {
+      doc = await api('getDocument', config);
+    } catch (err) {
+      showToast(err.message, 'error');
+      return;
+    }
     existingHeader = doc.header;
     existingLines = doc.lines;
     if (existingHeader.Status === 'Posted') {
