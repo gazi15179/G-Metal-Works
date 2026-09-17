@@ -1575,6 +1575,7 @@ async function openMasterModal(sheetName, record) {
         // ঐচ্ছিক ড্রপডাউন (select-fk) খালি রাখলে "" এর বদলে null পাঠানো হচ্ছে —
         // কারণ ডেটাবেসের ফরেইন-কী কলাম "" মেনে নেয় না, শুধু আসল আইডি অথবা null মানে
         if (f.type === 'select-fk' && v === '') v = null;
+        if (f.type === 'number' && v === '') v = null;
         data[f.key] = v;
       });
 
@@ -1779,7 +1780,7 @@ async function openItemForm(existing) {
       const data = {
         ItemName: name, GroupID: val('it_GroupID') || null, CategoryID: val('it_CategoryID') || null, UOMID: val('it_UOMID') || null, UnitMode: val('it_UnitMode'),
         TrackingType: val('it_TrackingType'),
-        OpeningStock: val('it_OpQty'), StandardCost: val('it_OpRate'),
+        OpeningStock: val('it_OpQty') === '' ? 0 : val('it_OpQty'), StandardCost: val('it_OpRate') === '' ? 0 : val('it_OpRate'),
         IsActive: val('it_IsActive')
       };
 
@@ -4207,13 +4208,13 @@ async function openDocumentForm(existingId) {
     wide: true,
     onSave: async function () {
       const headerData = {};
-      config.headerFields.forEach(function (f) { const v = val('doc_h_' + f.key); headerData[f.key] = (f.type === 'select-fk' && v === '') ? null : v; });
+      config.headerFields.forEach(function (f) { const v = val('doc_h_' + f.key); headerData[f.key] = ((f.type === 'select-fk' || f.type === 'number') && v === '') ? null : v; });
       const missingHeader = config.headerFields.filter(function (f) { return f.required && !headerData[f.key]; });
       if (missingHeader.length > 0) throw new Error(missingHeader.map(function (f) { return f.label; }).join(', ') + ' আবশ্যক।');
 
       const lines = window.__docLineRows.map(function (_, idx) {
         const line = {};
-        config.lineFields.forEach(function (f) { const v = val('doc_ln_' + idx + '_' + f.key); line[f.key] = (f.type === 'select-fk' && v === '') ? null : v; });
+        config.lineFields.forEach(function (f) { const v = val('doc_ln_' + idx + '_' + f.key); line[f.key] = ((f.type === 'select-fk' || f.type === 'number') && v === '') ? null : v; });
         if (config.computeTotal) {
           const qty = Number(line.Quantity) || 0, rate = Number(line.Rate) || 0;
           line.Amount = qty * rate;
