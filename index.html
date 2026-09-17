@@ -3376,7 +3376,7 @@ async function openPrintableVoucherView(docType, docId) {
 
     const piecesRow = isDual
       ? `<tr>
-          <td colspan="4" style="padding-top:0;padding-bottom:6px;color:#666;font-size:12px;font-style:italic;">
+          <td colspan="2" style="padding-top:0;padding-bottom:6px;color:#666;font-size:12px;font-style:italic;">
             ${t('পিস','Pieces')}: ${pieces.toFixed(2)} ${pieces > 0 ? '(' + t('প্রতি পিস','per piece') + ' ' + (amt/pieces).toFixed(2) + ')' : ''}
           </td>
         </tr>`
@@ -3384,8 +3384,6 @@ async function openPrintableVoucherView(docType, docId) {
 
     return `<tr>
       <td>${escapeHtml(item.ItemName || l.ItemID)}</td>
-      <td>${escapeHtml(groupMap[item.GroupID] || '—')}</td>
-      <td>${escapeHtml(catMap[item.CategoryID] || '—')}</td>
       <td style="text-align:center;">${escapeHtml(unitMap[item.UOMID] || '')}</td>
       <td style="text-align:right;">${qty}</td>
       <td style="text-align:right;">${rate.toFixed(2)}</td>
@@ -3454,9 +3452,9 @@ async function openPrintableVoucherView(docType, docId) {
     ${header.Reason ? `<div><b>${t('কারণ','Reason')}:</b> ${escapeHtml(header.Reason)}</div>` : ''}
   </div>
   <table>
-    <thead><tr><th>${t('আইটেম','Item')}</th><th>${t('গ্রুপ','Group')}</th><th>${t('ক্যাটাগরি','Category')}</th><th>${t('একক','Unit')}</th><th style="text-align:right;">${t('পরিমাণ (ওজন)','Qty (Weight)')}</th><th style="text-align:right;">${t('দর','Rate')}</th><th style="text-align:right;">${t('মূল্য','Amount')}</th></tr></thead>
+    <thead><tr><th>${t('আইটেম','Item')}</th><th>${t('একক','Unit')}</th><th style="text-align:right;">${t('পরিমাণ (ওজন)','Qty (Weight)')}</th><th style="text-align:right;">${t('দর','Rate')}</th><th style="text-align:right;">${t('মূল্য','Amount')}</th></tr></thead>
     <tbody>${rowsHtml}</tbody>
-    <tfoot><tr><td colspan="4">${t('মোট','Total')}</td><td style="text-align:right;">${totalQty}${totalPieces > 0 ? ' (' + totalPieces.toFixed(2) + ' ' + t('পিস','pcs') + ')' : ''}</td><td></td><td style="text-align:right;">${totalValue.toFixed(2)}</td></tr></tfoot>
+    <tfoot><tr><td colspan="2">${t('মোট','Total')}</td><td style="text-align:right;">${totalQty}${totalPieces > 0 ? ' (' + totalPieces.toFixed(2) + ' ' + t('পিস','pcs') + ')' : ''}</td><td></td><td style="text-align:right;">${totalValue.toFixed(2)}</td></tr></tfoot>
   </table>
   <p class="footer-note">${t('তৈরি হয়েছে','Generated on')}: ${new Date().toLocaleString()}</p>
   <script>
