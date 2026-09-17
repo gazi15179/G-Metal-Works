@@ -3377,11 +3377,11 @@ async function openPrintableVoucherView(docType, docId) {
 
     return `<tr>
       <td>${escapeHtml(item.ItemName || l.ItemID)}</td>
-      <td style="text-align:right;">${qty}</td>
-      <td style="text-align:right;">${rate.toFixed(2)}</td>
-      <td style="text-align:right;">${isDual ? pieces.toFixed(2) : '—'}</td>
-      <td style="text-align:right;">${ratePerPiece !== null ? ratePerPiece.toFixed(2) : '—'}</td>
-      <td style="text-align:right;">${amt.toFixed(2)}</td>
+      <td >${qty}</td>
+      <td >${rate.toFixed(2)}</td>
+      <td >${isDual ? pieces.toFixed(2) : '—'}</td>
+      <td >${ratePerPiece !== null ? ratePerPiece.toFixed(2) : '—'}</td>
+      <td >${amt.toFixed(2)}</td>
     </tr>`;
   }).join('');
 
@@ -3410,8 +3410,8 @@ async function openPrintableVoucherView(docType, docId) {
   .meta-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 24px;margin-bottom:20px;font-size:13.5px;}
   .meta-grid b{color:#555;font-weight:600;}
   table{width:100%;border-collapse:collapse;margin-top:10px;}
-  th{background:#1a2029;color:#f2a33c;padding:8px 10px;font-size:12.5px;text-align:left;}
-  td{padding:8px 10px;border-bottom:1px solid #e2e5ea;font-size:13px;}
+  th{background:#1a2029;color:#f2a33c;padding:8px 10px;font-size:12.5px;text-align:center;}
+  td{padding:8px 10px;border-bottom:1px solid #e2e5ea;font-size:13px;text-align:center;}
   tfoot td{font-weight:700;border-top:2px solid #1a2029;border-bottom:none;}
   .toolbar{display:flex;gap:10px;margin-bottom:20px;}
   .toolbar button{font-family:inherit;font-size:13px;font-weight:600;padding:9px 16px;border-radius:8px;border:1px solid #d1d5db;background:#f5f6f8;cursor:pointer;}
@@ -3446,9 +3446,9 @@ async function openPrintableVoucherView(docType, docId) {
     ${header.Reason ? `<div><b>${t('কারণ','Reason')}:</b> ${escapeHtml(header.Reason)}</div>` : ''}
   </div>
   <table>
-    <thead><tr><th>${t('আইটেম','Item')}</th><th style="text-align:right;">${t('পরিমাণ (ওজন)','Qty (Weight)')}</th><th style="text-align:right;">${t('দর','Rate')}</th><th style="text-align:right;">${t('পিস','Pieces')}</th><th style="text-align:right;">${t('দর (পিস)','Rate (Piece)')}</th><th style="text-align:right;">${t('মূল্য','Amount')}</th></tr></thead>
+    <thead><tr><th>${t('আইটেম','Item')}</th><th>${t('পরিমাণ (ওজন)','Qty (Weight)')}</th><th>${t('দর','Rate')}</th><th>${t('পিস','Pieces')}</th><th>${t('দর (পিস)','Rate (Piece)')}</th><th>${t('মূল্য','Amount')}</th></tr></thead>
     <tbody>${rowsHtml}</tbody>
-    <tfoot><tr><td>${t('মোট','Total')}</td><td style="text-align:right;">${totalQty}</td><td></td><td style="text-align:right;">${totalPieces > 0 ? totalPieces.toFixed(2) : '—'}</td><td></td><td style="text-align:right;">${totalValue.toFixed(2)}</td></tr></tfoot>
+    <tfoot><tr><td>${t('মোট','Total')}</td><td>${totalQty}</td><td></td><td>${totalPieces > 0 ? totalPieces.toFixed(2) : '—'}</td><td></td><td>${totalValue.toFixed(2)}</td></tr></tfoot>
   </table>
   <p class="footer-note">${t('তৈরি হয়েছে','Generated on')}: ${new Date().toLocaleString()}</p>
   <script>
