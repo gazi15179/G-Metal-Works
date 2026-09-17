@@ -279,7 +279,7 @@ table.data-table{width:100%;border-collapse:collapse;font-size:13px;}
       </div>
       <button type="submit" class="btn btn-primary" id="loginBtn">লগইন করুন</button>
     </form>
-    <div class="login-hint">প্রথমবার ব্যবহার করলে Apps Script থেকে setupFirstAdmin() রান করে অ্যাডমিন অ্যাকাউন্ট তৈরি করুন।</div>
+    <div class="login-hint">Supabase Authentication থেকে তৈরি করা অ্যাডমিন ইমেইল-পাসওয়ার্ড দিয়ে লগইন করুন।</div>
   </div>
 </div>
 
@@ -449,7 +449,7 @@ const READY_PAGES = ['dashboard','companyProfile','userManagement','roles','acti
 // ⚠️ নিচের দুইটা মান আপনার Supabase প্রজেক্ট থেকে বসাতে হবে
 // (Settings → API Keys — Project URL ও Publishable/anon key)
 const SUPABASE_URL = "https://szapuukkvraycfqtfsdl.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_bDffkGoqkMO45bQ7L0t6kA_zdG7OZKZ";
+const SUPABASE_ANON_KEY = "sb_publishable_bDffkGoqkM045bQ7L0t6kA_zdG7OZKZ";
 
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -512,6 +512,186 @@ async function api(action, payload) {
   } catch (err) {
     throw new Error(err.message || 'অজানা একটা সমস্যা হয়েছে।');
   }
+}
+
+/* ============================================================
+   স্টক পোস্টিং — দুই-মাত্রার (ওজন + পিস) ইনভেন্টরি লজিক
+   ============================================================ */
+
+/** CurrentStock ও StockLedger — দুটোতেই একসাথে কেজি ও পিসের
+ *  পরিবর্তন বসিয়ে দেয়। kgDelta/piecesDelta পজিটিভ হলে স্টক বাড়বে,
+ *  নেগেটিভ হলে কমবে। এটাই সব ধরনের স্টক-মুভমেন্টের একমাত্র কেন্দ্রবিন্দু —
+ *  যাতে CurrentStock ও StockLedger কখনো একে অপরের থেকে আলাদা (out of sync) না হয়ে যায়। */
+async function postStockMovement(itemId, warehouseId, date, transactionType, refModule, refId, kgDelta, piecesDelta) {
+  if (!itemId || !warehouseId) throw new Error('আইটেম বা গুদাম উল্লেখ করা নেই — স্টক পোস্ট করা যায়নি।');
+  kgDelta = Number(kgDelta) || 0;
+  piecesDelta = Number(piecesDelta) || 0;
+
+  const { data: existing } = await supabaseClient.from('current_stock').select('*').eq('ItemID', itemId).eq('WarehouseID', warehouseId).maybeSingle();
+  const newKg = (existing ? Number(existing.QtyOnHand) : 0) + kgDelta;
+  const newPieces = (existing ? Number(existing.QtyPieces) : 0) + piecesDelta;
+
+  if (existing) {
+    const { error } = await supabaseClient.from('current_stock').update({ QtyOnHand: newKg, QtyPieces: newPieces }).eq('ItemID', itemId).eq('WarehouseID', warehouseId);
+    if (error) throw new Error(error.message);
+  } else {
+    const { error } = await supabaseClient.from('current_stock').insert({ ItemID: itemId, WarehouseID: warehouseId, QtyOnHand: newKg, QtyPieces: newPieces });
+    if (error) throw new Error(error.message);
+  }
+
+  const { error: ledgerErr } = await supabaseClient.from('stock_ledger').insert({
+    ItemID: itemId, WarehouseID: warehouseId, Date: date, TransactionType: transactionType,
+    RefModule: refModule, RefID: refId,
+    QtyIn: kgDelta > 0 ? kgDelta : 0, QtyOut: kgDelta < 0 ? -kgDelta : 0, BalanceAfter: newKg,
+    PiecesIn: piecesDelta > 0 ? piecesDelta : 0, PiecesOut: piecesDelta < 0 ? -piecesDelta : 0, PiecesBalanceAfter: newPieces
+  });
+  if (ledgerErr) throw new Error(ledgerErr.message);
+}
+
+/** বিক্রয়ের সময় গ্রাহক কেজি অথবা পিস — যেকোনো একটা দিয়ে থাকলে, অন্য
+ *  মাত্রাটা তখনকার আসল/লাইভ গড় ওজন-প্রতি-পিস দিয়ে হিসাব করে বের করে —
+ *  কোনো স্থির Conversion Factor ব্যবহার হয় না। */
+async function resolveKgAndPieces(itemId, warehouseId, enteredKg, enteredPieces) {
+  enteredKg = Number(enteredKg) || 0;
+  enteredPieces = Number(enteredPieces) || 0;
+  if (enteredKg > 0 && enteredPieces > 0) return { kg: enteredKg, pieces: enteredPieces };
+
+  const { data: stock } = await supabaseClient.from('current_stock').select('*').eq('ItemID', itemId).eq('WarehouseID', warehouseId).maybeSingle();
+  const avgKgPerPiece = (stock && Number(stock.QtyPieces) > 0) ? (Number(stock.QtyOnHand) / Number(stock.QtyPieces)) : 0;
+
+  if (enteredKg > 0 && enteredPieces === 0) {
+    return { kg: enteredKg, pieces: avgKgPerPiece > 0 ? enteredKg / avgKgPerPiece : 0 };
+  }
+  if (enteredPieces > 0 && enteredKg === 0) {
+    return { kg: avgKgPerPiece > 0 ? enteredPieces * avgKgPerPiece : 0, pieces: enteredPieces };
+  }
+  return { kg: 0, pieces: 0 };
+}
+
+/** প্রতিটা ডকুমেন্ট টাইপ পোস্ট করলে ঠিক কী স্টক-প্রভাব পড়বে, তার
+ *  ব্যবসায়িক নিয়ম। Status='Posted' হওয়ার আগেই এটা রান হয় (postDocument কেস দেখুন)। */
+async function runPostingLogic(docType, header, docId) {
+  const today = new Date().toISOString().slice(0, 10);
+
+  if (docType === 'GRN') {
+    // GRN এখন শুধু রেকর্ডের জন্য — আসল স্টক-বৃদ্ধি হয় Purchase Invoice পোস্ট করলে (নিচে দেখুন),
+    // যাতে GRN+Invoice দুটোতেই স্টক দুইবার যোগ না হয়ে যায়।
+    return;
+  }
+
+  if (docType === 'PurchaseInvoice') {
+    if (!header.WarehouseID) throw new Error('এই ক্রয় চালানে কোনো গুদাম উল্লেখ নেই।');
+    const { data: lines, error } = await supabaseClient.from('PI_Lines').select('*').eq('PIID', docId);
+    if (error) throw new Error(error.message);
+    for (const line of (lines || [])) {
+      await postStockMovement(line.ItemID, header.WarehouseID, header.InvoiceDate || today, 'PurchaseInvoice', 'PurchaseInvoice', docId, Number(line.Quantity) || 0, Number(line.Pieces) || 0);
+    }
+    return;
+  }
+
+  if (docType === 'PurchaseReturn') {
+    let warehouseId = header.WarehouseID;
+    if (!warehouseId && header.GRNID) {
+      const { data: grn } = await supabaseClient.from('GRN').select('WarehouseID').eq('GRNID', header.GRNID).maybeSingle();
+      warehouseId = grn ? grn.WarehouseID : null;
+    }
+    if (!warehouseId) throw new Error('গুদাম খুঁজে পাওয়া যায়নি — GRN রেফারেন্স যাচাই করুন।');
+    const { data: lines, error } = await supabaseClient.from('PR_Return_Lines').select('*').eq('PRetID', docId);
+    if (error) throw new Error(error.message);
+    for (const line of (lines || [])) {
+      await postStockMovement(line.ItemID, warehouseId, header.Date || today, 'PurchaseReturn', 'PurchaseReturn', docId, -(Number(line.Quantity) || 0), -(Number(line.Pieces) || 0));
+    }
+    return;
+  }
+
+  if (docType === 'MaterialIssue') {
+    if (!header.WarehouseID) throw new Error('গুদাম উল্লেখ নেই।');
+    const { data: lines, error } = await supabaseClient.from('MI_Lines').select('*').eq('MIID', docId);
+    if (error) throw new Error(error.message);
+    for (const line of (lines || [])) {
+      await postStockMovement(line.ItemID, header.WarehouseID, header.Date || today, 'MaterialIssue', 'MaterialIssue', docId, -(Number(line.Quantity) || 0), 0);
+    }
+    return;
+  }
+
+  if (docType === 'StockTransfer') {
+    if (!header.FromWarehouseID || !header.ToWarehouseID) throw new Error('উৎস/গন্তব্য গুদাম উল্লেখ নেই।');
+    const { data: lines, error } = await supabaseClient.from('Transfer_Lines').select('*').eq('TransferID', docId);
+    if (error) throw new Error(error.message);
+    for (const line of (lines || [])) {
+      const qty = Number(line.Quantity) || 0;
+      await postStockMovement(line.ItemID, header.FromWarehouseID, header.Date || today, 'StockTransfer-Out', 'StockTransfer', docId, -qty, 0);
+      await postStockMovement(line.ItemID, header.ToWarehouseID, header.Date || today, 'StockTransfer-In', 'StockTransfer', docId, qty, 0);
+    }
+    return;
+  }
+
+  if (docType === 'StockAdjustment') {
+    if (!header.WarehouseID) throw new Error('গুদাম উল্লেখ নেই।');
+    const { data: lines, error } = await supabaseClient.from('Adjustment_Lines').select('*').eq('AdjID', docId);
+    if (error) throw new Error(error.message);
+    for (const line of (lines || [])) {
+      await postStockMovement(line.ItemID, header.WarehouseID, header.Date || today, 'StockAdjustment', 'StockAdjustment', docId, Number(line.QtyChange) || 0, 0);
+    }
+    return;
+  }
+
+  if (docType === 'DeliveryChallan') {
+    // DC এখন শুধু রেকর্ডের জন্য — আসল স্টক-হ্রাস হয় Sales Invoice পোস্ট করলে
+    return;
+  }
+
+  if (docType === 'SalesInvoice') {
+    if (!header.WarehouseID) throw new Error('এই বিক্রয় চালানে কোনো গুদাম উল্লেখ নেই।');
+    const { data: lines, error } = await supabaseClient.from('SI_Lines').select('*').eq('SIID', docId);
+    if (error) throw new Error(error.message);
+    for (const line of (lines || [])) {
+      const item = (await supabaseClient.from('items').select('TrackingType').eq('ItemID', line.ItemID).maybeSingle()).data;
+      if (item && item.TrackingType === 'WeightPieces') {
+        const resolved = await resolveKgAndPieces(line.ItemID, header.WarehouseID, line.Quantity, line.Pieces);
+        await postStockMovement(line.ItemID, header.WarehouseID, header.InvoiceDate || today, 'SalesInvoice', 'SalesInvoice', docId, -resolved.kg, -resolved.pieces);
+      } else {
+        await postStockMovement(line.ItemID, header.WarehouseID, header.InvoiceDate || today, 'SalesInvoice', 'SalesInvoice', docId, -(Number(line.Quantity) || 0), 0);
+      }
+    }
+    return;
+  }
+
+  if (docType === 'SalesReturn') {
+    if (!header.WarehouseID) throw new Error('এই বিক্রয় ফেরত ভাউচারে কোনো গুদাম উল্লেখ নেই।');
+    const { data: lines, error } = await supabaseClient.from('SR_Lines').select('*').eq('SRID', docId);
+    if (error) throw new Error(error.message);
+    for (const line of (lines || [])) {
+      const item = (await supabaseClient.from('items').select('TrackingType').eq('ItemID', line.ItemID).maybeSingle()).data;
+      if (item && item.TrackingType === 'WeightPieces') {
+        const resolved = await resolveKgAndPieces(line.ItemID, header.WarehouseID, line.Quantity, line.Pieces);
+        await postStockMovement(line.ItemID, header.WarehouseID, header.Date || today, 'SalesReturn', 'SalesReturn', docId, resolved.kg, resolved.pieces);
+      } else {
+        await postStockMovement(line.ItemID, header.WarehouseID, header.Date || today, 'SalesReturn', 'SalesReturn', docId, Number(line.Quantity) || 0, 0);
+      }
+    }
+    return;
+  }
+
+  if (docType === 'ProcessingVoucher') {
+    if (!header.WarehouseID) throw new Error('এই প্রসেসিং ভাউচারে কোনো গুদাম উল্লেখ নেই।');
+    // কাঁচামাল খরচ — স্টক থেকে কমবে
+    await postStockMovement(header.RawMaterialItemID, header.WarehouseID, header.Date || today, 'ProcessingVoucher-RM', 'ProcessingVoucher', docId, -(Number(header.RawMaterialQty) || 0), 0);
+    // বাই-প্রডাক্ট (ভাঙারি/কাটিং) — স্টকে যোগ হবে
+    const { data: byProducts } = await supabaseClient.from('ProcessingByProduct_Lines').select('*').eq('ProcessingID', docId);
+    for (const bp of (byProducts || [])) {
+      if (bp.ItemID) {
+        await postStockMovement(bp.ItemID, header.WarehouseID, header.Date || today, 'ProcessingVoucher-ByProduct', 'ProcessingVoucher', docId, Number(bp.Quantity) || 0, 0);
+      }
+    }
+    // নেট ফিনিশড গুডস — কেজি ও পিস দুটোই স্টকে যোগ হবে
+    await postStockMovement(header.FinishedGoodsItemID, header.WarehouseID, header.Date || today, 'ProcessingVoucher-FG', 'ProcessingVoucher', docId, Number(header.NetWeight) || 0, Number(header.Pieces) || 0);
+    return;
+  }
+
+  // বাকি ডকুমেন্ট টাইপ (BOM-ভিত্তিক Production Order route, এবং Accounts
+  // ভাউচারের হিসাব-লেজার প্রভাব) এখনো শুধু স্ট্যাটাস বদলাবে —
+  // এটা একটা আলাদা পরবর্তী ধাপে যোগ হবে।
 }
 
 async function runSupabaseAction(action, p) {
@@ -616,29 +796,21 @@ async function runSupabaseAction(action, p) {
     }
 
     case 'postDocument': {
-      // ⚠️ এই ধাপে শুধু Status='Posted' করা হচ্ছে। স্টক/লেজারে আসল
-      // এন্ট্রি বসানোর ব্যবসায়িক লজিক (আগে Apps Script-এ ছিল) এখনো
-      // এখানে যোগ করা হয়নি — এটা পরের একটা আলাদা ধাপে করা হবে।
       const cfg = DOC_TYPE_MAP[p.docType];
       if (!cfg) throw new Error('অজানা ডকুমেন্ট টাইপ।');
+      const { data: existingDoc, error: exErr } = await supabaseClient.from(cfg.table).select('*').eq(cfg.idField, p.docId).single();
+      if (exErr) throw new Error(exErr.message);
+      if (existingDoc.Status === 'Posted') throw new Error('এই ডকুমেন্ট আগেই পোস্ট করা হয়েছে।');
+
+      await runPostingLogic(p.docType, existingDoc, p.docId);
+
       const { error } = await supabaseClient.from(cfg.table).update({ Status: 'Posted' }).eq(cfg.idField, p.docId);
       if (error) throw new Error(error.message);
       return {};
     }
 
     case 'postOpeningStock': {
-      const { data: existing } = await supabaseClient.from('current_stock').select('*').eq('ItemID', p.itemId).eq('WarehouseID', p.warehouseId).maybeSingle();
-      const newQty = (existing ? Number(existing.QtyOnHand) : 0) + Number(p.quantity);
-      if (existing) {
-        await supabaseClient.from('current_stock').update({ QtyOnHand: newQty }).eq('ItemID', p.itemId).eq('WarehouseID', p.warehouseId);
-      } else {
-        await supabaseClient.from('current_stock').insert({ ItemID: p.itemId, WarehouseID: p.warehouseId, QtyOnHand: newQty });
-      }
-      await supabaseClient.from('stock_ledger').insert({
-        ItemID: p.itemId, WarehouseID: p.warehouseId, Date: new Date().toISOString().slice(0,10),
-        TransactionType: 'Opening', RefModule: 'Items', RefID: p.itemId,
-        QtyIn: p.quantity, QtyOut: 0, BalanceAfter: newQty
-      });
+      await postStockMovement(p.itemId, p.warehouseId, new Date().toISOString().slice(0,10), 'Opening', 'Items', p.itemId, p.quantity, 0);
       return {};
     }
 
@@ -1555,8 +1727,13 @@ async function openItemForm(existing) {
           <option value="Weight" ${(rec.UnitMode||'Weight')==='Weight'?'selected':''}>${t('ওজন (কেজি)','By Weight (kg)')}</option>
           <option value="Piece" ${rec.UnitMode==='Piece'?'selected':''}>${t('পিস','By Piece')}</option>
         </select></div>
+      <div class="field"><label>${t('স্টক ট্র্যাকিং ধরন','Stock Tracking Type')}</label><select id="it_TrackingType">
+          <option value="Weight" ${(rec.TrackingType||'Weight')==='Weight'?'selected':''}>${t('শুধু ওজন','Weight Only')}</option>
+          <option value="WeightPieces" ${rec.TrackingType==='WeightPieces'?'selected':''}>${t('ওজন + পিস (তৈরি পণ্য)','Weight + Pieces (Finished Goods)')}</option>
+        </select></div>
       <div class="field"><label>${t('ওয়ারহাউজ','Warehouse')}</label><select id="it_WarehouseID">${opts(warehouses, 'WarehouseID', 'WarehouseName', '')}</select></div>
     </div>
+    <p style="font-size:11.5px;color:var(--text-muted);margin:8px 0 0;">${t('"ওজন + পিস" বাছাই করলে এই আইটেমের ক্রয়/প্রসেসিং আউটপুট এন্ট্রিতে সবসময় ওজন ও পিস দুটোই দিতে হবে — স্টকে দুটোই আলাদাভাবে জমা থাকবে, আর গড় ওজন/পিস সবসময় স্বয়ংক্রিয়ভাবে হিসাব হবে।','Choosing "Weight + Pieces" means purchase/processing-output entries for this item will always require both weight and pieces — stock keeps both separately, and the average weight/piece is always computed live.')}</p>
 
     <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border);">
       <table class="data-table">
@@ -1597,6 +1774,7 @@ async function openItemForm(existing) {
 
       const data = {
         ItemName: name, GroupID: val('it_GroupID'), CategoryID: val('it_CategoryID'), UOMID: val('it_UOMID'), UnitMode: val('it_UnitMode'),
+        TrackingType: val('it_TrackingType'),
         OpeningStock: val('it_OpQty'), StandardCost: val('it_OpRate'),
         IsActive: val('it_IsActive')
       };
@@ -2819,6 +2997,7 @@ async function postProcessingRecord(processingId) {
 async function openProcessingForm() {
   const [items, warehouses] = await Promise.all([cachedList('Items'), cachedList('Warehouses')]);
   window.__procItems = items.filter(function (i) { return i.Status !== 'Deleted'; });
+  window.__procItemMap = {}; items.forEach(function (i) { window.__procItemMap[i.ItemID] = i; });
   window.__procByProductRows = []; // { name, itemId, qty, rate }
 
   function opts(list, idF, labelF) {
@@ -2875,6 +3054,12 @@ async function openProcessingForm() {
       if (!warehouseId) throw new Error(t('গুদাম বাছাই করা আবশ্যক।','Warehouse is required.'));
       if (!fgItemId) throw new Error(t('প্রস্তুত পণ্য আইটেম বাছাই করা আবশ্যক।','Finished goods item is required.'));
       if (qty <= 0) throw new Error(t('পরিমাণ আবশ্যক।','Quantity is required.'));
+
+      const fgItem = window.__procItemMap[fgItemId];
+      const pieces = Number(val('pv_Pieces')) || 0;
+      if (fgItem && fgItem.TrackingType === 'WeightPieces' && pieces <= 0) {
+        throw new Error(t('"' + fgItem.ItemName + '" আইটেমটা "ওজন + পিস" ধরনের — তাই পিস সংখ্যা দেওয়া আবশ্যক।', '"' + fgItem.ItemName + '" is tracked as "Weight + Pieces" — the pieces count is required.'));
+      }
 
       const byProductLines = window.__procByProductRows
         .map(function (_, idx) {
@@ -3248,9 +3433,9 @@ async function openPrintableVoucherView(docType, docId) {
 }
 
 async function openPurchaseVoucherForm(defaultType, existingId) {
-  const pvData = await cachedListMultiple(['Suppliers', 'Purchasers', 'Items', 'GRN', 'ItemGroups', 'Categories', 'UOM']);
+  const pvData = await cachedListMultiple(['Suppliers', 'Purchasers', 'Items', 'GRN', 'ItemGroups', 'Categories', 'UOM', 'Warehouses']);
   const suppliers = pvData.Suppliers, purchasers = pvData.Purchasers, items = pvData.Items, grns = pvData.GRN,
-        groups = pvData.ItemGroups, categories = pvData.Categories, units = pvData.UOM;
+        groups = pvData.ItemGroups, categories = pvData.Categories, units = pvData.UOM, warehouses = pvData.Warehouses;
   window.__pvItems = items.filter(function (i) { return i.Status !== 'Deleted'; });
   window.__pvItemMap = {}; items.forEach(function (i) { window.__pvItemMap[i.ItemID] = i; });
   window.__pvGroupMap = {}; groups.forEach(function (g) { window.__pvGroupMap[g.GroupID] = g.GroupName; });
@@ -3278,7 +3463,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   }
 
   window.__pvLineRows = isEdit
-    ? existingLines.map(function (l) { return { itemId: l.ItemID, qty: l.Quantity, rate: l.Rate }; })
+    ? existingLines.map(function (l) { return { itemId: l.ItemID, qty: l.Quantity, rate: l.Rate, pieces: l.Pieces }; })
     : [{}];
 
   function opts(list, idF, labelF, selected) {
@@ -3298,6 +3483,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       <div class="field"><label>${t('তারিখ','Date')}</label><input type="date" id="pv_Date" value="${attr(rec.InvoiceDate || rec.Date) || new Date().toISOString().slice(0,10)}"></div>
       <div class="field"><label>${t('ভাউচার নম্বর','Voucher No')}</label><input id="pv_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো তৈরি হবে','Will be auto-generated')}" readonly style="background:var(--bg);"></div>
       <div class="field" id="pv_GRNField" style="display:none;"><label>${t('GRN রেফারেন্স','GRN Reference')}</label><select id="pv_GRNID"><option value="">—</option>${opts(grns, 'GRNID', 'GRNID', rec.GRNID)}</select></div>
+      <div class="field" id="pv_WarehouseField"><label>${t('গুদাম','Warehouse')}</label><select id="pv_WarehouseID"><option value="">—</option>${opts(warehouses, 'WarehouseID', 'WarehouseName', rec.WarehouseID)}</select></div>
       <div class="field"><label>${t('নিঃভাউঃতারিখ (ঐচ্ছিক)','Supplier Voucher Date (optional)')}</label><input type="date" id="pv_SupplierInvoiceDate" value="${attr(rec.SupplierInvoiceDate)}"></div>
       <div class="field"><label>${t('নিঃভাউঃনম্বর (ঐচ্ছিক)','Supplier Voucher No (optional)')}</label><input id="pv_SupplierInvoiceNo" value="${attr(rec.SupplierInvoiceNo)}"></div>
       <div class="field"><label>${t('সাপ্লায়ার নাম','Supplier Name')}</label><select id="pv_SupplierID"><option value="">—</option>${opts(suppliers, 'SupplierID', 'Name', rec.SupplierID)}</select></div>
@@ -3324,6 +3510,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       if (!supplierId) throw new Error(t('সাপ্লায়ার বাছাই করা আবশ্যক।','Supplier is required.'));
 
       const unitMismatches = [];
+      const trackingMissing = [];
       const lines = window.__pvLineRows.map(function (_, idx) {
         const itemId = val('pv_ln_' + idx + '_item');
         const item = window.__pvItemMap[itemId];
@@ -3331,6 +3518,15 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
         const rate = Number(val('pv_ln_' + idx + '_rate')) || 0;
         const pieces = Number(val('pv_ln_' + idx + '_pieces')) || 0;
         const ratePiece = Number(val('pv_ln_' + idx + '_rateperpiece')) || 0;
+
+        // "ওজন + পিস" ট্র্যাকিং-ধরনের আইটেমে ওজন ও পিস দুটোই বাধ্যতামূলক —
+        // দাম সবসময় ওজনের উপর ভিত্তি করে হিসাব হয়, পিস শুধু স্টকে আলাদাভাবে জমা থাকার জন্য
+        if (item && item.TrackingType === 'WeightPieces' && itemId) {
+          if (!(qty > 0 && rate > 0 && pieces > 0)) {
+            trackingMissing.push(item.ItemName);
+          }
+          return { ItemID: itemId, Quantity: qty, Rate: rate, Pieces: pieces };
+        }
 
         let finalQty = 0, finalRate = 0, usedMode = null;
         if (qty > 0 && rate > 0) {
@@ -3353,9 +3549,16 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
           unitMismatches.push(item.ItemName);
         }
 
-        return { ItemID: itemId, Quantity: finalQty, Rate: finalRate };
+        return { ItemID: itemId, Quantity: finalQty, Rate: finalRate, Pieces: 0 };
       }).filter(function (l) { return l.ItemID && l.Quantity > 0; });
       if (lines.length === 0) throw new Error(t('অন্তত একটা লাইন আইটেম যোগ করুন।','Add at least one line item.'));
+
+      if (trackingMissing.length > 0) {
+        throw new Error(
+          t('এই আইটেমগুলো "ওজন + পিস" ধরনের — তাই ওজন, দর এবং পিস তিনটাই আবশ্যক: ', 'These items are tracked as "Weight + Pieces" — weight, rate and pieces are all required: ')
+          + trackingMissing.join(', ')
+        );
+      }
 
       if (unitMismatches.length > 0) {
         const proceed = confirm(
@@ -3374,12 +3577,14 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       };
 
       if (currentType === 'PurchaseInvoice') {
-        const headerData = Object.assign({}, common, { InvoiceDate: val('pv_Date'), GRNID: val('pv_GRNID') });
+        const warehouseId = val('pv_WarehouseID');
+        if (!warehouseId) throw new Error(t('গুদাম বাছাই করা আবশ্যক।','Warehouse is required.'));
+        const headerData = Object.assign({}, common, { InvoiceDate: val('pv_Date'), GRNID: val('pv_GRNID'), WarehouseID: warehouseId });
         const lineData = lines.map(function (l) { return Object.assign({}, l, { Amount: l.Quantity * l.Rate }); });
         if (isEdit) {
           await api('updateDocument', { headerSheet:'PurchaseInvoice', idField:'PIID', linesSheet:'PI_Lines', lineIdField:'PIID', idValue: existingId, headerData: headerData, lines: lineData });
         } else {
-          await api('createDocument', { headerSheet:'PurchaseInvoice', idField:'PIID', idPrefix:'PI', requiredFields:['SupplierID'], linesSheet:'PI_Lines', lineIdField:'PIID', headerData: headerData, lines: lineData });
+          await api('createDocument', { headerSheet:'PurchaseInvoice', idField:'PIID', idPrefix:'PI', requiredFields:['SupplierID','WarehouseID'], linesSheet:'PI_Lines', lineIdField:'PIID', headerData: headerData, lines: lineData });
         }
       } else {
         const grnId = val('pv_GRNID');
@@ -3400,6 +3605,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   function toggleTypeFields() {
     const isReturn = val('pv_Type') === 'PurchaseReturn';
     document.getElementById('pv_GRNField').style.display = isReturn ? '' : 'none';
+    document.getElementById('pv_WarehouseField').style.display = isReturn ? 'none' : '';
     document.getElementById('pv_ReasonField').style.display = isReturn ? '' : 'none';
   }
   document.getElementById('pv_Type').addEventListener('change', toggleTypeFields);
@@ -3497,7 +3703,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
           <td rowspan="2"><button type="button" onclick="window.__removePvLine(${idx})">✕</button></td>
         </tr>
         <tr style="background:var(--bg);">
-          <td style="border-top:1px dashed var(--border);"><input id="pv_ln_${idx}_pieces" type="number" step="any" oninput="updatePvLine(${idx})" style="width:80px;"></td>
+          <td style="border-top:1px dashed var(--border);"><input id="pv_ln_${idx}_pieces" type="number" step="any" value="${row.pieces||''}" oninput="updatePvLine(${idx})" style="width:80px;"></td>
           <td style="border-top:1px dashed var(--border);color:var(--text-muted);font-style:italic;">${t('পিস','pcs')}</td>
           <td style="border-top:1px dashed var(--border);"><input id="pv_ln_${idx}_rateperpiece" type="number" step="any" oninput="updatePvLine(${idx})" style="width:80px;"></td>
         </tr>`;
@@ -3608,10 +3814,10 @@ async function deleteSalesVoucherRecord(docType, docId) {
 }
 
 async function openSalesVoucherForm(defaultType, existingId) {
-  const svData = await cachedListMultiple(['Customers', 'Salespersons', 'Items', 'SalesInvoice', 'DeliveryChallan', 'ItemGroups', 'Categories', 'UOM']);
+  const svData = await cachedListMultiple(['Customers', 'Salespersons', 'Items', 'SalesInvoice', 'DeliveryChallan', 'ItemGroups', 'Categories', 'UOM', 'Warehouses']);
   const customers = svData.Customers, salespersons = svData.Salespersons, items = svData.Items, invoicesForRef = svData.SalesInvoice,
         deliveryChallans = svData.DeliveryChallan,
-        groups = svData.ItemGroups, categories = svData.Categories, units = svData.UOM;
+        groups = svData.ItemGroups, categories = svData.Categories, units = svData.UOM, warehouses = svData.Warehouses;
   window.__svItems = items.filter(function (i) { return i.Status !== 'Deleted'; });
   window.__svItemMap = {}; items.forEach(function (i) { window.__svItemMap[i.ItemID] = i; });
   window.__svGroups = groups.filter(function (g) { return g.Status !== 'Deleted'; });
@@ -3637,7 +3843,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
   }
 
   window.__svLineRows = isEdit
-    ? existingLines.map(function (l) { return { itemId: l.ItemID, qty: l.Quantity, rate: l.Rate }; })
+    ? existingLines.map(function (l) { return { itemId: l.ItemID, qty: l.Quantity, rate: l.Rate, pieces: l.Pieces }; })
     : [{}];
 
   function opts(list, idF, labelF, selected) {
@@ -3658,6 +3864,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
       <div class="field"><label>${t('ভাউচার নম্বর','Voucher No')}</label><input id="sv_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো তৈরি হবে','Will be auto-generated')}" readonly style="background:var(--bg);"></div>
       <div class="field" id="sv_SIField" style="display:none;"><label>${t('বিক্রয় চালান রেফারেন্স','Sales Invoice Reference')}</label><select id="sv_SIID"><option value="">—</option>${opts(invoicesForRef, 'SIID', 'SIID', rec.SIID)}</select></div>
       <div class="field" id="sv_DCField"><label>${t('ডেলিভারি চালান রেফারেন্স (ঐচ্ছিক)','Delivery Challan Reference (optional)')}</label><select id="sv_DCID"><option value="">—</option>${opts(deliveryChallans, 'DCID', 'DCID', rec.DCID)}</select></div>
+      <div class="field"><label>${t('গুদাম','Warehouse')}</label><select id="sv_WarehouseID"><option value="">—</option>${opts(warehouses, 'WarehouseID', 'WarehouseName', rec.WarehouseID)}</select></div>
       <div class="field"><label>${t('গ্রাহক নাম','Customer Name')}</label><select id="sv_CustomerID"><option value="">—</option>${opts(customers, 'CustomerID', 'Name', rec.CustomerID)}</select></div>
       <div class="field"><label>${t('বিক্রয়কারী','Salesperson')}</label>
         <div style="display:flex;gap:8px;">
@@ -3690,6 +3897,14 @@ async function openSalesVoucherForm(defaultType, existingId) {
         const pieces = Number(val('sv_ln_' + idx + '_pieces')) || 0;
         const ratePiece = Number(val('sv_ln_' + idx + '_rateperpiece')) || 0;
 
+        if (item && item.TrackingType === 'WeightPieces' && itemId) {
+          // ওজন অথবা পিস — যেকোনো একটা দিলেই চলবে; স্টক থেকে ঠিক কতটা কমবে
+          // (অন্য মাত্রাটা) তখনকার আসল/লাইভ গড় ওজন-প্রতি-পিস দিয়ে পোস্ট করার সময় হিসাব হবে
+          if (!(qty > 0 || pieces > 0)) return null;
+          const amount = qty > 0 ? qty * rate : pieces * ratePiece;
+          return { ItemID: itemId, Quantity: qty, Rate: qty > 0 ? rate : 0, Pieces: pieces, Amount: amount };
+        }
+
         let finalQty = 0, finalRate = 0, usedMode = null;
         if (qty > 0 && rate > 0) {
           finalQty = qty; finalRate = rate; usedMode = 'Weight';
@@ -3709,8 +3924,8 @@ async function openSalesVoucherForm(defaultType, existingId) {
           unitMismatches.push(item.ItemName);
         }
 
-        return { ItemID: itemId, Quantity: finalQty, Rate: finalRate };
-      }).filter(function (l) { return l.ItemID && l.Quantity > 0; });
+        return { ItemID: itemId, Quantity: finalQty, Rate: finalRate, Pieces: 0, Amount: finalQty * finalRate };
+      }).filter(function (l) { return l && l.ItemID && (l.Quantity > 0 || l.Pieces > 0); });
 
       if (unitMismatches.length > 0) {
         const proceed = confirm(
@@ -3722,24 +3937,26 @@ async function openSalesVoucherForm(defaultType, existingId) {
       }
       if (lines.length === 0) throw new Error(t('অন্তত একটা লাইন আইটেম যোগ করুন।','Add at least one line item.'));
 
-      const common = { CustomerID: customerId, SalespersonID: val('sv_SalespersonID') };
+      const warehouseId = val('sv_WarehouseID');
+      if (!warehouseId) throw new Error(t('গুদাম বাছাই করা আবশ্যক।','Warehouse is required.'));
+
+      const common = { CustomerID: customerId, SalespersonID: val('sv_SalespersonID'), WarehouseID: warehouseId };
 
       if (currentType === 'SalesInvoice') {
         const headerData = Object.assign({}, common, { InvoiceDate: val('sv_Date'), DCID: val('sv_DCID') });
-        const lineData = lines.map(function (l) { return Object.assign({}, l, { Amount: l.Quantity * l.Rate }); });
         if (isEdit) {
-          await api('updateDocument', { headerSheet:'SalesInvoice', idField:'SIID', linesSheet:'SI_Lines', lineIdField:'SIID', idValue: existingId, headerData: headerData, lines: lineData });
+          await api('updateDocument', { headerSheet:'SalesInvoice', idField:'SIID', linesSheet:'SI_Lines', lineIdField:'SIID', idValue: existingId, headerData: headerData, lines: lines });
         } else {
-          await api('createDocument', { headerSheet:'SalesInvoice', idField:'SIID', idPrefix:'SI', requiredFields:['CustomerID'], linesSheet:'SI_Lines', lineIdField:'SIID', headerData: headerData, lines: lineData });
+          await api('createDocument', { headerSheet:'SalesInvoice', idField:'SIID', idPrefix:'SI', requiredFields:['CustomerID','WarehouseID'], linesSheet:'SI_Lines', lineIdField:'SIID', headerData: headerData, lines: lines });
         }
       } else {
         const siId = val('sv_SIID');
-        if (!siId) throw new Error(t('বিক্রয় ফেরতের জন্য বিক্রয় চালান রেফারেন্স আবশ্যক (গুদাম বের করার জন্য)।','Sales invoice reference is required for a sales return (to determine the warehouse).'));
+        if (!siId) throw new Error(t('বিক্রয় ফেরতের জন্য বিক্রয় চালান রেফারেন্স আবশ্যক।','Sales invoice reference is required for a sales return.'));
         const headerData = Object.assign({}, common, { Date: val('sv_Date'), SIID: siId, Reason: val('sv_Reason') });
         if (isEdit) {
           await api('updateDocument', { headerSheet:'SalesReturn', idField:'SRID', linesSheet:'SR_Lines', lineIdField:'SRID', idValue: existingId, headerData: headerData, lines: lines });
         } else {
-          await api('createDocument', { headerSheet:'SalesReturn', idField:'SRID', idPrefix:'SR', requiredFields:['CustomerID','SIID'], linesSheet:'SR_Lines', lineIdField:'SRID', headerData: headerData, lines: lines });
+          await api('createDocument', { headerSheet:'SalesReturn', idField:'SRID', idPrefix:'SR', requiredFields:['CustomerID','WarehouseID','SIID'], linesSheet:'SR_Lines', lineIdField:'SRID', headerData: headerData, lines: lines });
         }
       }
 
@@ -3849,7 +4066,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
           <td rowspan="2"><button type="button" onclick="window.__removeSvLine(${idx})">✕</button></td>
         </tr>
         <tr style="background:var(--bg);">
-          <td style="border-top:1px dashed var(--border);"><input id="sv_ln_${idx}_pieces" type="number" step="any" oninput="updateSvLine(${idx})" style="width:80px;"></td>
+          <td style="border-top:1px dashed var(--border);"><input id="sv_ln_${idx}_pieces" type="number" step="any" value="${row.pieces||''}" oninput="updateSvLine(${idx})" style="width:80px;"></td>
           <td style="border-top:1px dashed var(--border);color:var(--text-muted);font-style:italic;">${t('পিস','pcs')}</td>
           <td style="border-top:1px dashed var(--border);"><input id="sv_ln_${idx}_rateperpiece" type="number" step="any" oninput="updateSvLine(${idx})" style="width:80px;"></td>
         </tr>`;
@@ -4073,16 +4290,22 @@ async function renderStockOverview(content) {
     wrap.innerHTML = `<div class="empty-state i18n" data-bn="এখনো কোনো স্টক নেই।" data-en="No stock yet.">${t('এখনো কোনো স্টক নেই।','No stock yet.')}</div>`;
     return;
   }
-  const headers = [['আইটেম','Item'],['গুদাম','Warehouse'],['পরিমাণ','Quantity'],['রি-অর্ডার লেভেল','Reorder Level'],['অবস্থা','Status']];
+  const headers = [['আইটেম','Item'],['গুদাম','Warehouse'],['ওজন (কেজি)','Weight (kg)'],['পিস','Pieces'],['গড় ওজন/পিস','Avg kg/piece'],['রি-অর্ডার লেভেল','Reorder Level'],['অবস্থা','Status']];
   const headCells = headers.map(function (h) { return `<th class="i18n" data-bn="${h[0]}" data-en="${h[1]}">${t(h[0], h[1])}</th>`; }).join('');
   const bodyRows = stock.map(function (s) {
     const item = itemMap[s.ItemID] || {};
     const qty = Number(s.QtyOnHand) || 0;
+    const pieces = Number(s.QtyPieces) || 0;
+    const isDual = item.TrackingType === 'WeightPieces';
+    const avg = (isDual && pieces > 0) ? (qty / pieces).toFixed(3) : '—';
     const reorder = Number(item.ReorderLevel) || 0;
     const isLow = reorder > 0 && qty < reorder;
     return `<tr>
       <td>${escapeHtml(item.ItemName || s.ItemID)}</td><td>${escapeHtml(whMap[s.WarehouseID] || s.WarehouseID)}</td>
-      <td><b>${formatQtyByUOM(qty, item.UOMID, units)}</b></td><td>${reorder || '—'}</td>
+      <td><b>${formatQtyByUOM(qty, item.UOMID, units)}</b></td>
+      <td>${isDual ? pieces : '—'}</td>
+      <td>${avg}</td>
+      <td>${reorder || '—'}</td>
       <td>${isLow ? `<span class="badge inactive i18n" data-bn="নিম্ন স্টক" data-en="Low Stock">${t('নিম্ন স্টক','Low Stock')}</span>` : `<span class="badge active i18n" data-bn="স্বাভাবিক" data-en="Normal">${t('স্বাভাবিক','Normal')}</span>`}</td>
     </tr>`;
   }).join('');
