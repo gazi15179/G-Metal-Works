@@ -3377,11 +3377,11 @@ async function openPrintableVoucherView(docType, docId) {
 
     return `<tr>
       <td>${escapeHtml(item.ItemName || l.ItemID)}</td>
-      <td >${qty}</td>
-      <td >${rate.toFixed(2)}</td>
-      <td >${isDual ? pieces.toFixed(2) : '—'}</td>
-      <td >${ratePerPiece !== null ? ratePerPiece.toFixed(2) : '—'}</td>
-      <td >${amt.toFixed(2)}</td>
+      <td>${qty} ${t('কেজি','kg')}</td>
+      <td>${rate.toFixed(2)}</td>
+      <td>${isDual ? pieces + ' ' + t('পিস','pcs') : '—'}</td>
+      <td>${ratePerPiece !== null ? ratePerPiece.toFixed(2) : '—'}</td>
+      <td>${amt.toFixed(2)}</td>
     </tr>`;
   }).join('');
 
@@ -3448,7 +3448,7 @@ async function openPrintableVoucherView(docType, docId) {
   <table>
     <thead><tr><th>${t('আইটেম','Item')}</th><th>${t('পরিমাণ (ওজন)','Qty (Weight)')}</th><th>${t('দর','Rate')}</th><th>${t('পিস','Pieces')}</th><th>${t('দর (পিস)','Rate (Piece)')}</th><th>${t('মূল্য','Amount')}</th></tr></thead>
     <tbody>${rowsHtml}</tbody>
-    <tfoot><tr><td>${t('মোট','Total')}</td><td>${totalQty}</td><td></td><td>${totalPieces > 0 ? totalPieces.toFixed(2) : '—'}</td><td></td><td>${totalValue.toFixed(2)}</td></tr></tfoot>
+    <tfoot><tr><td>${t('মোট','Total')}</td><td>${totalQty} ${t('কেজি','kg')}</td><td></td><td>${totalPieces > 0 ? totalPieces + ' ' + t('পিস','pcs') : '—'}</td><td></td><td>${totalValue.toFixed(2)}</td></tr></tfoot>
   </table>
   <p class="footer-note">${t('তৈরি হয়েছে','Generated on')}: ${new Date().toLocaleString()}</p>
   <script>
