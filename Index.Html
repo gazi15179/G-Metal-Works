@@ -350,6 +350,7 @@ table.data-table{width:100%;border-collapse:collapse;font-size:13px;}
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
    ১) DATA: মডিউল ও সাব-মেনু
@@ -445,11 +446,13 @@ const READY_PAGES = ['dashboard','companyProfile','userManagement','roles','acti
 /* ============================================================
    ২) STATE
    ============================================================ */
-// scriptUrl সার্ভার থেকে টেমপ্লেট হিসেবে ইনজেক্ট হয় (দেখুন doGet, 05_ApiRouter.gs)।
-// window.location.href ব্যবহার করা যাবে না — কারণ Apps Script HTML একটা
-// sandboxed iframe (googleusercontent.com) এ লোড হয়, /exec URL এ নয়।
-const API_URL = "<?!= scriptUrl ?>";
-let sessionToken = null; // মেমোরিতেই রাখা হচ্ছে — পেজ রিফ্রেশ হলে আবার লগইন করতে হবে
+// ⚠️ নিচের দুইটা মান আপনার Supabase প্রজেক্ট থেকে বসাতে হবে
+// (Settings → API Keys — Project URL ও Publishable/anon key)
+const SUPABASE_URL = "https://szapuukkvraycfqtfsdl.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_bDffkGoqkMO45bQ7L0t6kA_zdG7OZKZ";
+
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
 let currentUser = null;
 let currentLang = 'bn';
 let rolesCache = [];
@@ -457,47 +460,227 @@ let openTabs = [];      // [{key, moduleLabel, pageLabel}, ...] — উপরে
 let activeTabKey = null;
 let listCache = {};     // ড্রপডাউনের রেফারেন্স ডেটা (Warehouse/Item/Supplier ইত্যাদি) ক্যাশ — বারবার ফর্ম খুললে
                          // প্রতিবার নতুন করে আনতে হবে না, যেটাই ধীরগতির প্রধান কারণ ছিল
-const READ_ONLY_API_ACTIONS = ['list', 'login', 'logout', 'get', 'getSingleton'];
+const READ_ONLY_API_ACTIONS = ['list', 'login', 'logout', 'get', 'getSingleton', 'listMultiple', 'getDocument', 'getSystemSettings', 'getAverageRate'];
 
 /* ============================================================
-   ৩) API লেয়ার
+   ৩) API লেয়ার — এখন Google Apps Script-এর বদলে Supabase-এর
+   সাথে কথা বলে। বাকি পুরো অ্যাপ (হাজারো লাইন কোড) অপরিবর্তিত
+   রইলো — কারণ সেগুলো শুধু এই একটামাত্র api() ফাংশন ব্যবহার করে।
    ============================================================ */
+
+// 'Sheet' নাম থেকে Postgres টেবিলের আসল নাম — যেসব টেবিল ছোট হাতের
+// অক্ষরে বানানো হয়েছে (Core+Master), শুধু সেগুলোর জন্যই এই ম্যাপ লাগবে।
+// বাকি সব (Purchase/Sales/Production/Accounts) টেবিল ঠিক Sheet-এর
+// নামেই (বড় হাতের অক্ষরসহ) বানানো হয়েছে, তাই সরাসরি মিলে যায়।
+const SHEET_TABLE_MAP = {
+  Items:'items', Customers:'customers', Suppliers:'suppliers', Warehouses:'warehouses',
+  UOM:'uom', Categories:'categories', ItemGroups:'item_groups', Zones:'zones',
+  Purchasers:'purchasers', Salespersons:'salespersons', Employees:'employees',
+  Users:'users', Roles:'roles', CompanyProfile:'company_profile', ActivityLog:'activity_log',
+  SystemSettings:'system_settings', CurrentStock:'current_stock', StockLedger:'stock_ledger'
+};
+function tableFor(sheet) { return SHEET_TABLE_MAP[sheet] || sheet; }
+
+// docType → {table, idField} — postDocument-এর জন্য কোন টেবিল/আইডি-কলাম ব্যবহার হবে
+const DOC_TYPE_MAP = {
+  GRN: { table:'GRN', idField:'GRNID' },
+  PurchaseInvoice: { table:'PurchaseInvoice', idField:'PIID' },
+  PurchaseReturn: { table:'PurchaseReturn', idField:'PRetID' },
+  MaterialIssue: { table:'MaterialIssue', idField:'MIID' },
+  StockTransfer: { table:'StockTransfer', idField:'TransferID' },
+  StockAdjustment: { table:'StockAdjustment', idField:'AdjID' },
+  DeliveryChallan: { table:'DeliveryChallan', idField:'DCID' },
+  SalesInvoice: { table:'SalesInvoice', idField:'SIID' },
+  SalesReturn: { table:'SalesReturn', idField:'SRID' },
+  ProductionMaterialIssue: { table:'ProductionMaterialIssue', idField:'PMIID' },
+  FinishedGoodsReceive: { table:'FinishedGoodsReceive', idField:'FGRID' },
+  ProcessingVoucher: { table:'ProcessingVoucher', idField:'ProcessingID' },
+  JournalVoucher: { table:'JournalVoucher', idField:'JVID' },
+  ContraVoucher: { table:'ContraVoucher', idField:'ContraID' },
+  PaymentVoucher: { table:'PaymentVoucher', idField:'PayID' },
+  ReceiptVoucher: { table:'ReceiptVoucher', idField:'RecID' }
+};
+
 async function api(action, payload) {
   payload = payload || {};
-  payload.action = action;
-  if (action !== 'login') payload.token = sessionToken;
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(function () { controller.abort(); }, 30000); // ৩০ সেকেন্ড টাইমআউট — অসীম সময় ধরে "লোড হচ্ছে..." আটকে থাকা ঠেকাতে
-
-  let res;
   try {
-    res = await fetch(API_URL, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      signal: controller.signal
-    });
-  } catch (fetchErr) {
-    if (fetchErr.name === 'AbortError') {
-      throw new Error('সার্ভার থেকে ৩০ সেকেন্ডেও কোনো উত্তর আসেনি — ইন্টারনেট সংযোগ চেক করুন, অথবা কিছুক্ষণ পর আবার চেষ্টা করুন। বারবার হলে Apps Script Deployment ঠিকভাবে কনফিগার করা আছে কিনা যাচাই করুন।');
+    const data = await runSupabaseAction(action, payload);
+    if (READ_ONLY_API_ACTIONS.indexOf(action) === -1) {
+      listCache = {}; // যেকোনো Create/Update/Delete/Post-এর পর ক্যাশ বাতিল, যাতে পুরনো ডেটা কখনো না দেখায়
     }
-    throw new Error('সার্ভারের সাথে সংযোগ করা যায়নি — ইন্টারনেট সংযোগ চেক করুন। (' + fetchErr.message + ')');
-  } finally {
-    clearTimeout(timeoutId);
+    return data;
+  } catch (err) {
+    throw new Error(err.message || 'অজানা একটা সমস্যা হয়েছে।');
   }
+}
 
-  const rawText = await res.text();
-  let json;
-  try {
-    json = JSON.parse(rawText);
-  } catch (parseErr) {
-    throw new Error('সার্ভার থেকে সঠিক উত্তর আসেনি (JSON নয়) — সম্ভবত Deployment-এর Access সেটিং "Anyone" করা নেই, অথবা নতুন ভার্সন Deploy করা হয়নি। Apps Script → Deploy → Manage deployments চেক করুন।');
+async function runSupabaseAction(action, p) {
+  switch (action) {
+
+    case 'login': {
+      const { data, error } = await supabaseClient.auth.signInWithPassword({ email: p.email, password: p.password });
+      if (error) throw new Error('লগইন ব্যর্থ — ইমেইল অথবা পাসওয়ার্ড ভুল।');
+      const { data: profile, error: profErr } = await supabaseClient.from('users').select('*').eq('UserID', data.user.id).single();
+      if (profErr || !profile) throw new Error('এই অ্যাকাউন্টের কোনো প্রোফাইল পাওয়া যায়নি — অ্যাডমিনের সাথে যোগাযোগ করুন।');
+      await supabaseClient.from('users').update({ LastLogin: new Date().toISOString() }).eq('UserID', data.user.id);
+      return { token: data.session.access_token, user: profile };
+    }
+
+    case 'logout': {
+      await supabaseClient.auth.signOut();
+      return {};
+    }
+
+    case 'list': {
+      const { data, error } = await supabaseClient.from(tableFor(p.sheet)).select('*');
+      if (error) throw new Error(error.message);
+      return data;
+    }
+
+    case 'listMultiple': {
+      const out = {};
+      for (const sheet of p.sheets) {
+        const { data, error } = await supabaseClient.from(tableFor(sheet)).select('*');
+        if (error) throw new Error(error.message);
+        out[sheet] = data;
+      }
+      return out;
+    }
+
+    case 'getSingleton': {
+      const { data, error } = await supabaseClient.from(tableFor(p.sheet)).select('*').eq('id', 1).maybeSingle();
+      if (error) throw new Error(error.message);
+      return data || {};
+    }
+    case 'saveSingleton': {
+      const { error } = await supabaseClient.from(tableFor(p.sheet)).update(p.data).eq('id', 1);
+      if (error) throw new Error(error.message);
+      return {};
+    }
+
+    case 'create': {
+      const { data, error } = await supabaseClient.from(tableFor(p.sheet)).insert(p.data).select().single();
+      if (error) throw new Error(error.message);
+      return data;
+    }
+    case 'update': {
+      const { data, error } = await supabaseClient.from(tableFor(p.sheet)).update(p.data).eq(p.idField, p.idValue).select().single();
+      if (error) throw new Error(error.message);
+      return data;
+    }
+    case 'delete': {
+      // সফট-ডিলিট — রেকর্ড আসলে মুছে যায় না, শুধু Status='Deleted' হয়ে যায় (আগের মতোই)
+      const { error } = await supabaseClient.from(tableFor(p.sheet)).update({ Status: 'Deleted' }).eq(p.idField, p.idValue);
+      if (error) throw new Error(error.message);
+      return {};
+    }
+
+    case 'createUser': {
+      throw new Error('নতুন ইউজার তৈরি এই মুহূর্তে শুধু Supabase Dashboard → Authentication → Add user থেকেই করা যাবে, নিরাপত্তার কারণে।');
+    }
+    case 'updateUser': {
+      const { error } = await supabaseClient.from('users').update({
+        FullName: p.data.FullName, RoleID: p.data.RoleID, Phone: p.data.Phone, IsActive: p.data.IsActive === 'TRUE' || p.data.IsActive === true
+      }).eq('UserID', p.userId);
+      if (error) throw new Error(error.message);
+      return {};
+    }
+
+    case 'createDocument': {
+      const { data: header, error: hErr } = await supabaseClient.from(p.headerSheet).insert(p.headerData).select().single();
+      if (hErr) throw new Error(hErr.message);
+      if (p.lines && p.lines.length > 0) {
+        const linesWithId = p.lines.map(function (l) { const row = Object.assign({}, l); row[p.lineIdField] = header[p.idField]; return row; });
+        const { error: lErr } = await supabaseClient.from(p.linesSheet).insert(linesWithId);
+        if (lErr) throw new Error(lErr.message);
+      }
+      return header;
+    }
+    case 'updateDocument': {
+      const { error: hErr } = await supabaseClient.from(p.headerSheet).update(p.headerData).eq(p.idField, p.idValue);
+      if (hErr) throw new Error(hErr.message);
+      await supabaseClient.from(p.linesSheet).delete().eq(p.lineIdField, p.idValue);
+      if (p.lines && p.lines.length > 0) {
+        const linesWithId = p.lines.map(function (l) { const row = Object.assign({}, l); row[p.lineIdField] = p.idValue; return row; });
+        const { error: lErr } = await supabaseClient.from(p.linesSheet).insert(linesWithId);
+        if (lErr) throw new Error(lErr.message);
+      }
+      return {};
+    }
+    case 'getDocument': {
+      const { data: header, error: hErr } = await supabaseClient.from(p.headerSheet).select('*').eq(p.idField, p.idValue).single();
+      if (hErr) throw new Error(hErr.message);
+      const { data: lines, error: lErr } = await supabaseClient.from(p.linesSheet).select('*').eq(p.lineIdField, p.idValue);
+      if (lErr) throw new Error(lErr.message);
+      return { header: header, lines: lines };
+    }
+
+    case 'postDocument': {
+      // ⚠️ এই ধাপে শুধু Status='Posted' করা হচ্ছে। স্টক/লেজারে আসল
+      // এন্ট্রি বসানোর ব্যবসায়িক লজিক (আগে Apps Script-এ ছিল) এখনো
+      // এখানে যোগ করা হয়নি — এটা পরের একটা আলাদা ধাপে করা হবে।
+      const cfg = DOC_TYPE_MAP[p.docType];
+      if (!cfg) throw new Error('অজানা ডকুমেন্ট টাইপ।');
+      const { error } = await supabaseClient.from(cfg.table).update({ Status: 'Posted' }).eq(cfg.idField, p.docId);
+      if (error) throw new Error(error.message);
+      return {};
+    }
+
+    case 'postOpeningStock': {
+      const { data: existing } = await supabaseClient.from('current_stock').select('*').eq('ItemID', p.itemId).eq('WarehouseID', p.warehouseId).maybeSingle();
+      const newQty = (existing ? Number(existing.QtyOnHand) : 0) + Number(p.quantity);
+      if (existing) {
+        await supabaseClient.from('current_stock').update({ QtyOnHand: newQty }).eq('ItemID', p.itemId).eq('WarehouseID', p.warehouseId);
+      } else {
+        await supabaseClient.from('current_stock').insert({ ItemID: p.itemId, WarehouseID: p.warehouseId, QtyOnHand: newQty });
+      }
+      await supabaseClient.from('stock_ledger').insert({
+        ItemID: p.itemId, WarehouseID: p.warehouseId, Date: new Date().toISOString().slice(0,10),
+        TransactionType: 'Opening', RefModule: 'Items', RefID: p.itemId,
+        QtyIn: p.quantity, QtyOut: 0, BalanceAfter: newQty
+      });
+      return {};
+    }
+
+    case 'getAverageRate': {
+      const { data: lines, error: lErr } = await supabaseClient.from('GRN_Lines').select('GRNID, ReceivedQty, Rate').eq('ItemID', p.itemId);
+      if (lErr) throw new Error(lErr.message);
+      if (!lines || lines.length === 0) return { averageRate: 0, grnCount: 0, totalQtyPurchased: 0 };
+      const grnIds = Array.from(new Set(lines.map(function (l) { return l.GRNID; })));
+      const { data: headers, error: hErr } = await supabaseClient.from('GRN').select('GRNID, ReceiveDate').in('GRNID', grnIds);
+      if (hErr) throw new Error(hErr.message);
+      const dateMap = {}; headers.forEach(function (h) { dateMap[h.GRNID] = h.ReceiveDate; });
+      const filtered = lines.filter(function (l) {
+        const d = dateMap[l.GRNID];
+        if (!d) return false;
+        if (p.dateFrom && d < p.dateFrom) return false;
+        if (p.dateTo && d > p.dateTo) return false;
+        return true;
+      });
+      const totalQty = filtered.reduce(function (s, l) { return s + (Number(l.ReceivedQty) || 0); }, 0);
+      const totalValue = filtered.reduce(function (s, l) { return s + (Number(l.ReceivedQty) || 0) * (Number(l.Rate) || 0); }, 0);
+      return {
+        averageRate: totalQty > 0 ? totalValue / totalQty : 0,
+        grnCount: new Set(filtered.map(function (l) { return l.GRNID; })).size,
+        totalQtyPurchased: totalQty
+      };
+    }
+
+    case 'getSystemSettings': {
+      const { data, error } = await supabaseClient.from('system_settings').select('*');
+      if (error) throw new Error(error.message);
+      const map = {}; (data || []).forEach(function (r) { map[r.Key] = r.Value; });
+      return map;
+    }
+    case 'saveSystemSetting': {
+      const { error } = await supabaseClient.from('system_settings').upsert({ Key: p.key, Value: p.value });
+      if (error) throw new Error(error.message);
+      return {};
+    }
+
+    default:
+      throw new Error('অজানা action: ' + action);
   }
-  if (!json.success) throw new Error(json.error || 'অজানা সমস্যা হয়েছে।');
-  if (READ_ONLY_API_ACTIONS.indexOf(action) === -1) {
-    listCache = {}; // যেকোনো Create/Update/Delete/Post-এর পর ক্যাশ বাতিল, যাতে পুরনো ডেটা কখনো না দেখায়
-  }
-  return json.data;
 }
 
 /** Warehouse/Item/Supplier-এর মতো রেফারেন্স ড্রপডাউনের ডেটার জন্য — একই সেশনে একবার আনলে
@@ -550,7 +733,6 @@ document.getElementById('loginForm').addEventListener('submit', async function (
     const email = document.getElementById('loginEmail').value.trim();
     const password = document.getElementById('loginPassword').value;
     const result = await api('login', { email: email, password: password });
-    sessionToken = result.token;
     currentUser = result.user;
     await bootApp();
   } catch (err) {
@@ -563,7 +745,7 @@ document.getElementById('loginForm').addEventListener('submit', async function (
 
 document.getElementById('logoutBtn').addEventListener('click', async function () {
   try { await api('logout', {}); } catch (e) {}
-  sessionToken = null; currentUser = null;
+  currentUser = null;
   document.getElementById('app').classList.remove('ready');
   document.getElementById('loginScreen').style.display = 'flex';
 });
