@@ -1571,7 +1571,11 @@ async function openMasterModal(sheetName, record) {
     onSave: async function () {
       const data = {};
       config.fields.forEach(function (f) {
-        data[f.key] = f.type === 'amount-drcr' ? readAmountDrCr('mf_' + f.key) : val('mf_' + f.key);
+        let v = f.type === 'amount-drcr' ? readAmountDrCr('mf_' + f.key) : val('mf_' + f.key);
+        // ঐচ্ছিক ড্রপডাউন (select-fk) খালি রাখলে "" এর বদলে null পাঠানো হচ্ছে —
+        // কারণ ডেটাবেসের ফরেইন-কী কলাম "" মেনে নেয় না, শুধু আসল আইডি অথবা null মানে
+        if (f.type === 'select-fk' && v === '') v = null;
+        data[f.key] = v;
       });
 
       const missing = config.fields.filter(function (f) { return f.required && !data[f.key]; });
@@ -1773,7 +1777,7 @@ async function openItemForm(existing) {
       if (!name) throw new Error(t('নাম আবশ্যক।','Name is required.'));
 
       const data = {
-        ItemName: name, GroupID: val('it_GroupID'), CategoryID: val('it_CategoryID'), UOMID: val('it_UOMID'), UnitMode: val('it_UnitMode'),
+        ItemName: name, GroupID: val('it_GroupID') || null, CategoryID: val('it_CategoryID') || null, UOMID: val('it_UOMID') || null, UnitMode: val('it_UnitMode'),
         TrackingType: val('it_TrackingType'),
         OpeningStock: val('it_OpQty'), StandardCost: val('it_OpRate'),
         IsActive: val('it_IsActive')
@@ -3573,13 +3577,13 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
         SupplierID: supplierId,
         SupplierInvoiceNo: val('pv_SupplierInvoiceNo'),
         SupplierInvoiceDate: val('pv_SupplierInvoiceDate'),
-        PurchaserID: val('pv_PurchaserID')
+        PurchaserID: val('pv_PurchaserID') || null
       };
 
       if (currentType === 'PurchaseInvoice') {
         const warehouseId = val('pv_WarehouseID');
         if (!warehouseId) throw new Error(t('গুদাম বাছাই করা আবশ্যক।','Warehouse is required.'));
-        const headerData = Object.assign({}, common, { InvoiceDate: val('pv_Date'), GRNID: val('pv_GRNID'), WarehouseID: warehouseId });
+        const headerData = Object.assign({}, common, { InvoiceDate: val('pv_Date'), GRNID: val('pv_GRNID') || null, WarehouseID: warehouseId });
         const lineData = lines.map(function (l) { return Object.assign({}, l, { Amount: l.Quantity * l.Rate }); });
         if (isEdit) {
           await api('updateDocument', { headerSheet:'PurchaseInvoice', idField:'PIID', linesSheet:'PI_Lines', lineIdField:'PIID', idValue: existingId, headerData: headerData, lines: lineData });
@@ -3940,10 +3944,10 @@ async function openSalesVoucherForm(defaultType, existingId) {
       const warehouseId = val('sv_WarehouseID');
       if (!warehouseId) throw new Error(t('গুদাম বাছাই করা আবশ্যক।','Warehouse is required.'));
 
-      const common = { CustomerID: customerId, SalespersonID: val('sv_SalespersonID'), WarehouseID: warehouseId };
+      const common = { CustomerID: customerId, SalespersonID: val('sv_SalespersonID') || null, WarehouseID: warehouseId };
 
       if (currentType === 'SalesInvoice') {
-        const headerData = Object.assign({}, common, { InvoiceDate: val('sv_Date'), DCID: val('sv_DCID') });
+        const headerData = Object.assign({}, common, { InvoiceDate: val('sv_Date'), DCID: val('sv_DCID') || null });
         if (isEdit) {
           await api('updateDocument', { headerSheet:'SalesInvoice', idField:'SIID', linesSheet:'SI_Lines', lineIdField:'SIID', idValue: existingId, headerData: headerData, lines: lines });
         } else {
@@ -4203,13 +4207,13 @@ async function openDocumentForm(existingId) {
     wide: true,
     onSave: async function () {
       const headerData = {};
-      config.headerFields.forEach(function (f) { headerData[f.key] = val('doc_h_' + f.key); });
+      config.headerFields.forEach(function (f) { const v = val('doc_h_' + f.key); headerData[f.key] = (f.type === 'select-fk' && v === '') ? null : v; });
       const missingHeader = config.headerFields.filter(function (f) { return f.required && !headerData[f.key]; });
       if (missingHeader.length > 0) throw new Error(missingHeader.map(function (f) { return f.label; }).join(', ') + ' আবশ্যক।');
 
       const lines = window.__docLineRows.map(function (_, idx) {
         const line = {};
-        config.lineFields.forEach(function (f) { line[f.key] = val('doc_ln_' + idx + '_' + f.key); });
+        config.lineFields.forEach(function (f) { const v = val('doc_ln_' + idx + '_' + f.key); line[f.key] = (f.type === 'select-fk' && v === '') ? null : v; });
         if (config.computeTotal) {
           const qty = Number(line.Quantity) || 0, rate = Number(line.Rate) || 0;
           line.Amount = qty * rate;
