@@ -1576,6 +1576,7 @@ async function openMasterModal(sheetName, record) {
         // কারণ ডেটাবেসের ফরেইন-কী কলাম "" মেনে নেয় না, শুধু আসল আইডি অথবা null মানে
         if (f.type === 'select-fk' && v === '') v = null;
         if (f.type === 'number' && v === '') v = null;
+        if (f.type === 'date' && v === '') v = null;
         data[f.key] = v;
       });
 
@@ -2011,7 +2012,7 @@ async function openPartyForm(existingCode) {
 
       const common = {
         Code: code, Name: name, CompanyName: val('pf_CompanyName'), Phone: val('pf_Phone'), Email: val('pf_Email'),
-        Address: val('pf_Address'), Zone: val('pf_Zone'), CreditLimitPaidDate: val('pf_CreditLimitPaidDate'),
+        Address: val('pf_Address'), Zone: val('pf_Zone'), CreditLimitPaidDate: val('pf_CreditLimitPaidDate') || null,
         OpeningBalance: readAmountDrCr('pf_OpeningBalance'), CreditLimit: readAmountDrCr('pf_CreditLimit'),
         IsActive: val('pf_IsActive')
       };
@@ -3586,7 +3587,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       const common = {
         SupplierID: supplierId,
         SupplierInvoiceNo: val('pv_SupplierInvoiceNo'),
-        SupplierInvoiceDate: val('pv_SupplierInvoiceDate'),
+        SupplierInvoiceDate: val('pv_SupplierInvoiceDate') || null,
         PurchaserID: val('pv_PurchaserID') || null
       };
 
@@ -4217,7 +4218,7 @@ async function openDocumentForm(existingId) {
     wide: true,
     onSave: async function () {
       const headerData = {};
-      config.headerFields.forEach(function (f) { const v = val('doc_h_' + f.key); headerData[f.key] = ((f.type === 'select-fk' || f.type === 'number') && v === '') ? null : v; });
+      config.headerFields.forEach(function (f) { const v = val('doc_h_' + f.key); headerData[f.key] = ((f.type === 'select-fk' || f.type === 'number' || f.type === 'date') && v === '') ? null : v; });
       const missingHeader = config.headerFields.filter(function (f) { return f.required && !headerData[f.key]; });
       if (missingHeader.length > 0) throw new Error(missingHeader.map(function (f) { return f.label; }).join(', ') + ' আবশ্যক।');
 
