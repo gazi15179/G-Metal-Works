@@ -3255,7 +3255,7 @@ async function renderPurchaseVoucherPage(content, defaultType) {
       api('list', { sheet:'PurchaseInvoice' }), api('list', { sheet:'PurchaseReturn' }),
       cachedList('Suppliers'), cachedList('Purchasers')
     ]);
-    const supMap = {}; suppliers.forEach(function (s) { supMap[s.SupplierID] = s.Name; });
+    const supMap = {}; suppliers.forEach(function (s) { supMap[s.SupplierID] = s.CompanyName || s.Name; });
     const purMap = {}; purchasers.forEach(function (p) { purMap[p.PurchaserID] = p.PurchaserName; });
 
     const merged = invoices.filter(function (r) { return r.Status !== 'Deleted'; }).map(function (r) {
@@ -3437,7 +3437,7 @@ async function openPrintableVoucherView(docType, docId) {
     </div>
   </div>
   <div class="meta-grid">
-    <div><b>${t(partyLabelBn, partyLabelEn)}:</b> ${escapeHtml(party ? party.Name : header[partyIdField])}</div>
+    <div><b>${t(partyLabelBn, partyLabelEn)}:</b> ${escapeHtml(party ? (party.CompanyName || party.Name) : header[partyIdField])}</div>
     <div><b>${t(personLabelBn, personLabelEn)}:</b> ${escapeHtml(person ? person[personNameField] : '—')}</div>
     ${header.SupplierInvoiceNo ? `<div><b>${t('নিঃভাউঃনম্বর','Supplier Voucher No')}:</b> ${escapeHtml(header.SupplierInvoiceNo)}</div>` : ''}
     ${header.SupplierInvoiceDate ? `<div><b>${t('নিঃভাউঃতারিখ','Supplier Voucher Date')}:</b> ${escapeHtml(header.SupplierInvoiceDate)}</div>` : ''}
@@ -3454,7 +3454,7 @@ async function openPrintableVoucherView(docType, docId) {
   <script>
     document.getElementById('shareBtn').addEventListener('click', async function () {
       const text = ${JSON.stringify(t(titleBn, titleEn))} + ' ' + ${JSON.stringify(docId)} + '\\n' +
-        ${JSON.stringify(t(partyLabelBn, partyLabelEn))} + ': ' + ${JSON.stringify(party ? party.Name : String(header[partyIdField] || ''))} + '\\n' +
+        ${JSON.stringify(t(partyLabelBn, partyLabelEn))} + ': ' + ${JSON.stringify(party ? (party.CompanyName || party.Name) : String(header[partyIdField] || ''))} + '\\n' +
         ${JSON.stringify(t('মোট','Total'))} + ': ' + ${JSON.stringify(totalValue.toFixed(2))};
       if (navigator.share) {
         try { await navigator.share({ title: document.title, text: text }); } catch (e) {}
@@ -3532,7 +3532,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       <div class="field" id="pv_WarehouseField"><label>${t('গুদাম','Warehouse')}</label><select id="pv_WarehouseID"><option value="">—</option>${opts(warehouses, 'WarehouseID', 'WarehouseName', rec.WarehouseID)}</select></div>
       <div class="field"><label>${t('নিঃভাউঃতারিখ (ঐচ্ছিক)','Supplier Voucher Date (optional)')}</label><input type="date" id="pv_SupplierInvoiceDate" value="${attr(rec.SupplierInvoiceDate)}"></div>
       <div class="field"><label>${t('নিঃভাউঃনম্বর (ঐচ্ছিক)','Supplier Voucher No (optional)')}</label><input id="pv_SupplierInvoiceNo" value="${attr(rec.SupplierInvoiceNo)}"></div>
-      <div class="field"><label>${t('সাপ্লায়ার নাম','Supplier Name')}</label><select id="pv_SupplierID"><option value="">—</option>${opts(suppliers, 'SupplierID', 'Name', rec.SupplierID)}</select></div>
+      <div class="field"><label>${t('সাপ্লায়ার নাম','Supplier Name')}</label><select id="pv_SupplierID"><option value="">—</option>${suppliers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.SupplierID)}" ${rec.SupplierID===r.SupplierID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select></div>
       <div class="field"><label>${t('ক্রয়কারী','Purchaser')}</label>
         <div style="display:flex;gap:8px;">
           <select id="pv_PurchaserID" style="flex:1;min-width:0;"><option value="">—</option>${opts(purchasers, 'PurchaserID', 'PurchaserName', rec.PurchaserID)}</select>
@@ -3782,7 +3782,7 @@ async function renderSalesVoucherPage(content, defaultType) {
       api('list', { sheet:'SalesInvoice' }), api('list', { sheet:'SalesReturn' }),
       cachedList('Customers'), cachedList('Salespersons')
     ]);
-    const custMap = {}; customers.forEach(function (c) { custMap[c.CustomerID] = c.Name; });
+    const custMap = {}; customers.forEach(function (c) { custMap[c.CustomerID] = c.CompanyName || c.Name; });
     const slpMap = {}; salespersons.forEach(function (s) { slpMap[s.SalespersonID] = s.SalespersonName; });
 
     const merged = invoices.filter(function (r) { return r.Status !== 'Deleted'; }).map(function (r) {
@@ -3918,7 +3918,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
       <div class="field" id="sv_SIField" style="display:none;"><label>${t('বিক্রয় চালান রেফারেন্স','Sales Invoice Reference')}</label><select id="sv_SIID"><option value="">—</option>${opts(invoicesForRef, 'SIID', 'SIID', rec.SIID)}</select></div>
       <div class="field" id="sv_DCField"><label>${t('ডেলিভারি চালান রেফারেন্স (ঐচ্ছিক)','Delivery Challan Reference (optional)')}</label><select id="sv_DCID"><option value="">—</option>${opts(deliveryChallans, 'DCID', 'DCID', rec.DCID)}</select></div>
       <div class="field"><label>${t('গুদাম','Warehouse')}</label><select id="sv_WarehouseID"><option value="">—</option>${opts(warehouses, 'WarehouseID', 'WarehouseName', rec.WarehouseID)}</select></div>
-      <div class="field"><label>${t('গ্রাহক নাম','Customer Name')}</label><select id="sv_CustomerID"><option value="">—</option>${opts(customers, 'CustomerID', 'Name', rec.CustomerID)}</select></div>
+      <div class="field"><label>${t('গ্রাহক নাম','Customer Name')}</label><select id="sv_CustomerID"><option value="">—</option>${customers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.CustomerID)}" ${rec.CustomerID===r.CustomerID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select></div>
       <div class="field"><label>${t('বিক্রয়কারী','Salesperson')}</label>
         <div style="display:flex;gap:8px;">
           <select id="sv_SalespersonID" style="flex:1;min-width:0;"><option value="">—</option>${opts(salespersons, 'SalespersonID', 'SalespersonName', rec.SalespersonID)}</select>
@@ -4474,7 +4474,7 @@ async function renderInventoryReport(content) {
 
 async function renderSalesReport(content) {
   const [invoices, customers] = await Promise.all([api('list', { sheet:'SalesInvoice' }), cachedList('Customers')]);
-  const custMap = {}; customers.forEach(function (c) { custMap[c.CustomerID] = c.Name; });
+  const custMap = {}; customers.forEach(function (c) { custMap[c.CustomerID] = c.CompanyName || c.Name; });
   const active = invoices.filter(function (r) { return r.Status !== 'Deleted'; });
   const totalSales = active.reduce(function (s, r) { return s + (Number(r.TotalAmount) || 0); }, 0);
   const rows = active.slice().reverse().map(function (r) {
@@ -4488,7 +4488,7 @@ async function renderSalesReport(content) {
 
 async function renderPurchaseReport(content) {
   const [invoices, suppliers] = await Promise.all([api('list', { sheet:'PurchaseInvoice' }), cachedList('Suppliers')]);
-  const supMap = {}; suppliers.forEach(function (s) { supMap[s.SupplierID] = s.Name; });
+  const supMap = {}; suppliers.forEach(function (s) { supMap[s.SupplierID] = s.CompanyName || s.Name; });
   const active = invoices.filter(function (r) { return r.Status !== 'Deleted'; });
   const totalPurchase = active.reduce(function (s, r) { return s + (Number(r.TotalAmount) || 0); }, 0);
   const rows = active.slice().reverse().map(function (r) {
