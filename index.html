@@ -253,6 +253,9 @@ table.data-table{width:100%;border-collapse:collapse;font-size:13px;}
   .data-table{font-size:12px;}
   .data-table th,.data-table td{padding:9px 10px;}
 }
+/* চওড়া টেবিলে (অনেক কলাম/বাটন থাকলে) মোবাইলে যাতে ডানদিকের বাটনগুলো
+   কেটে না যায়, প্যানেলে পাশে স্ক্রল করা যাবে — বড় স্ক্রিনে এটা প্রভাব ফেলে না */
+.panel{overflow-x:auto;}
 </style>
 </head>
 <body>
@@ -3386,27 +3389,32 @@ async function openPrintableVoucherView(docType, docId) {
   }).join('');
 
   const titleMap = {
-    PurchaseInvoice: 'ক্রয় ভাউচার',
-    PurchaseReturn: 'ক্রয় ফেরত ভাউচার',
-    SalesInvoice: 'বিক্রয় ভাউচার',
-    SalesReturn: 'বিক্রয় ফেরত ভাউচার'
+    PurchaseInvoice: ['ক্রয় ভাউচার', 'Purchase Voucher'],
+    PurchaseReturn: ['ক্রয় ফেরত ভাউচার', 'Purchase Return Voucher'],
+    SalesInvoice: ['বিক্রয় ভাউচার', 'Sales Voucher'],
+    SalesReturn: ['বিক্রয় ফেরত ভাউচার', 'Sales Return Voucher']
   };
-  const titleBn = titleMap[docType];
+  const titleBn = titleMap[docType][0], titleEn = titleMap[docType][1];
   const voucherDate = header.InvoiceDate || header.Date || '';
   const printedAt = new Date().toLocaleString('bn-BD');
-  const partyLabelBn = isSales ? 'গ্রাহক' : 'সাপ্লায়ার';
-  const personLabelBn = isSales ? 'বিক্রয়কারী' : 'ক্রয়কারী';
+  const printedAtEn = new Date().toLocaleString('en-US');
+  const partyLabelBn = isSales ? 'গ্রাহক' : 'সাপ্লায়ার', partyLabelEn = isSales ? 'Customer' : 'Supplier';
+  const personLabelBn = isSales ? 'বিক্রয়কারী' : 'ক্রয়কারী', personLabelEn = isSales ? 'Salesperson' : 'Purchaser';
   const partyName = party ? (party.CompanyName || party.Name) : header[partyIdField];
   const partyAddress = party ? (party.Address || '') : '';
   const partyZone = party ? (party.Zone || '') : '';
   const partyPhone = party ? (party.Phone || '') : '';
+
+  // প্রিন্ট ভাউচারের ভেতরের বাং/EN টোগল — L(bn, en) দিয়ে বানানো প্রতিটা লেবেল
+  // টোগল বাটনে ক্লিক করলে বদলে যাবে (নিচের স্ক্রিপ্ট দেখুন)
+  function L(bn, en) { return `<span data-bn="${attr(bn)}" data-en="${attr(en)}">${escapeHtml(bn)}</span>`; }
 
   const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8">
 <title>${titleBn} — ${escapeHtml(docId)}</title>
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&family=Oswald:wght@600;700&display=swap" rel="stylesheet">
 <style>
   body{font-family:'Hind Siliguri','Inter',sans-serif;color:#1b1f27;max-width:800px;margin:30px auto;padding:0 20px;}
-  .doc-head{display:grid;grid-template-columns:110px 1fr 180px;align-items:center;gap:12px;border-bottom:3px solid #1a2029;padding-bottom:16px;margin-bottom:20px;}
+  .doc-head{display:grid;grid-template-columns:100px 1fr 195px;align-items:center;gap:12px;border-bottom:3px solid #1a2029;padding-bottom:16px;margin-bottom:20px;}
   .doc-logo{width:90px;height:90px;border:1px dashed #c7cbd3;border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden;color:#aab0ba;font-size:11px;text-align:center;}
   .doc-logo img{max-width:100%;max-height:100%;object-fit:contain;}
   .doc-center{text-align:center;}
@@ -3414,68 +3422,86 @@ async function openPrintableVoucherView(docType, docId) {
   .doc-center p{margin:2px 0;color:#555;font-size:12.5px;}
   .doc-right{text-align:right;}
   .doc-right h2{font-family:'Oswald',sans-serif;font-size:14px;margin:0 0 6px;color:#c9812b;}
-  .doc-right p{margin:2px 0;font-size:12px;color:#555;}
+  .doc-right p{margin:2px 0;font-size:11.5px;color:#555;white-space:nowrap;}
   .meta-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 24px;margin-bottom:20px;font-size:13.5px;}
   .meta-grid b{color:#555;font-weight:600;}
   table{width:100%;border-collapse:collapse;margin-top:10px;}
   th{background:#1a2029;color:#f2a33c;padding:8px 10px;font-size:12.5px;text-align:center;}
   td{padding:8px 10px;border-bottom:1px solid #e2e5ea;font-size:13px;text-align:center;}
   tfoot td{font-weight:700;border-top:2px solid #1a2029;border-bottom:none;}
-  .toolbar{display:flex;gap:10px;margin-bottom:20px;}
+  .toolbar{display:flex;gap:10px;margin-bottom:20px;align-items:center;flex-wrap:wrap;}
   .toolbar button{font-family:inherit;font-size:13px;font-weight:600;padding:9px 16px;border-radius:8px;border:1px solid #d1d5db;background:#f5f6f8;cursor:pointer;}
   .toolbar button.primary{background:#1a2029;color:#f2a33c;border-color:#1a2029;}
+  .lang-toggle{display:flex;border:1px solid #d1d5db;border-radius:8px;overflow:hidden;margin-left:auto;}
+  .lang-toggle button{border:none;border-radius:0;padding:9px 14px;}
+  .lang-toggle button.active{background:#1a2029;color:#f2a33c;}
   .footer-note{margin-top:30px;font-size:11.5px;color:#888;text-align:center;}
   .sign-block{width:220px;margin:50px 0 0 auto;text-align:center;}
   .sign-line{border-top:1px solid #333;margin-bottom:6px;}
   .sign-block p{margin:2px 0;font-size:12.5px;}
   @media print { .toolbar{display:none;} body{margin:0;} }
+  @media (max-width:700px) {
+    body{margin:14px auto;padding:0 10px;}
+    .doc-head{grid-template-columns:70px 1fr;}
+    .doc-right{grid-column:1 / -1;text-align:left;margin-top:8px;}
+    .meta-grid{grid-template-columns:1fr;}
+    table{display:block;overflow-x:auto;white-space:nowrap;}
+  }
 </style></head><body>
   <div class="toolbar">
-    <button class="primary" onclick="window.print()">🖨️ প্রিন্ট</button>
-    <button onclick="window.print()">📄 পেজ সেটাপ</button>
-    <button id="shareBtn">🔗 শেয়ার</button>
+    <button class="primary" onclick="window.print()">🖨️ ${L('প্রিন্ট','Print')}</button>
+    <button onclick="window.print()">📄 ${L('পেজ সেটাপ','Page Setup')}</button>
+    <button id="shareBtn">🔗 ${L('শেয়ার','Share')}</button>
+    <div class="lang-toggle">
+      <button id="langBnBtn" class="active" onclick="setDocLang('bn')">বাং</button>
+      <button id="langEnBtn" onclick="setDocLang('en')">EN</button>
+    </div>
   </div>
   <div class="doc-head">
-    <div class="doc-logo">${company.LogoURL ? `<img src="${attr(company.LogoURL)}" alt="Logo">` : 'লোগো'}</div>
+    <div class="doc-logo">${company.LogoURL ? `<img src="${attr(company.LogoURL)}" alt="Logo">` : L('লোগো','Logo')}</div>
     <div class="doc-center">
       <h1>${escapeHtml(company.CompanyName || 'জি মেটাল ওয়ার্কস')}</h1>
       <p>${escapeHtml(company.Address || '')}</p>
       <p>${escapeHtml(company.Phone || '')} ${company.Email ? '· ' + escapeHtml(company.Email) : ''}</p>
     </div>
     <div class="doc-right">
-      <h2>${titleBn}</h2>
-      <p>ভাউচার নম্বর: <b>${escapeHtml(docId)}</b></p>
-      <p>তারিখ: ${escapeHtml(voucherDate)}</p>
-      <p>প্রিন্টের সময়: ${escapeHtml(printedAt)}</p>
+      <h2>${L(titleBn, titleEn)}</h2>
+      <p>${L('ভাউচার নম্বর','Voucher No')}: <b>${escapeHtml(docId)}</b></p>
+      <p>${L('তারিখ','Date')}: ${escapeHtml(voucherDate)}</p>
+      <p><span data-bn="${attr('প্রিন্টের সময়: ' + printedAt)}" data-en="${attr('Printed at: ' + printedAtEn)}">${escapeHtml('প্রিন্টের সময়: ' + printedAt)}</span></p>
     </div>
   </div>
   <div class="meta-grid">
     <div>
-      <div><b>${partyLabelBn}:</b> ${escapeHtml(partyName)} ${partyZone ? '— জোন: ' + escapeHtml(partyZone) : ''}</div>
-      <div>ঠিকানা: ${escapeHtml(partyAddress || '—')} &nbsp;&nbsp; মোবাইল: ${escapeHtml(partyPhone || '—')}</div>
+      <div><b>${L(partyLabelBn, partyLabelEn)}:</b> ${escapeHtml(partyName)} ${partyZone ? '— ' + L('জোন','Zone') + ': ' + escapeHtml(partyZone) : ''}</div>
+      <div>${L('ঠিকানা','Address')}: ${escapeHtml(partyAddress || '—')} &nbsp;&nbsp; ${L('মোবাইল','Mobile')}: ${escapeHtml(partyPhone || '—')}</div>
     </div>
     <div>
-      <div><b>${personLabelBn}:</b> ${escapeHtml(person ? person[personNameField] : '—')}</div>
-      ${header.SupplierInvoiceNo ? `<div><b>নিঃভাউঃনম্বর:</b> ${escapeHtml(header.SupplierInvoiceNo)}</div>` : ''}
-      ${header.SupplierInvoiceDate ? `<div><b>নিঃভাউঃতারিখ:</b> ${escapeHtml(header.SupplierInvoiceDate)}</div>` : ''}
+      <div><b>${L(personLabelBn, personLabelEn)}:</b> ${escapeHtml(person ? person[personNameField] : '—')}</div>
+      ${header.SupplierInvoiceNo ? `<div><b>${L('নিঃভাউঃনম্বর','Supplier Voucher No')}:</b> ${escapeHtml(header.SupplierInvoiceNo)}</div>` : ''}
+      ${header.SupplierInvoiceDate ? `<div><b>${L('নিঃভাউঃতারিখ','Supplier Voucher Date')}:</b> ${escapeHtml(header.SupplierInvoiceDate)}</div>` : ''}
       ${header.GRNID ? `<div><b>GRN:</b> ${escapeHtml(header.GRNID)}</div>` : ''}
       ${header.DCID ? `<div><b>DC:</b> ${escapeHtml(header.DCID)}</div>` : ''}
-      ${header.Reason ? `<div><b>কারণ:</b> ${escapeHtml(header.Reason)}</div>` : ''}
+      ${header.Reason ? `<div><b>${L('কারণ','Reason')}:</b> ${escapeHtml(header.Reason)}</div>` : ''}
     </div>
   </div>
   <table>
-    <thead><tr><th>আইটেম</th><th>পরিমাণ (ওজন)</th><th>দর</th><th>পরিমাণ (পিস)</th><th>দর</th><th>মূল্য</th></tr></thead>
+    <thead><tr><th>${L('আইটেম','Item')}</th><th>${L('পরিমাণ (ওজন)','Qty (Weight)')}</th><th>${L('দর','Rate')}</th><th>${L('পরিমাণ (পিস)','Qty (Pieces)')}</th><th>${L('দর','Rate')}</th><th>${L('মূল্য','Amount')}</th></tr></thead>
     <tbody>${rowsHtml}</tbody>
-    <tfoot><tr><td>মোট</td><td>${totalQty} কেজি</td><td></td><td>${totalPieces > 0 ? totalPieces + ' পিস' : '—'}</td><td></td><td>${totalValue.toFixed(2)}</td></tr></tfoot>
+    <tfoot><tr><td>${L('মোট','Total')}</td><td><span data-bn="${attr(totalQty + ' কেজি')}" data-en="${attr(totalQty + ' kg')}">${escapeHtml(totalQty + ' কেজি')}</span></td><td></td><td>${totalPieces > 0 ? `<span data-bn="${attr(totalPieces + ' পিস')}" data-en="${attr(totalPieces + ' pcs')}">${escapeHtml(totalPieces + ' পিস')}</span>` : '—'}</td><td></td><td>${totalValue.toFixed(2)}</td></tr></tfoot>
   </table>
   <div class="sign-block">
     <div class="sign-line"></div>
-    <p><b>অথরাইজ স্বাঃ</b></p>
+    <p><b>${L('অথরাইজ স্বাঃ','Authorized Signature')}</b></p>
     <p>${escapeHtml(currentUser ? (currentUser.FullName || '') : '')}</p>
-    <p>${escapeHtml(currentUser ? currentUser.UserID : '')}</p>
   </div>
-  <p class="footer-note">তৈরি হয়েছে: ${new Date().toLocaleString('bn-BD')}</p>
+  <p class="footer-note"><span data-bn="${attr('তৈরি হয়েছে: ' + new Date().toLocaleString('bn-BD'))}" data-en="${attr('Generated on: ' + new Date().toLocaleString('en-US'))}">${escapeHtml('তৈরি হয়েছে: ' + new Date().toLocaleString('bn-BD'))}</span></p>
   <script>
+    function setDocLang(lang) {
+      document.querySelectorAll('[data-bn]').forEach(function (el) { el.textContent = el.getAttribute('data-' + lang); });
+      document.getElementById('langBnBtn').classList.toggle('active', lang === 'bn');
+      document.getElementById('langEnBtn').classList.toggle('active', lang === 'en');
+    }
     document.getElementById('shareBtn').addEventListener('click', async function () {
       const text = ${JSON.stringify(titleBn)} + ' ' + ${JSON.stringify(docId)} + '\\n' +
         ${JSON.stringify(partyLabelBn)} + ': ' + ${JSON.stringify(String(partyName || ''))} + '\\n' +
