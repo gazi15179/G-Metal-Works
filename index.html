@@ -3377,36 +3377,44 @@ async function openPrintableVoucherView(docType, docId) {
 
     return `<tr>
       <td>${escapeHtml(item.ItemName || l.ItemID)}</td>
-      <td>${qty} ${t('কেজি','kg')}</td>
+      <td>${qty} কেজি</td>
       <td>${rate.toFixed(2)}</td>
-      <td>${isDual ? pieces + ' ' + t('পিস','pcs') : '—'}</td>
+      <td>${isDual ? pieces + ' পিস' : '—'}</td>
       <td>${ratePerPiece !== null ? ratePerPiece.toFixed(2) : '—'}</td>
       <td>${amt.toFixed(2)}</td>
     </tr>`;
   }).join('');
 
   const titleMap = {
-    PurchaseInvoice: ['ক্রয় ভাউচার', 'Purchase Voucher'],
-    PurchaseReturn: ['ক্রয় ফেরত ভাউচার', 'Purchase Return Voucher'],
-    SalesInvoice: ['বিক্রয় ভাউচার', 'Sales Voucher'],
-    SalesReturn: ['বিক্রয় ফেরত ভাউচার', 'Sales Return Voucher']
+    PurchaseInvoice: 'ক্রয় ভাউচার',
+    PurchaseReturn: 'ক্রয় ফেরত ভাউচার',
+    SalesInvoice: 'বিক্রয় ভাউচার',
+    SalesReturn: 'বিক্রয় ফেরত ভাউচার'
   };
-  const titleBn = titleMap[docType][0], titleEn = titleMap[docType][1];
+  const titleBn = titleMap[docType];
   const voucherDate = header.InvoiceDate || header.Date || '';
-  const partyLabelBn = isSales ? 'গ্রাহক' : 'সাপ্লায়ার', partyLabelEn = isSales ? 'Customer' : 'Supplier';
-  const personLabelBn = isSales ? 'বিক্রয়কারী' : 'ক্রয়কারী', personLabelEn = isSales ? 'Salesperson' : 'Purchaser';
+  const printedAt = new Date().toLocaleString('bn-BD');
+  const partyLabelBn = isSales ? 'গ্রাহক' : 'সাপ্লায়ার';
+  const personLabelBn = isSales ? 'বিক্রয়কারী' : 'ক্রয়কারী';
+  const partyName = party ? (party.CompanyName || party.Name) : header[partyIdField];
+  const partyAddress = party ? (party.Address || '') : '';
+  const partyZone = party ? (party.Zone || '') : '';
+  const partyPhone = party ? (party.Phone || '') : '';
 
   const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8">
 <title>${titleBn} — ${escapeHtml(docId)}</title>
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&family=Oswald:wght@600;700&display=swap" rel="stylesheet">
 <style>
   body{font-family:'Hind Siliguri','Inter',sans-serif;color:#1b1f27;max-width:800px;margin:30px auto;padding:0 20px;}
-  .doc-head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1a2029;padding-bottom:16px;margin-bottom:20px;}
-  .doc-head h1{font-family:'Oswald',sans-serif;font-size:22px;margin:0 0 4px;}
-  .doc-head p{margin:2px 0;color:#555;font-size:13px;}
-  .doc-title{text-align:right;}
-  .doc-title h2{font-family:'Oswald',sans-serif;font-size:20px;margin:0;color:#c9812b;}
-  .doc-title p{margin:2px 0;font-size:13px;color:#555;}
+  .doc-head{display:grid;grid-template-columns:110px 1fr 180px;align-items:center;gap:12px;border-bottom:3px solid #1a2029;padding-bottom:16px;margin-bottom:20px;}
+  .doc-logo{width:90px;height:90px;border:1px dashed #c7cbd3;border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden;color:#aab0ba;font-size:11px;text-align:center;}
+  .doc-logo img{max-width:100%;max-height:100%;object-fit:contain;}
+  .doc-center{text-align:center;}
+  .doc-center h1{font-family:'Oswald',sans-serif;font-size:21px;margin:0 0 4px;}
+  .doc-center p{margin:2px 0;color:#555;font-size:12.5px;}
+  .doc-right{text-align:right;}
+  .doc-right h2{font-family:'Oswald',sans-serif;font-size:18px;margin:0 0 6px;color:#c9812b;}
+  .doc-right p{margin:2px 0;font-size:12px;color:#555;}
   .meta-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 24px;margin-bottom:20px;font-size:13.5px;}
   .meta-grid b{color:#555;font-weight:600;}
   table{width:100%;border-collapse:collapse;margin-top:10px;}
@@ -3420,47 +3428,56 @@ async function openPrintableVoucherView(docType, docId) {
   @media print { .toolbar{display:none;} body{margin:0;} }
 </style></head><body>
   <div class="toolbar">
-    <button class="primary" onclick="window.print()">🖨️ ${t('প্রিন্ট','Print')}</button>
-    <button onclick="window.print()">📄 ${t('পেজ সেটাপ','Page Setup')}</button>
-    <button id="shareBtn">🔗 ${t('শেয়ার','Share')}</button>
+    <button class="primary" onclick="window.print()">🖨️ প্রিন্ট</button>
+    <button onclick="window.print()">📄 পেজ সেটাপ</button>
+    <button id="shareBtn">🔗 শেয়ার</button>
   </div>
   <div class="doc-head">
-    <div>
-      <h1>${escapeHtml(company.CompanyName || 'G Metal Works')}</h1>
+    <div class="doc-logo">${company.LogoURL ? `<img src="${attr(company.LogoURL)}" alt="Logo">` : 'লোগো'}</div>
+    <div class="doc-center">
+      <h1>${escapeHtml(company.CompanyName || 'জি মেটাল ওয়ার্কস')}</h1>
       <p>${escapeHtml(company.Address || '')}</p>
       <p>${escapeHtml(company.Phone || '')} ${company.Email ? '· ' + escapeHtml(company.Email) : ''}</p>
     </div>
-    <div class="doc-title">
-      <h2>${t(titleBn, titleEn)}</h2>
-      <p>${t('ভাউচার নম্বর','Voucher No')}: <b>${escapeHtml(docId)}</b></p>
-      <p>${t('তারিখ','Date')}: ${escapeHtml(voucherDate)}</p>
+    <div class="doc-right">
+      <h2>${titleBn}</h2>
+      <p>ভাউচার নম্বর: <b>${escapeHtml(docId)}</b></p>
+      <p>তারিখ: ${escapeHtml(voucherDate)}</p>
+      <p>প্রিন্টের সময়: ${escapeHtml(printedAt)}</p>
     </div>
   </div>
   <div class="meta-grid">
-    <div><b>${t(partyLabelBn, partyLabelEn)}:</b> ${escapeHtml(party ? (party.CompanyName || party.Name) : header[partyIdField])}</div>
-    <div><b>${t(personLabelBn, personLabelEn)}:</b> ${escapeHtml(person ? person[personNameField] : '—')}</div>
-    ${header.SupplierInvoiceNo ? `<div><b>${t('নিঃভাউঃনম্বর','Supplier Voucher No')}:</b> ${escapeHtml(header.SupplierInvoiceNo)}</div>` : ''}
-    ${header.SupplierInvoiceDate ? `<div><b>${t('নিঃভাউঃতারিখ','Supplier Voucher Date')}:</b> ${escapeHtml(header.SupplierInvoiceDate)}</div>` : ''}
-    ${header.GRNID ? `<div><b>GRN:</b> ${escapeHtml(header.GRNID)}</div>` : ''}
-    ${header.DCID ? `<div><b>DC:</b> ${escapeHtml(header.DCID)}</div>` : ''}
-    ${header.Reason ? `<div><b>${t('কারণ','Reason')}:</b> ${escapeHtml(header.Reason)}</div>` : ''}
+    <div>
+      <div><b>${partyLabelBn}:</b> ${escapeHtml(partyName)}</div>
+      <div>ঠিকানা: ${escapeHtml(partyAddress || '—')}</div>
+      <div>মোবাইল: ${escapeHtml(partyPhone || '—')}</div>
+      <div>জোন: ${escapeHtml(partyZone || '—')}</div>
+    </div>
+    <div>
+      <div><b>${personLabelBn}:</b> ${escapeHtml(person ? person[personNameField] : '—')}</div>
+      ${header.SupplierInvoiceNo ? `<div><b>নিঃভাউঃনম্বর:</b> ${escapeHtml(header.SupplierInvoiceNo)}</div>` : ''}
+      ${header.SupplierInvoiceDate ? `<div><b>নিঃভাউঃতারিখ:</b> ${escapeHtml(header.SupplierInvoiceDate)}</div>` : ''}
+      ${header.GRNID ? `<div><b>GRN:</b> ${escapeHtml(header.GRNID)}</div>` : ''}
+      ${header.DCID ? `<div><b>DC:</b> ${escapeHtml(header.DCID)}</div>` : ''}
+      ${header.Reason ? `<div><b>কারণ:</b> ${escapeHtml(header.Reason)}</div>` : ''}
+    </div>
   </div>
   <table>
-    <thead><tr><th>${t('আইটেম','Item')}</th><th>${t('পরিমাণ (ওজন)','Qty (Weight)')}</th><th>${t('দর','Rate')}</th><th>${t('পিস','Pieces')}</th><th>${t('দর (পিস)','Rate (Piece)')}</th><th>${t('মূল্য','Amount')}</th></tr></thead>
+    <thead><tr><th>আইটেম</th><th>পরিমাণ (ওজন)</th><th>দর</th><th>পরিমাণ (পিস)</th><th>দর</th><th>মূল্য</th></tr></thead>
     <tbody>${rowsHtml}</tbody>
-    <tfoot><tr><td>${t('মোট','Total')}</td><td>${totalQty} ${t('কেজি','kg')}</td><td></td><td>${totalPieces > 0 ? totalPieces + ' ' + t('পিস','pcs') : '—'}</td><td></td><td>${totalValue.toFixed(2)}</td></tr></tfoot>
+    <tfoot><tr><td>মোট</td><td>${totalQty} কেজি</td><td></td><td>${totalPieces > 0 ? totalPieces + ' পিস' : '—'}</td><td></td><td>${totalValue.toFixed(2)}</td></tr></tfoot>
   </table>
-  <p class="footer-note">${t('তৈরি হয়েছে','Generated on')}: ${new Date().toLocaleString()}</p>
+  <p class="footer-note">তৈরি হয়েছে: ${new Date().toLocaleString('bn-BD')}</p>
   <script>
     document.getElementById('shareBtn').addEventListener('click', async function () {
-      const text = ${JSON.stringify(t(titleBn, titleEn))} + ' ' + ${JSON.stringify(docId)} + '\\n' +
-        ${JSON.stringify(t(partyLabelBn, partyLabelEn))} + ': ' + ${JSON.stringify(party ? (party.CompanyName || party.Name) : String(header[partyIdField] || ''))} + '\\n' +
-        ${JSON.stringify(t('মোট','Total'))} + ': ' + ${JSON.stringify(totalValue.toFixed(2))};
+      const text = ${JSON.stringify(titleBn)} + ' ' + ${JSON.stringify(docId)} + '\\n' +
+        ${JSON.stringify(partyLabelBn)} + ': ' + ${JSON.stringify(String(partyName || ''))} + '\\n' +
+        'মোট' + ': ' + ${JSON.stringify(totalValue.toFixed(2))};
       if (navigator.share) {
         try { await navigator.share({ title: document.title, text: text }); } catch (e) {}
       } else if (navigator.clipboard) {
         await navigator.clipboard.writeText(text);
-        alert(${JSON.stringify(t('তথ্য ক্লিপবোর্ডে কপি হয়েছে — এখন যেকোনো জায়গায় পেস্ট করুন।','Details copied to clipboard — paste it anywhere now.'))});
+        alert('তথ্য ক্লিপবোর্ডে কপি হয়েছে — এখন যেকোনো জায়গায় পেস্ট করুন।');
       }
     });
   <\/script>
