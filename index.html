@@ -3749,29 +3749,33 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     const qty = Number(val('pv_ln_' + idx + '_qty')) || 0;
     const rate = Number(val('pv_ln_' + idx + '_rate')) || 0;
 
-    const unit = item ? window.__pvUnitMap[item.UOMID] : null;
-    const kgPerPiece = Number(unit && unit.ConversionFactor) || 0;
-
     const piecesInput = document.getElementById('pv_ln_' + idx + '_pieces');
     const ratePieceInput = document.getElementById('pv_ln_' + idx + '_rateperpiece');
     const amtEl = document.getElementById('pv_ln_' + idx + '_amt');
     if (!piecesInput || !ratePieceInput || !amtEl) return;
 
-    if (!piecesInput.value && kgPerPiece > 0 && qty > 0) {
-      piecesInput.value = (qty / kgPerPiece).toFixed(2);
-    }
     const pieces = Number(piecesInput.value) || 0;
-    const ratePiece = Number(ratePieceInput.value) || 0;
-
     let value = 0;
-    if (qty > 0 && rate > 0) {
-      value = qty * rate; // কেজি পাশে তথ্য থাকলে সেটাই প্রাধান্য পাবে
-    } else if (pieces > 0 && ratePiece > 0) {
-      value = pieces * ratePiece; // শুধু পিস দিয়ে বিক্রি করলে সেখান থেকেই মূল্য বের হবে
-    }
 
-    if (!ratePieceInput.value && pieces > 0 && value > 0) {
-      ratePieceInput.value = (value / pieces).toFixed(2);
+    if (qty > 0 && rate > 0) {
+      // ওজন পাশে পরিমাণ+দর জানা থাকলে সেটাই আসল মূল্য নির্ধারণ করে —
+      // পিসের দর তখন সবসময় লাইভ হিসাব হবে (ব্যবহারকারী হাতে বদলাতে পারবেন না)
+      value = qty * rate;
+      if (pieces > 0) {
+        ratePieceInput.value = (value / pieces).toFixed(2);
+      } else {
+        ratePieceInput.value = '';
+      }
+      ratePieceInput.readOnly = true;
+      ratePieceInput.style.background = 'var(--bg)';
+    } else {
+      // ওজন পাশে তথ্য নেই — তাহলে পিস+তার দর থেকেই সরাসরি মূল্য নির্ধারিত হবে
+      ratePieceInput.readOnly = false;
+      ratePieceInput.style.background = '';
+      const ratePiece = Number(ratePieceInput.value) || 0;
+      if (pieces > 0 && ratePiece > 0) {
+        value = pieces * ratePiece;
+      }
     }
 
     amtEl.textContent = value.toFixed(2);
@@ -4114,39 +4118,73 @@ async function openSalesVoucherForm(defaultType, existingId) {
   window.updateSvLineItem = onSvLineItemChange;
 
   function recalcSvLine(idx) {
-    const itemId = val('sv_ln_' + idx + '_item');
-    const item = window.__svItemMap[itemId];
     const qty = Number(val('sv_ln_' + idx + '_qty')) || 0;
     const rate = Number(val('sv_ln_' + idx + '_rate')) || 0;
-
-    const unit = item ? window.__svUnitMap[item.UOMID] : null;
-    const kgPerPiece = Number(unit && unit.ConversionFactor) || 0;
 
     const piecesInput = document.getElementById('sv_ln_' + idx + '_pieces');
     const ratePieceInput = document.getElementById('sv_ln_' + idx + '_rateperpiece');
     const amtEl = document.getElementById('sv_ln_' + idx + '_amt');
     if (!piecesInput || !ratePieceInput || !amtEl) return;
 
-    if (!piecesInput.value && kgPerPiece > 0 && qty > 0) {
-      piecesInput.value = (qty / kgPerPiece).toFixed(2);
-    }
     const pieces = Number(piecesInput.value) || 0;
-    const ratePiece = Number(ratePieceInput.value) || 0;
-
     let value = 0;
-    if (qty > 0 && rate > 0) {
-      value = qty * rate;
-    } else if (pieces > 0 && ratePiece > 0) {
-      value = pieces * ratePiece;
-    }
 
-    if (!ratePieceInput.value && pieces > 0 && value > 0) {
-      ratePieceInput.value = (value / pieces).toFixed(2);
+    if (qty > 0 && rate > 0) {
+      // ওজন পাশে পরিমাণ+দর জানা থাকলে সেটাই আসল মূল্য নির্ধারণ করে —
+      // পিসের দর তখন সবসময় লাইভ হিসাব হবে
+      value = qty * rate;
+      if (pieces > 0) {
+        ratePieceInput.value = (value / pieces).toFixed(2);
+      } else {
+        ratePieceInput.value = '';
+      }
+      ratePieceInput.readOnly = true;
+      ratePieceInput.style.background = 'var(--bg)';
+    } else {
+      ratePieceInput.readOnly = false;
+      ratePieceInput.style.background = '';
+      const ratePiece = Number(ratePieceInput.value) || 0;
+      if (pieces > 0 && ratePiece > 0) {
+        value = pieces * ratePiece;
+      }
     }
 
     amtEl.textContent = value.toFixed(2);
   }
   window.updateSvLine = recalcSvLine;
+
+  // পিস দিয়ে বিক্রয় করার সময় (ওজন খালি রেখে), স্টকের লাইভ গড় ওজন/পিস
+  // দিয়ে ওজন ও ওজনের দর অটো-ফিল হবে — কোনো স্থির কনভার্সন ফ্যাক্টর ছাড়াই
+  window.__svAvgCache = window.__svAvgCache || {};
+  window.fillSvWeightFromAverage = async function (idx) {
+    const qtyInput = document.getElementById('sv_ln_' + idx + '_qty');
+    const rateInput = document.getElementById('sv_ln_' + idx + '_rate');
+    if (!qtyInput || qtyInput.value) return; // ওজন আগে থেকে দেওয়া থাকলে কিছু করার দরকার নেই
+    const itemId = val('sv_ln_' + idx + '_item');
+    const warehouseId = val('sv_WarehouseID');
+    const pieces = Number(val('sv_ln_' + idx + '_pieces')) || 0;
+    if (!itemId || !warehouseId || pieces <= 0) return;
+
+    const cacheKey = itemId + '::' + warehouseId;
+    let avg = window.__svAvgCache[cacheKey];
+    if (avg === undefined) {
+      const { data } = await supabaseClient.from('current_stock').select('QtyOnHand,QtyPieces').eq('ItemID', itemId).eq('WarehouseID', warehouseId).maybeSingle();
+      avg = (data && Number(data.QtyPieces) > 0) ? Number(data.QtyOnHand) / Number(data.QtyPieces) : 0;
+      window.__svAvgCache[cacheKey] = avg;
+    }
+    if (avg <= 0) return;
+    if (qtyInput.value) return; // ইতিমধ্যে ব্যবহারকারী নিজে থেকে লিখে ফেলেছেন কিনা — শেষবার আবার চেক
+
+    const estQty = pieces * avg;
+    qtyInput.value = estQty.toFixed(3);
+
+    const ratePiece = Number(val('sv_ln_' + idx + '_rateperpiece')) || 0;
+    if (ratePiece > 0 && rateInput && !rateInput.value) {
+      const value = pieces * ratePiece;
+      rateInput.value = (value / estQty).toFixed(2);
+    }
+    recalcSvLine(idx);
+  };
 
   function renderSvLines() {
     const wrap = document.getElementById('sv_LinesWrap');
@@ -4170,9 +4208,9 @@ async function openSalesVoucherForm(defaultType, existingId) {
           <td rowspan="2"><button type="button" onclick="window.__removeSvLine(${idx})">✕</button></td>
         </tr>
         <tr style="background:var(--bg);">
-          <td style="border-top:1px dashed var(--border);"><input id="sv_ln_${idx}_pieces" type="number" step="any" value="${row.pieces||''}" oninput="updateSvLine(${idx})" style="width:80px;"></td>
+          <td style="border-top:1px dashed var(--border);"><input id="sv_ln_${idx}_pieces" type="number" step="any" value="${row.pieces||''}" oninput="updateSvLine(${idx}); fillSvWeightFromAverage(${idx});" style="width:80px;"></td>
           <td style="border-top:1px dashed var(--border);color:var(--text-muted);font-style:italic;">${t('পিস','pcs')}</td>
-          <td style="border-top:1px dashed var(--border);"><input id="sv_ln_${idx}_rateperpiece" type="number" step="any" oninput="updateSvLine(${idx})" style="width:80px;"></td>
+          <td style="border-top:1px dashed var(--border);"><input id="sv_ln_${idx}_rateperpiece" type="number" step="any" oninput="updateSvLine(${idx}); fillSvWeightFromAverage(${idx});" style="width:80px;"></td>
         </tr>`;
     }).join('');
     wrap.innerHTML = `<table class="data-table"><thead><tr>${headCells}</tr></thead><tbody>${rows}</tbody></table>`;
