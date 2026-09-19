@@ -246,7 +246,11 @@ table.data-table{width:100%;border-collapse:collapse;font-size:13px;}
   .kpi-grid{grid-template-columns:repeat(2,1fr);}
 }
 @media (max-width:640px){
-  .kpi-grid{grid-template-columns:1fr 1fr;}
+  .kpi-grid{grid-template-columns:1fr 1fr;gap:10px;}
+  .kpi{padding:12px;border-radius:9px;}
+  .kpi-label{font-size:9.5px;margin-bottom:5px;}
+  .kpi-val{font-size:17px;}
+  .kpi-sub{font-size:10px;margin-top:3px;}
   .content{padding:16px 14px 40px;}
   .acct-name,.acct-role{display:none;} .acct{padding:5px;}
   .crumb{font-size:14px;}
@@ -695,6 +699,51 @@ async function runPostingLogic(docType, header, docId) {
   // বাকি ডকুমেন্ট টাইপ (BOM-ভিত্তিক Production Order route, এবং Accounts
   // ভাউচারের হিসাব-লেজার প্রভাব) এখনো শুধু স্ট্যাটাস বদলাবে —
   // এটা একটা আলাদা পরবর্তী ধাপে যোগ হবে।
+}
+
+/** পোস্ট করা ডকুমেন্ট ডিলিট করার আগে, সেই ডকুমেন্টের কারণে যা যা স্টক
+ *  মুভমেন্ট হয়েছিল (StockLedger-এ RefModule+RefID দিয়ে খুঁজে) — প্রতিটার
+ *  উল্টো এন্ট্রি বসিয়ে দিয়ে স্টক আবার আগের অবস্থায় ফিরিয়ে আনা হয়,
+ *  তারপর পুরনো লেজার এন্ট্রিগুলো মুছে ফেলা হয়। */
+async function reversePostedDocumentStock(docType, docId) {
+  const { data: entries } = await supabaseClient.from('stock_ledger').select('*').eq('RefModule', docType).eq('RefID', docId);
+  for (const e of (entries || [])) {
+    const kgDelta = (Number(e.QtyOut) || 0) - (Number(e.QtyIn) || 0);
+    const piecesDelta = (Number(e.PiecesOut) || 0) - (Number(e.PiecesIn) || 0);
+    await postStockMovement(e.ItemID, e.WarehouseID, new Date().toISOString().slice(0,10), docType + '-Reversal', docType + '-Reversal', docId, kgDelta, piecesDelta);
+  }
+  await supabaseClient.from('stock_ledger').delete().eq('RefModule', docType).eq('RefID', docId);
+}
+
+/** এডমিনের পাসওয়ার্ড আবার যাচাই করে, পোস্ট করা ভাউচার নিরাপদে ডিলিট করে —
+ *  স্টক এন্ট্রিও উল্টে ফেলা হয়, যাতে ইনভেন্টরিতে ভুতুড়ে গরমিল না থেকে যায়। */
+async function deletePostedVoucherWithAdminAuth(docType, docId, sheetName, idField, linesSheet, lineIdField, onDone) {
+  if (!currentUser || currentUser.RoleID !== 'ROLE-ADMIN') {
+    showToast(t('শুধু এডমিনই পোস্ট করা ভাউচার ডিলিট করতে পারবেন।','Only an Admin can delete a posted voucher.'), 'error');
+    return;
+  }
+  const password = prompt(t('নিরাপত্তার জন্য আপনার এডমিন পাসওয়ার্ড দিন:','Enter your admin password to confirm:'));
+  if (!password) return;
+
+  try {
+    const { error } = await supabaseClient.auth.signInWithPassword({ email: currentUser.Email, password: password });
+    if (error) throw new Error(t('পাসওয়ার্ড ভুল — ডিলিট বাতিল হয়েছে।','Incorrect password — delete cancelled.'));
+  } catch (err) {
+    showToast(err.message, 'error');
+    return;
+  }
+
+  if (!confirm(t('আপনি কি সত্যিই এই পোস্ট করা ভাউচারটা ডিলিট করতে চান? এটা স্টক থেকে সংশ্লিষ্ট এন্ট্রি উল্টে দেবে এবং ফেরানো যাবে না।','Are you sure you want to delete this posted voucher? This will reverse its stock entries and cannot be undone.'))) return;
+
+  try {
+    await reversePostedDocumentStock(docType, docId);
+    await supabaseClient.from(linesSheet).delete().eq(lineIdField, docId);
+    await supabaseClient.from(sheetName).delete().eq(idField, docId);
+    showToast(t('ভাউচার ও এর স্টক এন্ট্রি বাতিল করা হয়েছে ✅','Voucher and its stock entries have been reversed ✅'), 'success');
+    if (onDone) await onDone();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
 }
 
 async function runSupabaseAction(action, p) {
@@ -3291,7 +3340,11 @@ async function renderPurchaseVoucherPage(content, defaultType) {
         ? `<button onclick='deletePurchaseVoucherRecord(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' title="${t('ডিলিট','Delete')}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg>
           </button>`
-        : '';
+        : (currentUser && currentUser.RoleID === 'ROLE-ADMIN'
+            ? `<button onclick='deletePostedPurchaseVoucher(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' title="${t('এডমিন ডিলিট (পাসওয়ার্ড লাগবে)','Admin delete (password required)')}" style="color:var(--danger);">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              </button>`
+            : '');
       const previewBtn = `<button onclick='openPrintableVoucherView(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' title="${t('প্রিভিউ/প্রিন্ট/শেয়ার','Preview/Print/Share')}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
         </button>`;
@@ -3334,6 +3387,13 @@ async function deletePurchaseVoucherRecord(docType, docId) {
   } catch (err) {
     showToast(err.message, 'error');
   }
+}
+
+async function deletePostedPurchaseVoucher(docType, docId) {
+  const config = docType === 'PurchaseReturn'
+    ? { sheet:'PurchaseReturn', idField:'PRetID', linesSheet:'PR_Return_Lines', lineIdField:'PRetID' }
+    : { sheet:'PurchaseInvoice', idField:'PIID', linesSheet:'PI_Lines', lineIdField:'PIID' };
+  await deletePostedVoucherWithAdminAuth(docType, docId, config.sheet, config.idField, config.linesSheet, config.lineIdField, window.__refreshPurchaseVoucherList);
 }
 
 /** প্রিভিউ/প্রিন্ট/শেয়ার — একটা প্রিন্ট-উপযোগী ভাউচার নতুন ট্যাবে খুলবে।
@@ -3872,7 +3932,11 @@ async function renderSalesVoucherPage(content, defaultType) {
         ? `<button onclick='deleteSalesVoucherRecord(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' title="${t('ডিলিট','Delete')}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg>
           </button>`
-        : '';
+        : (currentUser && currentUser.RoleID === 'ROLE-ADMIN'
+            ? `<button onclick='deletePostedSalesVoucher(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' title="${t('এডমিন ডিলিট (পাসওয়ার্ড লাগবে)','Admin delete (password required)')}" style="color:var(--danger);">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              </button>`
+            : '');
       return `<tr ondblclick='openSalesVoucherForm(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' style="cursor:pointer;" title="${t('এডিট করতে ডাবল-ক্লিক করুন','Double-click to edit')}">
         <td>${t(r.typeLabel[0], r.typeLabel[1])}</td><td>${escapeHtml(r.id)}</td><td>${escapeHtml(r.date)}</td>
         <td>${escapeHtml(custMap[r.customerId] || r.customerId)}</td><td>${escapeHtml(slpMap[r.salespersonId] || '—')}</td>
@@ -3912,6 +3976,13 @@ async function deleteSalesVoucherRecord(docType, docId) {
   } catch (err) {
     showToast(err.message, 'error');
   }
+}
+
+async function deletePostedSalesVoucher(docType, docId) {
+  const config = docType === 'SalesReturn'
+    ? { sheet:'SalesReturn', idField:'SRID', linesSheet:'SR_Lines', lineIdField:'SRID' }
+    : { sheet:'SalesInvoice', idField:'SIID', linesSheet:'SI_Lines', lineIdField:'SIID' };
+  await deletePostedVoucherWithAdminAuth(docType, docId, config.sheet, config.idField, config.linesSheet, config.lineIdField, window.__refreshSalesVoucherList);
 }
 
 async function openSalesVoucherForm(defaultType, existingId) {
