@@ -4118,12 +4118,15 @@ async function openSalesVoucherForm(defaultType, existingId) {
   window.updateSvLineItem = onSvLineItemChange;
 
   function recalcSvLine(idx) {
+    const itemId = val('sv_ln_' + idx + '_item');
+    const item = window.__svItemMap[itemId];
     const qty = Number(val('sv_ln_' + idx + '_qty')) || 0;
     const rate = Number(val('sv_ln_' + idx + '_rate')) || 0;
 
     const piecesInput = document.getElementById('sv_ln_' + idx + '_pieces');
     const ratePieceInput = document.getElementById('sv_ln_' + idx + '_rateperpiece');
     const amtEl = document.getElementById('sv_ln_' + idx + '_amt');
+    const profitEl = document.getElementById('sv_ln_' + idx + '_profit');
     if (!piecesInput || !ratePieceInput || !amtEl) return;
 
     const pieces = Number(piecesInput.value) || 0;
@@ -4150,8 +4153,35 @@ async function openSalesVoucherForm(defaultType, existingId) {
     }
 
     amtEl.textContent = value.toFixed(2);
+
+    // লাভ = বিক্রয় মূল্য − (পরিমাণ × আইটেম মাস্টারে দেওয়া স্ট্যান্ডার্ড কস্ট)
+    if (profitEl) {
+      const costRate = item ? (Number(item.StandardCost) || 0) : 0;
+      if (value > 0 && qty > 0 && costRate > 0) {
+        const profit = value - (qty * costRate);
+        profitEl.textContent = profit.toFixed(2);
+        profitEl.style.color = profit < 0 ? 'var(--danger)' : 'var(--success)';
+      } else {
+        profitEl.textContent = '—';
+        profitEl.style.color = '';
+      }
+    }
+    updateSvTotalProfit();
   }
   window.updateSvLine = recalcSvLine;
+
+  function updateSvTotalProfit() {
+    const totalEl = document.getElementById('sv_TotalProfit');
+    if (!totalEl) return;
+    let total = 0, hasAny = false;
+    (window.__svLineRows || []).forEach(function (_, idx) {
+      const el = document.getElementById('sv_ln_' + idx + '_profit');
+      if (el && el.textContent !== '—') { total += Number(el.textContent) || 0; hasAny = true; }
+    });
+    totalEl.textContent = hasAny ? total.toFixed(2) : '—';
+    totalEl.style.color = total < 0 ? 'var(--danger)' : 'var(--success)';
+  }
+
 
   // পিস দিয়ে বিক্রয় করার সময় (ওজন খালি রেখে), স্টকের লাইভ গড় ওজন/পিস
   // দিয়ে ওজন ও ওজনের দর অটো-ফিল হবে — কোনো স্থির কনভার্সন ফ্যাক্টর ছাড়াই
@@ -4170,9 +4200,21 @@ async function openSalesVoucherForm(defaultType, existingId) {
     if (avg === undefined) {
       const { data } = await supabaseClient.from('current_stock').select('QtyOnHand,QtyPieces').eq('ItemID', itemId).eq('WarehouseID', warehouseId).maybeSingle();
       avg = (data && Number(data.QtyPieces) > 0) ? Number(data.QtyOnHand) / Number(data.QtyPieces) : 0;
+      // এই গুদামে ইতিহাস না থাকলে, একই আইটেমের অন্য যেকোনো গুদামের গড় ফলব্যাক হিসেবে ব্যবহার হবে
+      if (avg <= 0) {
+        const { data: anyWh } = await supabaseClient.from('current_stock').select('QtyOnHand,QtyPieces').eq('ItemID', itemId).gt('QtyPieces', 0);
+        if (anyWh && anyWh.length > 0) {
+          const totalKg = anyWh.reduce(function (s, r) { return s + (Number(r.QtyOnHand) || 0); }, 0);
+          const totalPieces = anyWh.reduce(function (s, r) { return s + (Number(r.QtyPieces) || 0); }, 0);
+          avg = totalPieces > 0 ? totalKg / totalPieces : 0;
+        }
+      }
       window.__svAvgCache[cacheKey] = avg;
     }
-    if (avg <= 0) return;
+    if (avg <= 0) {
+      showToast(t('এই আইটেমের কোনো ওজন/পিস ইতিহাস পাওয়া যায়নি — ওজন হাতে লিখুন।','No weight/pieces history found for this item — please enter the weight manually.'), 'error');
+      return;
+    }
     if (qtyInput.value) return; // ইতিমধ্যে ব্যবহারকারী নিজে থেকে লিখে ফেলেছেন কিনা — শেষবার আবার চেক
 
     const estQty = pieces * avg;
@@ -4189,7 +4231,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
   function renderSvLines() {
     const wrap = document.getElementById('sv_LinesWrap');
     if (!wrap) return;
-    const headers = [['আইটেম','Item'],['গ্রুপ','Group'],['ক্যাটাগরি','Category'],['পরিমাণ','Quantity'],['একক','Unit'],['দর','Rate'],['মূল্য','Value']];
+    const headers = [['আইটেম','Item'],['গ্রুপ','Group'],['ক্যাটাগরি','Category'],['পরিমাণ','Quantity'],['একক','Unit'],['দর','Rate'],['মূল্য','Value'],['লাভ','Profit']];
     const headCells = headers.map(function (h) { return `<th>${t(h[0], h[1])}</th>`; }).join('') + '<th></th>';
     const rows = window.__svLineRows.map(function (row, idx) {
       const item = row.itemId ? window.__svItemMap[row.itemId] : null;
@@ -4205,6 +4247,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
           <td id="sv_ln_${idx}_unit" style="color:var(--text-muted);">${escapeHtml(unitLabel)}</td>
           <td><input id="sv_ln_${idx}_rate" type="number" step="any" value="${row.rate||''}" oninput="updateSvLine(${idx})" style="width:80px;"></td>
           <td rowspan="2" id="sv_ln_${idx}_amt" style="font-weight:600;">0.00</td>
+          <td rowspan="2" id="sv_ln_${idx}_profit" style="font-weight:600;">—</td>
           <td rowspan="2"><button type="button" onclick="window.__removeSvLine(${idx})">✕</button></td>
         </tr>
         <tr style="background:var(--bg);">
@@ -4213,7 +4256,9 @@ async function openSalesVoucherForm(defaultType, existingId) {
           <td style="border-top:1px dashed var(--border);"><input id="sv_ln_${idx}_rateperpiece" type="number" step="any" oninput="updateSvLine(${idx}); fillSvWeightFromAverage(${idx});" style="width:80px;"></td>
         </tr>`;
     }).join('');
-    wrap.innerHTML = `<table class="data-table"><thead><tr>${headCells}</tr></thead><tbody>${rows}</tbody></table>`;
+    wrap.innerHTML = `<table class="data-table"><thead><tr>${headCells}</tr></thead><tbody>${rows}</tbody></table>
+      <div style="margin-top:10px;font-size:14px;font-weight:700;text-align:right;">${t('আনুমানিক মোট লাভ','Estimated Total Profit')}: <span id="sv_TotalProfit">0.00</span></div>
+      <p style="font-size:11px;color:var(--text-muted);margin:4px 0 0;text-align:right;">${t('(আইটেম মাস্টারে দেওয়া "স্ট্যান্ডার্ড কস্ট"-এর ভিত্তিতে আনুমানিক হিসাব)', '(Estimated based on the "Standard Cost" set in Item Master)')}</p>`;
     window.__svLineRows.forEach(function (_, idx) { recalcSvLine(idx); });
   }
   window.__removeSvLine = function (idx) { window.__svLineRows.splice(idx, 1); renderSvLines(); };
