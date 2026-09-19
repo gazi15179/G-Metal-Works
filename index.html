@@ -4375,45 +4375,212 @@ async function postDocumentRecord(docType, docId) {
    ১৩.৫) ইনভেন্টরি — Stock Overview, Stock Ledger, Party Ledger
    ============================================================ */
 async function renderStockOverview(content) {
-  const [stock, items, warehouses, units] = await Promise.all([
-    api('list', { sheet:'CurrentStock' }), cachedList('Items'), cachedList('Warehouses'), cachedList('UOM')
+  const [items, warehouses, units, ledger] = await Promise.all([
+    cachedList('Items'), cachedList('Warehouses'), cachedList('UOM'), api('list', { sheet:'StockLedger' })
   ]);
   const itemMap = {}; items.forEach(function (i) { itemMap[i.ItemID] = i; });
   const whMap = {}; warehouses.forEach(function (w) { whMap[w.WarehouseID] = w.WarehouseName; });
 
+  const today = new Date().toISOString().slice(0,10);
+  const monthStart = today.slice(0,8) + '01';
+
   content.innerHTML = `
     <div class="page-head"><div>
         <h1 class="i18n" data-bn="স্টক ওভারভিউ" data-en="Stock Overview">${t('স্টক ওভারভিউ','Stock Overview')}</h1>
-        <p class="i18n" data-bn="বর্তমানে প্রতিটা গুদামে কী পরিমাণ স্টক আছে" data-en="Current stock quantity in every warehouse">${t('বর্তমানে প্রতিটা গুদামে কী পরিমাণ স্টক আছে','Current stock quantity in every warehouse')}</p>
-      </div></div>
-    <div class="panel"><div id="stockOverviewWrap"></div></div>`;
+        <p class="i18n" data-bn="নির্বাচিত সময়ের স্টক ইন/আউট এবং সামগ্রিক স্টক ব্যালেন্স" data-en="Stock in/out for the selected period and overall stock balance">${t('নির্বাচিত সময়ের স্টক ইন/আউট এবং সামগ্রিক স্টক ব্যালেন্স','Stock in/out for the selected period and overall stock balance')}</p>
+      </div>
+      <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;">
+        <div class="field" style="margin:0;"><label>${t('তারিখ থেকে','Date From')}</label><input type="date" id="so_DateFrom" value="${monthStart}"></div>
+        <div class="field" style="margin:0;"><label>${t('তারিখ পর্যন্ত','Date To')}</label><input type="date" id="so_DateTo" value="${today}"></div>
+        <button class="btn btn-primary" style="width:auto;" id="so_ApplyBtn">${t('প্রয়োগ করুন','Apply')}</button>
+        <button class="btn btn-outline" style="width:auto;" id="so_PrintBtn">🖨️ ${t('A4 প্রিন্ট','A4 Print')}</button>
+      </div>
+    </div>
+    <div class="panel"><div id="stockOverviewWrap" style="overflow-x:auto;"></div></div>`;
 
-  const wrap = document.getElementById('stockOverviewWrap');
-  if (!wrap) return;
-  if (stock.length === 0) {
-    wrap.innerHTML = `<div class="empty-state i18n" data-bn="এখনো কোনো স্টক নেই।" data-en="No stock yet.">${t('এখনো কোনো স্টক নেই।','No stock yet.')}</div>`;
-    return;
+  const REF_LABEL = {
+    'PurchaseInvoice': ['ক্রয় চালান','Purchase Invoice'], 'PurchaseReturn': ['ক্রয় ফেরত','Purchase Return'],
+    'ProcessingVoucher-FG': ['প্রসেসিং (তৈরি পণ্য)','Processing (Finished Goods)'],
+    'ProcessingVoucher-RM': ['প্রসেসিং (কাঁচামাল)','Processing (Raw Material)'],
+    'ProcessingVoucher-ByProduct': ['প্রসেসিং (বাই-প্রডাক্ট)','Processing (By-Product)'],
+    'SalesInvoice': ['বিক্রয় চালান','Sales Invoice'], 'SalesReturn': ['বিক্রয় ফেরত','Sales Return'],
+    'MaterialIssue': ['মালামাল ইস্যু','Material Issue'],
+    'StockTransfer-In': ['স্টক ট্রান্সফার (আগমন)','Stock Transfer (In)'], 'StockTransfer-Out': ['স্টক ট্রান্সফার (বহির্গমন)','Stock Transfer (Out)'],
+    'StockAdjustment': ['স্টক সমন্বয়','Stock Adjustment'], 'Opening': ['ওপেনিং স্টক','Opening Stock']
+  };
+
+  function renderReport(fromDate, toDate) {
+    const wrap = document.getElementById('stockOverviewWrap');
+    if (!wrap) return;
+    if (ledger.length === 0) {
+      wrap.innerHTML = `<div class="empty-state i18n" data-bn="এখনো কোনো স্টক মুভমেন্ট নেই।" data-en="No stock movement yet.">${t('এখনো কোনো স্টক মুভমেন্ট নেই।','No stock movement yet.')}</div>`;
+      return;
+    }
+
+    // প্রতিটা আইটেম+গুদামের জন্য: রেঞ্জের ভেতরের ইন/আউট, আর "তারিখ পর্যন্ত" মোট ব্যালেন্স (শুরু থেকে হিসাব করে)
+    const combos = {};
+    function comboKey(itemId, whId) { return itemId + '::' + whId; }
+    ledger.forEach(function (l) {
+      const key = comboKey(l.ItemID, l.WarehouseID);
+      if (!combos[key]) combos[key] = { ItemID: l.ItemID, WarehouseID: l.WarehouseID, inKg:0, inPieces:0, outKg:0, outPieces:0, balKg:0, balPieces:0 };
+      const c = combos[key];
+      if (l.Date <= toDate) { c.balKg += (Number(l.QtyIn)||0) - (Number(l.QtyOut)||0); c.balPieces += (Number(l.PiecesIn)||0) - (Number(l.PiecesOut)||0); }
+      if (l.Date >= fromDate && l.Date <= toDate) {
+        c.inKg += Number(l.QtyIn)||0; c.inPieces += Number(l.PiecesIn)||0;
+        c.outKg += Number(l.QtyOut)||0; c.outPieces += Number(l.PiecesOut)||0;
+      }
+    });
+
+    const rows = Object.values(combos).filter(function (c) { return c.inKg || c.inPieces || c.outKg || c.outPieces || c.balKg || c.balPieces; });
+    if (rows.length === 0) {
+      wrap.innerHTML = `<div class="empty-state i18n" data-bn="এই সময়ে কোনো স্টক মুভমেন্ট নেই।" data-en="No stock movement in this period.">${t('এই সময়ে কোনো স্টক মুভমেন্ট নেই।','No stock movement in this period.')}</div>`;
+      return;
+    }
+
+    function group(qty, pieces, rate, isDual) {
+      const value = qty * rate;
+      const ratePiece = (isDual && pieces > 0) ? value / pieces : null;
+      return `<td style="text-align:center;">${qty ? qty.toFixed(3) : '—'}</td><td style="text-align:center;">${rate ? rate.toFixed(2) : '—'}</td>
+        <td style="text-align:center;">${isDual ? (pieces || '—') : '—'}</td><td style="text-align:center;">${ratePiece !== null ? ratePiece.toFixed(2) : '—'}</td>
+        <td style="text-align:center;"><b>${value.toFixed(2)}</b></td>`;
+    }
+
+    const headHtml = `<tr>
+        <th rowspan="2" style="text-align:center;vertical-align:middle;">${t('আইটেম','Item')}</th>
+        <th rowspan="2" style="text-align:center;vertical-align:middle;">${t('ওয়ারহাউজ','Warehouse')}</th>
+        <th colspan="5" style="text-align:center;">${t('স্টক ইন','Stock In')}</th>
+        <th colspan="5" style="text-align:center;">${t('স্টক আউট','Stock Out')}</th>
+        <th colspan="5" style="text-align:center;">${t('স্টক ব্যালেন্স','Stock Balance')}</th>
+        <th rowspan="2" style="text-align:center;vertical-align:middle;">${t('ভিউ','View')}</th>
+      </tr>
+      <tr>
+        <th style="text-align:center;">${t('ওজন','Weight')}</th><th style="text-align:center;">${t('দর','Rate')}</th><th style="text-align:center;">${t('পিস','Pieces')}</th><th style="text-align:center;">${t('দর','Rate')}</th><th style="text-align:center;">${t('মূল্য','Value')}</th>
+        <th style="text-align:center;">${t('ওজন','Weight')}</th><th style="text-align:center;">${t('দর','Rate')}</th><th style="text-align:center;">${t('পিস','Pieces')}</th><th style="text-align:center;">${t('দর','Rate')}</th><th style="text-align:center;">${t('মূল্য','Value')}</th>
+        <th style="text-align:center;">${t('ওজন','Weight')}</th><th style="text-align:center;">${t('দর','Rate')}</th><th style="text-align:center;">${t('পিস','Pieces')}</th><th style="text-align:center;">${t('দর','Rate')}</th><th style="text-align:center;">${t('মূল্য','Value')}</th>
+      </tr>`;
+
+    const bodyRows = rows.map(function (c) {
+      const item = itemMap[c.ItemID] || {};
+      const isDual = item.TrackingType === 'WeightPieces';
+      const rate = Number(item.StandardCost) || 0;
+      return `<tr>
+        <td>${escapeHtml(item.ItemName || c.ItemID)}</td><td>${escapeHtml(whMap[c.WarehouseID] || c.WarehouseID)}</td>
+        ${group(c.inKg, c.inPieces, rate, isDual)}
+        ${group(c.outKg, c.outPieces, rate, isDual)}
+        ${group(c.balKg, c.balPieces, rate, isDual)}
+        <td style="text-align:center;"><button class="btn btn-outline" style="width:auto;padding:6px 12px;font-size:12px;" onclick='openStockItemVouchers(${JSON.stringify(c.ItemID)}, ${JSON.stringify(c.WarehouseID)}, ${JSON.stringify(fromDate)}, ${JSON.stringify(toDate)})'>${t('ভিউ','View')}</button></td>
+      </tr>`;
+    }).join('');
+
+    wrap.innerHTML = `<table class="data-table" style="font-size:12px;"><thead>${headHtml}</thead><tbody>${bodyRows}</tbody></table>`;
   }
-  const headers = [['আইটেম','Item'],['গুদাম','Warehouse'],['ওজন (কেজি)','Weight (kg)'],['পিস','Pieces'],['গড় ওজন/পিস','Avg kg/piece'],['রি-অর্ডার লেভেল','Reorder Level'],['অবস্থা','Status']];
-  const headCells = headers.map(function (h) { return `<th class="i18n" data-bn="${h[0]}" data-en="${h[1]}">${t(h[0], h[1])}</th>`; }).join('');
-  const bodyRows = stock.map(function (s) {
-    const item = itemMap[s.ItemID] || {};
-    const qty = Number(s.QtyOnHand) || 0;
-    const pieces = Number(s.QtyPieces) || 0;
+
+  window.__stockOverviewLedger = ledger;
+  window.__stockOverviewRefLabel = REF_LABEL;
+
+  renderReport(monthStart, today);
+  document.getElementById('so_ApplyBtn').addEventListener('click', function () {
+    renderReport(val('so_DateFrom'), val('so_DateTo'));
+  });
+  document.getElementById('so_PrintBtn').addEventListener('click', function () {
+    openStockReportPrintView(val('so_DateFrom') || monthStart, val('so_DateTo') || today);
+  });
+}
+
+/** নির্দিষ্ট আইটেম+গুদামের সব ভাউচার (উৎস মডিউলসহ) — "ভিউ" বাটনে ক্লিক করলে দেখাবে */
+function openStockItemVouchers(itemId, warehouseId, fromDate, toDate) {
+  const ledger = window.__stockOverviewLedger || [];
+  const REF_LABEL = window.__stockOverviewRefLabel || {};
+  const rows = ledger.filter(function (l) { return l.ItemID === itemId && l.WarehouseID === warehouseId && l.Date >= fromDate && l.Date <= toDate; })
+    .sort(function (a, b) { return String(a.Date).localeCompare(String(b.Date)); });
+
+  const bodyHtml = rows.length === 0
+    ? `<div class="empty-state">${t('এই সময়ে কোনো ভাউচার নেই।','No vouchers in this period.')}</div>`
+    : `<table class="data-table"><thead><tr>
+        <th>${t('তারিখ','Date')}</th><th>${t('উৎস','Source')}</th><th>${t('রেফারেন্স','Reference')}</th>
+        <th>${t('ইন (কেজি/পিস)','In (kg/pcs)')}</th><th>${t('আউট (কেজি/পিস)','Out (kg/pcs)')}</th>
+      </tr></thead><tbody>
+        ${rows.map(function (l) {
+          const lbl = REF_LABEL[l.TransactionType] || [l.TransactionType, l.TransactionType];
+          const inTxt = (Number(l.QtyIn)||0) || (Number(l.PiecesIn)||0) ? (Number(l.QtyIn)||0) + ' কেজি' + ((Number(l.PiecesIn)||0) ? ' / ' + l.PiecesIn + ' পিস' : '') : '—';
+          const outTxt = (Number(l.QtyOut)||0) || (Number(l.PiecesOut)||0) ? (Number(l.QtyOut)||0) + ' কেজি' + ((Number(l.PiecesOut)||0) ? ' / ' + l.PiecesOut + ' পিস' : '') : '—';
+          return `<tr><td>${escapeHtml(l.Date)}</td><td>${t(lbl[0],lbl[1])}</td><td>${escapeHtml(l.RefID)}</td><td>${inTxt}</td><td>${outTxt}</td></tr>`;
+        }).join('')}
+      </tbody></table>`;
+
+  openModal({ title: t('ভাউচারের তালিকা','Voucher List'), bodyHtml: bodyHtml, wide: true, onSave: null });
+  // এই ভিউ শুধু দেখার জন্য — সেভ বাটনের দরকার নেই, তাই লুকিয়ে দেওয়া হচ্ছে
+  const saveBtn = document.getElementById('modalSaveBtn');
+  if (saveBtn) saveBtn.style.display = 'none';
+  document.getElementById('modalCloseBtn').addEventListener('click', function () { if (saveBtn) saveBtn.style.display = ''; }, { once: true });
+}
+
+/** A4 প্রিন্ট-উপযোগী ভার্সন — নতুন ট্যাবে খুলবে */
+async function openStockReportPrintView(fromDate, toDate) {
+  const [items, warehouses] = await Promise.all([cachedList('Items'), cachedList('Warehouses')]);
+  const ledger = window.__stockOverviewLedger || await api('list', { sheet:'StockLedger' });
+  const itemMap = {}; items.forEach(function (i) { itemMap[i.ItemID] = i; });
+  const whMap = {}; warehouses.forEach(function (w) { whMap[w.WarehouseID] = w.WarehouseName; });
+
+  const combos = {};
+  ledger.forEach(function (l) {
+    const key = l.ItemID + '::' + l.WarehouseID;
+    if (!combos[key]) combos[key] = { ItemID: l.ItemID, WarehouseID: l.WarehouseID, inKg:0, inPieces:0, outKg:0, outPieces:0, balKg:0, balPieces:0 };
+    const c = combos[key];
+    if (l.Date <= toDate) { c.balKg += (Number(l.QtyIn)||0) - (Number(l.QtyOut)||0); c.balPieces += (Number(l.PiecesIn)||0) - (Number(l.PiecesOut)||0); }
+    if (l.Date >= fromDate && l.Date <= toDate) {
+      c.inKg += Number(l.QtyIn)||0; c.inPieces += Number(l.PiecesIn)||0;
+      c.outKg += Number(l.QtyOut)||0; c.outPieces += Number(l.PiecesOut)||0;
+    }
+  });
+  const rows = Object.values(combos).filter(function (c) { return c.inKg || c.inPieces || c.outKg || c.outPieces || c.balKg || c.balPieces; });
+
+  function grp(qty, pieces, rate, isDual) {
+    const value = qty * rate;
+    const rp = (isDual && pieces > 0) ? value / pieces : null;
+    return `<td>${qty ? qty.toFixed(3) : '—'}</td><td>${rate ? rate.toFixed(2) : '—'}</td><td>${isDual ? (pieces||'—') : '—'}</td><td>${rp!==null?rp.toFixed(2):'—'}</td><td>${value.toFixed(2)}</td>`;
+  }
+  const bodyRows = rows.map(function (c) {
+    const item = itemMap[c.ItemID] || {};
     const isDual = item.TrackingType === 'WeightPieces';
-    const avg = (isDual && pieces > 0) ? (qty / pieces).toFixed(3) : '—';
-    const reorder = Number(item.ReorderLevel) || 0;
-    const isLow = reorder > 0 && qty < reorder;
-    return `<tr>
-      <td>${escapeHtml(item.ItemName || s.ItemID)}</td><td>${escapeHtml(whMap[s.WarehouseID] || s.WarehouseID)}</td>
-      <td><b>${formatQtyByUOM(qty, item.UOMID, units)}</b></td>
-      <td>${isDual ? pieces : '—'}</td>
-      <td>${avg}</td>
-      <td>${reorder || '—'}</td>
-      <td>${isLow ? `<span class="badge inactive i18n" data-bn="নিম্ন স্টক" data-en="Low Stock">${t('নিম্ন স্টক','Low Stock')}</span>` : `<span class="badge active i18n" data-bn="স্বাভাবিক" data-en="Normal">${t('স্বাভাবিক','Normal')}</span>`}</td>
-    </tr>`;
+    const rate = Number(item.StandardCost) || 0;
+    return `<tr><td>${escapeHtml(item.ItemName || c.ItemID)}</td><td>${escapeHtml(whMap[c.WarehouseID] || c.WarehouseID)}</td>${grp(c.inKg,c.inPieces,rate,isDual)}${grp(c.outKg,c.outPieces,rate,isDual)}${grp(c.balKg,c.balPieces,rate,isDual)}</tr>`;
   }).join('');
-  wrap.innerHTML = `<table class="data-table"><thead><tr>${headCells}</tr></thead><tbody>${bodyRows}</tbody></table>`;
+
+  const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8">
+<title>স্টক রিপোর্ট ${escapeHtml(fromDate)} - ${escapeHtml(toDate)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  @page { size: A4 landscape; margin: 10mm; }
+  body{font-family:'Hind Siliguri',sans-serif;font-size:10.5px;color:#1b1f27;}
+  h1{font-size:16px;margin:0 0 4px;} p{margin:0 0 14px;color:#555;font-size:11px;}
+  table{width:100%;border-collapse:collapse;}
+  th,td{border:1px solid #ccc;padding:4px 5px;text-align:center;}
+  th{background:#1a2029;color:#f2a33c;}
+  .toolbar{margin-bottom:14px;}
+  .toolbar button{font-size:13px;padding:8px 16px;border-radius:8px;border:1px solid #1a2029;background:#1a2029;color:#f2a33c;cursor:pointer;}
+  @media print { .toolbar{display:none;} }
+</style></head><body>
+  <div class="toolbar"><button onclick="window.print()">🖨️ প্রিন্ট করুন</button></div>
+  <h1>স্টক ইন/আউট/ব্যালেন্স রিপোর্ট</h1>
+  <p>সময়কাল: ${escapeHtml(fromDate)} থেকে ${escapeHtml(toDate)}</p>
+  <table>
+    <thead>
+      <tr><th rowspan="2">আইটেম</th><th rowspan="2">ওয়ারহাউজ</th><th colspan="5">স্টক ইন</th><th colspan="5">স্টক আউট</th><th colspan="5">স্টক ব্যালেন্স</th></tr>
+      <tr>
+        <th>ওজন</th><th>দর</th><th>পিস</th><th>দর</th><th>মূল্য</th>
+        <th>ওজন</th><th>দর</th><th>পিস</th><th>দর</th><th>মূল্য</th>
+        <th>ওজন</th><th>দর</th><th>পিস</th><th>দর</th><th>মূল্য</th>
+      </tr>
+    </thead>
+    <tbody>${bodyRows}</tbody>
+  </table>
+</body></html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) { showToast(t('পপ-আপ ব্লক হয়েছে — এই সাইটের জন্য পপ-আপ অনুমতি দিন।','Pop-up was blocked — please allow pop-ups for this site.'), 'error'); return; }
+  win.document.write(html);
+  win.document.close();
 }
 
 /** স্টক লেজার — একটা আইটেম বাছাই করলে সেই আইটেমের সব স্টক মুভমেন্ট (ইন/আউট) দেখাবে, চলমান ব্যালেন্সসহ */
