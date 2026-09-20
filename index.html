@@ -3639,6 +3639,8 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   }
 
   const bodyHtml = `
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+    <div id="pv2_LeftCol">
     <div class="field"><label>${t('ইনভয়েস টাইপ','Invoice Type')}</label>
       <select id="pv2_Type" ${isEdit?'disabled':''}>
         <option value="PurchaseInvoice" ${type!=='PurchaseReturn'?'selected':''}>${t('ক্রয় ভাউচার','Purchase Voucher')}</option>
@@ -3652,19 +3654,14 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     <div class="field"><label>${t('নিঃভাউঃ নং (ঐচ্ছিক)','Supplier Voucher No (optional)')}</label><input id="pv2_SupplierInvoiceNo" value="${attr(rec.SupplierInvoiceNo)}"></div>
     <div id="pv2_ReasonField" style="display:none;"><div class="field"><label>${t('কারণ','Reason')}</label><input id="pv2_Reason" value="${attr(rec.Reason)}"></div></div>
 
-    <div class="field"><label>${t('সাপ্লায়ার ধরন','Supplier Type')}</label>
-      <select id="pv2_SupplierType">
-        <option value="Listed">${t('লিস্টেড','Listed')}</option>
-        <option value="Cash">${t('নগদ','Cash')}</option>
-      </select>
-    </div>
-    <div id="pv2_ListedSupplierField" class="field"><label>${t('সাপ্লায়ার নাম','Supplier Name')}</label>
+    <div class="field"><label>${t('সাপ্লায়ার নাম','Supplier Name')}</label>
       <select id="pv2_SupplierID"><option value="">—</option>${suppliers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.SupplierID)}" ${rec.SupplierID===r.SupplierID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select>
     </div>
     <div id="pv2_CashSupplierCard" style="display:none;padding:12px;border:1px dashed var(--border);border-radius:8px;background:var(--bg);margin-bottom:14px;">
-      <div class="field"><label>${t('পার্টির নাম','Party Name')}</label><input id="pv2_CashName" value="${t('নগদ','Cash')}"></div>
-      <div class="field"><label>${t('ঠিকানা','Address')}</label><input id="pv2_CashAddress"></div>
-      <div class="field"><label>${t('মোবাইল','Mobile')}</label><input id="pv2_CashMobile"></div>
+      <div class="field"><label>${t('নগদ পার্টির আসল নাম','Actual Cash Party Name')}</label><input id="pv2_CashName" value="${attr(rec.WalkInPartyName)}"></div>
+      <div class="field"><label>${t('ঠিকানা','Address')}</label><input id="pv2_CashAddress" value="${attr(rec.WalkInPartyAddress)}"></div>
+      <div class="field"><label>${t('মোবাইল','Mobile')}</label><input id="pv2_CashMobile" value="${attr(rec.WalkInPartyMobile)}"></div>
+      <p style="font-size:11px;color:var(--text-muted);margin:4px 0 0;">${t('এই তথ্য শুধু এই ভাউচারেই থাকবে — স্থায়ী সাপ্লায়ার তালিকায় নতুন কিছু যোগ হবে না।','This info stays on this voucher only — nothing new is added to the permanent supplier list.')}</p>
     </div>
 
     <h4 style="margin:20px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('লাইন আইটেম যোগ করুন','Add Line Item')}</h4>
@@ -3692,6 +3689,12 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       <button type="button" class="btn btn-primary" style="width:auto;" id="pv2_ConfirmLineBtn" title="${t('এই লাইনটা যোগ করুন','Add this line')}">✓</button>
     </div>
     <button type="button" class="btn btn-outline" style="width:auto;margin-top:4px;" id="pv2_ResetLineBtn">+ ${t('আরেকটা লাইন','Another line')}</button>
+    </div>
+
+    <div id="pv2_RightCol" style="color:var(--text-muted);font-size:12.5px;padding-top:4px;">
+      <!-- এখানে পরে আরও ফিল্ড যোগ হবে -->
+    </div>
+  </div>
 
     <h4 style="margin:20px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('লাইভ ভাউচার প্রিভিউ','Live Voucher Preview')}</h4>
     <div id="pv2_PreviewWrap"></div>
@@ -3706,24 +3709,20 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       const currentType = val('pv2_Type');
       const isReturn = currentType === 'PurchaseReturn';
 
-      let supplierId;
-      if (val('pv2_SupplierType') === 'Cash') {
-        const cashName = val('pv2_CashName') || t('নগদ','Cash');
-        const newSupplier = await api('create', { sheet:'Suppliers', idField:'SupplierID', idPrefix:'SUP', requiredFields:['Name'],
-          data: { Name: cashName, CompanyName: cashName, Address: val('pv2_CashAddress'), Phone: val('pv2_CashMobile'), IsActive: 'TRUE' } });
-        supplierId = newSupplier.SupplierID;
-      } else {
-        supplierId = val('pv2_SupplierID');
-      }
-      if (!supplierId) throw new Error(t('সাপ্লায়ার তথ্য আবশ্যক।','Supplier information is required.'));
+      const supplierId = val('pv2_SupplierID');
+      if (!supplierId) throw new Error(t('সাপ্লায়ার বাছাই করা আবশ্যক।','Supplier selection is required.'));
 
       if (window.__pv2Lines.length === 0) throw new Error(t('অন্তত একটা লাইন আইটেম যোগ করুন (✓ চেপে কনফার্ম করুন)।','Add at least one line item (confirm with ✓).'));
 
+      const isCashSupplier = supplierId === 'SUP-CASH';
       const common = {
         SupplierID: supplierId,
         SupplierInvoiceNo: val('pv2_SupplierInvoiceNo'),
         SupplierInvoiceDate: val('pv2_SupplierInvoiceDate') || null,
-        PurchaserID: currentUser ? currentUser.UserID : null
+        PurchaserID: currentUser ? currentUser.UserID : null,
+        WalkInPartyName: isCashSupplier ? (val('pv2_CashName') || null) : null,
+        WalkInPartyAddress: isCashSupplier ? (val('pv2_CashAddress') || null) : null,
+        WalkInPartyMobile: isCashSupplier ? (val('pv2_CashMobile') || null) : null
       };
 
       if (!isReturn) {
@@ -3762,11 +3761,10 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   toggleType();
 
   function toggleSupplierType() {
-    const isCash = val('pv2_SupplierType') === 'Cash';
+    const isCash = val('pv2_SupplierID') === 'SUP-CASH';
     document.getElementById('pv2_CashSupplierCard').style.display = isCash ? '' : 'none';
-    document.getElementById('pv2_ListedSupplierField').style.display = isCash ? 'none' : '';
   }
-  document.getElementById('pv2_SupplierType').addEventListener('change', toggleSupplierType);
+  document.getElementById('pv2_SupplierID').addEventListener('change', toggleSupplierType);
   toggleSupplierType();
 
   function refreshItemDropdown() {
