@@ -3595,17 +3595,15 @@ async function openPrintableVoucherView(docType, docId) {
 }
 
 async function openPurchaseVoucherForm(defaultType, existingId) {
-  const pvData = await cachedListMultiple(['Suppliers', 'Purchasers', 'Items', 'GRN', 'ItemGroups', 'Categories', 'UOM', 'Warehouses']);
-  const suppliers = pvData.Suppliers, purchasers = pvData.Purchasers, items = pvData.Items, grns = pvData.GRN,
+  const pvData = await cachedListMultiple(['Suppliers', 'Items', 'GRN', 'ItemGroups', 'Categories', 'UOM', 'Warehouses']);
+  const suppliers = pvData.Suppliers, items = pvData.Items, grns = pvData.GRN,
         groups = pvData.ItemGroups, categories = pvData.Categories, units = pvData.UOM, warehouses = pvData.Warehouses;
-  window.__pvItems = items.filter(function (i) { return i.Status !== 'Deleted'; });
-  window.__pvItemMap = {}; items.forEach(function (i) { window.__pvItemMap[i.ItemID] = i; });
-  window.__pvGroupMap = {}; groups.forEach(function (g) { window.__pvGroupMap[g.GroupID] = g.GroupName; });
-  window.__pvCategoryMap = {}; categories.forEach(function (c) { window.__pvCategoryMap[c.CategoryID] = c.CategoryName; });
-  window.__pvUnitMap = {}; units.forEach(function (u) { window.__pvUnitMap[u.UOMID] = u; });
-  window.__pvGroups = groups.filter(function (g) { return g.Status !== 'Deleted'; });
-  window.__pvCategories = categories.filter(function (c) { return c.Status !== 'Deleted'; });
-  window.__pvUnits = units;
+  window.__pv2ItemMap = {}; items.forEach(function (i) { window.__pv2ItemMap[i.ItemID] = i; });
+  window.__pv2Items = items.filter(function (i) { return i.Status !== 'Deleted'; });
+  window.__pv2Groups = groups.filter(function (g) { return g.Status !== 'Deleted'; });
+  window.__pv2Categories = categories.filter(function (c) { return c.Status !== 'Deleted'; });
+  window.__pv2UnitMap = {}; units.forEach(function (u) { window.__pv2UnitMap[u.UOMID] = u; });
+  window.__pv2Warehouses = warehouses.filter(function (w) { return w.Status !== 'Deleted'; });
 
   const isEdit = !!existingId;
   let existingHeader = null, existingLines = [];
@@ -3630,133 +3628,123 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     }
   }
 
-  window.__pvLineRows = isEdit
-    ? existingLines.map(function (l) { return { itemId: l.ItemID, qty: l.Quantity, rate: l.Rate, pieces: l.Pieces }; })
-    : [{}];
+  const rec = existingHeader || {};
+  // প্রতিটা "✓" দিয়ে কনফার্ম করা লাইন এখানে জমা থাকে — এটাই লাইভ প্রিভিউ
+  window.__pv2Lines = isEdit
+    ? existingLines.map(function (l) { return { itemId: l.ItemID, warehouseId: rec.WarehouseID, qty: Number(l.Quantity)||0, rate: Number(l.Rate)||0, pieces: Number(l.Pieces)||0, amount: Math.round((Number(l.Quantity)||0) * (Number(l.Rate)||0)) }; })
+    : [];
 
-  function opts(list, idF, labelF, selected) {
-    return list.filter(function (r) { return r.Status !== 'Deleted'; })
-      .map(function (r) { return `<option value="${attr(r[idF])}" ${selected===r[idF]?'selected':''}>${escapeHtml(r[labelF])}</option>`; }).join('');
+  function optsHtml(list, idF, labelF, selected) {
+    return list.map(function (r) { return `<option value="${attr(r[idF])}" ${selected===r[idF]?'selected':''}>${escapeHtml(r[labelF])}</option>`; }).join('');
   }
 
-  const rec = existingHeader || {};
   const bodyHtml = `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
-      <div class="field"><label>${t('ইনভয়েস টাইপ','Invoice Type')}</label>
-        <select id="pv_Type" ${isEdit?'disabled':''}>
-          <option value="PurchaseInvoice" ${type!=='PurchaseReturn'?'selected':''}>${t('ক্রয় ভাউচার','Purchase Voucher')}</option>
-          <option value="PurchaseReturn" ${type==='PurchaseReturn'?'selected':''}>${t('ক্রয় ফেরত ভাউচার','Purchase Return Voucher')}</option>
-        </select>
-      </div>
-      <div class="field"><label>${t('তারিখ','Date')}</label><input type="date" id="pv_Date" value="${attr(rec.InvoiceDate || rec.Date) || new Date().toISOString().slice(0,10)}"></div>
-      <div class="field"><label>${t('ভাউচার নম্বর','Voucher No')}</label><input id="pv_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো তৈরি হবে','Will be auto-generated')}" readonly style="background:var(--bg);"></div>
-      <div class="field" id="pv_GRNField" style="display:none;"><label>${t('GRN রেফারেন্স','GRN Reference')}</label><select id="pv_GRNID"><option value="">—</option>${opts(grns, 'GRNID', 'GRNID', rec.GRNID)}</select></div>
-      <div class="field"><label>${t('নিঃভাউঃতারিখ (ঐচ্ছিক)','Supplier Voucher Date (optional)')}</label><input type="date" id="pv_SupplierInvoiceDate" value="${attr(rec.SupplierInvoiceDate)}"></div>
-      <div class="field"><label>${t('নিঃভাউঃনম্বর (ঐচ্ছিক)','Supplier Voucher No (optional)')}</label><input id="pv_SupplierInvoiceNo" value="${attr(rec.SupplierInvoiceNo)}"></div>
-      <div class="field" id="pv_WarehouseField"><label>${t('গুদাম','Warehouse')}</label><select id="pv_WarehouseID"><option value="">—</option>${opts(warehouses, 'WarehouseID', 'WarehouseName', rec.WarehouseID)}</select></div>
-      <div class="field"><label>${t('সাপ্লায়ার নাম','Supplier Name')}</label><select id="pv_SupplierID"><option value="">—</option>${suppliers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.SupplierID)}" ${rec.SupplierID===r.SupplierID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select></div>
+    <div class="field"><label>${t('ইনভয়েস টাইপ','Invoice Type')}</label>
+      <select id="pv2_Type" ${isEdit?'disabled':''}>
+        <option value="PurchaseInvoice" ${type!=='PurchaseReturn'?'selected':''}>${t('ক্রয় ভাউচার','Purchase Voucher')}</option>
+        <option value="PurchaseReturn" ${type==='PurchaseReturn'?'selected':''}>${t('ক্রয় ফেরত ভাউচার','Purchase Return Voucher')}</option>
+      </select>
     </div>
-    <div id="pv_ReasonField" style="display:none;margin-top:14px;"><div class="field"><label>${t('কারণ','Reason')}</label><input id="pv_Reason" value="${attr(rec.Reason)}"></div></div>
+    <div class="field"><label>${t('ভাউচার তারিখ','Voucher Date')}</label><input type="date" id="pv2_Date" value="${attr(rec.InvoiceDate || rec.Date) || new Date().toISOString().slice(0,10)}"></div>
+    <div class="field"><label>${t('ভাউচার নম্বর','Voucher No')}</label><input id="pv2_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো তৈরি হবে','Will be auto-generated')}" readonly style="background:var(--bg);"></div>
+    <div class="field" id="pv2_GRNField" style="display:none;"><label>${t('GRN রেফারেন্স','GRN Reference')}</label><select id="pv2_GRNID"><option value="">—</option>${optsHtml(grns.filter(function(g){return g.Status!=='Deleted';}), 'GRNID','GRNID', rec.GRNID)}</select></div>
+    <div class="field"><label>${t('নিঃভাউঃ তারিখ (ঐচ্ছিক)','Supplier Voucher Date (optional)')}</label><input type="date" id="pv2_SupplierInvoiceDate" value="${attr(rec.SupplierInvoiceDate)}"></div>
+    <div class="field"><label>${t('নিঃভাউঃ নং (ঐচ্ছিক)','Supplier Voucher No (optional)')}</label><input id="pv2_SupplierInvoiceNo" value="${attr(rec.SupplierInvoiceNo)}"></div>
+    <div id="pv2_ReasonField" style="display:none;"><div class="field"><label>${t('কারণ','Reason')}</label><input id="pv2_Reason" value="${attr(rec.Reason)}"></div></div>
 
-    <h4 style="margin:20px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('লাইন আইটেম','Line Items')}</h4>
-    <div id="pv_LinesWrap"></div>
-    <button type="button" class="btn" style="width:auto;margin-top:8px;" id="pv_AddLineBtn">${t('+ লাইন যোগ করুন','+ Add Line')}</button>`;
+    <div class="field"><label>${t('সাপ্লায়ার ধরন','Supplier Type')}</label>
+      <select id="pv2_SupplierType">
+        <option value="Listed">${t('লিস্টেড','Listed')}</option>
+        <option value="Cash">${t('নগদ','Cash')}</option>
+      </select>
+    </div>
+    <div id="pv2_ListedSupplierField" class="field"><label>${t('সাপ্লায়ার নাম','Supplier Name')}</label>
+      <select id="pv2_SupplierID"><option value="">—</option>${suppliers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.SupplierID)}" ${rec.SupplierID===r.SupplierID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select>
+    </div>
+    <div id="pv2_CashSupplierCard" style="display:none;padding:12px;border:1px dashed var(--border);border-radius:8px;background:var(--bg);margin-bottom:14px;">
+      <div class="field"><label>${t('পার্টির নাম','Party Name')}</label><input id="pv2_CashName" value="${t('নগদ','Cash')}"></div>
+      <div class="field"><label>${t('ঠিকানা','Address')}</label><input id="pv2_CashAddress"></div>
+      <div class="field"><label>${t('মোবাইল','Mobile')}</label><input id="pv2_CashMobile"></div>
+    </div>
+
+    <h4 style="margin:20px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('লাইন আইটেম যোগ করুন','Add Line Item')}</h4>
+
+    <div class="field" style="display:flex;align-items:center;gap:8px;">
+      <input type="checkbox" id="pv2_GroupCheck" style="width:auto;">
+      <label style="margin:0;flex:1;">${t('গ্রুপ নাম','Group Name')}</label>
+      <select id="pv2_GroupSelect" disabled style="flex:2;"><option value="">—</option>${optsHtml(window.__pv2Groups, 'GroupID','GroupName','')}</select>
+    </div>
+    <div class="field" style="display:flex;align-items:center;gap:8px;">
+      <input type="checkbox" id="pv2_CatCheck" style="width:auto;">
+      <label style="margin:0;flex:1;">${t('ক্যাটাগরি','Category')}</label>
+      <select id="pv2_CatSelect" disabled style="flex:2;"><option value="">—</option>${optsHtml(window.__pv2Categories, 'CategoryID','CategoryName','')}</select>
+    </div>
+    <div class="field"><label>${t('আইটেম (পণ্য)','Item')}</label><select id="pv2_ItemID"><option value="">—</option></select></div>
+    <div class="field"><label>${t('ওয়ারহাউজ','Warehouse')}</label><select id="pv2_WarehouseID"><option value="">—</option>${optsHtml(window.__pv2Warehouses, 'WarehouseID','WarehouseName', rec.WarehouseID)}</select></div>
+    <div class="field"><label>${t('স্টক পরিমাণ','Stock Quantity')}</label><input id="pv2_StockQty" readonly style="background:var(--bg);"></div>
+    <div class="field"><label>${t('পরিমাণ','Quantity')}</label><input id="pv2_Qty" type="number" step="any"></div>
+    <div class="field" id="pv2_PiecesField" style="display:none;"><label>${t('পিস','Pieces')}</label><input id="pv2_Pieces" type="number" step="any"></div>
+    <div class="field"><label>${t('স্টক দর','Stock Rate')}</label><input id="pv2_StockRate" readonly style="background:var(--bg);"></div>
+    <div class="field"><label>${t('দর','Rate')}</label><input id="pv2_Rate" type="number" step="any"></div>
+    <div class="field"><label>${t('একক','Unit')}</label><input id="pv2_Unit" readonly style="background:var(--bg);"></div>
+    <div class="field" style="display:flex;align-items:end;gap:8px;">
+      <div style="flex:1;"><label>${t('মূল্য (৳)','Amount (৳)')}</label><input id="pv2_Amount" readonly style="background:var(--bg);font-weight:700;"></div>
+      <button type="button" class="btn btn-primary" style="width:auto;" id="pv2_ConfirmLineBtn" title="${t('এই লাইনটা যোগ করুন','Add this line')}">✓</button>
+    </div>
+    <button type="button" class="btn btn-outline" style="width:auto;margin-top:4px;" id="pv2_ResetLineBtn">+ ${t('আরেকটা লাইন','Another line')}</button>
+
+    <h4 style="margin:20px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('লাইভ ভাউচার প্রিভিউ','Live Voucher Preview')}</h4>
+    <div id="pv2_PreviewWrap"></div>
+    <div style="margin-top:10px;font-size:15px;font-weight:700;text-align:right;">${t('মোট','Total')}: <span id="pv2_GrandTotal">0</span> ৳</div>
+  `;
 
   openModal({
     title: (isEdit ? t('সম্পাদনা — ','Edit — ') : t('নতুন — ','New — ')) + t('ক্রয় ভাউচার','Purchase Voucher'),
     bodyHtml: bodyHtml,
     wide: true,
     onSave: async function () {
-      const currentType = val('pv_Type');
-      const supplierId = val('pv_SupplierID');
-      if (!supplierId) throw new Error(t('সাপ্লায়ার বাছাই করা আবশ্যক।','Supplier is required.'));
+      const currentType = val('pv2_Type');
+      const isReturn = currentType === 'PurchaseReturn';
 
-      const unitMismatches = [];
-      const trackingMissing = [];
-      const lines = window.__pvLineRows.map(function (_, idx) {
-        const itemId = val('pv_ln_' + idx + '_item');
-        const item = window.__pvItemMap[itemId];
-        const qty = Number(val('pv_ln_' + idx + '_qty')) || 0;
-        const rate = Number(val('pv_ln_' + idx + '_rate')) || 0;
-        const pieces = Number(val('pv_ln_' + idx + '_pieces')) || 0;
-        const ratePiece = Number(val('pv_ln_' + idx + '_rateperpiece')) || 0;
-
-        // "ওজন + পিস" ট্র্যাকিং-ধরনের আইটেমে ওজন ও পিস দুটোই বাধ্যতামূলক —
-        // দাম সবসময় ওজনের উপর ভিত্তি করে হিসাব হয়, পিস শুধু স্টকে আলাদাভাবে জমা থাকার জন্য
-        if (item && item.TrackingType === 'WeightPieces' && itemId) {
-          if (!(qty > 0 && rate > 0 && pieces > 0)) {
-            trackingMissing.push(item.ItemName);
-          }
-          return { ItemID: itemId, Quantity: qty, Rate: rate, Pieces: pieces };
-        }
-
-        let finalQty = 0, finalRate = 0, usedMode = null;
-        if (qty > 0 && rate > 0) {
-          finalQty = qty; finalRate = rate; usedMode = 'Weight';
-        } else if (pieces > 0 && ratePiece > 0) {
-          usedMode = 'Piece';
-          // পিস দিয়ে হিসাব করা হলেও স্টক সবসময় কেজি-সমতুল্যেই জমা থাকে (সামঞ্জস্যের জন্য),
-          // Conversion Factor জানা না থাকলে পিস সংখ্যাটাই সরাসরি Quantity হিসেবে ব্যবহার হয়
-          const unit = item ? window.__pvUnitMap[item.UOMID] : null;
-          const kgPerPiece = Number(unit && unit.ConversionFactor) || 0;
-          if (kgPerPiece > 0) {
-            finalQty = pieces * kgPerPiece;
-            finalRate = finalQty > 0 ? (pieces * ratePiece) / finalQty : 0;
-          } else {
-            finalQty = pieces; finalRate = ratePiece;
-          }
-        }
-
-        if (item && item.UnitMode && usedMode && item.UnitMode !== usedMode) {
-          unitMismatches.push(item.ItemName);
-        }
-
-        return { ItemID: itemId, Quantity: finalQty, Rate: finalRate, Pieces: 0 };
-      }).filter(function (l) { return l.ItemID && l.Quantity > 0; });
-      if (lines.length === 0) throw new Error(t('অন্তত একটা লাইন আইটেম যোগ করুন।','Add at least one line item.'));
-
-      if (trackingMissing.length > 0) {
-        throw new Error(
-          t('এই আইটেমগুলো "ওজন + পিস" ধরনের — তাই ওজন, দর এবং পিস তিনটাই আবশ্যক: ', 'These items are tracked as "Weight + Pieces" — weight, rate and pieces are all required: ')
-          + trackingMissing.join(', ')
-        );
+      let supplierId;
+      if (val('pv2_SupplierType') === 'Cash') {
+        const cashName = val('pv2_CashName') || t('নগদ','Cash');
+        const newSupplier = await api('create', { sheet:'Suppliers', idField:'SupplierID', idPrefix:'SUP', requiredFields:['Name'],
+          data: { Name: cashName, CompanyName: cashName, Address: val('pv2_CashAddress'), Phone: val('pv2_CashMobile'), IsActive: 'TRUE' } });
+        supplierId = newSupplier.SupplierID;
+      } else {
+        supplierId = val('pv2_SupplierID');
       }
+      if (!supplierId) throw new Error(t('সাপ্লায়ার তথ্য আবশ্যক।','Supplier information is required.'));
 
-      if (unitMismatches.length > 0) {
-        const proceed = confirm(
-          t('এই আইটেমগুলো তাদের নির্ধারিত পদ্ধতির (কেজি/পিস) বাইরে ব্যবহার হয়েছে: ', 'These items were used outside their set method (weight/piece): ')
-          + unitMismatches.join(', ')
-          + '\n\n' + t('তবুও কি সেভ করবেন?', 'Save anyway?')
-        );
-        if (!proceed) return;
-      }
+      if (window.__pv2Lines.length === 0) throw new Error(t('অন্তত একটা লাইন আইটেম যোগ করুন (✓ চেপে কনফার্ম করুন)।','Add at least one line item (confirm with ✓).'));
 
       const common = {
         SupplierID: supplierId,
-        SupplierInvoiceNo: val('pv_SupplierInvoiceNo'),
-        SupplierInvoiceDate: val('pv_SupplierInvoiceDate') || null,
-        PurchaserID: currentUser ? currentUser.UserID : null // যিনি ভাউচারটা তৈরি করছেন, তিনিই ক্রয়কারী
+        SupplierInvoiceNo: val('pv2_SupplierInvoiceNo'),
+        SupplierInvoiceDate: val('pv2_SupplierInvoiceDate') || null,
+        PurchaserID: currentUser ? currentUser.UserID : null
       };
 
-      if (currentType === 'PurchaseInvoice') {
-        const warehouseId = val('pv_WarehouseID');
-        if (!warehouseId) throw new Error(t('গুদাম বাছাই করা আবশ্যক।','Warehouse is required.'));
-        const lineData = lines.map(function (l) { return Object.assign({}, l, { Amount: l.Quantity * l.Rate }); });
+      if (!isReturn) {
+        const warehouseId = window.__pv2Lines[0].warehouseId;
+        const lineData = window.__pv2Lines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, Rate: l.rate, Pieces: l.pieces || 0, Amount: l.amount }; });
         const totalAmount = lineData.reduce(function (s, l) { return s + (Number(l.Amount) || 0); }, 0);
-        const headerData = Object.assign({}, common, { InvoiceDate: val('pv_Date'), GRNID: val('pv_GRNID') || null, WarehouseID: warehouseId, TotalAmount: totalAmount });
+        const headerData = Object.assign({}, common, { InvoiceDate: val('pv2_Date'), GRNID: val('pv2_GRNID') || null, WarehouseID: warehouseId, TotalAmount: totalAmount });
         if (isEdit) {
           await api('updateDocument', { headerSheet:'PurchaseInvoice', idField:'PIID', linesSheet:'PI_Lines', lineIdField:'PIID', idValue: existingId, headerData: headerData, lines: lineData });
         } else {
           await api('createDocument', { headerSheet:'PurchaseInvoice', idField:'PIID', idPrefix:'PI', requiredFields:['SupplierID','WarehouseID'], linesSheet:'PI_Lines', lineIdField:'PIID', headerData: headerData, lines: lineData });
         }
       } else {
-        const grnId = val('pv_GRNID');
-        if (!grnId) throw new Error(t('ক্রয় ফেরতের জন্য GRN রেফারেন্স আবশ্যক (গুদাম বের করার জন্য)।','GRN reference is required for a purchase return (to determine the warehouse).'));
-        const headerData = Object.assign({}, common, { Date: val('pv_Date'), GRNID: grnId, Reason: val('pv_Reason') });
+        const grnId = val('pv2_GRNID');
+        if (!grnId) throw new Error(t('ক্রয় ফেরতের জন্য GRN রেফারেন্স আবশ্যক।','GRN reference is required for a purchase return.'));
+        const headerData = Object.assign({}, common, { Date: val('pv2_Date'), GRNID: grnId, Reason: val('pv2_Reason') });
+        const returnLineData = window.__pv2Lines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, Rate: l.rate, Pieces: l.pieces||0 }; });
         if (isEdit) {
-          await api('updateDocument', { headerSheet:'PurchaseReturn', idField:'PRetID', linesSheet:'PR_Return_Lines', lineIdField:'PRetID', idValue: existingId, headerData: headerData, lines: lines });
+          await api('updateDocument', { headerSheet:'PurchaseReturn', idField:'PRetID', linesSheet:'PR_Return_Lines', lineIdField:'PRetID', idValue: existingId, headerData: headerData, lines: returnLineData });
         } else {
-          await api('createDocument', { headerSheet:'PurchaseReturn', idField:'PRetID', idPrefix:'PRET', requiredFields:['SupplierID','GRNID'], linesSheet:'PR_Return_Lines', lineIdField:'PRetID', headerData: headerData, lines: lines });
+          await api('createDocument', { headerSheet:'PurchaseReturn', idField:'PRetID', idPrefix:'PRET', requiredFields:['SupplierID','GRNID'], linesSheet:'PR_Return_Lines', lineIdField:'PRetID', headerData: headerData, lines: returnLineData });
         }
       }
 
@@ -3765,104 +3753,145 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     }
   });
 
-  function toggleTypeFields() {
-    const isReturn = val('pv_Type') === 'PurchaseReturn';
-    document.getElementById('pv_GRNField').style.display = isReturn ? '' : 'none';
-    document.getElementById('pv_WarehouseField').style.display = isReturn ? 'none' : '';
-    document.getElementById('pv_ReasonField').style.display = isReturn ? '' : 'none';
+  function toggleType() {
+    const isReturn = val('pv2_Type') === 'PurchaseReturn';
+    document.getElementById('pv2_GRNField').style.display = isReturn ? '' : 'none';
+    document.getElementById('pv2_ReasonField').style.display = isReturn ? '' : 'none';
   }
-  document.getElementById('pv_Type').addEventListener('change', toggleTypeFields);
-  toggleTypeFields();
+  document.getElementById('pv2_Type').addEventListener('change', toggleType);
+  toggleType();
 
-  function onPvLineItemChange(idx) {
-    const itemId = val('pv_ln_' + idx + '_item');
-    const item = window.__pvItemMap[itemId];
-    if (item) {
-      const groupSel = document.getElementById('pv_ln_' + idx + '_group');
-      const catSel = document.getElementById('pv_ln_' + idx + '_cat');
-      const unitEl = document.getElementById('pv_ln_' + idx + '_unit');
-      if (groupSel && item.GroupID) groupSel.value = item.GroupID;
-      if (catSel && item.CategoryID) catSel.value = item.CategoryID;
-      if (unitEl) unitEl.textContent = (window.__pvUnitMap[item.UOMID] && window.__pvUnitMap[item.UOMID].UOMName) || '—';
-      const rateInput = document.getElementById('pv_ln_' + idx + '_rate');
-      if (rateInput && !rateInput.value && item.StandardCost) rateInput.value = item.StandardCost;
-    }
-    recalcPvLine(idx);
+  function toggleSupplierType() {
+    const isCash = val('pv2_SupplierType') === 'Cash';
+    document.getElementById('pv2_CashSupplierCard').style.display = isCash ? '' : 'none';
+    document.getElementById('pv2_ListedSupplierField').style.display = isCash ? 'none' : '';
   }
-  window.updatePvLineItem = onPvLineItemChange;
+  document.getElementById('pv2_SupplierType').addEventListener('change', toggleSupplierType);
+  toggleSupplierType();
 
-  function recalcPvLine(idx) {
-    const itemId = val('pv_ln_' + idx + '_item');
-    const item = window.__pvItemMap[itemId];
-    const qty = Number(val('pv_ln_' + idx + '_qty')) || 0;
-    const rate = Number(val('pv_ln_' + idx + '_rate')) || 0;
+  function refreshItemDropdown() {
+    const groupChecked = document.getElementById('pv2_GroupCheck').checked;
+    const catChecked = document.getElementById('pv2_CatCheck').checked;
+    const groupVal = val('pv2_GroupSelect'), catVal = val('pv2_CatSelect');
+    let list = window.__pv2Items;
+    if (groupChecked && groupVal) list = list.filter(function (i) { return i.GroupID === groupVal; });
+    if (catChecked && catVal) list = list.filter(function (i) { return i.CategoryID === catVal; });
+    const sel = document.getElementById('pv2_ItemID');
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">—</option>' + list.map(function (i) { return `<option value="${attr(i.ItemID)}">${escapeHtml(i.ItemName)}</option>`; }).join('');
+    if (list.some(function (i) { return i.ItemID === prev; })) sel.value = prev;
+  }
+  document.getElementById('pv2_GroupCheck').addEventListener('change', function () {
+    document.getElementById('pv2_GroupSelect').disabled = !this.checked;
+    refreshItemDropdown();
+  });
+  document.getElementById('pv2_GroupSelect').addEventListener('change', refreshItemDropdown);
+  document.getElementById('pv2_CatCheck').addEventListener('change', function () {
+    document.getElementById('pv2_CatSelect').disabled = !this.checked;
+    refreshItemDropdown();
+  });
+  document.getElementById('pv2_CatSelect').addEventListener('change', refreshItemDropdown);
+  refreshItemDropdown();
 
-    const piecesInput = document.getElementById('pv_ln_' + idx + '_pieces');
-    const ratePieceInput = document.getElementById('pv_ln_' + idx + '_rateperpiece');
-    const amtEl = document.getElementById('pv_ln_' + idx + '_amt');
-    if (!piecesInput || !ratePieceInput || !amtEl) return;
-
-    const pieces = Number(piecesInput.value) || 0;
-    let value = 0;
-
-    if (qty > 0 && rate > 0) {
-      // ওজন পাশে পরিমাণ+দর জানা থাকলে সেটাই আসল মূল্য নির্ধারণ করে —
-      // পিসের দর তখন সবসময় লাইভ হিসাব হবে (ব্যবহারকারী হাতে বদলাতে পারবেন না)
-      value = qty * rate;
-      if (pieces > 0) {
-        ratePieceInput.value = (value / pieces).toFixed(2);
-      } else {
-        ratePieceInput.value = '';
+  async function onItemOrWarehouseChange() {
+    const itemId = val('pv2_ItemID');
+    const warehouseId = val('pv2_WarehouseID');
+    const item = window.__pv2ItemMap[itemId];
+    document.getElementById('pv2_Unit').value = item ? ((window.__pv2UnitMap[item.UOMID]||{}).UOMName || '') : '';
+    document.getElementById('pv2_PiecesField').style.display = (item && item.TrackingType === 'WeightPieces') ? '' : 'none';
+    document.getElementById('pv2_StockRate').value = item ? (Number(item.StandardCost)||0).toFixed(2) : '';
+    if (item && warehouseId) {
+      const { data } = await supabaseClient.from('current_stock').select('QtyOnHand,QtyPieces').eq('ItemID', itemId).eq('WarehouseID', warehouseId).maybeSingle();
+      const stockQtyEl = document.getElementById('pv2_StockQty');
+      if (stockQtyEl) {
+        stockQtyEl.value = data
+          ? (Number(data.QtyOnHand)||0) + ' কেজি' + ((item.TrackingType==='WeightPieces') ? ' / ' + (Number(data.QtyPieces)||0) + ' পিস' : '')
+          : t('কোনো স্টক নেই','No stock');
       }
-      ratePieceInput.readOnly = true;
-      ratePieceInput.style.background = 'var(--bg)';
     } else {
-      // ওজন পাশে তথ্য নেই — তাহলে পিস+তার দর থেকেই সরাসরি মূল্য নির্ধারিত হবে
-      ratePieceInput.readOnly = false;
-      ratePieceInput.style.background = '';
-      const ratePiece = Number(ratePieceInput.value) || 0;
-      if (pieces > 0 && ratePiece > 0) {
-        value = pieces * ratePiece;
-      }
+      const stockQtyEl = document.getElementById('pv2_StockQty');
+      if (stockQtyEl) stockQtyEl.value = '';
     }
-
-    amtEl.textContent = value.toFixed(2);
+    recalcAmount();
   }
-  window.updatePvLine = recalcPvLine;
+  document.getElementById('pv2_ItemID').addEventListener('change', onItemOrWarehouseChange);
+  document.getElementById('pv2_WarehouseID').addEventListener('change', onItemOrWarehouseChange);
 
-  function renderPvLines() {
-    const wrap = document.getElementById('pv_LinesWrap');
+  function recalcAmount() {
+    const qty = Number(val('pv2_Qty')) || 0;
+    const rate = Number(val('pv2_Rate')) || 0;
+    document.getElementById('pv2_Amount').value = Math.round(qty * rate);
+  }
+  document.getElementById('pv2_Qty').addEventListener('input', recalcAmount);
+  document.getElementById('pv2_Rate').addEventListener('input', recalcAmount);
+
+  function resetLineEntry() {
+    document.getElementById('pv2_GroupCheck').checked = false;
+    document.getElementById('pv2_GroupSelect').disabled = true; document.getElementById('pv2_GroupSelect').value = '';
+    document.getElementById('pv2_CatCheck').checked = false;
+    document.getElementById('pv2_CatSelect').disabled = true; document.getElementById('pv2_CatSelect').value = '';
+    refreshItemDropdown();
+    document.getElementById('pv2_ItemID').value = '';
+    document.getElementById('pv2_StockQty').value = '';
+    document.getElementById('pv2_Qty').value = '';
+    document.getElementById('pv2_PiecesField').style.display = 'none';
+    document.getElementById('pv2_Pieces').value = '';
+    document.getElementById('pv2_StockRate').value = '';
+    document.getElementById('pv2_Rate').value = '';
+    document.getElementById('pv2_Unit').value = '';
+    document.getElementById('pv2_Amount').value = '';
+  }
+  document.getElementById('pv2_ResetLineBtn').addEventListener('click', resetLineEntry);
+
+  function renderPv2Preview() {
+    const wrap = document.getElementById('pv2_PreviewWrap');
     if (!wrap) return;
-    const headers = [['আইটেম','Item'],['গ্রুপ','Group'],['ক্যাটাগরি','Category'],['পরিমাণ','Quantity'],['একক','Unit'],['দর','Rate'],['মূল্য','Value']];
-    const headCells = headers.map(function (h) { return `<th>${t(h[0], h[1])}</th>`; }).join('') + '<th></th>';
-    const rows = window.__pvLineRows.map(function (row, idx) {
-      const item = row.itemId ? window.__pvItemMap[row.itemId] : null;
-      const groupOpts = window.__pvGroups.map(function (g) { return `<option value="${attr(g.GroupID)}" ${item&&item.GroupID===g.GroupID?'selected':''}>${escapeHtml(g.GroupName)}</option>`; }).join('');
-      const catOpts = window.__pvCategories.map(function (c) { return `<option value="${attr(c.CategoryID)}" ${item&&item.CategoryID===c.CategoryID?'selected':''}>${escapeHtml(c.CategoryName)}</option>`; }).join('');
-      const unitLabel = item && window.__pvUnitMap[item.UOMID] ? window.__pvUnitMap[item.UOMID].UOMName : '—';
-      return `
-        <tr style="border-top:2px solid var(--border);">
-          <td rowspan="2"><select id="pv_ln_${idx}_item" onchange="updatePvLineItem(${idx})"><option value="">—</option>${opts(window.__pvItems, 'ItemID', 'ItemName', row.itemId)}</select></td>
-          <td rowspan="2"><select id="pv_ln_${idx}_group" style="min-width:90px;"><option value="">—</option>${groupOpts}</select></td>
-          <td rowspan="2"><select id="pv_ln_${idx}_cat" style="min-width:90px;"><option value="">—</option>${catOpts}</select></td>
-          <td><input id="pv_ln_${idx}_qty" type="number" step="any" value="${row.qty||''}" oninput="updatePvLine(${idx})" style="width:80px;"></td>
-          <td id="pv_ln_${idx}_unit" style="color:var(--text-muted);">${escapeHtml(unitLabel)}</td>
-          <td><input id="pv_ln_${idx}_rate" type="number" step="any" value="${row.rate||''}" oninput="updatePvLine(${idx})" style="width:80px;"></td>
-          <td rowspan="2" id="pv_ln_${idx}_amt" style="font-weight:600;">0.00</td>
-          <td rowspan="2"><button type="button" onclick="window.__removePvLine(${idx})">✕</button></td>
-        </tr>
-        <tr style="background:var(--bg);">
-          <td style="border-top:1px dashed var(--border);"><input id="pv_ln_${idx}_pieces" type="number" step="any" value="${row.pieces||''}" oninput="updatePvLine(${idx})" style="width:80px;"></td>
-          <td style="border-top:1px dashed var(--border);color:var(--text-muted);font-style:italic;">${t('পিস','pcs')}</td>
-          <td style="border-top:1px dashed var(--border);"><input id="pv_ln_${idx}_rateperpiece" type="number" step="any" oninput="updatePvLine(${idx})" style="width:80px;"></td>
+    if (window.__pv2Lines.length === 0) {
+      wrap.innerHTML = `<div class="empty-state">${t('এখনো কোনো লাইন যোগ হয়নি।','No lines added yet.')}</div>`;
+    } else {
+      const rows = window.__pv2Lines.map(function (l, i) {
+        const item = window.__pv2ItemMap[l.itemId] || {};
+        const wh = window.__pv2Warehouses.find(function (w) { return w.WarehouseID === l.warehouseId; });
+        return `<tr>
+          <td>${escapeHtml(item.ItemName || l.itemId)}</td>
+          <td>${escapeHtml(wh ? wh.WarehouseName : '')}</td>
+          <td style="text-align:right;">${l.qty}</td>
+          <td style="text-align:right;">${l.rate}</td>
+          <td style="text-align:right;">${l.pieces || '—'}</td>
+          <td style="text-align:right;"><b>${l.amount}</b></td>
+          <td><button type="button" onclick="window.__pv2RemoveLine(${i})">✕</button></td>
         </tr>`;
-    }).join('');
-    wrap.innerHTML = `<table class="data-table"><thead><tr>${headCells}</tr></thead><tbody>${rows}</tbody></table>`;
-    window.__pvLineRows.forEach(function (_, idx) { recalcPvLine(idx); });
+      }).join('');
+      wrap.innerHTML = `<table class="data-table"><thead><tr><th>${t('আইটেম','Item')}</th><th>${t('গুদাম','Warehouse')}</th><th>${t('পরিমাণ','Qty')}</th><th>${t('দর','Rate')}</th><th>${t('পিস','Pieces')}</th><th>${t('মূল্য','Amount')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+    }
+    const total = window.__pv2Lines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
+    const totalEl = document.getElementById('pv2_GrandTotal');
+    if (totalEl) totalEl.textContent = total;
   }
-  window.__removePvLine = function (idx) { window.__pvLineRows.splice(idx, 1); renderPvLines(); };
-  document.getElementById('pv_AddLineBtn').addEventListener('click', function () { window.__pvLineRows.push({}); renderPvLines(); });
-  renderPvLines();
+  window.__pv2RemoveLine = function (i) { window.__pv2Lines.splice(i, 1); renderPv2Preview(); };
+
+  document.getElementById('pv2_ConfirmLineBtn').addEventListener('click', function () {
+    const itemId = val('pv2_ItemID');
+    const warehouseId = val('pv2_WarehouseID');
+    const item = window.__pv2ItemMap[itemId];
+    const qty = Number(val('pv2_Qty')) || 0;
+    const rate = Number(val('pv2_Rate')) || 0;
+    const pieces = Number(val('pv2_Pieces')) || 0;
+
+    if (!itemId) { showToast(t('আইটেম বাছাই করুন।','Select an item.'), 'error'); return; }
+    if (!warehouseId) { showToast(t('গুদাম বাছাই করুন।','Select a warehouse.'), 'error'); return; }
+    if (!(qty > 0 && rate > 0)) { showToast(t('পরিমাণ ও দর দিন।','Enter quantity and rate.'), 'error'); return; }
+    if (item && item.TrackingType === 'WeightPieces' && pieces <= 0) {
+      showToast(t('এই আইটেম "ওজন + পিস" ধরনের — পিস সংখ্যাও দিন।','This item is "Weight + Pieces" — enter pieces too.'), 'error');
+      return;
+    }
+    window.__pv2Lines.push({ itemId: itemId, warehouseId: warehouseId, qty: qty, rate: rate, pieces: pieces, amount: Math.round(qty * rate) });
+    renderPv2Preview();
+    resetLineEntry();
+    showToast(t('লাইন যোগ হয়েছে ✅','Line added ✅'), 'success');
+  });
+
+  renderPv2Preview();
 }
 
 /* ============================================================
