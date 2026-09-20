@@ -1764,187 +1764,262 @@ async function deleteItemRecord(itemId) {
 }
 
 async function openItemForm(existing) {
-  itemOpeningKgPerPiece = null; // প্রতিবার নতুন করে ফর্ম খুললে আগের আইটেমের অনুপাত যেন বহন না হয়
   const itemFormData = await cachedListMultiple(['ItemGroups', 'Categories', 'UOM', 'Warehouses']);
-  const groups = itemFormData.ItemGroups, categories = itemFormData.Categories, units = itemFormData.UOM, warehouses = itemFormData.Warehouses;
-  const isEdit = !!existing;
-  const rec = existing || {};
+  const groups = itemFormData.ItemGroups.filter(function (g) { return g.Status !== 'Deleted'; });
+  const categories = itemFormData.Categories.filter(function (c) { return c.Status !== 'Deleted'; });
+  const units = itemFormData.UOM.filter(function (u) { return u.Status !== 'Deleted'; });
+  const warehouses = itemFormData.Warehouses.filter(function (w) { return w.Status !== 'Deleted'; });
   window.__itemFormUnits = units;
 
+  const isEdit = !!existing;
+  let rec = existing || {};
+  let currentItemId = isEdit ? rec.ItemID : null; // নতুন আইটেম হলে সেকশন ১ সেভ হওয়ার আগ পর্যন্ত এটা খালি থাকে
+
+  // ক্রম — শুধু তথ্যের জন্য, তালিকায় এই আইটেমের অবস্থান কত নম্বরে সেটা দেখানো
+  let serialNo = t('নতুন','New');
+  if (isEdit) {
+    try {
+      const allItems = await api('list', { sheet:'Items' });
+      const activeItems = allItems.filter(function (i) { return i.Status !== 'Deleted'; });
+      const idx = activeItems.findIndex(function (i) { return i.ItemID === rec.ItemID; });
+      if (idx >= 0) serialNo = String(idx + 1);
+    } catch (e) {}
+  }
+
   function opts(list, idF, labelF, selected) {
-    return '<option value="">—</option>' + list.filter(function (x) { return x.Status !== 'Deleted'; })
-      .map(function (x) { return `<option value="${attr(x[idF])}" ${selected===x[idF]?'selected':''}>${escapeHtml(x[labelF])}</option>`; }).join('');
+    return '<option value="">—</option>' + list.map(function (x) { return `<option value="${attr(x[idF])}" ${selected===x[idF]?'selected':''}>${escapeHtml(x[labelF])}</option>`; }).join('');
   }
 
   const bodyHtml = `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
-      <div class="field"><label>${t('কোড','Code')}</label><input id="it_Code" value="${isEdit ? attr(rec.ItemID) : t('অটো তৈরি হবে','Will be auto-generated')}" readonly style="background:var(--bg);"></div>
-      <div class="field"><label>${t('নাম','Name')}</label><input id="it_ItemName" value="${attr(rec.ItemName)}"></div>
-      <div class="field"><label>${t('গ্রুপ','Group')}</label><select id="it_GroupID">${opts(groups, 'GroupID', 'GroupName', rec.GroupID)}</select></div>
-      <div class="field"><label>${t('ক্যাটাগরি','Category')}</label><select id="it_CategoryID">${opts(categories, 'CategoryID', 'CategoryName', rec.CategoryID)}</select></div>
-      <div class="field"><label>${t('একক','Unit')}</label><select id="it_UOMID" onchange="updateItemUnitEcho()">${opts(units, 'UOMID', 'UOMName', rec.UOMID)}</select></div>
-      <div class="field"><label>${t('ক্রয়/বিক্রয় পদ্ধতি','Purchase/Sale Method')}</label><select id="it_UnitMode">
-          <option value="Weight" ${(rec.UnitMode||'Weight')==='Weight'?'selected':''}>${t('ওজন (কেজি)','By Weight (kg)')}</option>
-          <option value="Piece" ${rec.UnitMode==='Piece'?'selected':''}>${t('পিস','By Piece')}</option>
-        </select></div>
-      <div class="field"><label>${t('স্টক ট্র্যাকিং ধরন','Stock Tracking Type')}</label><select id="it_TrackingType">
-          <option value="Weight" ${(rec.TrackingType||'Weight')==='Weight'?'selected':''}>${t('শুধু ওজন','Weight Only')}</option>
-          <option value="WeightPieces" ${rec.TrackingType==='WeightPieces'?'selected':''}>${t('ওজন + পিস (তৈরি পণ্য)','Weight + Pieces (Finished Goods)')}</option>
-        </select></div>
-      <div class="field"><label>${t('ওয়ারহাউজ','Warehouse')}</label><select id="it_WarehouseID">${opts(warehouses, 'WarehouseID', 'WarehouseName', '')}</select></div>
-    </div>
-    <p style="font-size:11.5px;color:var(--text-muted);margin:8px 0 0;">${t('"ওজন + পিস" বাছাই করলে এই আইটেমের ক্রয়/প্রসেসিং আউটপুট এন্ট্রিতে সবসময় ওজন ও পিস দুটোই দিতে হবে — স্টকে দুটোই আলাদাভাবে জমা থাকবে, আর গড় ওজন/পিস সবসময় স্বয়ংক্রিয়ভাবে হিসাব হবে।','Choosing "Weight + Pieces" means purchase/processing-output entries for this item will always require both weight and pieces — stock keeps both separately, and the average weight/piece is always computed live.')}</p>
-
-    <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border);">
-      <table class="data-table">
-        <thead><tr><th>${t('পরিমাণ','Quantity')}</th><th>${t('একক','Unit')}</th><th>${t('দর','Rate')}</th><th>${t('মূল্য','Value')}</th></tr></thead>
-        <tbody>
-          <tr>
-            <td><input id="it_OpQty" type="number" step="any" value="${attr(rec.OpeningStock)}" oninput="updateItemOpeningFromKg()" style="width:90px;"></td>
-            <td id="it_OpUnitEcho" style="color:var(--text-muted);">—</td>
-            <td><input id="it_OpRate" type="number" step="any" value="${attr(rec.StandardCost)}" oninput="updateItemOpeningFromKg()" style="width:90px;"></td>
-            <td rowspan="2"><input id="it_OpValue" value="0.00" readonly style="background:var(--bg);font-weight:600;border:none;width:100%;"></td>
-          </tr>
-          <tr style="background:var(--bg);">
-            <td style="border-top:1px dashed var(--border);"><input id="it_OpPieces" type="number" step="any" oninput="updateItemOpeningFromPieces()" style="width:90px;"></td>
-            <td style="border-top:1px dashed var(--border);color:var(--text-muted);font-style:italic;">${t('পিস','pcs')}</td>
-            <td style="border-top:1px dashed var(--border);"><input id="it_OpRatePerPiece" type="number" step="any" oninput="updateItemOpeningFromPieceRate()" style="width:90px;"></td>
-          </tr>
-        </tbody>
-      </table>
-      <p id="it_OpRatioHint" style="font-size:11.5px;color:var(--text-muted);margin:8px 0 0;">${t('প্রথমে পরিমাণ ও পিস দুটোই একসাথে দিন, তাহলে অনুপাত স্থির হয়ে যাবে।','Enter both Quantity and Pieces together once, to establish the ratio.')}</p>
-      ${isEdit ? `<p style="font-size:12px;color:var(--danger);margin:8px 0 0;line-height:1.7;">⚠ ${t('এখানে বদলালে শুধু আইটেমের তথ্য (রেফারেন্স সংখ্যা) আপডেট হবে — বাস্তব স্টক ব্যালেন্স/স্টক লেজারে এর কোনো এন্ট্রি পড়বে না। প্রকৃত স্টক ঠিক করতে Inventory → Stock Adjustment ব্যবহার করুন।','Changing this here only updates the reference numbers on the item — no entry is posted to the actual stock balance or Stock Ledger. Use Inventory → Stock Adjustment to correct real stock.')}</p>` : ''}
-    </div>
-
-    <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);max-width:240px;">
-      <div class="field"><label>${t('স্ট্যাটাস','Status')}</label>
-        <select id="it_IsActive">
-          <option value="TRUE" ${!isEdit || isTrue(rec.IsActive) ? 'selected' : ''}>${t('সক্রিয়','Active')}</option>
-          <option value="FALSE" ${isEdit && !isTrue(rec.IsActive) ? 'selected' : ''}>${t('নিষ্ক্রিয়','Inactive')}</option>
-        </select>
+    <!-- ========== সেকশন ১ — মূল তথ্য ========== -->
+    <div style="border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px;">
+      <h4 style="margin:0 0 12px;font-size:13px;color:var(--text-muted);text-transform:uppercase;">${t('১) মূল তথ্য','1) Basic Info')}</h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div class="field"><label>${t('ক্রম','Serial No')}</label><input id="it_Serial" value="${attr(serialNo)}" readonly style="background:var(--bg);"></div>
+        <div class="field"><label>${t('কোড','Code')}</label><input id="it_Code" value="${isEdit ? attr(rec.ItemID) : t('সেভ করলে তৈরি হবে','Generated on save')}" readonly style="background:var(--bg);"></div>
+        <div class="field"><label>${t('নাম','Name')}</label><input id="it_ItemName" value="${attr(rec.ItemName)}"></div>
+        <div class="field"><label>${t('গ্রুপ','Group')}</label><select id="it_GroupID">${opts(groups, 'GroupID', 'GroupName', rec.GroupID)}</select></div>
+        <div class="field"><label>${t('ক্যাটাগরি','Category')}</label><select id="it_CategoryID">${opts(categories, 'CategoryID', 'CategoryName', rec.CategoryID)}</select></div>
+        <div class="field"><label>${t('একক','Unit')}</label><select id="it_UOMID" onchange="updateItemUnitEcho()">${opts(units, 'UOMID', 'UOMName', rec.UOMID)}</select></div>
+        <div class="field"><label>${t('স্টক ট্র্যাকিং ধরন','Stock Tracking Type')}</label><select id="it_TrackingType">
+            <option value="Weight" ${(rec.TrackingType||'Weight')==='Weight'?'selected':''}>${t('শুধু ওজন','Weight Only')}</option>
+            <option value="WeightPieces" ${rec.TrackingType==='WeightPieces'?'selected':''}>${t('ওজন + পিস','Weight + Pieces')}</option>
+          </select></div>
+        <div class="field"><label>${t('অবস্থা','Status')}</label><select id="it_IsActive">
+            <option value="TRUE" ${!isEdit || isTrue(rec.IsActive) ? 'selected' : ''}>${t('সক্রিয়','Active')}</option>
+            <option value="FALSE" ${isEdit && !isTrue(rec.IsActive) ? 'selected' : ''}>${t('নিষ্ক্রিয়','Inactive')}</option>
+          </select></div>
       </div>
-    </div>`;
+      <button type="button" class="btn btn-primary" style="width:auto;margin-top:12px;" id="it_SaveSection1">${t('মূল তথ্য সেভ করুন','Save Basic Info')}</button>
+      <span id="it_Section1Status" style="margin-left:10px;font-size:12px;color:var(--success);"></span>
+    </div>
+
+    <!-- ========== সেকশন ২ — প্রারম্ভিক মজুদ ========== -->
+    <div id="it_Section2" style="border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px;${currentItemId?'':'opacity:.5;'}">
+      <h4 style="margin:0 0 12px;font-size:13px;color:var(--text-muted);text-transform:uppercase;">${t('২) প্রারম্ভিক মজুদ বিবরণী','2) Opening Stock Details')}</h4>
+      ${!currentItemId ? `<p style="font-size:12px;color:var(--text-muted);margin:0 0 10px;">${t('প্রথমে "মূল তথ্য" সেভ করুন — তারপর এই সেকশন ব্যবহার করা যাবে।','Save "Basic Info" first — then this section unlocks.')}</p>` : ''}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div class="field"><label>${t('গ্রুপ','Group')}</label><input id="it_Op_GroupEcho" readonly style="background:var(--bg);"></div>
+        <div class="field"><label>${t('ক্যাটাগরি','Category')}</label><input id="it_Op_CatEcho" readonly style="background:var(--bg);"></div>
+        <div class="field"><label>${t('পণ্য','Item')}</label><input id="it_Op_ItemEcho" readonly style="background:var(--bg);"></div>
+        <div class="field"><label>${t('ওয়ারহাউজ','Warehouse')}</label><select id="it_Op_WarehouseID" ${currentItemId?'':'disabled'}>${opts(warehouses, 'WarehouseID', 'WarehouseName', '')}</select></div>
+        <div class="field"><label>${t('পরিমাণ','Quantity')}</label><input id="it_Op_Qty" type="number" step="any" ${currentItemId?'':'disabled'}></div>
+        <div class="field" id="it_Op_PiecesField" style="display:none;"><label>${t('পিস','Pieces')}</label><input id="it_Op_Pieces" type="number" step="any"></div>
+        <div class="field"><label>${t('দর','Rate')}</label><input id="it_Op_Rate" type="number" step="any" ${currentItemId?'':'disabled'}></div>
+        <div class="field"><label>${t('মূল্য','Value')}</label><input id="it_Op_Value" readonly style="background:var(--bg);font-weight:600;"></div>
+      </div>
+      <button type="button" class="btn btn-primary" style="width:auto;margin-top:12px;" id="it_SaveSection2" ${currentItemId?'':'disabled'}>${t('প্রারম্ভিক মজুদ সেভ করুন','Save Opening Stock')}</button>
+      <span id="it_Section2Status" style="margin-left:10px;font-size:12px;color:var(--success);"></span>
+    </div>
+
+    <!-- ========== সেকশন ৩ — আদর্শ ক্রয় দর ========== -->
+    <div id="it_Section3" style="border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px;${currentItemId?'':'opacity:.5;'}">
+      <h4 style="margin:0 0 12px;font-size:13px;color:var(--text-muted);text-transform:uppercase;">${t('৩) আদর্শ ক্রয় দর','3) Standard Purchase Rate')}</h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;">
+        <div class="field"><label>${t('দর','Rate')}</label><input id="it_StdPurchaseRate" type="number" step="any" value="${attr(rec.StandardCost)}" ${currentItemId?'':'disabled'}></div>
+        <div class="field"><label>${t('একক','Unit')}</label><input id="it_StdPurchaseUnitEcho" readonly style="background:var(--bg);"></div>
+        <div class="field"><label>${t('তারিখ','Date')}</label><input type="date" id="it_StdPurchaseDate" value="${attr(rec.StandardCostDate) || new Date().toISOString().slice(0,10)}" ${currentItemId?'':'disabled'}></div>
+      </div>
+      <button type="button" class="btn btn-primary" style="width:auto;margin-top:12px;" id="it_SaveSection3" ${currentItemId?'':'disabled'}>${t('ক্রয় দর সেভ করুন','Save Purchase Rate')}</button>
+      <span id="it_Section3Status" style="margin-left:10px;font-size:12px;color:var(--success);"></span>
+    </div>
+
+    <!-- ========== সেকশন ৪ — আদর্শ বিক্রয় দর ========== -->
+    <div id="it_Section4" style="border:1px solid var(--border);border-radius:10px;padding:16px;${currentItemId?'':'opacity:.5;'}">
+      <h4 style="margin:0 0 12px;font-size:13px;color:var(--text-muted);text-transform:uppercase;">${t('৪) আদর্শ বিক্রয় দর','4) Standard Sales Rate')}</h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;">
+        <div class="field"><label>${t('দর','Rate')}</label><input id="it_StdSalesRate" type="number" step="any" value="${attr(rec.SalesPrice)}" ${currentItemId?'':'disabled'}></div>
+        <div class="field"><label>${t('একক','Unit')}</label><input id="it_StdSalesUnitEcho" readonly style="background:var(--bg);"></div>
+        <div class="field"><label>${t('তারিখ','Date')}</label><input type="date" id="it_StdSalesDate" value="${attr(rec.SalesPriceDate) || new Date().toISOString().slice(0,10)}" ${currentItemId?'':'disabled'}></div>
+      </div>
+      <button type="button" class="btn btn-primary" style="width:auto;margin-top:12px;" id="it_SaveSection4" ${currentItemId?'':'disabled'}>${t('বিক্রয় দর সেভ করুন','Save Sales Rate')}</button>
+      <span id="it_Section4Status" style="margin-left:10px;font-size:12px;color:var(--success);"></span>
+    </div>
+  `;
 
   openModal({
     title: (isEdit ? t('সম্পাদনা — ','Edit — ') : t('নতুন — ','New — ')) + t('আইটেম','Item'),
     bodyHtml: bodyHtml,
-    onSave: async function () {
-      const name = val('it_ItemName');
-      if (!name) throw new Error(t('নাম আবশ্যক।','Name is required.'));
+    wide: true,
+    onSave: null
+  });
+  // এই ফর্মের প্রতিটা সেকশনের নিজস্ব সেভ বাটন আছে, তাই মোডালের সাধারণ
+  // "সেভ করুন" বাটনটা এখানে লুকিয়ে রাখা হচ্ছে (দরকার নেই)
+  const globalSaveBtn = document.getElementById('modalSaveBtn');
+  if (globalSaveBtn) globalSaveBtn.style.display = 'none';
+  document.getElementById('modalCloseBtn').addEventListener('click', function () { if (globalSaveBtn) globalSaveBtn.style.display = ''; }, { once: true });
+  document.getElementById('modalCancelBtn').addEventListener('click', function () { if (globalSaveBtn) globalSaveBtn.style.display = ''; }, { once: true });
 
-      const openQtyCheck = Number(val('it_OpQty')) || 0;
-      const openPiecesCheck = Number(val('it_OpPieces')) || 0;
-      if (val('it_TrackingType') === 'WeightPieces' && openQtyCheck > 0 && openPiecesCheck <= 0) {
-        throw new Error(t('এই আইটেম "ওজন + পিস" ধরনের — ওপেনিং স্টকে ওজন দিলে পিস সংখ্যাও (নিচের সারিতে) দেওয়া আবশ্যক।', 'This item is tracked as "Weight + Pieces" — if you enter an opening weight, you must also enter the pieces count (bottom row).'));
-      }
+  function refreshUnitEchoes() {
+    const uomId = val('it_UOMID');
+    const unit = window.__itemFormUnits.find(function (u) { return u.UOMID === uomId; });
+    const label = unit ? unit.UOMName : '—';
+    ['it_StdPurchaseUnitEcho', 'it_StdSalesUnitEcho'].forEach(function (id) {
+      const el = document.getElementById(id);
+      if (el) el.value = label;
+    });
+  }
+  window.updateItemUnitEcho = refreshUnitEchoes;
+  refreshUnitEchoes();
 
+  function refreshOpeningEchoes() {
+    const groupSel = document.getElementById('it_GroupID');
+    const catSel = document.getElementById('it_CategoryID');
+    const nameInput = document.getElementById('it_ItemName');
+    document.getElementById('it_Op_GroupEcho').value = groupSel.options[groupSel.selectedIndex] ? groupSel.options[groupSel.selectedIndex].text : '';
+    document.getElementById('it_Op_CatEcho').value = catSel.options[catSel.selectedIndex] ? catSel.options[catSel.selectedIndex].text : '';
+    document.getElementById('it_Op_ItemEcho').value = nameInput.value;
+    const trackingType = val('it_TrackingType');
+    document.getElementById('it_Op_PiecesField').style.display = trackingType === 'WeightPieces' ? '' : 'none';
+  }
+  document.getElementById('it_GroupID').addEventListener('change', refreshOpeningEchoes);
+  document.getElementById('it_CategoryID').addEventListener('change', refreshOpeningEchoes);
+  document.getElementById('it_ItemName').addEventListener('input', refreshOpeningEchoes);
+  document.getElementById('it_TrackingType').addEventListener('change', refreshOpeningEchoes);
+  refreshOpeningEchoes();
+
+  function recalcOpeningValue() {
+    const qty = Number(val('it_Op_Qty')) || 0;
+    const rate = Number(val('it_Op_Rate')) || 0;
+    document.getElementById('it_Op_Value').value = (qty * rate).toFixed(2);
+  }
+  document.getElementById('it_Op_Qty').addEventListener('input', recalcOpeningValue);
+  document.getElementById('it_Op_Rate').addEventListener('input', recalcOpeningValue);
+
+  function unlockSections() {
+    ['it_Section2', 'it_Section3', 'it_Section4'].forEach(function (id) { document.getElementById(id).style.opacity = '1'; });
+    document.getElementById('it_Op_WarehouseID').disabled = false;
+    document.getElementById('it_Op_Qty').disabled = false;
+    document.getElementById('it_Op_Rate').disabled = false;
+    document.getElementById('it_SaveSection2').disabled = false;
+    document.getElementById('it_StdPurchaseRate').disabled = false;
+    document.getElementById('it_StdPurchaseDate').disabled = false;
+    document.getElementById('it_SaveSection3').disabled = false;
+    document.getElementById('it_StdSalesRate').disabled = false;
+    document.getElementById('it_StdSalesDate').disabled = false;
+    document.getElementById('it_SaveSection4').disabled = false;
+    const p2 = document.querySelector('#it_Section2 p');
+    if (p2) p2.remove();
+  }
+
+  // ---- সেকশন ১: মূল তথ্য সেভ ----
+  document.getElementById('it_SaveSection1').addEventListener('click', async function () {
+    const btn = this; const statusEl = document.getElementById('it_Section1Status');
+    const name = val('it_ItemName');
+    if (!name) { showToast(t('নাম আবশ্যক।','Name is required.'), 'error'); return; }
+    btn.disabled = true; statusEl.textContent = t('সেভ হচ্ছে...','Saving...');
+    try {
       const data = {
-        ItemName: name, GroupID: val('it_GroupID') || null, CategoryID: val('it_CategoryID') || null, UOMID: val('it_UOMID') || null, UnitMode: val('it_UnitMode'),
-        TrackingType: val('it_TrackingType'),
-        OpeningStock: val('it_OpQty') === '' ? 0 : val('it_OpQty'), StandardCost: val('it_OpRate') === '' ? 0 : val('it_OpRate'),
-        IsActive: val('it_IsActive')
+        ItemName: name, GroupID: val('it_GroupID') || null, CategoryID: val('it_CategoryID') || null,
+        UOMID: val('it_UOMID') || null, TrackingType: val('it_TrackingType'), IsActive: val('it_IsActive')
       };
-
-      let savedItem;
-      if (isEdit) {
-        savedItem = await api('update', { sheet:'Items', idField:'ItemID', idValue: rec.ItemID, data: data });
+      let saved;
+      if (currentItemId) {
+        saved = await api('update', { sheet:'Items', idField:'ItemID', idValue: currentItemId, data: data });
       } else {
-        savedItem = await api('create', { sheet:'Items', idField:'ItemID', idPrefix:'ITM', requiredFields:['ItemName'], data: data });
-        const openQty = Number(val('it_OpQty')) || 0;
-        const openPieces = Number(val('it_OpPieces')) || 0;
-        const openWh = val('it_WarehouseID');
-        if (openQty > 0 && openWh) {
-          await api('postOpeningStock', { itemId: savedItem.ItemID, warehouseId: openWh, quantity: openQty, pieces: openPieces });
-        }
+        saved = await api('create', { sheet:'Items', idField:'ItemID', idPrefix:'ITM', requiredFields:['ItemName'], data: data });
+        currentItemId = saved.ItemID;
+        document.getElementById('it_Code').value = currentItemId;
+        unlockSections();
       }
-
-      showToast(t('সেভ হয়েছে ✅','Saved ✅'), 'success');
+      refreshOpeningEchoes();
+      statusEl.textContent = '✓ ' + t('সেভ হয়েছে','Saved');
       if (window.__refreshItemList) await window.__refreshItemList();
+    } catch (err) {
+      showToast(err.message, 'error');
+      statusEl.textContent = '';
+    } finally {
+      btn.disabled = false;
     }
   });
-  updateItemUnitEcho(); // ফর্ম খোলার সাথে সাথেই বাছাই করা এককের নাম ওপেনিং স্টক টেবিলে দেখানোর জন্য
+
+  // ---- সেকশন ২: প্রারম্ভিক মজুদ সেভ ----
+  document.getElementById('it_SaveSection2').addEventListener('click', async function () {
+    if (!currentItemId) { showToast(t('প্রথমে মূল তথ্য সেভ করুন।','Save Basic Info first.'), 'error'); return; }
+    const btn = this; const statusEl = document.getElementById('it_Section2Status');
+    const warehouseId = val('it_Op_WarehouseID');
+    const qty = Number(val('it_Op_Qty')) || 0;
+    const pieces = Number(val('it_Op_Pieces')) || 0;
+    const trackingType = val('it_TrackingType');
+    if (!warehouseId) { showToast(t('গুদাম বাছাই করুন।','Select a warehouse.'), 'error'); return; }
+    if (qty <= 0) { showToast(t('পরিমাণ দিন।','Enter a quantity.'), 'error'); return; }
+    if (trackingType === 'WeightPieces' && pieces <= 0) { showToast(t('এই আইটেম "ওজন + পিস" ধরনের — পিস সংখ্যাও দিন।','This item is "Weight + Pieces" — enter pieces too.'), 'error'); return; }
+    btn.disabled = true; statusEl.textContent = t('সেভ হচ্ছে...','Saving...');
+    try {
+      await api('postOpeningStock', { itemId: currentItemId, warehouseId: warehouseId, quantity: qty, pieces: pieces });
+      statusEl.textContent = '✓ ' + t('সেভ হয়েছে','Saved');
+      showToast(t('প্রারম্ভিক মজুদ যোগ হয়েছে ✅','Opening stock added ✅'), 'success');
+    } catch (err) {
+      showToast(err.message, 'error');
+      statusEl.textContent = '';
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // ---- সেকশন ৩: আদর্শ ক্রয় দর সেভ ----
+  document.getElementById('it_SaveSection3').addEventListener('click', async function () {
+    if (!currentItemId) { showToast(t('প্রথমে মূল তথ্য সেভ করুন।','Save Basic Info first.'), 'error'); return; }
+    const btn = this; const statusEl = document.getElementById('it_Section3Status');
+    btn.disabled = true; statusEl.textContent = t('সেভ হচ্ছে...','Saving...');
+    try {
+      await api('update', { sheet:'Items', idField:'ItemID', idValue: currentItemId, data: {
+        StandardCost: val('it_StdPurchaseRate') === '' ? 0 : val('it_StdPurchaseRate'),
+        StandardCostDate: val('it_StdPurchaseDate') || null
+      }});
+      statusEl.textContent = '✓ ' + t('সেভ হয়েছে','Saved');
+      showToast(t('ক্রয় দর সেভ হয়েছে ✅','Purchase rate saved ✅'), 'success');
+      if (window.__refreshItemList) await window.__refreshItemList();
+    } catch (err) {
+      showToast(err.message, 'error');
+      statusEl.textContent = '';
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // ---- সেকশন ৪: আদর্শ বিক্রয় দর সেভ ----
+  document.getElementById('it_SaveSection4').addEventListener('click', async function () {
+    if (!currentItemId) { showToast(t('প্রথমে মূল তথ্য সেভ করুন।','Save Basic Info first.'), 'error'); return; }
+    const btn = this; const statusEl = document.getElementById('it_Section4Status');
+    btn.disabled = true; statusEl.textContent = t('সেভ হচ্ছে...','Saving...');
+    try {
+      await api('update', { sheet:'Items', idField:'ItemID', idValue: currentItemId, data: {
+        SalesPrice: val('it_StdSalesRate') === '' ? 0 : val('it_StdSalesRate'),
+        SalesPriceDate: val('it_StdSalesDate') || null
+      }});
+      statusEl.textContent = '✓ ' + t('সেভ হয়েছে','Saved');
+      showToast(t('বিক্রয় দর সেভ হয়েছে ✅','Sales rate saved ✅'), 'success');
+      if (window.__refreshItemList) await window.__refreshItemList();
+    } catch (err) {
+      showToast(err.message, 'error');
+      statusEl.textContent = '';
+    } finally {
+      btn.disabled = false;
+    }
+  });
 }
-window.updateItemUnitEcho = function () {
-  const uomId = val('it_UOMID');
-  const unit = (window.__itemFormUnits || []).find(function (u) { return u.UOMID === uomId; });
-  const opUnitEcho = document.getElementById('it_OpUnitEcho');
-  if (opUnitEcho) opUnitEcho.textContent = unit ? unit.UOMName : '—';
-};
-/** ওপেনিং স্টকের কেজি-পিস-মূল্য ক্যালকুলেটর — এই ফর্ম খোলা থাকাকালীন "প্রতি পিসে কত কেজি"
- *  অনুপাতটা মনে রাখা হয়, একবার কেজি ও পিস দুটোই জানা গেলে সেটা স্থির হয়ে যায়, তারপর
- *  থেকে যেকোনো দিক (কেজি অথবা পিস) দিয়ে শুরু করলেও বাকিটা নিজে থেকে বসে যাবে। */
-let itemOpeningKgPerPiece = null;
 
-function updateItemOpeningHint_() {
-  const hintEl = document.getElementById('it_OpRatioHint');
-  if (!hintEl) return;
-  hintEl.textContent = itemOpeningKgPerPiece
-    ? t('প্রতি পিস ≈ ', 'Each piece ≈ ') + itemOpeningKgPerPiece.toFixed(3) + ' ' + t('কেজি', 'kg')
-    : t('প্রথমে পরিমাণ ও পিস দুটোই একসাথে দিন, তাহলে অনুপাত স্থির হয়ে যাবে।', 'Enter both Quantity and Pieces together once, to establish the ratio.');
-}
-
-/** কেজি (পরিমাণ) বা তার দর বদলালে — মূল্য বসবে, আর পিস আগে থেকে জানা থাকলে পিসের দরও বসে যাবে */
-window.updateItemOpeningFromKg = function () {
-  const qtyEl = document.getElementById('it_OpQty'), rateKgEl = document.getElementById('it_OpRate');
-  const piecesEl = document.getElementById('it_OpPieces'), ratePieceEl = document.getElementById('it_OpRatePerPiece');
-  const valueEl = document.getElementById('it_OpValue');
-  if (!qtyEl || !rateKgEl || !piecesEl || !ratePieceEl || !valueEl) return;
-
-  const qty = Number(qtyEl.value) || 0, rateKg = Number(rateKgEl.value) || 0, pieces = Number(piecesEl.value) || 0;
-  const value = qty * rateKg;
-  valueEl.value = value.toFixed(2);
-  if (qty > 0 && pieces > 0) itemOpeningKgPerPiece = qty / pieces;
-  if (pieces > 0 && value > 0) ratePieceEl.value = (value / pieces).toFixed(2);
-  updateItemOpeningHint_();
-};
-
-/** পিস সংখ্যা বদলালে — কেজি আগে থেকে জানা থাকলে অনুপাত স্থির হবে ও পিসের দর বসবে;
- *  কেজি খালি কিন্তু আগের অনুপাত জানা থাকলে কেজি নিজে থেকে বসে যাবে */
-window.updateItemOpeningFromPieces = function () {
-  const qtyEl = document.getElementById('it_OpQty'), rateKgEl = document.getElementById('it_OpRate');
-  const piecesEl = document.getElementById('it_OpPieces'), ratePieceEl = document.getElementById('it_OpRatePerPiece');
-  const valueEl = document.getElementById('it_OpValue');
-  if (!qtyEl || !rateKgEl || !piecesEl || !ratePieceEl || !valueEl) return;
-
-  const pieces = Number(piecesEl.value) || 0;
-  let qty = Number(qtyEl.value) || 0;
-  const rateKg = Number(rateKgEl.value) || 0;
-
-  if (qty > 0 && pieces > 0) {
-    itemOpeningKgPerPiece = qty / pieces;
-  } else if (pieces > 0 && itemOpeningKgPerPiece) {
-    qty = pieces * itemOpeningKgPerPiece;
-    qtyEl.value = qty.toFixed(3);
-  }
-
-  if (qty > 0 && rateKg > 0) {
-    const value = qty * rateKg;
-    valueEl.value = value.toFixed(2);
-    if (pieces > 0) ratePieceEl.value = (value / pieces).toFixed(2);
-  }
-  updateItemOpeningHint_();
-};
-
-/** পিসের দর বদলালে — মূল্য বসবে; অনুপাত জানা থাকলে কেজি ও কেজি-প্রতি-দরও বসে যাবে */
-window.updateItemOpeningFromPieceRate = function () {
-  const qtyEl = document.getElementById('it_OpQty'), rateKgEl = document.getElementById('it_OpRate');
-  const piecesEl = document.getElementById('it_OpPieces'), ratePieceEl = document.getElementById('it_OpRatePerPiece');
-  const valueEl = document.getElementById('it_OpValue');
-  if (!qtyEl || !rateKgEl || !piecesEl || !ratePieceEl || !valueEl) return;
-
-  const pieces = Number(piecesEl.value) || 0, ratePiece = Number(ratePieceEl.value) || 0;
-  if (pieces <= 0) return;
-
-  const value = pieces * ratePiece;
-  valueEl.value = value.toFixed(2);
-
-  if (itemOpeningKgPerPiece) {
-    const qty = pieces * itemOpeningKgPerPiece;
-    qtyEl.value = qty.toFixed(3);
-    if (qty > 0) rateKgEl.value = (value / qty).toFixed(2);
-  }
-  updateItemOpeningHint_();
-};
 
 /* ============================================================
    ১২.৫) পার্টি (Party) ফর্ম — Supplier/Customer একসাথে
