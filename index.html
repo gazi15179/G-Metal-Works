@@ -555,26 +555,6 @@ async function postStockMovement(itemId, warehouseId, date, transactionType, ref
   if (ledgerErr) throw new Error(ledgerErr.message);
 }
 
-/** বিক্রয়ের সময় গ্রাহক কেজি অথবা পিস — যেকোনো একটা দিয়ে থাকলে, অন্য
- *  মাত্রাটা তখনকার আসল/লাইভ গড় ওজন-প্রতি-পিস দিয়ে হিসাব করে বের করে —
- *  কোনো স্থির Conversion Factor ব্যবহার হয় না। */
-async function resolveKgAndPieces(itemId, warehouseId, enteredKg, enteredPieces) {
-  enteredKg = Number(enteredKg) || 0;
-  enteredPieces = Number(enteredPieces) || 0;
-  if (enteredKg > 0 && enteredPieces > 0) return { kg: enteredKg, pieces: enteredPieces };
-
-  const { data: stock } = await supabaseClient.from('current_stock').select('*').eq('ItemID', itemId).eq('WarehouseID', warehouseId).maybeSingle();
-  const avgKgPerPiece = (stock && Number(stock.QtyPieces) > 0) ? (Number(stock.QtyOnHand) / Number(stock.QtyPieces)) : 0;
-
-  if (enteredKg > 0 && enteredPieces === 0) {
-    return { kg: enteredKg, pieces: avgKgPerPiece > 0 ? enteredKg / avgKgPerPiece : 0 };
-  }
-  if (enteredPieces > 0 && enteredKg === 0) {
-    return { kg: avgKgPerPiece > 0 ? enteredPieces * avgKgPerPiece : 0, pieces: enteredPieces };
-  }
-  return { kg: 0, pieces: 0 };
-}
-
 /** প্রতিটা ডকুমেন্ট টাইপ পোস্ট করলে ঠিক কী স্টক-প্রভাব পড়বে, তার
  *  ব্যবসায়িক নিয়ম। Status='Posted' হওয়ার আগেই এটা রান হয় (postDocument কেস দেখুন)। */
 async function runPostingLogic(docType, header, docId) {
@@ -591,7 +571,7 @@ async function runPostingLogic(docType, header, docId) {
     const { data: lines, error } = await supabaseClient.from('PI_Lines').select('*').eq('PIID', docId);
     if (error) throw new Error(error.message);
     for (const line of (lines || [])) {
-      await postStockMovement(line.ItemID, header.WarehouseID, header.InvoiceDate || today, 'PurchaseInvoice', 'PurchaseInvoice', docId, Number(line.Quantity) || 0, Number(line.Pieces) || 0);
+      await postStockMovement(line.ItemID, header.WarehouseID, header.InvoiceDate || today, 'PurchaseInvoice', 'PurchaseInvoice', docId, Number(line.Quantity) || 0, 0);
     }
     return;
   }
@@ -606,7 +586,7 @@ async function runPostingLogic(docType, header, docId) {
     const { data: lines, error } = await supabaseClient.from('PR_Return_Lines').select('*').eq('PRetID', docId);
     if (error) throw new Error(error.message);
     for (const line of (lines || [])) {
-      await postStockMovement(line.ItemID, warehouseId, header.Date || today, 'PurchaseReturn', 'PurchaseReturn', docId, -(Number(line.Quantity) || 0), -(Number(line.Pieces) || 0));
+      await postStockMovement(line.ItemID, warehouseId, header.Date || today, 'PurchaseReturn', 'PurchaseReturn', docId, -(Number(line.Quantity) || 0), 0);
     }
     return;
   }
@@ -653,13 +633,7 @@ async function runPostingLogic(docType, header, docId) {
     const { data: lines, error } = await supabaseClient.from('SI_Lines').select('*').eq('SIID', docId);
     if (error) throw new Error(error.message);
     for (const line of (lines || [])) {
-      const item = (await supabaseClient.from('items').select('TrackingType').eq('ItemID', line.ItemID).maybeSingle()).data;
-      if (item && item.TrackingType === 'WeightPieces') {
-        const resolved = await resolveKgAndPieces(line.ItemID, header.WarehouseID, line.Quantity, line.Pieces);
-        await postStockMovement(line.ItemID, header.WarehouseID, header.InvoiceDate || today, 'SalesInvoice', 'SalesInvoice', docId, -resolved.kg, -resolved.pieces);
-      } else {
-        await postStockMovement(line.ItemID, header.WarehouseID, header.InvoiceDate || today, 'SalesInvoice', 'SalesInvoice', docId, -(Number(line.Quantity) || 0), 0);
-      }
+      await postStockMovement(line.ItemID, header.WarehouseID, header.InvoiceDate || today, 'SalesInvoice', 'SalesInvoice', docId, -(Number(line.Quantity) || 0), 0);
     }
     return;
   }
@@ -669,13 +643,7 @@ async function runPostingLogic(docType, header, docId) {
     const { data: lines, error } = await supabaseClient.from('SR_Lines').select('*').eq('SRID', docId);
     if (error) throw new Error(error.message);
     for (const line of (lines || [])) {
-      const item = (await supabaseClient.from('items').select('TrackingType').eq('ItemID', line.ItemID).maybeSingle()).data;
-      if (item && item.TrackingType === 'WeightPieces') {
-        const resolved = await resolveKgAndPieces(line.ItemID, header.WarehouseID, line.Quantity, line.Pieces);
-        await postStockMovement(line.ItemID, header.WarehouseID, header.Date || today, 'SalesReturn', 'SalesReturn', docId, resolved.kg, resolved.pieces);
-      } else {
-        await postStockMovement(line.ItemID, header.WarehouseID, header.Date || today, 'SalesReturn', 'SalesReturn', docId, Number(line.Quantity) || 0, 0);
-      }
+      await postStockMovement(line.ItemID, header.WarehouseID, header.Date || today, 'SalesReturn', 'SalesReturn', docId, Number(line.Quantity) || 0, 0);
     }
     return;
   }
@@ -692,7 +660,7 @@ async function runPostingLogic(docType, header, docId) {
       }
     }
     // নেট ফিনিশড গুডস — কেজি ও পিস দুটোই স্টকে যোগ হবে
-    await postStockMovement(header.FinishedGoodsItemID, header.WarehouseID, header.Date || today, 'ProcessingVoucher-FG', 'ProcessingVoucher', docId, Number(header.NetWeight) || 0, Number(header.Pieces) || 0);
+    await postStockMovement(header.FinishedGoodsItemID, header.WarehouseID, header.Date || today, 'ProcessingVoucher-FG', 'ProcessingVoucher', docId, Number(header.NetWeight) || 0, 0);
     return;
   }
 
@@ -862,7 +830,7 @@ async function runSupabaseAction(action, p) {
     }
 
     case 'postOpeningStock': {
-      await postStockMovement(p.itemId, p.warehouseId, new Date().toISOString().slice(0,10), 'Opening', 'Items', p.itemId, p.quantity, p.pieces || 0);
+      await postStockMovement(p.itemId, p.warehouseId, new Date().toISOString().slice(0,10), 'Opening', 'Items', p.itemId, p.quantity, 0);
       return {};
     }
 
@@ -1694,8 +1662,7 @@ async function renderItemMasterPage(content) {
 
     const headers = [
       ['কোড','Code'], ['নাম','Name'], ['গ্রুপ','Group'], ['ক্যাটাগরি','Category'], ['একক','Unit'], ['ওয়ারহাউজ','Warehouse'],
-      ['পরিমাণ','Quantity'], ['দর (ওজন)','Rate (weight)'], ['পিস','Pieces'], ['দর (পিস)','Rate (piece)'],
-      ['মূল্য','Value'], ['স্ট্যাটাস','Status']
+      ['পরিমাণ','Quantity'], ['দর','Rate'], ['মূল্য','Value'], ['স্ট্যাটাস','Status']
     ];
     const headCells = headers.map(function (h) { return `<th class="i18n" data-bn="${h[0]}" data-en="${h[1]}">${t(h[0], h[1])}</th>`; }).join('');
 
@@ -1712,8 +1679,7 @@ async function renderItemMasterPage(content) {
 
     const bodyRows = active.map(function (r) {
       const unit = unitMap[r.UOMID];
-      const rateWeight = Number(r.StandardCost) || 0;
-      const isDual = r.TrackingType === 'WeightPieces';
+      const rate = Number(r.StandardCost) || 0;
       const statusCell = isTrue(r.IsActive)
         ? `<span class="badge active i18n" data-bn="সক্রিয়" data-en="Active">${t('সক্রিয়','Active')}</span>`
         : `<span class="badge inactive i18n" data-bn="নিষ্ক্রিয়" data-en="Inactive">${t('নিষ্ক্রিয়','Inactive')}</span>`;
@@ -1723,20 +1689,14 @@ async function renderItemMasterPage(content) {
 
       return stockRows.map(function (s) {
         const qtyNum = s ? (Number(s.QtyOnHand) || 0) : 0;
-        const value = qtyNum * rateWeight;
-        // "ওজন + পিস" আইটেমে পিস সংখ্যা সরাসরি সংরক্ষিত ডেটা (current_stock.QtyPieces) থেকে
-        // দেখানো হচ্ছে — কোনো স্থির কনভার্সন ফ্যাক্টর দিয়ে অনুমান করা হচ্ছে না
-        const pieces = isDual && s ? (Number(s.QtyPieces) || 0) : null;
-        const ratePerPiece = (pieces !== null && pieces > 0) ? value / pieces : null;
+        const value = qtyNum * rate;
         return `<tr>
           <td>${escapeHtml(r.ItemID)}</td><td>${escapeHtml(r.ItemName)}</td>
           <td>${escapeHtml(groupMap[r.GroupID] || '—')}</td><td>${escapeHtml(catMap[r.CategoryID] || '—')}</td>
           <td>${escapeHtml(unit ? unit.UOMName : '')}</td>
           <td>${s ? escapeHtml(whMap[s.WarehouseID] || s.WarehouseID) : '—'}</td>
           <td><b>${formatQtyByUOM(qtyNum, r.UOMID, units)}</b></td>
-          <td>${rateWeight ? rateWeight.toFixed(2) : '—'}</td>
-          <td>${pieces !== null ? pieces.toFixed(2) : '—'}</td>
-          <td>${ratePerPiece !== null ? ratePerPiece.toFixed(2) : '—'}</td>
+          <td>${rate ? rate.toFixed(2) : '—'}</td>
           <td><b>${value.toFixed(2)}</b></td>
           <td>${statusCell}</td>
           ${rowActionsHtml(r)}
@@ -1800,11 +1760,9 @@ async function openItemForm(existing) {
         <div class="field"><label>${t('নাম','Name')}</label><input id="it_ItemName" value="${attr(rec.ItemName)}"></div>
         <div class="field"><label>${t('গ্রুপ','Group')}</label><select id="it_GroupID">${opts(groups, 'GroupID', 'GroupName', rec.GroupID)}</select></div>
         <div class="field"><label>${t('ক্যাটাগরি','Category')}</label><select id="it_CategoryID">${opts(categories, 'CategoryID', 'CategoryName', rec.CategoryID)}</select></div>
-        <div class="field"><label>${t('একক','Unit')}</label><select id="it_UOMID" onchange="updateItemUnitEcho()">${opts(units, 'UOMID', 'UOMName', rec.UOMID)}</select></div>
-        <div class="field"><label>${t('স্টক ট্র্যাকিং ধরন','Stock Tracking Type')}</label><select id="it_TrackingType">
-            <option value="Weight" ${(rec.TrackingType||'Weight')==='Weight'?'selected':''}>${t('শুধু ওজন','Weight Only')}</option>
-            <option value="WeightPieces" ${rec.TrackingType==='WeightPieces'?'selected':''}>${t('ওজন + পিস','Weight + Pieces')}</option>
-          </select></div>
+        <div class="field"><label>${t('একক','Unit')}</label><select id="it_UOMID" onchange="updateItemUnitEcho()">${opts(units, 'UOMID', 'UOMName', rec.UOMID)}</select>
+          <p style="font-size:11px;color:var(--text-muted);margin:4px 0 0;">${t('এই আইটেমের ক্রয়, স্টক ও বিক্রয় — সবকিছু এই একক অনুযায়ীই হবে।','This item will be purchased, stocked, and sold entirely in this one unit.')}</p>
+        </div>
         <div class="field"><label>${t('অবস্থা','Status')}</label><select id="it_IsActive">
             <option value="TRUE" ${!isEdit || isTrue(rec.IsActive) ? 'selected' : ''}>${t('সক্রিয়','Active')}</option>
             <option value="FALSE" ${isEdit && !isTrue(rec.IsActive) ? 'selected' : ''}>${t('নিষ্ক্রিয়','Inactive')}</option>
@@ -1824,7 +1782,6 @@ async function openItemForm(existing) {
         <div class="field"><label>${t('পণ্য','Item')}</label><input id="it_Op_ItemEcho" readonly style="background:var(--bg);"></div>
         <div class="field"><label>${t('ওয়ারহাউজ','Warehouse')}</label><select id="it_Op_WarehouseID" ${currentItemId?'':'disabled'}>${opts(warehouses, 'WarehouseID', 'WarehouseName', '')}</select></div>
         <div class="field"><label>${t('পরিমাণ','Quantity')}</label><input id="it_Op_Qty" type="number" step="any" ${currentItemId?'':'disabled'}></div>
-        <div class="field" id="it_Op_PiecesField" style="display:none;"><label>${t('পিস','Pieces')}</label><input id="it_Op_Pieces" type="number" step="any"></div>
         <div class="field"><label>${t('দর','Rate')}</label><input id="it_Op_Rate" type="number" step="any" ${currentItemId?'':'disabled'}></div>
         <div class="field"><label>${t('মূল্য','Value')}</label><input id="it_Op_Value" readonly style="background:var(--bg);font-weight:600;"></div>
       </div>
@@ -1878,9 +1835,9 @@ async function openItemForm(existing) {
       const el = document.getElementById(id);
       if (el) el.value = label;
     });
+    refreshOpeningEchoes();
   }
   window.updateItemUnitEcho = refreshUnitEchoes;
-  refreshUnitEchoes();
 
   function refreshOpeningEchoes() {
     const groupSel = document.getElementById('it_GroupID');
@@ -1889,14 +1846,11 @@ async function openItemForm(existing) {
     document.getElementById('it_Op_GroupEcho').value = groupSel.options[groupSel.selectedIndex] ? groupSel.options[groupSel.selectedIndex].text : '';
     document.getElementById('it_Op_CatEcho').value = catSel.options[catSel.selectedIndex] ? catSel.options[catSel.selectedIndex].text : '';
     document.getElementById('it_Op_ItemEcho').value = nameInput.value;
-    const trackingType = val('it_TrackingType');
-    document.getElementById('it_Op_PiecesField').style.display = trackingType === 'WeightPieces' ? '' : 'none';
   }
   document.getElementById('it_GroupID').addEventListener('change', refreshOpeningEchoes);
   document.getElementById('it_CategoryID').addEventListener('change', refreshOpeningEchoes);
   document.getElementById('it_ItemName').addEventListener('input', refreshOpeningEchoes);
-  document.getElementById('it_TrackingType').addEventListener('change', refreshOpeningEchoes);
-  refreshOpeningEchoes();
+  refreshUnitEchoes();
 
   function recalcOpeningValue() {
     const qty = Number(val('it_Op_Qty')) || 0;
@@ -1931,7 +1885,7 @@ async function openItemForm(existing) {
     try {
       const data = {
         ItemName: name, GroupID: val('it_GroupID') || null, CategoryID: val('it_CategoryID') || null,
-        UOMID: val('it_UOMID') || null, TrackingType: val('it_TrackingType'), IsActive: val('it_IsActive')
+        UOMID: val('it_UOMID') || null, IsActive: val('it_IsActive')
       };
       let saved;
       if (currentItemId) {
@@ -1959,14 +1913,11 @@ async function openItemForm(existing) {
     const btn = this; const statusEl = document.getElementById('it_Section2Status');
     const warehouseId = val('it_Op_WarehouseID');
     const qty = Number(val('it_Op_Qty')) || 0;
-    const pieces = Number(val('it_Op_Pieces')) || 0;
-    const trackingType = val('it_TrackingType');
     if (!warehouseId) { showToast(t('গুদাম বাছাই করুন।','Select a warehouse.'), 'error'); return; }
     if (qty <= 0) { showToast(t('পরিমাণ দিন।','Enter a quantity.'), 'error'); return; }
-    if (trackingType === 'WeightPieces' && pieces <= 0) { showToast(t('এই আইটেম "ওজন + পিস" ধরনের — পিস সংখ্যাও দিন।','This item is "Weight + Pieces" — enter pieces too.'), 'error'); return; }
     btn.disabled = true; statusEl.textContent = t('সেভ হচ্ছে...','Saving...');
     try {
-      await api('postOpeningStock', { itemId: currentItemId, warehouseId: warehouseId, quantity: qty, pieces: pieces });
+      await api('postOpeningStock', { itemId: currentItemId, warehouseId: warehouseId, quantity: qty });
       statusEl.textContent = '✓ ' + t('সেভ হয়েছে','Saved');
       showToast(t('প্রারম্ভিক মজুদ যোগ হয়েছে ✅','Opening stock added ✅'), 'success');
     } catch (err) {
@@ -3197,12 +3148,6 @@ async function openProcessingForm() {
       if (!fgItemId) throw new Error(t('প্রস্তুত পণ্য আইটেম বাছাই করা আবশ্যক।','Finished goods item is required.'));
       if (qty <= 0) throw new Error(t('পরিমাণ আবশ্যক।','Quantity is required.'));
 
-      const fgItem = window.__procItemMap[fgItemId];
-      const pieces = Number(val('pv_Pieces')) || 0;
-      if (fgItem && fgItem.TrackingType === 'WeightPieces' && pieces <= 0) {
-        throw new Error(t('"' + fgItem.ItemName + '" আইটেমটা "ওজন + পিস" ধরনের — তাই পিস সংখ্যা দেওয়া আবশ্যক।', '"' + fgItem.ItemName + '" is tracked as "Weight + Pieces" — the pieces count is required.'));
-      }
-
       const byProductLines = window.__procByProductRows
         .map(function (_, idx) {
           return {
@@ -3502,23 +3447,19 @@ async function openPrintableVoucherView(docType, docId) {
   const groupMap = {}; groups.forEach(function (g) { groupMap[g.GroupID] = g.GroupName; });
   const catMap = {}; categories.forEach(function (c) { catMap[c.CategoryID] = c.CategoryName; });
 
-  // এন্ট্রি ফর্মের মতোই — প্রতিটা লাইন আইটেম, গ্রুপ, ক্যাটাগরি, একক দেখাবে;
-  // আইটেম | পরিমাণ(ওজন) | দর | পিস | দর(পিস) | মূল্য — সবকিছু একই সারিতে
-  let totalQty = 0, totalPieces = 0, totalValue = 0;
+  // আইটেম | একক | পরিমাণ | দর | মূল্য — সরল, একক-অনুযায়ী (কেজি অথবা পিস, যেটাই হোক)
+  let totalQty = 0, totalValue = 0;
   const rowsHtml = lines.map(function (l) {
     const item = itemMap[l.ItemID] || {};
     const qty = Number(l.Quantity) || 0, rate = Number(l.Rate) || 0, amt = qty * rate;
-    const pieces = Number(l.Pieces) || 0;
-    const isDual = item.TrackingType === 'WeightPieces';
-    const ratePerPiece = (isDual && pieces > 0) ? amt / pieces : null;
-    totalQty += qty; totalValue += amt; if (isDual) totalPieces += pieces;
+    const unitLabel = unitMap[item.UOMID] || '';
+    totalQty += qty; totalValue += amt;
 
     return `<tr>
       <td>${escapeHtml(item.ItemName || l.ItemID)}</td>
-      <td>${qty} কেজি</td>
+      <td>${escapeHtml(unitLabel)}</td>
+      <td>${qty}</td>
       <td>${rate.toFixed(2)}</td>
-      <td>${isDual ? pieces + ' পিস' : '—'}</td>
-      <td>${ratePerPiece !== null ? ratePerPiece.toFixed(2) : '—'}</td>
       <td>${amt.toFixed(2)}</td>
     </tr>`;
   }).join('');
@@ -3622,9 +3563,9 @@ async function openPrintableVoucherView(docType, docId) {
     </div>
   </div>
   <table>
-    <thead><tr><th>${L('আইটেম','Item')}</th><th>${L('পরিমাণ (ওজন)','Qty (Weight)')}</th><th>${L('দর','Rate')}</th><th>${L('পরিমাণ (পিস)','Qty (Pieces)')}</th><th>${L('দর','Rate')}</th><th>${L('মূল্য','Amount')}</th></tr></thead>
+    <thead><tr><th>${L('আইটেম','Item')}</th><th>${L('একক','Unit')}</th><th>${L('পরিমাণ','Quantity')}</th><th>${L('দর','Rate')}</th><th>${L('মূল্য','Amount')}</th></tr></thead>
     <tbody>${rowsHtml}</tbody>
-    <tfoot><tr><td>${L('মোট','Total')}</td><td><span data-bn="${attr(totalQty + ' কেজি')}" data-en="${attr(totalQty + ' kg')}">${escapeHtml(totalQty + ' কেজি')}</span></td><td></td><td>${totalPieces > 0 ? `<span data-bn="${attr(totalPieces + ' পিস')}" data-en="${attr(totalPieces + ' pcs')}">${escapeHtml(totalPieces + ' পিস')}</span>` : '—'}</td><td></td><td>${totalValue.toFixed(2)}</td></tr></tfoot>
+    <tfoot><tr><td>${L('মোট','Total')}</td><td></td><td>${totalQty}</td><td></td><td>${totalValue.toFixed(2)}</td></tr></tfoot>
   </table>
   <div class="sign-row">
     <div class="sign-block">
@@ -3706,7 +3647,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   const rec = existingHeader || {};
   // প্রতিটা "✓" দিয়ে কনফার্ম করা লাইন এখানে জমা থাকে — এটাই লাইভ প্রিভিউ
   window.__pv2Lines = isEdit
-    ? existingLines.map(function (l) { return { itemId: l.ItemID, warehouseId: rec.WarehouseID, qty: Number(l.Quantity)||0, rate: Number(l.Rate)||0, pieces: Number(l.Pieces)||0, amount: Math.round((Number(l.Quantity)||0) * (Number(l.Rate)||0)) }; })
+    ? existingLines.map(function (l) { return { itemId: l.ItemID, warehouseId: rec.WarehouseID, qty: Number(l.Quantity)||0, rate: Number(l.Rate)||0, amount: Math.round((Number(l.Quantity)||0) * (Number(l.Rate)||0)) }; })
     : [];
 
   function optsHtml(list, idF, labelF, selected) {
@@ -3755,7 +3696,6 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     <div class="field"><label>${t('ওয়ারহাউজ','Warehouse')}</label><select id="pv2_WarehouseID"><option value="">—</option>${optsHtml(window.__pv2Warehouses, 'WarehouseID','WarehouseName', rec.WarehouseID)}</select></div>
     <div class="field"><label>${t('স্টক পরিমাণ','Stock Quantity')}</label><input id="pv2_StockQty" readonly style="background:var(--bg);"></div>
     <div class="field"><label>${t('পরিমাণ','Quantity')}</label><input id="pv2_Qty" type="number" step="any"></div>
-    <div class="field" id="pv2_PiecesField" style="display:none;"><label>${t('পিস','Pieces')}</label><input id="pv2_Pieces" type="number" step="any"></div>
     <div class="field"><label>${t('স্টক দর','Stock Rate')}</label><input id="pv2_StockRate" readonly style="background:var(--bg);"></div>
     <div class="field"><label>${t('দর','Rate')}</label><input id="pv2_Rate" type="number" step="any"></div>
     <div class="field"><label>${t('একক','Unit')}</label><input id="pv2_Unit" readonly style="background:var(--bg);"></div>
@@ -3802,7 +3742,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
 
       if (!isReturn) {
         const warehouseId = window.__pv2Lines[0].warehouseId;
-        const lineData = window.__pv2Lines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, Rate: l.rate, Pieces: l.pieces || 0, Amount: l.amount }; });
+        const lineData = window.__pv2Lines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, Rate: l.rate, Amount: l.amount }; });
         const totalAmount = lineData.reduce(function (s, l) { return s + (Number(l.Amount) || 0); }, 0);
         const headerData = Object.assign({}, common, { InvoiceDate: val('pv2_Date'), GRNID: val('pv2_GRNID') || null, WarehouseID: warehouseId, TotalAmount: totalAmount });
         if (isEdit) {
@@ -3814,7 +3754,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
         const grnId = val('pv2_GRNID');
         if (!grnId) throw new Error(t('ক্রয় ফেরতের জন্য GRN রেফারেন্স আবশ্যক।','GRN reference is required for a purchase return.'));
         const headerData = Object.assign({}, common, { Date: val('pv2_Date'), GRNID: grnId, Reason: val('pv2_Reason') });
-        const returnLineData = window.__pv2Lines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, Rate: l.rate, Pieces: l.pieces||0 }; });
+        const returnLineData = window.__pv2Lines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, Rate: l.rate }; });
         if (isEdit) {
           await api('updateDocument', { headerSheet:'PurchaseReturn', idField:'PRetID', linesSheet:'PR_Return_Lines', lineIdField:'PRetID', idValue: existingId, headerData: headerData, lines: returnLineData });
         } else {
@@ -3871,15 +3811,12 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     const warehouseId = val('pv2_WarehouseID');
     const item = window.__pv2ItemMap[itemId];
     document.getElementById('pv2_Unit').value = item ? ((window.__pv2UnitMap[item.UOMID]||{}).UOMName || '') : '';
-    document.getElementById('pv2_PiecesField').style.display = (item && item.TrackingType === 'WeightPieces') ? '' : 'none';
     document.getElementById('pv2_StockRate').value = item ? (Number(item.StandardCost)||0).toFixed(2) : '';
     if (item && warehouseId) {
-      const { data } = await supabaseClient.from('current_stock').select('QtyOnHand,QtyPieces').eq('ItemID', itemId).eq('WarehouseID', warehouseId).maybeSingle();
+      const { data } = await supabaseClient.from('current_stock').select('QtyOnHand').eq('ItemID', itemId).eq('WarehouseID', warehouseId).maybeSingle();
       const stockQtyEl = document.getElementById('pv2_StockQty');
       if (stockQtyEl) {
-        stockQtyEl.value = data
-          ? (Number(data.QtyOnHand)||0) + ' কেজি' + ((item.TrackingType==='WeightPieces') ? ' / ' + (Number(data.QtyPieces)||0) + ' পিস' : '')
-          : t('কোনো স্টক নেই','No stock');
+        stockQtyEl.value = data ? (Number(data.QtyOnHand)||0) + ' ' + ((window.__pv2UnitMap[item.UOMID]||{}).UOMName || '') : t('কোনো স্টক নেই','No stock');
       }
     } else {
       const stockQtyEl = document.getElementById('pv2_StockQty');
@@ -3907,8 +3844,6 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     document.getElementById('pv2_ItemID').value = '';
     document.getElementById('pv2_StockQty').value = '';
     document.getElementById('pv2_Qty').value = '';
-    document.getElementById('pv2_PiecesField').style.display = 'none';
-    document.getElementById('pv2_Pieces').value = '';
     document.getElementById('pv2_StockRate').value = '';
     document.getElementById('pv2_Rate').value = '';
     document.getElementById('pv2_Unit').value = '';
@@ -3930,12 +3865,11 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
           <td>${escapeHtml(wh ? wh.WarehouseName : '')}</td>
           <td style="text-align:right;">${l.qty}</td>
           <td style="text-align:right;">${l.rate}</td>
-          <td style="text-align:right;">${l.pieces || '—'}</td>
           <td style="text-align:right;"><b>${l.amount}</b></td>
           <td><button type="button" onclick="window.__pv2RemoveLine(${i})">✕</button></td>
         </tr>`;
       }).join('');
-      wrap.innerHTML = `<table class="data-table"><thead><tr><th>${t('আইটেম','Item')}</th><th>${t('গুদাম','Warehouse')}</th><th>${t('পরিমাণ','Qty')}</th><th>${t('দর','Rate')}</th><th>${t('পিস','Pieces')}</th><th>${t('মূল্য','Amount')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+      wrap.innerHTML = `<table class="data-table"><thead><tr><th>${t('আইটেম','Item')}</th><th>${t('গুদাম','Warehouse')}</th><th>${t('পরিমাণ','Qty')}</th><th>${t('দর','Rate')}</th><th>${t('মূল্য','Amount')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
     }
     const total = window.__pv2Lines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
     const totalEl = document.getElementById('pv2_GrandTotal');
@@ -3946,19 +3880,13 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   document.getElementById('pv2_ConfirmLineBtn').addEventListener('click', function () {
     const itemId = val('pv2_ItemID');
     const warehouseId = val('pv2_WarehouseID');
-    const item = window.__pv2ItemMap[itemId];
     const qty = Number(val('pv2_Qty')) || 0;
     const rate = Number(val('pv2_Rate')) || 0;
-    const pieces = Number(val('pv2_Pieces')) || 0;
 
     if (!itemId) { showToast(t('আইটেম বাছাই করুন।','Select an item.'), 'error'); return; }
     if (!warehouseId) { showToast(t('গুদাম বাছাই করুন।','Select a warehouse.'), 'error'); return; }
     if (!(qty > 0 && rate > 0)) { showToast(t('পরিমাণ ও দর দিন।','Enter quantity and rate.'), 'error'); return; }
-    if (item && item.TrackingType === 'WeightPieces' && pieces <= 0) {
-      showToast(t('এই আইটেম "ওজন + পিস" ধরনের — পিস সংখ্যাও দিন।','This item is "Weight + Pieces" — enter pieces too.'), 'error');
-      return;
-    }
-    window.__pv2Lines.push({ itemId: itemId, warehouseId: warehouseId, qty: qty, rate: rate, pieces: pieces, amount: Math.round(qty * rate) });
+    window.__pv2Lines.push({ itemId: itemId, warehouseId: warehouseId, qty: qty, rate: rate, amount: Math.round(qty * rate) });
     renderPv2Preview();
     resetLineEntry();
     showToast(t('লাইন যোগ হয়েছে ✅','Line added ✅'), 'success');
@@ -4076,15 +4004,14 @@ async function deletePostedSalesVoucher(docType, docId) {
 }
 
 async function openSalesVoucherForm(defaultType, existingId) {
-  const svData = await cachedListMultiple(['Customers', 'Salespersons', 'Items', 'SalesInvoice', 'DeliveryChallan', 'ItemGroups', 'Categories', 'UOM', 'Warehouses']);
-  const customers = svData.Customers, salespersons = svData.Salespersons, items = svData.Items, invoicesForRef = svData.SalesInvoice,
+  const svData = await cachedListMultiple(['Customers', 'Items', 'SalesInvoice', 'DeliveryChallan', 'ItemGroups', 'Categories', 'UOM', 'Warehouses']);
+  const customers = svData.Customers, items = svData.Items, invoicesForRef = svData.SalesInvoice,
         deliveryChallans = svData.DeliveryChallan,
         groups = svData.ItemGroups, categories = svData.Categories, units = svData.UOM, warehouses = svData.Warehouses;
   window.__svItems = items.filter(function (i) { return i.Status !== 'Deleted'; });
   window.__svItemMap = {}; items.forEach(function (i) { window.__svItemMap[i.ItemID] = i; });
   window.__svGroups = groups.filter(function (g) { return g.Status !== 'Deleted'; });
   window.__svCategories = categories.filter(function (c) { return c.Status !== 'Deleted'; });
-  window.__svUnits = units;
   window.__svUnitMap = {}; units.forEach(function (u) { window.__svUnitMap[u.UOMID] = u; });
 
   const isEdit = !!existingId;
@@ -4111,7 +4038,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
   }
 
   window.__svLineRows = isEdit
-    ? existingLines.map(function (l) { return { itemId: l.ItemID, qty: l.Quantity, rate: l.Rate, pieces: l.Pieces }; })
+    ? existingLines.map(function (l) { return { itemId: l.ItemID, qty: l.Quantity, rate: l.Rate }; })
     : [{}];
 
   function opts(list, idF, labelF, selected) {
@@ -4150,53 +4077,12 @@ async function openSalesVoucherForm(defaultType, existingId) {
       const customerId = val('sv_CustomerID');
       if (!customerId) throw new Error(t('গ্রাহক বাছাই করা আবশ্যক।','Customer is required.'));
 
-      const unitMismatches = [];
       const lines = window.__svLineRows.map(function (_, idx) {
         const itemId = val('sv_ln_' + idx + '_item');
-        const item = window.__svItemMap[itemId];
         const qty = Number(val('sv_ln_' + idx + '_qty')) || 0;
         const rate = Number(val('sv_ln_' + idx + '_rate')) || 0;
-        const pieces = Number(val('sv_ln_' + idx + '_pieces')) || 0;
-        const ratePiece = Number(val('sv_ln_' + idx + '_rateperpiece')) || 0;
-
-        if (item && item.TrackingType === 'WeightPieces' && itemId) {
-          // ওজন অথবা পিস — যেকোনো একটা দিলেই চলবে; স্টক থেকে ঠিক কতটা কমবে
-          // (অন্য মাত্রাটা) তখনকার আসল/লাইভ গড় ওজন-প্রতি-পিস দিয়ে পোস্ট করার সময় হিসাব হবে
-          if (!(qty > 0 || pieces > 0)) return null;
-          const amount = qty > 0 ? qty * rate : pieces * ratePiece;
-          return { ItemID: itemId, Quantity: qty, Rate: qty > 0 ? rate : 0, Pieces: pieces, Amount: amount };
-        }
-
-        let finalQty = 0, finalRate = 0, usedMode = null;
-        if (qty > 0 && rate > 0) {
-          finalQty = qty; finalRate = rate; usedMode = 'Weight';
-        } else if (pieces > 0 && ratePiece > 0) {
-          usedMode = 'Piece';
-          const unit = item ? window.__svUnitMap[item.UOMID] : null;
-          const kgPerPiece = Number(unit && unit.ConversionFactor) || 0;
-          if (kgPerPiece > 0) {
-            finalQty = pieces * kgPerPiece;
-            finalRate = finalQty > 0 ? (pieces * ratePiece) / finalQty : 0;
-          } else {
-            finalQty = pieces; finalRate = ratePiece;
-          }
-        }
-
-        if (item && item.UnitMode && usedMode && item.UnitMode !== usedMode) {
-          unitMismatches.push(item.ItemName);
-        }
-
-        return { ItemID: itemId, Quantity: finalQty, Rate: finalRate, Pieces: 0, Amount: finalQty * finalRate };
-      }).filter(function (l) { return l && l.ItemID && (l.Quantity > 0 || l.Pieces > 0); });
-
-      if (unitMismatches.length > 0) {
-        const proceed = confirm(
-          t('এই আইটেমগুলো তাদের নির্ধারিত পদ্ধতির (কেজি/পিস) বাইরে ব্যবহার হয়েছে: ', 'These items were used outside their set method (weight/piece): ')
-          + unitMismatches.join(', ')
-          + '\n\n' + t('তবুও কি সেভ করবেন?', 'Save anyway?')
-        );
-        if (!proceed) return;
-      }
+        return { ItemID: itemId, Quantity: qty, Rate: rate, Amount: qty * rate };
+      }).filter(function (l) { return l.ItemID && l.Quantity > 0; });
       if (lines.length === 0) throw new Error(t('অন্তত একটা লাইন আইটেম যোগ করুন।','Add at least one line item.'));
 
       const warehouseId = val('sv_WarehouseID');
@@ -4259,39 +4145,13 @@ async function openSalesVoucherForm(defaultType, existingId) {
     const item = window.__svItemMap[itemId];
     const qty = Number(val('sv_ln_' + idx + '_qty')) || 0;
     const rate = Number(val('sv_ln_' + idx + '_rate')) || 0;
-
-    const piecesInput = document.getElementById('sv_ln_' + idx + '_pieces');
-    const ratePieceInput = document.getElementById('sv_ln_' + idx + '_rateperpiece');
     const amtEl = document.getElementById('sv_ln_' + idx + '_amt');
     const profitEl = document.getElementById('sv_ln_' + idx + '_profit');
-    if (!piecesInput || !ratePieceInput || !amtEl) return;
+    if (!amtEl) return;
 
-    const pieces = Number(piecesInput.value) || 0;
-    let value = 0;
-
-    if (qty > 0 && rate > 0) {
-      // ওজন পাশে পরিমাণ+দর জানা থাকলে সেটাই আসল মূল্য নির্ধারণ করে —
-      // পিসের দর তখন সবসময় লাইভ হিসাব হবে
-      value = qty * rate;
-      if (pieces > 0) {
-        ratePieceInput.value = (value / pieces).toFixed(2);
-      } else {
-        ratePieceInput.value = '';
-      }
-      ratePieceInput.readOnly = true;
-      ratePieceInput.style.background = 'var(--bg)';
-    } else {
-      ratePieceInput.readOnly = false;
-      ratePieceInput.style.background = '';
-      const ratePiece = Number(ratePieceInput.value) || 0;
-      if (pieces > 0 && ratePiece > 0) {
-        value = pieces * ratePiece;
-      }
-    }
-
+    const value = qty * rate;
     amtEl.textContent = value.toFixed(2);
 
-    // লাভ = বিক্রয় মূল্য − (পরিমাণ × আইটেম মাস্টারে দেওয়া স্ট্যান্ডার্ড কস্ট)
     if (profitEl) {
       const costRate = item ? (Number(item.StandardCost) || 0) : 0;
       if (value > 0 && qty > 0 && costRate > 0) {
@@ -4319,52 +4179,6 @@ async function openSalesVoucherForm(defaultType, existingId) {
     totalEl.style.color = total < 0 ? 'var(--danger)' : 'var(--success)';
   }
 
-
-  // পিস দিয়ে বিক্রয় করার সময় (ওজন খালি রেখে), স্টকের লাইভ গড় ওজন/পিস
-  // দিয়ে ওজন ও ওজনের দর অটো-ফিল হবে — কোনো স্থির কনভার্সন ফ্যাক্টর ছাড়াই
-  window.__svAvgCache = window.__svAvgCache || {};
-  window.fillSvWeightFromAverage = async function (idx) {
-    const qtyInput = document.getElementById('sv_ln_' + idx + '_qty');
-    const rateInput = document.getElementById('sv_ln_' + idx + '_rate');
-    if (!qtyInput || qtyInput.value) return; // ওজন আগে থেকে দেওয়া থাকলে কিছু করার দরকার নেই
-    const itemId = val('sv_ln_' + idx + '_item');
-    const warehouseId = val('sv_WarehouseID');
-    const pieces = Number(val('sv_ln_' + idx + '_pieces')) || 0;
-    if (!itemId || !warehouseId || pieces <= 0) return;
-
-    const cacheKey = itemId + '::' + warehouseId;
-    let avg = window.__svAvgCache[cacheKey];
-    if (avg === undefined) {
-      const { data } = await supabaseClient.from('current_stock').select('QtyOnHand,QtyPieces').eq('ItemID', itemId).eq('WarehouseID', warehouseId).maybeSingle();
-      avg = (data && Number(data.QtyPieces) > 0) ? Number(data.QtyOnHand) / Number(data.QtyPieces) : 0;
-      // এই গুদামে ইতিহাস না থাকলে, একই আইটেমের অন্য যেকোনো গুদামের গড় ফলব্যাক হিসেবে ব্যবহার হবে
-      if (avg <= 0) {
-        const { data: anyWh } = await supabaseClient.from('current_stock').select('QtyOnHand,QtyPieces').eq('ItemID', itemId).gt('QtyPieces', 0);
-        if (anyWh && anyWh.length > 0) {
-          const totalKg = anyWh.reduce(function (s, r) { return s + (Number(r.QtyOnHand) || 0); }, 0);
-          const totalPieces = anyWh.reduce(function (s, r) { return s + (Number(r.QtyPieces) || 0); }, 0);
-          avg = totalPieces > 0 ? totalKg / totalPieces : 0;
-        }
-      }
-      window.__svAvgCache[cacheKey] = avg;
-    }
-    if (avg <= 0) {
-      showToast(t('এই আইটেমের কোনো ওজন/পিস ইতিহাস পাওয়া যায়নি — ওজন হাতে লিখুন।','No weight/pieces history found for this item — please enter the weight manually.'), 'error');
-      return;
-    }
-    if (qtyInput.value) return; // ইতিমধ্যে ব্যবহারকারী নিজে থেকে লিখে ফেলেছেন কিনা — শেষবার আবার চেক
-
-    const estQty = pieces * avg;
-    qtyInput.value = estQty.toFixed(3);
-
-    const ratePiece = Number(val('sv_ln_' + idx + '_rateperpiece')) || 0;
-    if (ratePiece > 0 && rateInput && !rateInput.value) {
-      const value = pieces * ratePiece;
-      rateInput.value = (value / estQty).toFixed(2);
-    }
-    recalcSvLine(idx);
-  };
-
   function renderSvLines() {
     const wrap = document.getElementById('sv_LinesWrap');
     if (!wrap) return;
@@ -4376,21 +4190,16 @@ async function openSalesVoucherForm(defaultType, existingId) {
       const catOpts = window.__svCategories.map(function (c) { return `<option value="${attr(c.CategoryID)}" ${item&&item.CategoryID===c.CategoryID?'selected':''}>${escapeHtml(c.CategoryName)}</option>`; }).join('');
       const unitLabel = item && window.__svUnitMap[item.UOMID] ? window.__svUnitMap[item.UOMID].UOMName : '—';
       return `
-        <tr style="border-top:2px solid var(--border);">
-          <td rowspan="2"><select id="sv_ln_${idx}_item" onchange="updateSvLineItem(${idx})"><option value="">—</option>${opts(window.__svItems, 'ItemID', 'ItemName', row.itemId)}</select></td>
-          <td rowspan="2"><select id="sv_ln_${idx}_group" style="min-width:90px;"><option value="">—</option>${groupOpts}</select></td>
-          <td rowspan="2"><select id="sv_ln_${idx}_cat" style="min-width:90px;"><option value="">—</option>${catOpts}</select></td>
+        <tr>
+          <td><select id="sv_ln_${idx}_item" onchange="updateSvLineItem(${idx})"><option value="">—</option>${opts(window.__svItems, 'ItemID', 'ItemName', row.itemId)}</select></td>
+          <td><select id="sv_ln_${idx}_group" style="min-width:90px;"><option value="">—</option>${groupOpts}</select></td>
+          <td><select id="sv_ln_${idx}_cat" style="min-width:90px;"><option value="">—</option>${catOpts}</select></td>
           <td><input id="sv_ln_${idx}_qty" type="number" step="any" value="${row.qty||''}" oninput="updateSvLine(${idx})" style="width:80px;"></td>
           <td id="sv_ln_${idx}_unit" style="color:var(--text-muted);">${escapeHtml(unitLabel)}</td>
           <td><input id="sv_ln_${idx}_rate" type="number" step="any" value="${row.rate||''}" oninput="updateSvLine(${idx})" style="width:80px;"></td>
-          <td rowspan="2" id="sv_ln_${idx}_amt" style="font-weight:600;">0.00</td>
-          <td rowspan="2" id="sv_ln_${idx}_profit" style="font-weight:600;">—</td>
-          <td rowspan="2"><button type="button" onclick="window.__removeSvLine(${idx})">✕</button></td>
-        </tr>
-        <tr style="background:var(--bg);">
-          <td style="border-top:1px dashed var(--border);"><input id="sv_ln_${idx}_pieces" type="number" step="any" value="${row.pieces||''}" oninput="updateSvLine(${idx}); fillSvWeightFromAverage(${idx});" style="width:80px;"></td>
-          <td style="border-top:1px dashed var(--border);color:var(--text-muted);font-style:italic;">${t('পিস','pcs')}</td>
-          <td style="border-top:1px dashed var(--border);"><input id="sv_ln_${idx}_rateperpiece" type="number" step="any" oninput="updateSvLine(${idx}); fillSvWeightFromAverage(${idx});" style="width:80px;"></td>
+          <td id="sv_ln_${idx}_amt" style="font-weight:600;">0.00</td>
+          <td id="sv_ln_${idx}_profit" style="font-weight:600;">—</td>
+          <td><button type="button" onclick="window.__removeSvLine(${idx})">✕</button></td>
         </tr>`;
     }).join('');
     wrap.innerHTML = `<table class="data-table"><thead><tr>${headCells}</tr></thead><tbody>${rows}</tbody></table>
@@ -4638,56 +4447,56 @@ async function renderStockOverview(content) {
     }
 
     // প্রতিটা আইটেম+গুদামের জন্য: রেঞ্জের ভেতরের ইন/আউট, আর "তারিখ পর্যন্ত" মোট ব্যালেন্স (শুরু থেকে হিসাব করে)
+    // — এখন শুধু একটামাত্র পরিমাণ (আইটেমের নিজের এককে), কোনো আলাদা পিস-হিসাব নেই
     const combos = {};
     function comboKey(itemId, whId) { return itemId + '::' + whId; }
     ledger.forEach(function (l) {
       const key = comboKey(l.ItemID, l.WarehouseID);
-      if (!combos[key]) combos[key] = { ItemID: l.ItemID, WarehouseID: l.WarehouseID, inKg:0, inPieces:0, outKg:0, outPieces:0, balKg:0, balPieces:0 };
+      if (!combos[key]) combos[key] = { ItemID: l.ItemID, WarehouseID: l.WarehouseID, inQty:0, outQty:0, balQty:0 };
       const c = combos[key];
-      if (l.Date <= toDate) { c.balKg += (Number(l.QtyIn)||0) - (Number(l.QtyOut)||0); c.balPieces += (Number(l.PiecesIn)||0) - (Number(l.PiecesOut)||0); }
+      if (l.Date <= toDate) { c.balQty += (Number(l.QtyIn)||0) - (Number(l.QtyOut)||0); }
       if (l.Date >= fromDate && l.Date <= toDate) {
-        c.inKg += Number(l.QtyIn)||0; c.inPieces += Number(l.PiecesIn)||0;
-        c.outKg += Number(l.QtyOut)||0; c.outPieces += Number(l.PiecesOut)||0;
+        c.inQty += Number(l.QtyIn)||0;
+        c.outQty += Number(l.QtyOut)||0;
       }
     });
 
-    const rows = Object.values(combos).filter(function (c) { return c.inKg || c.inPieces || c.outKg || c.outPieces || c.balKg || c.balPieces; });
+    const rows = Object.values(combos).filter(function (c) { return c.inQty || c.outQty || c.balQty; });
     if (rows.length === 0) {
       wrap.innerHTML = `<div class="empty-state i18n" data-bn="এই সময়ে কোনো স্টক মুভমেন্ট নেই।" data-en="No stock movement in this period.">${t('এই সময়ে কোনো স্টক মুভমেন্ট নেই।','No stock movement in this period.')}</div>`;
       return;
     }
 
-    function group(qty, pieces, rate, isDual) {
+    function group(qty, rate) {
       const value = qty * rate;
-      const ratePiece = (isDual && pieces > 0) ? value / pieces : null;
       return `<td style="text-align:center;">${qty ? qty.toFixed(3) : '—'}</td><td style="text-align:center;">${rate ? rate.toFixed(2) : '—'}</td>
-        <td style="text-align:center;">${isDual ? (pieces || '—') : '—'}</td><td style="text-align:center;">${ratePiece !== null ? ratePiece.toFixed(2) : '—'}</td>
         <td style="text-align:center;"><b>${value.toFixed(2)}</b></td>`;
     }
 
     const headHtml = `<tr>
         <th rowspan="2" style="text-align:center;vertical-align:middle;">${t('আইটেম','Item')}</th>
+        <th rowspan="2" style="text-align:center;vertical-align:middle;">${t('একক','Unit')}</th>
         <th rowspan="2" style="text-align:center;vertical-align:middle;">${t('ওয়ারহাউজ','Warehouse')}</th>
-        <th colspan="5" style="text-align:center;">${t('স্টক ইন','Stock In')}</th>
-        <th colspan="5" style="text-align:center;">${t('স্টক আউট','Stock Out')}</th>
-        <th colspan="5" style="text-align:center;">${t('স্টক ব্যালেন্স','Stock Balance')}</th>
+        <th colspan="3" style="text-align:center;">${t('স্টক ইন','Stock In')}</th>
+        <th colspan="3" style="text-align:center;">${t('স্টক আউট','Stock Out')}</th>
+        <th colspan="3" style="text-align:center;">${t('স্টক ব্যালেন্স','Stock Balance')}</th>
         <th rowspan="2" style="text-align:center;vertical-align:middle;">${t('ভিউ','View')}</th>
       </tr>
       <tr>
-        <th style="text-align:center;">${t('ওজন','Weight')}</th><th style="text-align:center;">${t('দর','Rate')}</th><th style="text-align:center;">${t('পিস','Pieces')}</th><th style="text-align:center;">${t('দর','Rate')}</th><th style="text-align:center;">${t('মূল্য','Value')}</th>
-        <th style="text-align:center;">${t('ওজন','Weight')}</th><th style="text-align:center;">${t('দর','Rate')}</th><th style="text-align:center;">${t('পিস','Pieces')}</th><th style="text-align:center;">${t('দর','Rate')}</th><th style="text-align:center;">${t('মূল্য','Value')}</th>
-        <th style="text-align:center;">${t('ওজন','Weight')}</th><th style="text-align:center;">${t('দর','Rate')}</th><th style="text-align:center;">${t('পিস','Pieces')}</th><th style="text-align:center;">${t('দর','Rate')}</th><th style="text-align:center;">${t('মূল্য','Value')}</th>
+        <th style="text-align:center;">${t('পরিমাণ','Quantity')}</th><th style="text-align:center;">${t('দর','Rate')}</th><th style="text-align:center;">${t('মূল্য','Value')}</th>
+        <th style="text-align:center;">${t('পরিমাণ','Quantity')}</th><th style="text-align:center;">${t('দর','Rate')}</th><th style="text-align:center;">${t('মূল্য','Value')}</th>
+        <th style="text-align:center;">${t('পরিমাণ','Quantity')}</th><th style="text-align:center;">${t('দর','Rate')}</th><th style="text-align:center;">${t('মূল্য','Value')}</th>
       </tr>`;
 
     const bodyRows = rows.map(function (c) {
       const item = itemMap[c.ItemID] || {};
-      const isDual = item.TrackingType === 'WeightPieces';
       const rate = Number(item.StandardCost) || 0;
+      const unitLabel = units.find(function (u) { return u.UOMID === item.UOMID; });
       return `<tr>
-        <td>${escapeHtml(item.ItemName || c.ItemID)}</td><td>${escapeHtml(whMap[c.WarehouseID] || c.WarehouseID)}</td>
-        ${group(c.inKg, c.inPieces, rate, isDual)}
-        ${group(c.outKg, c.outPieces, rate, isDual)}
-        ${group(c.balKg, c.balPieces, rate, isDual)}
+        <td>${escapeHtml(item.ItemName || c.ItemID)}</td><td>${escapeHtml(unitLabel ? unitLabel.UOMName : '')}</td><td>${escapeHtml(whMap[c.WarehouseID] || c.WarehouseID)}</td>
+        ${group(c.inQty, rate)}
+        ${group(c.outQty, rate)}
+        ${group(c.balQty, rate)}
         <td style="text-align:center;"><button class="btn btn-outline" style="width:auto;padding:6px 12px;font-size:12px;" onclick='openStockItemVouchers(${JSON.stringify(c.ItemID)}, ${JSON.stringify(c.WarehouseID)}, ${JSON.stringify(fromDate)}, ${JSON.stringify(toDate)})'>${t('ভিউ','View')}</button></td>
       </tr>`;
     }).join('');
@@ -4718,12 +4527,12 @@ function openStockItemVouchers(itemId, warehouseId, fromDate, toDate) {
     ? `<div class="empty-state">${t('এই সময়ে কোনো ভাউচার নেই।','No vouchers in this period.')}</div>`
     : `<table class="data-table"><thead><tr>
         <th>${t('তারিখ','Date')}</th><th>${t('উৎস','Source')}</th><th>${t('রেফারেন্স','Reference')}</th>
-        <th>${t('ইন (কেজি/পিস)','In (kg/pcs)')}</th><th>${t('আউট (কেজি/পিস)','Out (kg/pcs)')}</th>
+        <th>${t('ইন','In')}</th><th>${t('আউট','Out')}</th>
       </tr></thead><tbody>
         ${rows.map(function (l) {
           const lbl = REF_LABEL[l.TransactionType] || [l.TransactionType, l.TransactionType];
-          const inTxt = (Number(l.QtyIn)||0) || (Number(l.PiecesIn)||0) ? (Number(l.QtyIn)||0) + ' কেজি' + ((Number(l.PiecesIn)||0) ? ' / ' + l.PiecesIn + ' পিস' : '') : '—';
-          const outTxt = (Number(l.QtyOut)||0) || (Number(l.PiecesOut)||0) ? (Number(l.QtyOut)||0) + ' কেজি' + ((Number(l.PiecesOut)||0) ? ' / ' + l.PiecesOut + ' পিস' : '') : '—';
+          const inTxt = (Number(l.QtyIn)||0) ? (Number(l.QtyIn)||0) : '—';
+          const outTxt = (Number(l.QtyOut)||0) ? (Number(l.QtyOut)||0) : '—';
           return `<tr><td>${escapeHtml(l.Date)}</td><td>${t(lbl[0],lbl[1])}</td><td>${escapeHtml(l.RefID)}</td><td>${inTxt}</td><td>${outTxt}</td></tr>`;
         }).join('')}
       </tbody></table>`;
@@ -4745,26 +4554,24 @@ async function openStockReportPrintView(fromDate, toDate) {
   const combos = {};
   ledger.forEach(function (l) {
     const key = l.ItemID + '::' + l.WarehouseID;
-    if (!combos[key]) combos[key] = { ItemID: l.ItemID, WarehouseID: l.WarehouseID, inKg:0, inPieces:0, outKg:0, outPieces:0, balKg:0, balPieces:0 };
+    if (!combos[key]) combos[key] = { ItemID: l.ItemID, WarehouseID: l.WarehouseID, inQty:0, outQty:0, balQty:0 };
     const c = combos[key];
-    if (l.Date <= toDate) { c.balKg += (Number(l.QtyIn)||0) - (Number(l.QtyOut)||0); c.balPieces += (Number(l.PiecesIn)||0) - (Number(l.PiecesOut)||0); }
+    if (l.Date <= toDate) { c.balQty += (Number(l.QtyIn)||0) - (Number(l.QtyOut)||0); }
     if (l.Date >= fromDate && l.Date <= toDate) {
-      c.inKg += Number(l.QtyIn)||0; c.inPieces += Number(l.PiecesIn)||0;
-      c.outKg += Number(l.QtyOut)||0; c.outPieces += Number(l.PiecesOut)||0;
+      c.inQty += Number(l.QtyIn)||0;
+      c.outQty += Number(l.QtyOut)||0;
     }
   });
-  const rows = Object.values(combos).filter(function (c) { return c.inKg || c.inPieces || c.outKg || c.outPieces || c.balKg || c.balPieces; });
+  const rows = Object.values(combos).filter(function (c) { return c.inQty || c.outQty || c.balQty; });
 
-  function grp(qty, pieces, rate, isDual) {
+  function grp(qty, rate) {
     const value = qty * rate;
-    const rp = (isDual && pieces > 0) ? value / pieces : null;
-    return `<td>${qty ? qty.toFixed(3) : '—'}</td><td>${rate ? rate.toFixed(2) : '—'}</td><td>${isDual ? (pieces||'—') : '—'}</td><td>${rp!==null?rp.toFixed(2):'—'}</td><td>${value.toFixed(2)}</td>`;
+    return `<td>${qty ? qty.toFixed(3) : '—'}</td><td>${rate ? rate.toFixed(2) : '—'}</td><td>${value.toFixed(2)}</td>`;
   }
   const bodyRows = rows.map(function (c) {
     const item = itemMap[c.ItemID] || {};
-    const isDual = item.TrackingType === 'WeightPieces';
     const rate = Number(item.StandardCost) || 0;
-    return `<tr><td>${escapeHtml(item.ItemName || c.ItemID)}</td><td>${escapeHtml(whMap[c.WarehouseID] || c.WarehouseID)}</td>${grp(c.inKg,c.inPieces,rate,isDual)}${grp(c.outKg,c.outPieces,rate,isDual)}${grp(c.balKg,c.balPieces,rate,isDual)}</tr>`;
+    return `<tr><td>${escapeHtml(item.ItemName || c.ItemID)}</td><td>${escapeHtml(whMap[c.WarehouseID] || c.WarehouseID)}</td>${grp(c.inQty,rate)}${grp(c.outQty,rate)}${grp(c.balQty,rate)}</tr>`;
   }).join('');
 
   const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8">
@@ -4786,11 +4593,11 @@ async function openStockReportPrintView(fromDate, toDate) {
   <p>সময়কাল: ${escapeHtml(fromDate)} থেকে ${escapeHtml(toDate)}</p>
   <table>
     <thead>
-      <tr><th rowspan="2">আইটেম</th><th rowspan="2">ওয়ারহাউজ</th><th colspan="5">স্টক ইন</th><th colspan="5">স্টক আউট</th><th colspan="5">স্টক ব্যালেন্স</th></tr>
+      <tr><th rowspan="2">আইটেম</th><th rowspan="2">ওয়ারহাউজ</th><th colspan="3">স্টক ইন</th><th colspan="3">স্টক আউট</th><th colspan="3">স্টক ব্যালেন্স</th></tr>
       <tr>
-        <th>ওজন</th><th>দর</th><th>পিস</th><th>দর</th><th>মূল্য</th>
-        <th>ওজন</th><th>দর</th><th>পিস</th><th>দর</th><th>মূল্য</th>
-        <th>ওজন</th><th>দর</th><th>পিস</th><th>দর</th><th>মূল্য</th>
+        <th>পরিমাণ</th><th>দর</th><th>মূল্য</th>
+        <th>পরিমাণ</th><th>দর</th><th>মূল্য</th>
+        <th>পরিমাণ</th><th>দর</th><th>মূল্য</th>
       </tr>
     </thead>
     <tbody>${bodyRows}</tbody>
