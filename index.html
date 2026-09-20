@@ -3303,12 +3303,12 @@ async function renderPurchaseVoucherPage(content, defaultType) {
     <div class="panel"><div id="pvTableWrap"></div></div>`;
 
   async function loadList() {
-    const [invoices, returns, suppliers, purchasers] = await Promise.all([
+    const [invoices, returns, suppliers, users] = await Promise.all([
       api('list', { sheet:'PurchaseInvoice' }), api('list', { sheet:'PurchaseReturn' }),
-      cachedList('Suppliers'), cachedList('Purchasers')
+      cachedList('Suppliers'), cachedList('Users')
     ]);
     const supMap = {}; suppliers.forEach(function (s) { supMap[s.SupplierID] = s.CompanyName || s.Name; });
-    const purMap = {}; purchasers.forEach(function (p) { purMap[p.PurchaserID] = p.PurchaserName; });
+    const purMap = {}; users.forEach(function (u) { purMap[u.UserID] = u.FullName; });
 
     const merged = invoices.filter(function (r) { return r.Status !== 'Deleted'; }).map(function (r) {
       return { type:'PurchaseInvoice', typeLabel:['ক্রয় ভাউচার','Purchase Voucher'], id:r.PIID, date:r.InvoiceDate, supplierId:r.SupplierID, purchaserId:r.PurchaserID, amount:r.TotalAmount, status:r.Status };
@@ -3411,7 +3411,7 @@ async function openPrintableVoucherView(docType, docId) {
   const [doc, parties, personRefs, items, units, groups, categories, company] = await Promise.all([
     api('getDocument', { headerSheet: headerSheet, idField: idField, linesSheet: linesSheet, lineIdField: lineIdField, idValue: docId }),
     isSales ? cachedList('Customers') : cachedList('Suppliers'),
-    isSales ? cachedList('Salespersons') : cachedList('Purchasers'),
+    cachedList('Users'),
     cachedList('Items'), cachedList('UOM'),
     cachedList('ItemGroups'), cachedList('Categories'),
     api('getSingleton', { sheet:'CompanyProfile' })
@@ -3420,8 +3420,8 @@ async function openPrintableVoucherView(docType, docId) {
   const partyIdField = isSales ? 'CustomerID' : 'SupplierID';
   const party = parties.find(function (p) { return p[partyIdField] === header[partyIdField]; });
   const personIdField = isSales ? 'SalespersonID' : 'PurchaserID';
-  const personNameField = isSales ? 'SalespersonName' : 'PurchaserName';
-  const person = personRefs.find(function (p) { return p[personIdField] === header[personIdField]; });
+  const personNameField = 'FullName';
+  const person = personRefs.find(function (p) { return p.UserID === header[personIdField]; });
   const itemMap = {}; items.forEach(function (i) { itemMap[i.ItemID] = i; });
   const unitMap = {}; units.forEach(function (u) { unitMap[u.UOMID] = u.UOMName; });
   const groupMap = {}; groups.forEach(function (g) { groupMap[g.GroupID] = g.GroupName; });
@@ -3496,7 +3496,8 @@ async function openPrintableVoucherView(docType, docId) {
   .lang-toggle button{border:none;border-radius:0;padding:9px 14px;}
   .lang-toggle button.active{background:#1a2029;color:#f2a33c;}
   .footer-note{margin-top:30px;font-size:11.5px;color:#888;text-align:center;}
-  .sign-block{width:220px;margin:50px 0 0 auto;text-align:center;}
+  .sign-row{display:flex;justify-content:space-between;gap:10px;margin-top:55px;}
+  .sign-block{width:31%;text-align:center;}
   .sign-line{border-top:1px solid #333;margin-bottom:6px;}
   .sign-block p{margin:2px 0;font-size:12.5px;}
   @media print { .toolbar{display:none;} body{margin:0;} }
@@ -3550,10 +3551,21 @@ async function openPrintableVoucherView(docType, docId) {
     <tbody>${rowsHtml}</tbody>
     <tfoot><tr><td>${L('মোট','Total')}</td><td><span data-bn="${attr(totalQty + ' কেজি')}" data-en="${attr(totalQty + ' kg')}">${escapeHtml(totalQty + ' কেজি')}</span></td><td></td><td>${totalPieces > 0 ? `<span data-bn="${attr(totalPieces + ' পিস')}" data-en="${attr(totalPieces + ' pcs')}">${escapeHtml(totalPieces + ' পিস')}</span>` : '—'}</td><td></td><td>${totalValue.toFixed(2)}</td></tr></tfoot>
   </table>
-  <div class="sign-block">
-    <div class="sign-line"></div>
-    <p><b>${L('অথরাইজ স্বাঃ','Authorized Signature')}</b></p>
-    <p>${escapeHtml(currentUser ? (currentUser.FullName || '') : '')}</p>
+  <div class="sign-row">
+    <div class="sign-block">
+      <div class="sign-line"></div>
+      <p><b>${isSales ? L('ক্রেতার স্বাঃ', "Buyer's Signature") : L('বিক্রেতার স্বাঃ', "Seller's Signature")}</b></p>
+    </div>
+    <div class="sign-block">
+      <div class="sign-line"></div>
+      <p><b>${L('অথরাইজেশন স্বাঃ','Authorization Signature')}</b></p>
+      <p>${escapeHtml(currentUser ? (currentUser.FullName || '') : '')}</p>
+    </div>
+    <div class="sign-block">
+      <div class="sign-line"></div>
+      <p><b>${L(personLabelBn + ' স্বাঃ', personLabelEn + "'s Signature")}</b></p>
+      <p>${escapeHtml(person ? (person.FullName || '') : '')}</p>
+    </div>
   </div>
   <p class="footer-note"><span data-bn="${attr('তৈরি হয়েছে: ' + new Date().toLocaleString('bn-BD'))}" data-en="${attr('Generated on: ' + new Date().toLocaleString('en-US'))}">${escapeHtml('তৈরি হয়েছে: ' + new Date().toLocaleString('bn-BD'))}</span></p>
   <script>
@@ -3639,16 +3651,10 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       <div class="field"><label>${t('তারিখ','Date')}</label><input type="date" id="pv_Date" value="${attr(rec.InvoiceDate || rec.Date) || new Date().toISOString().slice(0,10)}"></div>
       <div class="field"><label>${t('ভাউচার নম্বর','Voucher No')}</label><input id="pv_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো তৈরি হবে','Will be auto-generated')}" readonly style="background:var(--bg);"></div>
       <div class="field" id="pv_GRNField" style="display:none;"><label>${t('GRN রেফারেন্স','GRN Reference')}</label><select id="pv_GRNID"><option value="">—</option>${opts(grns, 'GRNID', 'GRNID', rec.GRNID)}</select></div>
-      <div class="field" id="pv_WarehouseField"><label>${t('গুদাম','Warehouse')}</label><select id="pv_WarehouseID"><option value="">—</option>${opts(warehouses, 'WarehouseID', 'WarehouseName', rec.WarehouseID)}</select></div>
       <div class="field"><label>${t('নিঃভাউঃতারিখ (ঐচ্ছিক)','Supplier Voucher Date (optional)')}</label><input type="date" id="pv_SupplierInvoiceDate" value="${attr(rec.SupplierInvoiceDate)}"></div>
       <div class="field"><label>${t('নিঃভাউঃনম্বর (ঐচ্ছিক)','Supplier Voucher No (optional)')}</label><input id="pv_SupplierInvoiceNo" value="${attr(rec.SupplierInvoiceNo)}"></div>
+      <div class="field" id="pv_WarehouseField"><label>${t('গুদাম','Warehouse')}</label><select id="pv_WarehouseID"><option value="">—</option>${opts(warehouses, 'WarehouseID', 'WarehouseName', rec.WarehouseID)}</select></div>
       <div class="field"><label>${t('সাপ্লায়ার নাম','Supplier Name')}</label><select id="pv_SupplierID"><option value="">—</option>${suppliers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.SupplierID)}" ${rec.SupplierID===r.SupplierID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select></div>
-      <div class="field"><label>${t('ক্রয়কারী','Purchaser')}</label>
-        <div style="display:flex;gap:8px;">
-          <select id="pv_PurchaserID" style="flex:1;min-width:0;"><option value="">—</option>${opts(purchasers, 'PurchaserID', 'PurchaserName', rec.PurchaserID)}</select>
-          <button type="button" id="pv_AddPurchaserBtn" class="btn" style="width:auto;padding:0 14px;flex-shrink:0;" title="${t('নতুন ক্রয়কারী যোগ করুন','Add new purchaser')}">+</button>
-        </div>
-      </div>
     </div>
     <div id="pv_ReasonField" style="display:none;margin-top:14px;"><div class="field"><label>${t('কারণ','Reason')}</label><input id="pv_Reason" value="${attr(rec.Reason)}"></div></div>
 
@@ -3729,7 +3735,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
         SupplierID: supplierId,
         SupplierInvoiceNo: val('pv_SupplierInvoiceNo'),
         SupplierInvoiceDate: val('pv_SupplierInvoiceDate') || null,
-        PurchaserID: val('pv_PurchaserID') || null
+        PurchaserID: currentUser ? currentUser.UserID : null // যিনি ভাউচারটা তৈরি করছেন, তিনিই ক্রয়কারী
       };
 
       if (currentType === 'PurchaseInvoice') {
@@ -3767,24 +3773,6 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   }
   document.getElementById('pv_Type').addEventListener('change', toggleTypeFields);
   toggleTypeFields();
-
-  document.getElementById('pv_AddPurchaserBtn').addEventListener('click', async function () {
-    const name = prompt(t('নতুন ক্রয়কারীর নাম লিখুন:','Enter new purchaser name:'));
-    if (!name || !name.trim()) return;
-    try {
-      const newPurchaser = await api('create', { sheet:'Purchasers', idField:'PurchaserID', idPrefix:'PUR', requiredFields:['PurchaserName'], data:{ PurchaserName: name.trim() } });
-      const select = document.getElementById('pv_PurchaserID');
-      if (!select) return;
-      const opt = document.createElement('option');
-      opt.value = newPurchaser.PurchaserID;
-      opt.textContent = newPurchaser.PurchaserName;
-      opt.selected = true;
-      select.appendChild(opt);
-      showToast(t('নতুন ক্রয়কারী যোগ হয়েছে ✅','New purchaser added ✅'), 'success');
-    } catch (err) {
-      showToast(err.message, 'error');
-    }
-  });
 
   function onPvLineItemChange(idx) {
     const itemId = val('pv_ln_' + idx + '_item');
@@ -3892,12 +3880,12 @@ async function renderSalesVoucherPage(content, defaultType) {
     <div class="panel"><div id="svTableWrap"></div></div>`;
 
   async function loadList() {
-    const [invoices, returns, customers, salespersons] = await Promise.all([
+    const [invoices, returns, customers, users] = await Promise.all([
       api('list', { sheet:'SalesInvoice' }), api('list', { sheet:'SalesReturn' }),
-      cachedList('Customers'), cachedList('Salespersons')
+      cachedList('Customers'), cachedList('Users')
     ]);
     const custMap = {}; customers.forEach(function (c) { custMap[c.CustomerID] = c.CompanyName || c.Name; });
-    const slpMap = {}; salespersons.forEach(function (s) { slpMap[s.SalespersonID] = s.SalespersonName; });
+    const slpMap = {}; users.forEach(function (u) { slpMap[u.UserID] = u.FullName; });
 
     const merged = invoices.filter(function (r) { return r.Status !== 'Deleted'; }).map(function (r) {
       return { type:'SalesInvoice', typeLabel:['বিক্রয় ভাউচার','Sales Voucher'], id:r.SIID, date:r.InvoiceDate, customerId:r.CustomerID, salespersonId:r.SalespersonID, amount:r.TotalAmount, status:r.Status };
@@ -4044,12 +4032,6 @@ async function openSalesVoucherForm(defaultType, existingId) {
       <div class="field" id="sv_DCField"><label>${t('ডেলিভারি চালান রেফারেন্স (ঐচ্ছিক)','Delivery Challan Reference (optional)')}</label><select id="sv_DCID"><option value="">—</option>${opts(deliveryChallans, 'DCID', 'DCID', rec.DCID)}</select></div>
       <div class="field"><label>${t('গুদাম','Warehouse')}</label><select id="sv_WarehouseID"><option value="">—</option>${opts(warehouses, 'WarehouseID', 'WarehouseName', rec.WarehouseID)}</select></div>
       <div class="field"><label>${t('গ্রাহক নাম','Customer Name')}</label><select id="sv_CustomerID"><option value="">—</option>${customers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.CustomerID)}" ${rec.CustomerID===r.CustomerID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select></div>
-      <div class="field"><label>${t('বিক্রয়কারী','Salesperson')}</label>
-        <div style="display:flex;gap:8px;">
-          <select id="sv_SalespersonID" style="flex:1;min-width:0;"><option value="">—</option>${opts(salespersons, 'SalespersonID', 'SalespersonName', rec.SalespersonID)}</select>
-          <button type="button" id="sv_AddSalespersonBtn" class="btn" style="width:auto;padding:0 14px;flex-shrink:0;" title="${t('নতুন বিক্রয়কারী যোগ করুন','Add new salesperson')}">+</button>
-        </div>
-      </div>
     </div>
     <div id="sv_ReasonField" style="display:none;margin-top:14px;"><div class="field"><label>${t('কারণ','Reason')}</label><input id="sv_Reason" value="${attr(rec.Reason)}"></div></div>
 
@@ -4118,7 +4100,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
       const warehouseId = val('sv_WarehouseID');
       if (!warehouseId) throw new Error(t('গুদাম বাছাই করা আবশ্যক।','Warehouse is required.'));
 
-      const common = { CustomerID: customerId, SalespersonID: val('sv_SalespersonID') || null, WarehouseID: warehouseId };
+      const common = { CustomerID: customerId, SalespersonID: currentUser ? currentUser.UserID : null, WarehouseID: warehouseId };
 
       if (currentType === 'SalesInvoice') {
         const totalAmount = lines.reduce(function (s, l) { return s + (Number(l.Amount) || 0); }, 0);
@@ -4152,24 +4134,6 @@ async function openSalesVoucherForm(defaultType, existingId) {
   }
   document.getElementById('sv_Type').addEventListener('change', toggleSvTypeFields);
   toggleSvTypeFields();
-
-  document.getElementById('sv_AddSalespersonBtn').addEventListener('click', async function () {
-    const name = prompt(t('নতুন বিক্রয়কারীর নাম লিখুন:','Enter new salesperson name:'));
-    if (!name || !name.trim()) return;
-    try {
-      const newSalesperson = await api('create', { sheet:'Salespersons', idField:'SalespersonID', idPrefix:'SLP', requiredFields:['SalespersonName'], data:{ SalespersonName: name.trim() } });
-      const select = document.getElementById('sv_SalespersonID');
-      if (!select) return;
-      const opt = document.createElement('option');
-      opt.value = newSalesperson.SalespersonID;
-      opt.textContent = newSalesperson.SalespersonName;
-      opt.selected = true;
-      select.appendChild(opt);
-      showToast(t('নতুন বিক্রয়কারী যোগ হয়েছে ✅','New salesperson added ✅'), 'success');
-    } catch (err) {
-      showToast(err.message, 'error');
-    }
-  });
 
   function onSvLineItemChange(idx) {
     const itemId = val('sv_ln_' + idx + '_item');
