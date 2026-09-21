@@ -3447,7 +3447,7 @@ async function renderPurchaseVoucherPage(content, defaultType) {
     const purMap = {}; users.forEach(function (u) { purMap[u.UserID] = u.FullName; });
 
     const merged = invoices.filter(function (r) { return r.Status !== 'Deleted'; }).map(function (r) {
-      return { type:'PurchaseInvoice', typeLabel:['ক্রয় ভাউচার','Purchase Voucher'], id:r.PIID, date:r.InvoiceDate, supplierId:r.SupplierID, purchaserId:r.PurchaserID, amount:r.TotalAmount, status:r.Status };
+      return { type:'PurchaseInvoice', typeLabel:['ক্রয় ভাউচার','Purchase Voucher'], id:r.PIID, date:r.InvoiceDate, supplierId:r.SupplierID, walkInName:r.WalkInPartyName, purchaserId:r.PurchaserID, amount:r.TotalAmount, status:r.Status };
     }).concat(returns.filter(function (r) { return r.Status !== 'Deleted'; }).map(function (r) {
       return { type:'PurchaseReturn', typeLabel:['ক্রয় ফেরত ভাউচার','Purchase Return Voucher'], id:r.PRetID, date:r.Date, supplierId:r.SupplierID, purchaserId:r.PurchaserID, amount:null, status:r.Status };
     }));
@@ -3486,7 +3486,7 @@ async function renderPurchaseVoucherPage(content, defaultType) {
         </button>`;
       return `<tr ondblclick='openPurchaseVoucherForm(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' style="cursor:pointer;" title="${t('এডিট করতে ডাবল-ক্লিক করুন','Double-click to edit')}">
         <td>${t(r.typeLabel[0], r.typeLabel[1])}</td><td>${escapeHtml(r.id)}</td><td>${escapeHtml(r.date)}</td>
-        <td>${escapeHtml(supMap[r.supplierId] || r.supplierId)}</td><td>${escapeHtml(purMap[r.purchaserId] || '—')}</td>
+        <td>${escapeHtml(r.supplierId === 'SUP-CASH' && r.walkInName ? ((supMap[r.supplierId] || r.supplierId) + ' — ' + r.walkInName) : (supMap[r.supplierId] || r.supplierId))}</td><td>${escapeHtml(purMap[r.purchaserId] || '—')}</td>
         <td>${r.amount !== null ? Number(r.amount).toFixed(2) : '—'}</td>
         <td>${isPosted ? `<span class="badge active">${t('পোস্ট করা','Posted')}</span>` : `<span class="badge draft">${t('খসড়া','Draft')}</span>`}</td>
         <td class="row-actions" onclick="event.stopPropagation();">${postBtn}${previewBtn}${editBtn}${deleteBtn}</td>
@@ -3592,10 +3592,15 @@ async function openPrintableVoucherView(docType, docId) {
   const printedAtEn = new Date().toLocaleString('en-US');
   const partyLabelBn = isSales ? 'গ্রাহক' : 'সাপ্লায়ার', partyLabelEn = isSales ? 'Customer' : 'Supplier';
   const personLabelBn = isSales ? 'বিক্রয়কারী' : 'ক্রয়কারী', personLabelEn = isSales ? 'Salesperson' : 'Purchaser';
-  const partyName = party ? (party.CompanyName || party.Name) : header[partyIdField];
-  const partyAddress = party ? (party.Address || '') : '';
+  const isCashParty = header[partyIdField] === 'SUP-CASH' || header[partyIdField] === 'CUS-CASH';
+  // নগদ (ওয়াক-ইন) পার্টির ক্ষেত্রে মাস্টার রেকর্ডের (সাধারণত খালি) তথ্যের বদলে,
+  // ভাউচারেই সেভ করা আসল ওয়াক-ইন পার্টির নাম/ঠিকানা/মোবাইল দেখানো হবে
+  const partyName = isCashParty
+    ? (header.WalkInPartyName || (party ? (party.CompanyName || party.Name) : header[partyIdField]))
+    : (party ? (party.CompanyName || party.Name) : header[partyIdField]);
+  const partyAddress = isCashParty ? (header.WalkInPartyAddress || '') : (party ? (party.Address || '') : '');
   const partyZone = party ? (party.Zone || '') : '';
-  const partyPhone = party ? (party.Phone || '') : '';
+  const partyPhone = isCashParty ? (header.WalkInPartyMobile || '') : (party ? (party.Phone || '') : '');
 
   // প্রিন্ট ভাউচারের ভেতরের বাং/EN টোগল — L(bn, en) দিয়ে বানানো প্রতিটা লেবেল
   // টোগল বাটনে ক্লিক করলে বদলে যাবে (নিচের স্ক্রিপ্ট দেখুন)
@@ -4034,7 +4039,7 @@ async function renderSalesVoucherPage(content, defaultType) {
     const slpMap = {}; users.forEach(function (u) { slpMap[u.UserID] = u.FullName; });
 
     const merged = invoices.filter(function (r) { return r.Status !== 'Deleted'; }).map(function (r) {
-      return { type:'SalesInvoice', typeLabel:['বিক্রয় ভাউচার','Sales Voucher'], id:r.SIID, date:r.InvoiceDate, customerId:r.CustomerID, salespersonId:r.SalespersonID, amount:r.TotalAmount, status:r.Status };
+      return { type:'SalesInvoice', typeLabel:['বিক্রয় ভাউচার','Sales Voucher'], id:r.SIID, date:r.InvoiceDate, customerId:r.CustomerID, walkInName:r.WalkInPartyName, salespersonId:r.SalespersonID, amount:r.TotalAmount, status:r.Status };
     }).concat(returns.filter(function (r) { return r.Status !== 'Deleted'; }).map(function (r) {
       return { type:'SalesReturn', typeLabel:['বিক্রয় ফেরত ভাউচার','Sales Return Voucher'], id:r.SRID, date:r.Date, customerId:r.CustomerID, salespersonId:r.SalespersonID, amount:null, status:r.Status };
     }));
@@ -4073,7 +4078,7 @@ async function renderSalesVoucherPage(content, defaultType) {
             : '');
       return `<tr ondblclick='openSalesVoucherForm(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' style="cursor:pointer;" title="${t('এডিট করতে ডাবল-ক্লিক করুন','Double-click to edit')}">
         <td>${t(r.typeLabel[0], r.typeLabel[1])}</td><td>${escapeHtml(r.id)}</td><td>${escapeHtml(r.date)}</td>
-        <td>${escapeHtml(custMap[r.customerId] || r.customerId)}</td><td>${escapeHtml(slpMap[r.salespersonId] || '—')}</td>
+        <td>${escapeHtml(r.customerId === 'CUS-CASH' && r.walkInName ? ((custMap[r.customerId] || r.customerId) + ' — ' + r.walkInName) : (custMap[r.customerId] || r.customerId))}</td><td>${escapeHtml(slpMap[r.salespersonId] || '—')}</td>
         <td>${r.amount !== null ? Number(r.amount).toFixed(2) : '—'}</td>
         <td>${isPosted ? `<span class="badge active">${t('পোস্ট করা','Posted')}</span>` : `<span class="badge draft">${t('খসড়া','Draft')}</span>`}</td>
         <td class="row-actions" onclick="event.stopPropagation();">${postBtn}${previewBtn}${editBtn}${deleteBtn}</td>
