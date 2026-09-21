@@ -3748,6 +3748,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   window.__pv3Categories = categories.filter(function (c) { return c.Status !== 'Deleted'; });
   window.__pv3UnitMap = {}; units.forEach(function (u) { window.__pv3UnitMap[u.UOMID] = u; });
   window.__pv3Warehouses = warehouses.filter(function (w) { return w.Status !== 'Deleted'; });
+  window.__pv3SupplierMap = {}; suppliers.forEach(function (s) { window.__pv3SupplierMap[s.SupplierID] = s; });
 
   const isEdit = !!existingId;
   let existingHeader = null, existingLines = [], existingDocType = defaultType || 'PurchaseInvoice';
@@ -3773,8 +3774,6 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
 
   const rec = existingHeader || {};
 
-  // ক্রয় লাইন ও ক্রয় ফেরত লাইন — দুটো সম্পূর্ণ আলাদা তালিকায় জমা থাকে,
-  // সেভ করার সময় প্রয়োজন অনুযায়ী একটা বা দুটো আলাদা ডকুমেন্ট তৈরি হয়
   window.__pv3PurchaseLines = (isEdit && existingDocType === 'PurchaseInvoice')
     ? existingLines.map(function (l) { return { itemId: l.ItemID, warehouseId: rec.WarehouseID, qty: Number(l.Quantity)||0, rate: Number(l.Rate)||0, amount: Math.round((Number(l.Quantity)||0) * (Number(l.Rate)||0)) }; })
     : [];
@@ -3787,86 +3786,87 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   }
 
   const bodyHtml = `
-    <div style="display:grid;grid-template-columns:220px 1fr;gap:14px;align-items:start;">
-      <div class="field" style="margin:0;"><label>${t('ইনভয়েস টাইপ','Invoice Type')}</label>
-        <select id="pv3_Type" style="padding:6px 10px;">
-          <option value="PurchaseInvoice" selected>${t('ক্রয় ভাউচার','Purchase Voucher')}</option>
-        </select>
+    <div style="display:grid;grid-template-columns:280px 1fr;gap:20px;align-items:start;">
+      <div id="pv3_LeftCol">
+        <div class="field"><label>${t('ইনভয়েস টাইপ','Invoice Type')}</label>
+          <select id="pv3_Type" style="padding:6px 10px;">
+            <option value="PurchaseInvoice" selected>${t('ক্রয় ভাউচার','Purchase Voucher')}</option>
+          </select>
+        </div>
+        <div class="field"><label>${t('ভাউঃ তারিখ','Voucher Date')}</label><input type="date" id="pv3_Date" value="${attr(rec.InvoiceDate || rec.Date) || new Date().toISOString().slice(0,10)}"></div>
+        <div class="field"><label>${t('ভাউঃ নম্বর','Voucher No')}</label><input id="pv3_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো তৈরি হবে','Will be auto-generated')}" readonly style="background:var(--bg);"></div>
+
+        <div class="field" style="display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" id="pv3_SNDateCheck" style="width:auto;" ${rec.SupplierInvoiceDate?'checked':''}>
+          <label style="margin:0;flex:1;">${t('নিঃ তারিখ','Supplier Vou. Date')}</label>
+          <input type="date" id="pv3_SupplierInvoiceDate" value="${attr(rec.SupplierInvoiceDate)}" style="flex:2;" ${rec.SupplierInvoiceDate?'':'disabled'}>
+        </div>
+        <div class="field" style="display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" id="pv3_SNNoCheck" style="width:auto;" ${rec.SupplierInvoiceNo?'checked':''}>
+          <label style="margin:0;flex:1;">${t('নিঃ নম্বর','Supplier Vou. No')}</label>
+          <input id="pv3_SupplierInvoiceNo" value="${attr(rec.SupplierInvoiceNo)}" style="flex:2;" ${rec.SupplierInvoiceNo?'':'disabled'}>
+        </div>
+
+        <div class="field"><label>${t('সাপ্লায়ার নাম','Supplier Name')}</label>
+          <select id="pv3_SupplierID"><option value="">—</option>${suppliers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.SupplierID)}" ${rec.SupplierID===r.SupplierID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select>
+        </div>
+        <div id="pv3_CashSupplierCard" style="display:none;padding:12px;border:1px dashed var(--border);border-radius:8px;background:var(--bg);margin-bottom:14px;">
+          <div class="field"><label>${t('নগদ পার্টির আসল নাম','Actual Cash Party Name')}</label><input id="pv3_CashName" value="${attr(rec.WalkInPartyName)}"></div>
+          <div class="field"><label>${t('ঠিকানা','Address')}</label><input id="pv3_CashAddress" value="${attr(rec.WalkInPartyAddress)}"></div>
+          <div class="field"><label>${t('মোবাইল','Mobile')}</label><input id="pv3_CashMobile" value="${attr(rec.WalkInPartyMobile)}"></div>
+        </div>
+
+        <h4 style="margin:20px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('লাইন আইটেম যোগ করুন','Add Line Item')}</h4>
+
+        <div class="field" style="display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" id="pv3_GroupCheck" style="width:auto;">
+          <label style="margin:0;flex:1;">${t('গ্রুপ নাম','Group Name')}</label>
+          <select id="pv3_GroupSelect" disabled style="flex:2;display:none;"><option value="">—</option>${optsHtml(window.__pv3Groups, 'GroupID','GroupName','')}</select>
+        </div>
+        <div class="field" style="display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" id="pv3_CatCheck" style="width:auto;">
+          <label style="margin:0;flex:1;">${t('ক্যাটাগরি','Category')}</label>
+          <select id="pv3_CatSelect" disabled style="flex:2;display:none;"><option value="">—</option>${optsHtml(window.__pv3Categories, 'CategoryID','CategoryName','')}</select>
+        </div>
+        <div class="field"><label>${t('আইটেম (পণ্য)','Item')}</label><select id="pv3_ItemID"><option value="">—</option></select></div>
+        <div class="field"><label>${t('ওয়ারহাউজ','Warehouse')}</label><select id="pv3_WarehouseID"><option value="">—</option>${optsHtml(window.__pv3Warehouses, 'WarehouseID','WarehouseName', rec.WarehouseID)}</select></div>
+
+        <div class="field" style="display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" id="pv3_StockQtyCheck" style="width:auto;" checked>
+          <label style="margin:0;flex:1;">${t('পরিমাণ স্টক','Stock Quantity')}</label>
+          <input id="pv3_StockQty" readonly style="flex:2;background:var(--bg);">
+        </div>
+        <div class="field"><label>${t('পরিমাণ','Quantity')}</label><input id="pv3_Qty" type="number" step="any"></div>
+
+        <div class="field" style="display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" id="pv3_StockRateCheck" style="width:auto;" checked>
+          <label style="margin:0;flex:1;">${t('দর (স্টক রেফারেন্স)','Rate (Stock Ref.)')}</label>
+          <input id="pv3_StockRate" readonly style="flex:2;background:var(--bg);">
+        </div>
+        <div class="field"><label>${t('দর','Rate')}</label><input id="pv3_Rate" type="number" step="any"></div>
+        <div class="field"><label>${t('একক','Unit')}</label><input id="pv3_Unit" readonly style="background:var(--bg);"></div>
+        <div class="field" style="display:flex;align-items:center;gap:8px;">
+          <div style="flex:1;"><label>${t('মূল্য (৳)','Amount (৳)')}</label><input id="pv3_Amount" readonly style="background:var(--bg);font-weight:700;"></div>
+          <div style="text-align:center;padding-top:22px;">
+            <input type="checkbox" id="pv3_ConfirmPurchaseCheck" style="width:20px;height:20px;">
+            <div style="font-size:10px;color:var(--text-muted);">${t('ক্রয়ে যোগ','Add')}</div>
+          </div>
+        </div>
+        <button type="button" class="btn btn-outline" style="width:auto;margin-top:4px;" id="pv3_AddReturnLineBtn">+ ${t('ক্রয় ফেরত লাইন','Purchase Return Line')}</button>
       </div>
-      <div id="pv3_RightHeaderSlot" style="color:var(--text-muted);font-size:12px;padding-top:22px;">
-        <!-- ডান পাশে পরে আরও ফিল্ড যোগ হবে -->
+
+      <div id="pv3_RightCol">
+        <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;">
+          <div style="background:var(--ink-900);color:var(--amber);padding:10px 14px;display:flex;justify-content:space-between;align-items:center;">
+            <b style="font-size:13px;">${t('লাইভ ভাউচার প্রিভিউ','Live Voucher Preview')}</b>
+            <div style="display:flex;gap:6px;">
+              <button type="button" class="btn" style="width:auto;padding:5px 10px;font-size:11px;" id="pv3_LivePrintBtn">🖨️ ${t('প্রিন্ট','Print')}</button>
+              <button type="button" class="btn" style="width:auto;padding:5px 10px;font-size:11px;" id="pv3_LiveShareBtn">🔗 ${t('শেয়ার','Share')}</button>
+            </div>
+          </div>
+          <div id="pv3_LivePreviewBody" style="padding:16px;font-size:12.5px;"></div>
+        </div>
       </div>
-    </div>
-
-    <div class="field"><label>${t('ভাউঃ তারিখ','Voucher Date')}</label><input type="date" id="pv3_Date" value="${attr(rec.InvoiceDate || rec.Date) || new Date().toISOString().slice(0,10)}"></div>
-    <div class="field"><label>${t('ভাউঃ নম্বর','Voucher No')}</label><input id="pv3_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো তৈরি হবে','Will be auto-generated')}" readonly style="background:var(--bg);"></div>
-
-    <div class="field" style="display:flex;align-items:center;gap:8px;">
-      <input type="checkbox" id="pv3_SNDateCheck" style="width:auto;" ${rec.SupplierInvoiceDate?'checked':''}>
-      <label style="margin:0;flex:1;">${t('নিঃ তারিখ','Supplier Vou. Date')}</label>
-      <input type="date" id="pv3_SupplierInvoiceDate" value="${attr(rec.SupplierInvoiceDate)}" style="flex:2;" ${rec.SupplierInvoiceDate?'':'disabled'}>
-    </div>
-    <div class="field" style="display:flex;align-items:center;gap:8px;">
-      <input type="checkbox" id="pv3_SNNoCheck" style="width:auto;" ${rec.SupplierInvoiceNo?'checked':''}>
-      <label style="margin:0;flex:1;">${t('নিঃ নম্বর','Supplier Vou. No')}</label>
-      <input id="pv3_SupplierInvoiceNo" value="${attr(rec.SupplierInvoiceNo)}" style="flex:2;" ${rec.SupplierInvoiceNo?'':'disabled'}>
-    </div>
-
-    <div class="field"><label>${t('সাপ্লায়ার নাম','Supplier Name')}</label>
-      <select id="pv3_SupplierID"><option value="">—</option>${suppliers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.SupplierID)}" ${rec.SupplierID===r.SupplierID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select>
-    </div>
-    <div id="pv3_CashSupplierCard" style="display:none;padding:12px;border:1px dashed var(--border);border-radius:8px;background:var(--bg);margin-bottom:14px;">
-      <div class="field"><label>${t('নগদ পার্টির আসল নাম','Actual Cash Party Name')}</label><input id="pv3_CashName" value="${attr(rec.WalkInPartyName)}"></div>
-      <div class="field"><label>${t('ঠিকানা','Address')}</label><input id="pv3_CashAddress" value="${attr(rec.WalkInPartyAddress)}"></div>
-      <div class="field"><label>${t('মোবাইল','Mobile')}</label><input id="pv3_CashMobile" value="${attr(rec.WalkInPartyMobile)}"></div>
-    </div>
-
-    <h4 style="margin:20px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('লাইন আইটেম যোগ করুন','Add Line Item')}</h4>
-
-    <div class="field" style="display:flex;align-items:center;gap:8px;">
-      <input type="checkbox" id="pv3_GroupCheck" style="width:auto;">
-      <label style="margin:0;flex:1;">${t('গ্রুপ নাম','Group Name')}</label>
-      <select id="pv3_GroupSelect" disabled style="flex:2;display:none;"><option value="">—</option>${optsHtml(window.__pv3Groups, 'GroupID','GroupName','')}</select>
-    </div>
-    <div class="field" style="display:flex;align-items:center;gap:8px;">
-      <input type="checkbox" id="pv3_CatCheck" style="width:auto;">
-      <label style="margin:0;flex:1;">${t('ক্যাটাগরি','Category')}</label>
-      <select id="pv3_CatSelect" disabled style="flex:2;display:none;"><option value="">—</option>${optsHtml(window.__pv3Categories, 'CategoryID','CategoryName','')}</select>
-    </div>
-    <div class="field"><label>${t('আইটেম (পণ্য)','Item')}</label><select id="pv3_ItemID"><option value="">—</option></select></div>
-    <div class="field"><label>${t('ওয়ারহাউজ','Warehouse')}</label><select id="pv3_WarehouseID"><option value="">—</option>${optsHtml(window.__pv3Warehouses, 'WarehouseID','WarehouseName', rec.WarehouseID)}</select></div>
-
-    <div class="field" style="display:flex;align-items:center;gap:8px;">
-      <input type="checkbox" id="pv3_StockQtyCheck" style="width:auto;" checked>
-      <label style="margin:0;flex:1;">${t('পরিমাণ স্টক','Stock Quantity')}</label>
-      <input id="pv3_StockQty" readonly style="flex:2;background:var(--bg);">
-    </div>
-    <div class="field"><label>${t('পরিমাণ','Quantity')}</label><input id="pv3_Qty" type="number" step="any"></div>
-
-    <div class="field" style="display:flex;align-items:center;gap:8px;">
-      <input type="checkbox" id="pv3_StockRateCheck" style="width:auto;" checked>
-      <label style="margin:0;flex:1;">${t('দর (স্টক রেফারেন্স)','Rate (Stock Ref.)')}</label>
-      <input id="pv3_StockRate" readonly style="flex:2;background:var(--bg);">
-    </div>
-    <div class="field"><label>${t('দর','Rate')}</label><input id="pv3_Rate" type="number" step="any"></div>
-    <div class="field"><label>${t('একক','Unit')}</label><input id="pv3_Unit" readonly style="background:var(--bg);"></div>
-    <div class="field"><label>${t('মূল্য (৳)','Amount (৳)')}</label><input id="pv3_Amount" readonly style="background:var(--bg);font-weight:700;"></div>
-
-    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
-      <button type="button" class="btn btn-primary" style="width:auto;" id="pv3_AddPurchaseLineBtn">+ ${t('ক্রয় লাইন','Purchase Line')}</button>
-      <button type="button" class="btn btn-outline" style="width:auto;" id="pv3_AddReturnLineBtn">+ ${t('ক্রয় ফেরত লাইন','Purchase Return Line')}</button>
-    </div>
-
-    <h4 style="margin:20px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('ক্রয়কৃত পণ্য','Purchased Items')}</h4>
-    <div id="pv3_PurchaseWrap"></div>
-    <div id="pv3_PurchaseTotalLine" style="margin-top:8px;font-size:13.5px;font-weight:700;text-align:right;"></div>
-
-    <h4 style="margin:20px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('ক্রয় ফেরত পণ্য','Returned Items')}</h4>
-    <div id="pv3_ReturnWrap"></div>
-    <div id="pv3_ReturnTotalLine" style="margin-top:8px;font-size:13.5px;font-weight:700;text-align:right;"></div>
-
-    <div style="margin-top:14px;padding-top:14px;border-top:2px solid var(--border);font-size:16px;font-weight:800;text-align:right;">
-      ${t('নিট মোট','Net Total')}: <span id="pv3_NetTotal">0.00</span> ৳
     </div>
   `;
 
@@ -3928,27 +3928,27 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   function toggleCashSupplier() {
     const isCash = val('pv3_SupplierID') === 'SUP-CASH';
     document.getElementById('pv3_CashSupplierCard').style.display = isCash ? '' : 'none';
+    renderLivePreview();
   }
   document.getElementById('pv3_SupplierID').addEventListener('change', toggleCashSupplier);
   toggleCashSupplier();
 
-  function wireRevealCheckbox(checkId, fieldId, isSelect) {
+  function wireRevealCheckbox(checkId, fieldId) {
     const check = document.getElementById(checkId), field = document.getElementById(fieldId);
     function sync() {
-      if (check.checked) {
-        field.disabled = false;
-        if (isSelect) field.style.display = '';
-      } else {
-        field.disabled = true;
-        field.value = '';
-        if (isSelect) field.style.display = 'none';
-      }
+      field.disabled = !check.checked;
+      if (!check.checked) field.value = '';
+      renderLivePreview();
     }
     check.addEventListener('change', sync);
-    sync();
+    field.addEventListener('input', renderLivePreview);
   }
-  wireRevealCheckbox('pv3_SNDateCheck', 'pv3_SupplierInvoiceDate', false);
-  wireRevealCheckbox('pv3_SNNoCheck', 'pv3_SupplierInvoiceNo', false);
+  wireRevealCheckbox('pv3_SNDateCheck', 'pv3_SupplierInvoiceDate');
+  wireRevealCheckbox('pv3_SNNoCheck', 'pv3_SupplierInvoiceNo');
+  document.getElementById('pv3_Date').addEventListener('input', renderLivePreview);
+  document.getElementById('pv3_CashName').addEventListener('input', renderLivePreview);
+  document.getElementById('pv3_CashAddress').addEventListener('input', renderLivePreview);
+  document.getElementById('pv3_CashMobile').addEventListener('input', renderLivePreview);
 
   function refreshItemDropdown() {
     const groupChecked = document.getElementById('pv3_GroupCheck').checked;
@@ -4030,57 +4030,6 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     document.getElementById('pv3_Amount').value = '';
   }
 
-  function unitTotalsHtml(lines) {
-    const byUnit = {};
-    lines.forEach(function (l) {
-      const item = window.__pv3ItemMap[l.itemId] || {};
-      const unitLabel = (window.__pv3UnitMap[item.UOMID] || {}).UOMName || '—';
-      byUnit[unitLabel] = (byUnit[unitLabel] || 0) + l.qty;
-    });
-    return Object.keys(byUnit).map(function (u) { return byUnit[u] + ' ' + u; }).join(', ');
-  }
-
-  function renderNetTotal() {
-    const purchaseTotal = window.__pv3PurchaseLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
-    const returnTotal = window.__pv3ReturnLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
-    const netEl = document.getElementById('pv3_NetTotal');
-    if (netEl) netEl.textContent = (purchaseTotal - returnTotal).toFixed(2);
-  }
-
-  function renderLinesTable(wrapId, totalLineId, lines, removeFn, totalLabelBn, totalLabelEn) {
-    const wrap = document.getElementById(wrapId);
-    if (!wrap) return;
-    if (lines.length === 0) {
-      wrap.innerHTML = `<div class="empty-state">${t('এখনো কোনো লাইন যোগ হয়নি।','No lines added yet.')}</div>`;
-    } else {
-      const rows = lines.map(function (l, i) {
-        const item = window.__pv3ItemMap[l.itemId] || {};
-        return `<tr>
-          <td>${i + 1}</td>
-          <td>${escapeHtml(item.ItemName || l.itemId)}</td>
-          <td style="text-align:right;">${l.qty}</td>
-          <td style="text-align:right;">${l.rate}</td>
-          <td style="text-align:right;"><b>${l.amount}</b></td>
-          <td><button type="button" onclick="${removeFn}(${i})">✕</button></td>
-        </tr>`;
-      }).join('');
-      wrap.innerHTML = `<table class="data-table"><thead><tr><th>${t('ক্রঃ','No.')}</th><th>${t('আইটেম (পণ্য)','Item')}</th><th>${t('পরিমাণ','Quantity')}</th><th>${t('দর','Rate')}</th><th>${t('মূল্য','Amount')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
-    }
-    const total = lines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
-    const totalLineEl = document.getElementById(totalLineId);
-    if (totalLineEl) {
-      totalLineEl.textContent = lines.length > 0
-        ? t(totalLabelBn, totalLabelEn) + ': ' + unitTotalsHtml(lines) + ' — ৳ ' + total.toFixed(2)
-        : '';
-    }
-    renderNetTotal();
-  }
-
-  function renderPv3Purchase() { renderLinesTable('pv3_PurchaseWrap', 'pv3_PurchaseTotalLine', window.__pv3PurchaseLines, 'window.__pv3RemovePurchaseLine', 'মোট ক্রয়', 'Total Purchase'); }
-  function renderPv3Return() { renderLinesTable('pv3_ReturnWrap', 'pv3_ReturnTotalLine', window.__pv3ReturnLines, 'window.__pv3RemoveReturnLine', 'মোট ক্রয় ফেরত', 'Total Return'); }
-  window.__pv3RemovePurchaseLine = function (i) { window.__pv3PurchaseLines.splice(i, 1); renderPv3Purchase(); };
-  window.__pv3RemoveReturnLine = function (i) { window.__pv3ReturnLines.splice(i, 1); renderPv3Return(); };
-
   function collectCurrentLine() {
     const itemId = val('pv3_ItemID');
     const warehouseId = val('pv3_WarehouseID');
@@ -4092,31 +4041,149 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     return { itemId: itemId, warehouseId: warehouseId, qty: qty, rate: rate, amount: Math.round(qty * rate) };
   }
 
-  document.getElementById('pv3_AddPurchaseLineBtn').addEventListener('click', function () {
+  // মূল্যের পাশের টিক চিহ্ন — এটা টিক দিলেই লাইনটা "ক্রয়"-এর তালিকায় যোগ হয়ে যায়
+  document.getElementById('pv3_ConfirmPurchaseCheck').addEventListener('change', function () {
+    if (!this.checked) return;
     const line = collectCurrentLine();
-    if (!line) return;
+    if (!line) { this.checked = false; return; }
     window.__pv3PurchaseLines.push(line);
-    renderPv3Purchase();
     resetLineEntry();
+    this.checked = false;
+    renderLivePreview();
     showToast(t('ক্রয় লাইন যোগ হয়েছে ✅','Purchase line added ✅'), 'success');
   });
   document.getElementById('pv3_AddReturnLineBtn').addEventListener('click', function () {
     const line = collectCurrentLine();
     if (!line) return;
     window.__pv3ReturnLines.push(line);
-    renderPv3Return();
     resetLineEntry();
+    renderLivePreview();
     showToast(t('ক্রয় ফেরত লাইন যোগ হয়েছে ✅','Purchase return line added ✅'), 'success');
   });
 
-  renderPv3Purchase();
-  renderPv3Return();
-}
+  window.__pv3RemovePurchaseLine = function (i) { window.__pv3PurchaseLines.splice(i, 1); renderLivePreview(); };
+  window.__pv3RemoveReturnLine = function (i) { window.__pv3ReturnLines.splice(i, 1); renderLivePreview(); };
 
-/* ============================================================
-   ১৩.৯৯) একত্রিত বিক্রয় ভাউচার — Sales Invoice + Sales Return
-   একই ফর্মে, টাইপ ড্রপডাউন দিয়ে সুইচ করা যাবে (Purchase Voucher-এর আয়না)
-   ============================================================ */
+  function unitTotalsText(lines) {
+    const byUnit = {};
+    lines.forEach(function (l) {
+      const item = window.__pv3ItemMap[l.itemId] || {};
+      const unitLabel = (window.__pv3UnitMap[item.UOMID] || {}).UOMName || '—';
+      byUnit[unitLabel] = (byUnit[unitLabel] || 0) + l.qty;
+    });
+    return Object.keys(byUnit).map(function (u) { return byUnit[u] + ' ' + u; }).join(', ');
+  }
+
+  function miniLinesTable(lines, removeFnName) {
+    if (lines.length === 0) return `<div style="color:var(--text-muted);padding:8px 0;">${t('কোনো লাইন নেই।','No lines.')}</div>`;
+    const rows = lines.map(function (l, i) {
+      const item = window.__pv3ItemMap[l.itemId] || {};
+      return `<tr>
+        <td>${i + 1}</td><td>${escapeHtml(item.ItemName || l.itemId)}</td>
+        <td style="text-align:right;">${l.qty}</td><td style="text-align:right;">${l.rate}</td><td style="text-align:right;"><b>${l.amount}</b></td>
+        <td><button type="button" onclick="${removeFnName}(${i})" style="border:none;background:none;cursor:pointer;color:var(--danger);">✕</button></td>
+      </tr>`;
+    }).join('');
+    return `<table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <thead><tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;">${t('ক্রঃ','No.')}</th><th style="text-align:left;">${t('আইটেম','Item')}</th><th style="text-align:right;">${t('পরিমাণ','Qty')}</th><th style="text-align:right;">${t('দর','Rate')}</th><th style="text-align:right;">${t('মূল্য','Amt')}</th><th></th></tr></thead>
+      <tbody>${rows}</tbody></table>`;
+  }
+
+  function renderLivePreview() {
+    const wrap = document.getElementById('pv3_LivePreviewBody');
+    if (!wrap) return;
+    const supplierId = val('pv3_SupplierID');
+    const isCash = supplierId === 'SUP-CASH';
+    const supplierRec = window.__pv3SupplierMap[supplierId];
+    const supplierName = isCash ? ('নগদ' + (val('pv3_CashName') ? ' (' + val('pv3_CashName') + ')' : '')) : (supplierRec ? (supplierRec.CompanyName || supplierRec.Name) : '—');
+
+    const purchaseTotal = window.__pv3PurchaseLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
+    const returnTotal = window.__pv3ReturnLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
+
+    wrap.innerHTML = `
+      <div style="text-align:center;border-bottom:2px solid var(--ink-900);padding-bottom:8px;margin-bottom:10px;">
+        <b style="font-family:'Oswald',sans-serif;font-size:15px;">জি মেটাল ওয়ার্কস</b>
+        <div style="font-size:11px;color:var(--text-muted);">${t('ক্রয় ভাউচার','Purchase Voucher')}</div>
+      </div>
+      <div style="margin-bottom:8px;">
+        <div><b>${t('তারিখ','Date')}:</b> ${escapeHtml(val('pv3_Date'))}</div>
+        <div><b>${t('সাপ্লায়ার','Supplier')}:</b> ${escapeHtml(supplierName)}</div>
+      </div>
+      <div style="font-weight:700;font-size:12px;margin:10px 0 4px;">${t('ক্রয়কৃত পণ্য','Purchased Items')}</div>
+      ${miniLinesTable(window.__pv3PurchaseLines, 'window.__pv3RemovePurchaseLine')}
+      ${window.__pv3PurchaseLines.length > 0 ? `<div style="text-align:right;font-size:11.5px;margin-top:4px;">${t('মোট ক্রয়','Total Purchase')}: ${unitTotalsText(window.__pv3PurchaseLines)} — <b>৳ ${purchaseTotal.toFixed(2)}</b></div>` : ''}
+
+      <div style="font-weight:700;font-size:12px;margin:14px 0 4px;">${t('ক্রয় ফেরত পণ্য','Returned Items')}</div>
+      ${miniLinesTable(window.__pv3ReturnLines, 'window.__pv3RemoveReturnLine')}
+      ${window.__pv3ReturnLines.length > 0 ? `<div style="text-align:right;font-size:11.5px;margin-top:4px;">${t('মোট ক্রয় ফেরত','Total Return')}: ${unitTotalsText(window.__pv3ReturnLines)} — <b>৳ ${returnTotal.toFixed(2)}</b></div>` : ''}
+
+      <div style="border-top:2px solid var(--ink-900);margin-top:12px;padding-top:8px;text-align:right;font-size:14px;font-weight:800;">
+        ${t('নিট মোট','Net Total')}: ৳ ${(purchaseTotal - returnTotal).toFixed(2)}
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:40px;font-size:11px;text-align:center;">
+        <div style="width:31%;"><div style="border-top:1px solid #333;padding-top:4px;">${t('বিক্রেতার স্বাঃ','Seller Sign')}</div></div>
+        <div style="width:31%;"><div style="border-top:1px solid #333;padding-top:4px;">${t('অথরাইজেশন স্বাঃ','Authorization')}<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div></div>
+        <div style="width:31%;"><div style="border-top:1px solid #333;padding-top:4px;">${t('ক্রয়কারী স্বাঃ','Purchaser Sign')}<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div></div>
+      </div>`;
+  }
+
+  async function openLivePrintOrShare(action) {
+    if (window.__pv3PurchaseLines.length === 0 && window.__pv3ReturnLines.length === 0) {
+      showToast(t('প্রিন্ট করার জন্য অন্তত একটা লাইন যোগ করুন।','Add at least one line to print.'), 'error');
+      return;
+    }
+    const supplierId = val('pv3_SupplierID');
+    const isCash = supplierId === 'SUP-CASH';
+    const supplierRec = window.__pv3SupplierMap[supplierId];
+    const supplierName = isCash ? ('নগদ' + (val('pv3_CashName') ? ' (' + val('pv3_CashName') + ')' : '')) : (supplierRec ? (supplierRec.CompanyName || supplierRec.Name) : '—');
+    const company = await api('getSingleton', { sheet:'CompanyProfile' });
+    const purchaseTotal = window.__pv3PurchaseLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
+    const returnTotal = window.__pv3ReturnLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
+
+    function tableRows(lines) {
+      return lines.map(function (l) {
+        const item = window.__pv3ItemMap[l.itemId] || {};
+        return `<tr><td>${escapeHtml(item.ItemName || l.itemId)}</td><td>${l.qty}</td><td>${l.rate}</td><td>${l.amount}</td></tr>`;
+      }).join('');
+    }
+
+    const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><title>ক্রয় ভাউচার (খসড়া প্রিভিউ)</title>
+<link href="https://fonts.googleapis.com/css2?family=Anek+Bangla:wght@400;500;600;700&family=Oswald:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  body{font-family:'Anek Bangla',sans-serif;color:#1b1f27;max-width:800px;margin:30px auto;padding:0 20px;}
+  h1{font-family:'Oswald',sans-serif;font-size:20px;text-align:center;margin:0 0 4px;}
+  .sub{text-align:center;color:#888;font-size:12px;margin-bottom:16px;}
+  table{width:100%;border-collapse:collapse;margin:8px 0;}
+  th,td{border:1px solid #ccc;padding:6px 8px;font-size:12.5px;text-align:center;}
+  th{background:#1a2029;color:#f2a33c;}
+  .totalline{text-align:right;font-weight:700;margin:6px 0;}
+  .sign-row{display:flex;justify-content:space-between;margin-top:60px;text-align:center;font-size:12px;}
+  .sign-row div{width:31%;border-top:1px solid #333;padding-top:6px;}
+  .toolbar{margin-bottom:16px;} .toolbar button{padding:8px 16px;border-radius:8px;border:1px solid #1a2029;background:#1a2029;color:#f2a33c;font-size:13px;cursor:pointer;}
+  @media print{.toolbar{display:none;}}
+</style></head><body>
+  <div class="toolbar"><button onclick="window.print()">🖨️ প্রিন্ট করুন</button></div>
+  <h1>${escapeHtml(company.CompanyName || 'জি মেটাল ওয়ার্কস')}</h1>
+  <div class="sub">ক্রয় ভাউচার (খসড়া — এখনো সেভ হয়নি) — তারিখ: ${escapeHtml(val('pv3_Date'))} — সাপ্লায়ার: ${escapeHtml(supplierName)}</div>
+  ${window.__pv3PurchaseLines.length > 0 ? `<h3>ক্রয়কৃত পণ্য</h3><table><thead><tr><th>আইটেম</th><th>পরিমাণ</th><th>দর</th><th>মূল্য</th></tr></thead><tbody>${tableRows(window.__pv3PurchaseLines)}</tbody></table><div class="totalline">মোট ক্রয়: ৳ ${purchaseTotal.toFixed(2)}</div>` : ''}
+  ${window.__pv3ReturnLines.length > 0 ? `<h3>ক্রয় ফেরত পণ্য</h3><table><thead><tr><th>আইটেম</th><th>পরিমাণ</th><th>দর</th><th>মূল্য</th></tr></thead><tbody>${tableRows(window.__pv3ReturnLines)}</tbody></table><div class="totalline">মোট ক্রয় ফেরত: ৳ ${returnTotal.toFixed(2)}</div>` : ''}
+  <div class="totalline" style="font-size:15px;border-top:2px solid #1a2029;padding-top:8px;">নিট মোট: ৳ ${(purchaseTotal - returnTotal).toFixed(2)}</div>
+  <div class="sign-row"><div>বিক্রেতার স্বাঃ</div><div>অথরাইজেশন স্বাঃ<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div><div>ক্রয়কারী স্বাঃ<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div></div>
+</body></html>`;
+
+    const win = window.open('', '_blank');
+    if (!win) { showToast(t('পপ-আপ ব্লক হয়েছে — এই সাইটের জন্য পপ-আপ অনুমতি দিন।','Pop-up was blocked — please allow pop-ups for this site.'), 'error'); return; }
+    win.document.write(html);
+    win.document.close();
+    if (action === 'share' && win.navigator && win.navigator.share) {
+      try { await win.navigator.share({ title: 'ক্রয় ভাউচার', text: 'নিট মোট: ৳ ' + (purchaseTotal - returnTotal).toFixed(2) }); } catch (e) {}
+    }
+  }
+  document.getElementById('pv3_LivePrintBtn').addEventListener('click', function () { openLivePrintOrShare('print'); });
+  document.getElementById('pv3_LiveShareBtn').addEventListener('click', function () { openLivePrintOrShare('share'); });
+
+  renderLivePreview();
+}
 async function renderSalesVoucherPage(content, defaultType) {
   defaultType = defaultType || 'SalesInvoice';
   content.innerHTML = `
