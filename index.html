@@ -397,7 +397,7 @@ const MODULES = [
   {key:'purchase', bn:'ক্রয়', en:'Purchase', sub:[
     {key:'pr', bn:'ক্রয় অনুরোধ', en:'Purchase Requisition'},{key:'po', bn:'ক্রয় আদেশ', en:'Purchase Order'},
     {key:'grn', bn:'পণ্য গ্রহণ নোট (GRN)', en:'Goods Receive Note'},{key:'pi', bn:'ক্রয় চালান (ইনভয়েস)', en:'Purchase Invoice'},
-    {key:'pret', bn:'ক্রয় ফেরত', en:'Purchase Return'},
+    {key:'pret', bn:'ক্রয় ফেরত', en:'Purchase Return'},{key:'pvoucherList', bn:'ভাউচার তালিকা', en:'Voucher List'},
   ]},
   {key:'inventory', bn:'ইনভেন্টরি', en:'Inventory', sub:[
     {key:'stockOverview', bn:'স্টক ওভারভিউ', en:'Stock Overview'},{key:'goodsReceive', bn:'পণ্য গ্রহণ', en:'Goods Receive'},
@@ -441,7 +441,7 @@ const MODULES = [
 // এখন পর্যন্ত যেসব পেজ সত্যিই কাজ করে (Phase 3 — Core মডিউল)
 const READY_PAGES = ['dashboard','companyProfile','userManagement','roles','activityLog',
   'items','customers','suppliers','warehouses','uom','categories','employees','party','partyLedger','zones','groups','purchasers','salespersons',
-  'pr','po','grn','pi','pret',
+  'pr','po','grn','pi','pret','pvoucherList',
   'stockOverview','goodsReceive','materialIssue','stockTransfer','stockAdjust','stockLedger',
   'so','dc','si','sr','custLedger',
   'bom','processing','pOrder','pmi','fgr',
@@ -1176,6 +1176,7 @@ async function navigateTo(pageKey, moduleLabel, pageLabel) {
     else if (pageKey === 'stockLedger') await renderStockLedger(content);
     else if (pageKey === 'goodsReceive') await renderDocumentListPage(content, DOC_CONFIGS.grn);
     else if (pageKey === 'pi') await renderPurchaseVoucherPage(content, 'PurchaseInvoice');
+    else if (pageKey === 'pvoucherList') await renderPurchaseVoucherPage(content, 'PurchaseInvoice');
     else if (pageKey === 'pret') await renderPurchaseVoucherPage(content, 'PurchaseReturn');
     else if (pageKey === 'si') await renderSalesVoucherPage(content, 'SalesInvoice');
     else if (pageKey === 'sr') await renderSalesVoucherPage(content, 'SalesReturn');
@@ -3738,22 +3739,21 @@ async function openPrintableVoucherView(docType, docId) {
 }
 
 async function openPurchaseVoucherForm(defaultType, existingId) {
-  const pvData = await cachedListMultiple(['Suppliers', 'Items', 'GRN', 'ItemGroups', 'Categories', 'UOM', 'Warehouses']);
-  const suppliers = pvData.Suppliers, items = pvData.Items, grns = pvData.GRN,
+  const pvData = await cachedListMultiple(['Suppliers', 'Items', 'ItemGroups', 'Categories', 'UOM', 'Warehouses']);
+  const suppliers = pvData.Suppliers, items = pvData.Items,
         groups = pvData.ItemGroups, categories = pvData.Categories, units = pvData.UOM, warehouses = pvData.Warehouses;
-  window.__pv2ItemMap = {}; items.forEach(function (i) { window.__pv2ItemMap[i.ItemID] = i; });
-  window.__pv2Items = items.filter(function (i) { return i.Status !== 'Deleted'; });
-  window.__pv2Groups = groups.filter(function (g) { return g.Status !== 'Deleted'; });
-  window.__pv2Categories = categories.filter(function (c) { return c.Status !== 'Deleted'; });
-  window.__pv2UnitMap = {}; units.forEach(function (u) { window.__pv2UnitMap[u.UOMID] = u; });
-  window.__pv2Warehouses = warehouses.filter(function (w) { return w.Status !== 'Deleted'; });
+  window.__pv3ItemMap = {}; items.forEach(function (i) { window.__pv3ItemMap[i.ItemID] = i; });
+  window.__pv3Items = items.filter(function (i) { return i.Status !== 'Deleted'; });
+  window.__pv3Groups = groups.filter(function (g) { return g.Status !== 'Deleted'; });
+  window.__pv3Categories = categories.filter(function (c) { return c.Status !== 'Deleted'; });
+  window.__pv3UnitMap = {}; units.forEach(function (u) { window.__pv3UnitMap[u.UOMID] = u; });
+  window.__pv3Warehouses = warehouses.filter(function (w) { return w.Status !== 'Deleted'; });
 
   const isEdit = !!existingId;
-  let existingHeader = null, existingLines = [];
-  let type = defaultType || 'PurchaseInvoice';
+  let existingHeader = null, existingLines = [], existingDocType = defaultType || 'PurchaseInvoice';
 
   if (isEdit) {
-    const config = type === 'PurchaseReturn'
+    const config = existingDocType === 'PurchaseReturn'
       ? { headerSheet:'PurchaseReturn', idField:'PRetID', linesSheet:'PR_Return_Lines', lineIdField:'PRetID', idValue: existingId }
       : { headerSheet:'PurchaseInvoice', idField:'PIID', linesSheet:'PI_Lines', lineIdField:'PIID', idValue: existingId };
     let doc;
@@ -3772,8 +3772,13 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   }
 
   const rec = existingHeader || {};
-  // প্রতিটা "✓" দিয়ে কনফার্ম করা লাইন এখানে জমা থাকে — এটাই লাইভ প্রিভিউ
-  window.__pv2Lines = isEdit
+
+  // ক্রয় লাইন ও ক্রয় ফেরত লাইন — দুটো সম্পূর্ণ আলাদা তালিকায় জমা থাকে,
+  // সেভ করার সময় প্রয়োজন অনুযায়ী একটা বা দুটো আলাদা ডকুমেন্ট তৈরি হয়
+  window.__pv3PurchaseLines = (isEdit && existingDocType === 'PurchaseInvoice')
+    ? existingLines.map(function (l) { return { itemId: l.ItemID, warehouseId: rec.WarehouseID, qty: Number(l.Quantity)||0, rate: Number(l.Rate)||0, amount: Math.round((Number(l.Quantity)||0) * (Number(l.Rate)||0)) }; })
+    : [];
+  window.__pv3ReturnLines = (isEdit && existingDocType === 'PurchaseReturn')
     ? existingLines.map(function (l) { return { itemId: l.ItemID, warehouseId: rec.WarehouseID, qty: Number(l.Quantity)||0, rate: Number(l.Rate)||0, amount: Math.round((Number(l.Quantity)||0) * (Number(l.Rate)||0)) }; })
     : [];
 
@@ -3782,65 +3787,87 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   }
 
   const bodyHtml = `
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
-    <div id="pv2_LeftCol">
-    <div class="field"><label>${t('ইনভয়েস টাইপ','Invoice Type')}</label>
-      <select id="pv2_Type" ${isEdit?'disabled':''}>
-        <option value="PurchaseInvoice" ${type!=='PurchaseReturn'?'selected':''}>${t('ক্রয় ভাউচার','Purchase Voucher')}</option>
-        <option value="PurchaseReturn" ${type==='PurchaseReturn'?'selected':''}>${t('ক্রয় ফেরত ভাউচার','Purchase Return Voucher')}</option>
-      </select>
+    <div style="display:grid;grid-template-columns:220px 1fr;gap:14px;align-items:start;">
+      <div class="field" style="margin:0;"><label>${t('ইনভয়েস টাইপ','Invoice Type')}</label>
+        <select id="pv3_Type" style="padding:6px 10px;">
+          <option value="PurchaseInvoice" selected>${t('ক্রয় ভাউচার','Purchase Voucher')}</option>
+        </select>
+      </div>
+      <div id="pv3_RightHeaderSlot" style="color:var(--text-muted);font-size:12px;padding-top:22px;">
+        <!-- ডান পাশে পরে আরও ফিল্ড যোগ হবে -->
+      </div>
     </div>
-    <div class="field"><label>${t('ভাউচার তারিখ','Voucher Date')}</label><input type="date" id="pv2_Date" value="${attr(rec.InvoiceDate || rec.Date) || new Date().toISOString().slice(0,10)}"></div>
-    <div class="field"><label>${t('ভাউচার নম্বর','Voucher No')}</label><input id="pv2_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো তৈরি হবে','Will be auto-generated')}" readonly style="background:var(--bg);"></div>
-    <div class="field" id="pv2_GRNField" style="display:none;"><label>${t('GRN রেফারেন্স','GRN Reference')}</label><select id="pv2_GRNID"><option value="">—</option>${optsHtml(grns.filter(function(g){return g.Status!=='Deleted';}), 'GRNID','GRNID', rec.GRNID)}</select></div>
-    <div class="field"><label>${t('নিঃভাউঃ তারিখ (ঐচ্ছিক)','Supplier Voucher Date (optional)')}</label><input type="date" id="pv2_SupplierInvoiceDate" value="${attr(rec.SupplierInvoiceDate)}"></div>
-    <div class="field"><label>${t('নিঃভাউঃ নং (ঐচ্ছিক)','Supplier Voucher No (optional)')}</label><input id="pv2_SupplierInvoiceNo" value="${attr(rec.SupplierInvoiceNo)}"></div>
-    <div id="pv2_ReasonField" style="display:none;"><div class="field"><label>${t('কারণ','Reason')}</label><input id="pv2_Reason" value="${attr(rec.Reason)}"></div></div>
+
+    <div class="field"><label>${t('ভাউঃ তারিখ','Voucher Date')}</label><input type="date" id="pv3_Date" value="${attr(rec.InvoiceDate || rec.Date) || new Date().toISOString().slice(0,10)}"></div>
+    <div class="field"><label>${t('ভাউঃ নম্বর','Voucher No')}</label><input id="pv3_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো তৈরি হবে','Will be auto-generated')}" readonly style="background:var(--bg);"></div>
+
+    <div class="field" style="display:flex;align-items:center;gap:8px;">
+      <input type="checkbox" id="pv3_SNDateCheck" style="width:auto;" ${rec.SupplierInvoiceDate?'checked':''}>
+      <label style="margin:0;flex:1;">${t('নিঃ তারিখ','Supplier Vou. Date')}</label>
+      <input type="date" id="pv3_SupplierInvoiceDate" value="${attr(rec.SupplierInvoiceDate)}" style="flex:2;" ${rec.SupplierInvoiceDate?'':'disabled'}>
+    </div>
+    <div class="field" style="display:flex;align-items:center;gap:8px;">
+      <input type="checkbox" id="pv3_SNNoCheck" style="width:auto;" ${rec.SupplierInvoiceNo?'checked':''}>
+      <label style="margin:0;flex:1;">${t('নিঃ নম্বর','Supplier Vou. No')}</label>
+      <input id="pv3_SupplierInvoiceNo" value="${attr(rec.SupplierInvoiceNo)}" style="flex:2;" ${rec.SupplierInvoiceNo?'':'disabled'}>
+    </div>
 
     <div class="field"><label>${t('সাপ্লায়ার নাম','Supplier Name')}</label>
-      <select id="pv2_SupplierID"><option value="">—</option>${suppliers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.SupplierID)}" ${rec.SupplierID===r.SupplierID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select>
+      <select id="pv3_SupplierID"><option value="">—</option>${suppliers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.SupplierID)}" ${rec.SupplierID===r.SupplierID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select>
     </div>
-    <div id="pv2_CashSupplierCard" style="display:none;padding:12px;border:1px dashed var(--border);border-radius:8px;background:var(--bg);margin-bottom:14px;">
-      <div class="field"><label>${t('নগদ পার্টির আসল নাম','Actual Cash Party Name')}</label><input id="pv2_CashName" value="${attr(rec.WalkInPartyName)}"></div>
-      <div class="field"><label>${t('ঠিকানা','Address')}</label><input id="pv2_CashAddress" value="${attr(rec.WalkInPartyAddress)}"></div>
-      <div class="field"><label>${t('মোবাইল','Mobile')}</label><input id="pv2_CashMobile" value="${attr(rec.WalkInPartyMobile)}"></div>
-      <p style="font-size:11px;color:var(--text-muted);margin:4px 0 0;">${t('এই তথ্য শুধু এই ভাউচারেই থাকবে — স্থায়ী সাপ্লায়ার তালিকায় নতুন কিছু যোগ হবে না।','This info stays on this voucher only — nothing new is added to the permanent supplier list.')}</p>
+    <div id="pv3_CashSupplierCard" style="display:none;padding:12px;border:1px dashed var(--border);border-radius:8px;background:var(--bg);margin-bottom:14px;">
+      <div class="field"><label>${t('নগদ পার্টির আসল নাম','Actual Cash Party Name')}</label><input id="pv3_CashName" value="${attr(rec.WalkInPartyName)}"></div>
+      <div class="field"><label>${t('ঠিকানা','Address')}</label><input id="pv3_CashAddress" value="${attr(rec.WalkInPartyAddress)}"></div>
+      <div class="field"><label>${t('মোবাইল','Mobile')}</label><input id="pv3_CashMobile" value="${attr(rec.WalkInPartyMobile)}"></div>
     </div>
 
     <h4 style="margin:20px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('লাইন আইটেম যোগ করুন','Add Line Item')}</h4>
 
     <div class="field" style="display:flex;align-items:center;gap:8px;">
-      <input type="checkbox" id="pv2_GroupCheck" style="width:auto;">
+      <input type="checkbox" id="pv3_GroupCheck" style="width:auto;">
       <label style="margin:0;flex:1;">${t('গ্রুপ নাম','Group Name')}</label>
-      <select id="pv2_GroupSelect" disabled style="flex:2;"><option value="">—</option>${optsHtml(window.__pv2Groups, 'GroupID','GroupName','')}</select>
+      <select id="pv3_GroupSelect" disabled style="flex:2;display:none;"><option value="">—</option>${optsHtml(window.__pv3Groups, 'GroupID','GroupName','')}</select>
     </div>
     <div class="field" style="display:flex;align-items:center;gap:8px;">
-      <input type="checkbox" id="pv2_CatCheck" style="width:auto;">
+      <input type="checkbox" id="pv3_CatCheck" style="width:auto;">
       <label style="margin:0;flex:1;">${t('ক্যাটাগরি','Category')}</label>
-      <select id="pv2_CatSelect" disabled style="flex:2;"><option value="">—</option>${optsHtml(window.__pv2Categories, 'CategoryID','CategoryName','')}</select>
+      <select id="pv3_CatSelect" disabled style="flex:2;display:none;"><option value="">—</option>${optsHtml(window.__pv3Categories, 'CategoryID','CategoryName','')}</select>
     </div>
-    <div class="field"><label>${t('আইটেম (পণ্য)','Item')}</label><select id="pv2_ItemID"><option value="">—</option></select></div>
-    <div class="field"><label>${t('ওয়ারহাউজ','Warehouse')}</label><select id="pv2_WarehouseID"><option value="">—</option>${optsHtml(window.__pv2Warehouses, 'WarehouseID','WarehouseName', rec.WarehouseID)}</select></div>
-    <div class="field"><label>${t('স্টক পরিমাণ','Stock Quantity')}</label><input id="pv2_StockQty" readonly style="background:var(--bg);"></div>
-    <div class="field"><label>${t('পরিমাণ','Quantity')}</label><input id="pv2_Qty" type="number" step="any"></div>
-    <div class="field"><label>${t('স্টক দর','Stock Rate')}</label><input id="pv2_StockRate" readonly style="background:var(--bg);"></div>
-    <div class="field"><label>${t('দর','Rate')}</label><input id="pv2_Rate" type="number" step="any"></div>
-    <div class="field"><label>${t('একক','Unit')}</label><input id="pv2_Unit" readonly style="background:var(--bg);"></div>
-    <div class="field" style="display:flex;align-items:end;gap:8px;">
-      <div style="flex:1;"><label>${t('মূল্য (৳)','Amount (৳)')}</label><input id="pv2_Amount" readonly style="background:var(--bg);font-weight:700;"></div>
-      <button type="button" class="btn btn-primary" style="width:auto;" id="pv2_ConfirmLineBtn" title="${t('এই লাইনটা যোগ করুন','Add this line')}">✓</button>
+    <div class="field"><label>${t('আইটেম (পণ্য)','Item')}</label><select id="pv3_ItemID"><option value="">—</option></select></div>
+    <div class="field"><label>${t('ওয়ারহাউজ','Warehouse')}</label><select id="pv3_WarehouseID"><option value="">—</option>${optsHtml(window.__pv3Warehouses, 'WarehouseID','WarehouseName', rec.WarehouseID)}</select></div>
+
+    <div class="field" style="display:flex;align-items:center;gap:8px;">
+      <input type="checkbox" id="pv3_StockQtyCheck" style="width:auto;" checked>
+      <label style="margin:0;flex:1;">${t('পরিমাণ স্টক','Stock Quantity')}</label>
+      <input id="pv3_StockQty" readonly style="flex:2;background:var(--bg);">
     </div>
-    <button type="button" class="btn btn-outline" style="width:auto;margin-top:4px;" id="pv2_ResetLineBtn">+ ${t('আরেকটা লাইন','Another line')}</button>
+    <div class="field"><label>${t('পরিমাণ','Quantity')}</label><input id="pv3_Qty" type="number" step="any"></div>
+
+    <div class="field" style="display:flex;align-items:center;gap:8px;">
+      <input type="checkbox" id="pv3_StockRateCheck" style="width:auto;" checked>
+      <label style="margin:0;flex:1;">${t('দর (স্টক রেফারেন্স)','Rate (Stock Ref.)')}</label>
+      <input id="pv3_StockRate" readonly style="flex:2;background:var(--bg);">
+    </div>
+    <div class="field"><label>${t('দর','Rate')}</label><input id="pv3_Rate" type="number" step="any"></div>
+    <div class="field"><label>${t('একক','Unit')}</label><input id="pv3_Unit" readonly style="background:var(--bg);"></div>
+    <div class="field"><label>${t('মূল্য (৳)','Amount (৳)')}</label><input id="pv3_Amount" readonly style="background:var(--bg);font-weight:700;"></div>
+
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+      <button type="button" class="btn btn-primary" style="width:auto;" id="pv3_AddPurchaseLineBtn">+ ${t('ক্রয় লাইন','Purchase Line')}</button>
+      <button type="button" class="btn btn-outline" style="width:auto;" id="pv3_AddReturnLineBtn">+ ${t('ক্রয় ফেরত লাইন','Purchase Return Line')}</button>
     </div>
 
-    <div id="pv2_RightCol" style="color:var(--text-muted);font-size:12.5px;padding-top:4px;">
-      <!-- এখানে পরে আরও ফিল্ড যোগ হবে -->
-    </div>
-  </div>
+    <h4 style="margin:20px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('ক্রয়কৃত পণ্য','Purchased Items')}</h4>
+    <div id="pv3_PurchaseWrap"></div>
+    <div id="pv3_PurchaseTotalLine" style="margin-top:8px;font-size:13.5px;font-weight:700;text-align:right;"></div>
 
-    <h4 style="margin:20px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('লাইভ ভাউচার প্রিভিউ','Live Voucher Preview')}</h4>
-    <div id="pv2_PreviewWrap"></div>
-    <div style="margin-top:10px;font-size:15px;font-weight:700;text-align:right;">${t('মোট','Total')}: <span id="pv2_GrandTotal">0</span> ৳</div>
+    <h4 style="margin:20px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('ক্রয় ফেরত পণ্য','Returned Items')}</h4>
+    <div id="pv3_ReturnWrap"></div>
+    <div id="pv3_ReturnTotalLine" style="margin-top:8px;font-size:13.5px;font-weight:700;text-align:right;"></div>
+
+    <div style="margin-top:14px;padding-top:14px;border-top:2px solid var(--border);font-size:16px;font-weight:800;text-align:right;">
+      ${t('নিট মোট','Net Total')}: <span id="pv3_NetTotal">0.00</span> ৳
+    </div>
   `;
 
   openModal({
@@ -3848,44 +3875,48 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     bodyHtml: bodyHtml,
     wide: true,
     onSave: async function () {
-      const currentType = val('pv2_Type');
-      const isReturn = currentType === 'PurchaseReturn';
+      const supplierId = val('pv3_SupplierID');
+      if (!supplierId) throw new Error(t('সাপ্লায়ার তথ্য আবশ্যক।','Supplier information is required.'));
 
-      const supplierId = val('pv2_SupplierID');
-      if (!supplierId) throw new Error(t('সাপ্লায়ার বাছাই করা আবশ্যক।','Supplier selection is required.'));
+      const hasPurchase = window.__pv3PurchaseLines.length > 0;
+      const hasReturn = window.__pv3ReturnLines.length > 0;
+      if (!hasPurchase && !hasReturn) throw new Error(t('অন্তত একটা ক্রয় বা ফেরত লাইন যোগ করুন।','Add at least one purchase or return line.'));
 
-      if (window.__pv2Lines.length === 0) throw new Error(t('অন্তত একটা লাইন আইটেম যোগ করুন (✓ চেপে কনফার্ম করুন)।','Add at least one line item (confirm with ✓).'));
-
-      const isCashSupplier = supplierId === 'SUP-CASH';
+      const isCash = supplierId === 'SUP-CASH';
       const common = {
         SupplierID: supplierId,
-        SupplierInvoiceNo: val('pv2_SupplierInvoiceNo'),
-        SupplierInvoiceDate: val('pv2_SupplierInvoiceDate') || null,
-        PurchaserID: currentUser ? currentUser.UserID : null,
-        WalkInPartyName: isCashSupplier ? (val('pv2_CashName') || null) : null,
-        WalkInPartyAddress: isCashSupplier ? (val('pv2_CashAddress') || null) : null,
-        WalkInPartyMobile: isCashSupplier ? (val('pv2_CashMobile') || null) : null
+        SupplierInvoiceNo: document.getElementById('pv3_SNNoCheck').checked ? (val('pv3_SupplierInvoiceNo') || null) : null,
+        SupplierInvoiceDate: document.getElementById('pv3_SNDateCheck').checked ? (val('pv3_SupplierInvoiceDate') || null) : null,
+        PurchaserID: currentUser ? currentUser.UserID : null
       };
 
-      if (!isReturn) {
-        const warehouseId = window.__pv2Lines[0].warehouseId;
-        const lineData = window.__pv2Lines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, Rate: l.rate, Amount: l.amount }; });
+      if (hasPurchase) {
+        const warehouseId = window.__pv3PurchaseLines[0].warehouseId;
+        if (!warehouseId) throw new Error(t('ক্রয় লাইনে গুদাম আবশ্যক।','Warehouse is required for purchase lines.'));
+        const lineData = window.__pv3PurchaseLines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, Rate: l.rate, Amount: l.amount }; });
         const totalAmount = lineData.reduce(function (s, l) { return s + (Number(l.Amount) || 0); }, 0);
-        const headerData = Object.assign({}, common, { InvoiceDate: val('pv2_Date'), GRNID: val('pv2_GRNID') || null, WarehouseID: warehouseId, TotalAmount: totalAmount });
-        if (isEdit) {
+        const headerData = Object.assign({}, common, {
+          InvoiceDate: val('pv3_Date'), WarehouseID: warehouseId, TotalAmount: totalAmount,
+          WalkInPartyName: isCash ? (val('pv3_CashName') || null) : null,
+          WalkInPartyAddress: isCash ? (val('pv3_CashAddress') || null) : null,
+          WalkInPartyMobile: isCash ? (val('pv3_CashMobile') || null) : null
+        });
+        if (isEdit && existingDocType === 'PurchaseInvoice') {
           await api('updateDocument', { headerSheet:'PurchaseInvoice', idField:'PIID', linesSheet:'PI_Lines', lineIdField:'PIID', idValue: existingId, headerData: headerData, lines: lineData });
         } else {
           await api('createDocument', { headerSheet:'PurchaseInvoice', idField:'PIID', idPrefix:'PI', requiredFields:['SupplierID','WarehouseID'], linesSheet:'PI_Lines', lineIdField:'PIID', headerData: headerData, lines: lineData });
         }
-      } else {
-        const grnId = val('pv2_GRNID');
-        if (!grnId) throw new Error(t('ক্রয় ফেরতের জন্য GRN রেফারেন্স আবশ্যক।','GRN reference is required for a purchase return.'));
-        const headerData = Object.assign({}, common, { Date: val('pv2_Date'), GRNID: grnId, Reason: val('pv2_Reason') });
-        const returnLineData = window.__pv2Lines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, Rate: l.rate }; });
-        if (isEdit) {
-          await api('updateDocument', { headerSheet:'PurchaseReturn', idField:'PRetID', linesSheet:'PR_Return_Lines', lineIdField:'PRetID', idValue: existingId, headerData: headerData, lines: returnLineData });
+      }
+
+      if (hasReturn) {
+        const warehouseId = window.__pv3ReturnLines[0].warehouseId;
+        if (!warehouseId) throw new Error(t('ফেরত লাইনে গুদাম আবশ্যক।','Warehouse is required for return lines.'));
+        const lineData = window.__pv3ReturnLines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, Rate: l.rate }; });
+        const headerData = Object.assign({}, common, { Date: val('pv3_Date'), WarehouseID: warehouseId });
+        if (isEdit && existingDocType === 'PurchaseReturn') {
+          await api('updateDocument', { headerSheet:'PurchaseReturn', idField:'PRetID', linesSheet:'PR_Return_Lines', lineIdField:'PRetID', idValue: existingId, headerData: headerData, lines: lineData });
         } else {
-          await api('createDocument', { headerSheet:'PurchaseReturn', idField:'PRetID', idPrefix:'PRET', requiredFields:['SupplierID','GRNID'], linesSheet:'PR_Return_Lines', lineIdField:'PRetID', headerData: headerData, lines: returnLineData });
+          await api('createDocument', { headerSheet:'PurchaseReturn', idField:'PRetID', idPrefix:'PRET', requiredFields:['SupplierID','WarehouseID'], linesSheet:'PR_Return_Lines', lineIdField:'PRetID', headerData: headerData, lines: lineData });
         }
       }
 
@@ -3894,132 +3925,192 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     }
   });
 
-  function toggleType() {
-    const isReturn = val('pv2_Type') === 'PurchaseReturn';
-    document.getElementById('pv2_GRNField').style.display = isReturn ? '' : 'none';
-    document.getElementById('pv2_ReasonField').style.display = isReturn ? '' : 'none';
+  function toggleCashSupplier() {
+    const isCash = val('pv3_SupplierID') === 'SUP-CASH';
+    document.getElementById('pv3_CashSupplierCard').style.display = isCash ? '' : 'none';
   }
-  document.getElementById('pv2_Type').addEventListener('change', toggleType);
-  toggleType();
+  document.getElementById('pv3_SupplierID').addEventListener('change', toggleCashSupplier);
+  toggleCashSupplier();
 
-  function toggleSupplierType() {
-    const isCash = val('pv2_SupplierID') === 'SUP-CASH';
-    document.getElementById('pv2_CashSupplierCard').style.display = isCash ? '' : 'none';
+  function wireRevealCheckbox(checkId, fieldId, isSelect) {
+    const check = document.getElementById(checkId), field = document.getElementById(fieldId);
+    function sync() {
+      if (check.checked) {
+        field.disabled = false;
+        if (isSelect) field.style.display = '';
+      } else {
+        field.disabled = true;
+        field.value = '';
+        if (isSelect) field.style.display = 'none';
+      }
+    }
+    check.addEventListener('change', sync);
+    sync();
   }
-  document.getElementById('pv2_SupplierID').addEventListener('change', toggleSupplierType);
-  toggleSupplierType();
+  wireRevealCheckbox('pv3_SNDateCheck', 'pv3_SupplierInvoiceDate', false);
+  wireRevealCheckbox('pv3_SNNoCheck', 'pv3_SupplierInvoiceNo', false);
 
   function refreshItemDropdown() {
-    const groupChecked = document.getElementById('pv2_GroupCheck').checked;
-    const catChecked = document.getElementById('pv2_CatCheck').checked;
-    const groupVal = val('pv2_GroupSelect'), catVal = val('pv2_CatSelect');
-    let list = window.__pv2Items;
+    const groupChecked = document.getElementById('pv3_GroupCheck').checked;
+    const catChecked = document.getElementById('pv3_CatCheck').checked;
+    const groupVal = val('pv3_GroupSelect'), catVal = val('pv3_CatSelect');
+    let list = window.__pv3Items;
     if (groupChecked && groupVal) list = list.filter(function (i) { return i.GroupID === groupVal; });
     if (catChecked && catVal) list = list.filter(function (i) { return i.CategoryID === catVal; });
-    const sel = document.getElementById('pv2_ItemID');
+    const sel = document.getElementById('pv3_ItemID');
     const prev = sel.value;
     sel.innerHTML = '<option value="">—</option>' + list.map(function (i) { return `<option value="${attr(i.ItemID)}">${escapeHtml(i.ItemName)}</option>`; }).join('');
     if (list.some(function (i) { return i.ItemID === prev; })) sel.value = prev;
   }
-  document.getElementById('pv2_GroupCheck').addEventListener('change', function () {
-    document.getElementById('pv2_GroupSelect').disabled = !this.checked;
+  document.getElementById('pv3_GroupCheck').addEventListener('change', function () {
+    const sel = document.getElementById('pv3_GroupSelect');
+    sel.disabled = !this.checked; sel.style.display = this.checked ? '' : 'none';
+    if (!this.checked) sel.value = '';
     refreshItemDropdown();
   });
-  document.getElementById('pv2_GroupSelect').addEventListener('change', refreshItemDropdown);
-  document.getElementById('pv2_CatCheck').addEventListener('change', function () {
-    document.getElementById('pv2_CatSelect').disabled = !this.checked;
+  document.getElementById('pv3_GroupSelect').addEventListener('change', refreshItemDropdown);
+  document.getElementById('pv3_CatCheck').addEventListener('change', function () {
+    const sel = document.getElementById('pv3_CatSelect');
+    sel.disabled = !this.checked; sel.style.display = this.checked ? '' : 'none';
+    if (!this.checked) sel.value = '';
     refreshItemDropdown();
   });
-  document.getElementById('pv2_CatSelect').addEventListener('change', refreshItemDropdown);
+  document.getElementById('pv3_CatSelect').addEventListener('change', refreshItemDropdown);
   refreshItemDropdown();
 
+  document.getElementById('pv3_StockQtyCheck').addEventListener('change', function () {
+    document.getElementById('pv3_StockQty').style.display = this.checked ? '' : 'none';
+  });
+  document.getElementById('pv3_StockRateCheck').addEventListener('change', function () {
+    document.getElementById('pv3_StockRate').style.display = this.checked ? '' : 'none';
+  });
+
   async function onItemOrWarehouseChange() {
-    const itemId = val('pv2_ItemID');
-    const warehouseId = val('pv2_WarehouseID');
-    const item = window.__pv2ItemMap[itemId];
-    document.getElementById('pv2_Unit').value = item ? ((window.__pv2UnitMap[item.UOMID]||{}).UOMName || '') : '';
-    document.getElementById('pv2_StockRate').value = item ? (Number(item.StandardCost)||0).toFixed(2) : '';
-    if (item && warehouseId) {
-      const { data } = await supabaseClient.from('current_stock').select('QtyOnHand').eq('ItemID', itemId).eq('WarehouseID', warehouseId).maybeSingle();
-      const stockQtyEl = document.getElementById('pv2_StockQty');
-      if (stockQtyEl) {
-        stockQtyEl.value = data ? (Number(data.QtyOnHand)||0) + ' ' + ((window.__pv2UnitMap[item.UOMID]||{}).UOMName || '') : t('কোনো স্টক নেই','No stock');
+    const itemId = val('pv3_ItemID');
+    const warehouseId = val('pv3_WarehouseID');
+    const item = window.__pv3ItemMap[itemId];
+    document.getElementById('pv3_Unit').value = item ? ((window.__pv3UnitMap[item.UOMID]||{}).UOMName || '') : '';
+    if (document.getElementById('pv3_StockRateCheck').checked) {
+      document.getElementById('pv3_StockRate').value = item ? (Number(item.StandardCost)||0).toFixed(2) : '';
+    }
+    if (document.getElementById('pv3_StockQtyCheck').checked) {
+      if (item && warehouseId) {
+        const { data } = await supabaseClient.from('current_stock').select('QtyOnHand').eq('ItemID', itemId).eq('WarehouseID', warehouseId).maybeSingle();
+        document.getElementById('pv3_StockQty').value = data ? (Number(data.QtyOnHand)||0) : t('কোনো স্টক নেই','No stock');
+      } else {
+        document.getElementById('pv3_StockQty').value = '';
       }
-    } else {
-      const stockQtyEl = document.getElementById('pv2_StockQty');
-      if (stockQtyEl) stockQtyEl.value = '';
     }
     recalcAmount();
   }
-  document.getElementById('pv2_ItemID').addEventListener('change', onItemOrWarehouseChange);
-  document.getElementById('pv2_WarehouseID').addEventListener('change', onItemOrWarehouseChange);
+  document.getElementById('pv3_ItemID').addEventListener('change', onItemOrWarehouseChange);
+  document.getElementById('pv3_WarehouseID').addEventListener('change', onItemOrWarehouseChange);
 
   function recalcAmount() {
-    const qty = Number(val('pv2_Qty')) || 0;
-    const rate = Number(val('pv2_Rate')) || 0;
-    document.getElementById('pv2_Amount').value = Math.round(qty * rate);
+    const qty = Number(val('pv3_Qty')) || 0;
+    const rate = Number(val('pv3_Rate')) || 0;
+    document.getElementById('pv3_Amount').value = Math.round(qty * rate);
   }
-  document.getElementById('pv2_Qty').addEventListener('input', recalcAmount);
-  document.getElementById('pv2_Rate').addEventListener('input', recalcAmount);
+  document.getElementById('pv3_Qty').addEventListener('input', recalcAmount);
+  document.getElementById('pv3_Rate').addEventListener('input', recalcAmount);
 
   function resetLineEntry() {
-    document.getElementById('pv2_GroupCheck').checked = false;
-    document.getElementById('pv2_GroupSelect').disabled = true; document.getElementById('pv2_GroupSelect').value = '';
-    document.getElementById('pv2_CatCheck').checked = false;
-    document.getElementById('pv2_CatSelect').disabled = true; document.getElementById('pv2_CatSelect').value = '';
+    document.getElementById('pv3_GroupCheck').checked = false;
+    const groupSel = document.getElementById('pv3_GroupSelect'); groupSel.disabled = true; groupSel.style.display = 'none'; groupSel.value = '';
+    document.getElementById('pv3_CatCheck').checked = false;
+    const catSel = document.getElementById('pv3_CatSelect'); catSel.disabled = true; catSel.style.display = 'none'; catSel.value = '';
     refreshItemDropdown();
-    document.getElementById('pv2_ItemID').value = '';
-    document.getElementById('pv2_StockQty').value = '';
-    document.getElementById('pv2_Qty').value = '';
-    document.getElementById('pv2_StockRate').value = '';
-    document.getElementById('pv2_Rate').value = '';
-    document.getElementById('pv2_Unit').value = '';
-    document.getElementById('pv2_Amount').value = '';
+    document.getElementById('pv3_ItemID').value = '';
+    document.getElementById('pv3_WarehouseID').value = '';
+    document.getElementById('pv3_StockQty').value = '';
+    document.getElementById('pv3_Qty').value = '';
+    document.getElementById('pv3_StockRate').value = '';
+    document.getElementById('pv3_Rate').value = '';
+    document.getElementById('pv3_Unit').value = '';
+    document.getElementById('pv3_Amount').value = '';
   }
-  document.getElementById('pv2_ResetLineBtn').addEventListener('click', resetLineEntry);
 
-  function renderPv2Preview() {
-    const wrap = document.getElementById('pv2_PreviewWrap');
+  function unitTotalsHtml(lines) {
+    const byUnit = {};
+    lines.forEach(function (l) {
+      const item = window.__pv3ItemMap[l.itemId] || {};
+      const unitLabel = (window.__pv3UnitMap[item.UOMID] || {}).UOMName || '—';
+      byUnit[unitLabel] = (byUnit[unitLabel] || 0) + l.qty;
+    });
+    return Object.keys(byUnit).map(function (u) { return byUnit[u] + ' ' + u; }).join(', ');
+  }
+
+  function renderNetTotal() {
+    const purchaseTotal = window.__pv3PurchaseLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
+    const returnTotal = window.__pv3ReturnLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
+    const netEl = document.getElementById('pv3_NetTotal');
+    if (netEl) netEl.textContent = (purchaseTotal - returnTotal).toFixed(2);
+  }
+
+  function renderLinesTable(wrapId, totalLineId, lines, removeFn, totalLabelBn, totalLabelEn) {
+    const wrap = document.getElementById(wrapId);
     if (!wrap) return;
-    if (window.__pv2Lines.length === 0) {
+    if (lines.length === 0) {
       wrap.innerHTML = `<div class="empty-state">${t('এখনো কোনো লাইন যোগ হয়নি।','No lines added yet.')}</div>`;
     } else {
-      const rows = window.__pv2Lines.map(function (l, i) {
-        const item = window.__pv2ItemMap[l.itemId] || {};
-        const wh = window.__pv2Warehouses.find(function (w) { return w.WarehouseID === l.warehouseId; });
+      const rows = lines.map(function (l, i) {
+        const item = window.__pv3ItemMap[l.itemId] || {};
         return `<tr>
+          <td>${i + 1}</td>
           <td>${escapeHtml(item.ItemName || l.itemId)}</td>
-          <td>${escapeHtml(wh ? wh.WarehouseName : '')}</td>
           <td style="text-align:right;">${l.qty}</td>
           <td style="text-align:right;">${l.rate}</td>
           <td style="text-align:right;"><b>${l.amount}</b></td>
-          <td><button type="button" onclick="window.__pv2RemoveLine(${i})">✕</button></td>
+          <td><button type="button" onclick="${removeFn}(${i})">✕</button></td>
         </tr>`;
       }).join('');
-      wrap.innerHTML = `<table class="data-table"><thead><tr><th>${t('আইটেম','Item')}</th><th>${t('গুদাম','Warehouse')}</th><th>${t('পরিমাণ','Qty')}</th><th>${t('দর','Rate')}</th><th>${t('মূল্য','Amount')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+      wrap.innerHTML = `<table class="data-table"><thead><tr><th>${t('ক্রঃ','No.')}</th><th>${t('আইটেম (পণ্য)','Item')}</th><th>${t('পরিমাণ','Quantity')}</th><th>${t('দর','Rate')}</th><th>${t('মূল্য','Amount')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
     }
-    const total = window.__pv2Lines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
-    const totalEl = document.getElementById('pv2_GrandTotal');
-    if (totalEl) totalEl.textContent = total;
+    const total = lines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
+    const totalLineEl = document.getElementById(totalLineId);
+    if (totalLineEl) {
+      totalLineEl.textContent = lines.length > 0
+        ? t(totalLabelBn, totalLabelEn) + ': ' + unitTotalsHtml(lines) + ' — ৳ ' + total.toFixed(2)
+        : '';
+    }
+    renderNetTotal();
   }
-  window.__pv2RemoveLine = function (i) { window.__pv2Lines.splice(i, 1); renderPv2Preview(); };
 
-  document.getElementById('pv2_ConfirmLineBtn').addEventListener('click', function () {
-    const itemId = val('pv2_ItemID');
-    const warehouseId = val('pv2_WarehouseID');
-    const qty = Number(val('pv2_Qty')) || 0;
-    const rate = Number(val('pv2_Rate')) || 0;
+  function renderPv3Purchase() { renderLinesTable('pv3_PurchaseWrap', 'pv3_PurchaseTotalLine', window.__pv3PurchaseLines, 'window.__pv3RemovePurchaseLine', 'মোট ক্রয়', 'Total Purchase'); }
+  function renderPv3Return() { renderLinesTable('pv3_ReturnWrap', 'pv3_ReturnTotalLine', window.__pv3ReturnLines, 'window.__pv3RemoveReturnLine', 'মোট ক্রয় ফেরত', 'Total Return'); }
+  window.__pv3RemovePurchaseLine = function (i) { window.__pv3PurchaseLines.splice(i, 1); renderPv3Purchase(); };
+  window.__pv3RemoveReturnLine = function (i) { window.__pv3ReturnLines.splice(i, 1); renderPv3Return(); };
 
-    if (!itemId) { showToast(t('আইটেম বাছাই করুন।','Select an item.'), 'error'); return; }
-    if (!warehouseId) { showToast(t('গুদাম বাছাই করুন।','Select a warehouse.'), 'error'); return; }
-    if (!(qty > 0 && rate > 0)) { showToast(t('পরিমাণ ও দর দিন।','Enter quantity and rate.'), 'error'); return; }
-    window.__pv2Lines.push({ itemId: itemId, warehouseId: warehouseId, qty: qty, rate: rate, amount: Math.round(qty * rate) });
-    renderPv2Preview();
+  function collectCurrentLine() {
+    const itemId = val('pv3_ItemID');
+    const warehouseId = val('pv3_WarehouseID');
+    const qty = Number(val('pv3_Qty')) || 0;
+    const rate = Number(val('pv3_Rate')) || 0;
+    if (!itemId) { showToast(t('আইটেম বাছাই করুন।','Select an item.'), 'error'); return null; }
+    if (!warehouseId) { showToast(t('গুদাম বাছাই করুন।','Select a warehouse.'), 'error'); return null; }
+    if (!(qty > 0 && rate > 0)) { showToast(t('পরিমাণ ও দর দিন।','Enter quantity and rate.'), 'error'); return null; }
+    return { itemId: itemId, warehouseId: warehouseId, qty: qty, rate: rate, amount: Math.round(qty * rate) };
+  }
+
+  document.getElementById('pv3_AddPurchaseLineBtn').addEventListener('click', function () {
+    const line = collectCurrentLine();
+    if (!line) return;
+    window.__pv3PurchaseLines.push(line);
+    renderPv3Purchase();
     resetLineEntry();
-    showToast(t('লাইন যোগ হয়েছে ✅','Line added ✅'), 'success');
+    showToast(t('ক্রয় লাইন যোগ হয়েছে ✅','Purchase line added ✅'), 'success');
+  });
+  document.getElementById('pv3_AddReturnLineBtn').addEventListener('click', function () {
+    const line = collectCurrentLine();
+    if (!line) return;
+    window.__pv3ReturnLines.push(line);
+    renderPv3Return();
+    resetLineEntry();
+    showToast(t('ক্রয় ফেরত লাইন যোগ হয়েছে ✅','Purchase return line added ✅'), 'success');
   });
 
-  renderPv2Preview();
+  renderPv3Purchase();
+  renderPv3Return();
 }
 
 /* ============================================================
