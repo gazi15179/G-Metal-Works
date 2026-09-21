@@ -3486,7 +3486,7 @@ async function renderPurchaseVoucherPage(content, defaultType) {
         </button>`;
       return `<tr ondblclick='openPurchaseVoucherForm(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' style="cursor:pointer;" title="${t('এডিট করতে ডাবল-ক্লিক করুন','Double-click to edit')}">
         <td>${t(r.typeLabel[0], r.typeLabel[1])}</td><td>${escapeHtml(r.id)}</td><td>${escapeHtml(r.date)}</td>
-        <td>${escapeHtml(r.supplierId === 'SUP-CASH' && r.walkInName ? ((supMap[r.supplierId] || r.supplierId) + ' — ' + r.walkInName) : (supMap[r.supplierId] || r.supplierId))}</td><td>${escapeHtml(purMap[r.purchaserId] || '—')}</td>
+        <td>${escapeHtml(r.supplierId === 'SUP-CASH' && r.walkInName ? ('নগদ (' + r.walkInName + ')') : (supMap[r.supplierId] || r.supplierId))}</td><td>${escapeHtml(purMap[r.purchaserId] || '—')}</td>
         <td>${r.amount !== null ? Number(r.amount).toFixed(2) : '—'}</td>
         <td>${isPosted ? `<span class="badge active">${t('পোস্ট করা','Posted')}</span>` : `<span class="badge draft">${t('খসড়া','Draft')}</span>`}</td>
         <td class="row-actions" onclick="event.stopPropagation();">${postBtn}${previewBtn}${editBtn}${deleteBtn}</td>
@@ -3596,7 +3596,7 @@ async function openPrintableVoucherView(docType, docId) {
   // নগদ (ওয়াক-ইন) পার্টির ক্ষেত্রে মাস্টার রেকর্ডের (সাধারণত খালি) তথ্যের বদলে,
   // ভাউচারেই সেভ করা আসল ওয়াক-ইন পার্টির নাম/ঠিকানা/মোবাইল দেখানো হবে
   const partyName = isCashParty
-    ? (header.WalkInPartyName || (party ? (party.CompanyName || party.Name) : header[partyIdField]))
+    ? (header.WalkInPartyName ? ('নগদ (' + header.WalkInPartyName + ')') : (party ? (party.CompanyName || party.Name) : header[partyIdField]))
     : (party ? (party.CompanyName || party.Name) : header[partyIdField]);
   const partyAddress = isCashParty ? (header.WalkInPartyAddress || '') : (party ? (party.Address || '') : '');
   const partyZone = party ? (party.Zone || '') : '';
@@ -4078,7 +4078,7 @@ async function renderSalesVoucherPage(content, defaultType) {
             : '');
       return `<tr ondblclick='openSalesVoucherForm(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' style="cursor:pointer;" title="${t('এডিট করতে ডাবল-ক্লিক করুন','Double-click to edit')}">
         <td>${t(r.typeLabel[0], r.typeLabel[1])}</td><td>${escapeHtml(r.id)}</td><td>${escapeHtml(r.date)}</td>
-        <td>${escapeHtml(r.customerId === 'CUS-CASH' && r.walkInName ? ((custMap[r.customerId] || r.customerId) + ' — ' + r.walkInName) : (custMap[r.customerId] || r.customerId))}</td><td>${escapeHtml(slpMap[r.salespersonId] || '—')}</td>
+        <td>${escapeHtml(r.customerId === 'CUS-CASH' && r.walkInName ? ('নগদ (' + r.walkInName + ')') : (custMap[r.customerId] || r.customerId))}</td><td>${escapeHtml(slpMap[r.salespersonId] || '—')}</td>
         <td>${r.amount !== null ? Number(r.amount).toFixed(2) : '—'}</td>
         <td>${isPosted ? `<span class="badge active">${t('পোস্ট করা','Posted')}</span>` : `<span class="badge draft">${t('খসড়া','Draft')}</span>`}</td>
         <td class="row-actions" onclick="event.stopPropagation();">${postBtn}${previewBtn}${editBtn}${deleteBtn}</td>
