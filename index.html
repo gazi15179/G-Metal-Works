@@ -3563,7 +3563,13 @@ async function openPrintableVoucherView(docType, docId) {
   const groupMap = {}; groups.forEach(function (g) { groupMap[g.GroupID] = g.GroupName; });
   const catMap = {}; categories.forEach(function (c) { catMap[c.CategoryID] = c.CategoryName; });
 
-  // আইটেম | একক | পরিমাণ | দর | মূল্য — সরল, একক-অনুযায়ী (কেজি অথবা পিস, যেটাই হোক)
+  // পশ্চিমা (0-9) সংখ্যাকে বাংলা অঙ্কে (০-৯) বদলে দেয় — প্রিন্ট ভাউচারের সব সংখ্যা বাংলায় দেখানোর জন্য
+  function bn(num) {
+    const map = { '0':'০','1':'১','2':'২','3':'৩','4':'৪','5':'৫','6':'৬','7':'৭','8':'৮','9':'৯' };
+    return String(num).replace(/[0-9]/g, function (d) { return map[d]; });
+  }
+
+  // আইটেম | পরিমাণ (একক-সহ) | দর | মূল্য — একক আলাদা কলামে না, পরিমাণের পাশেই
   let totalQty = 0, totalValue = 0;
   const rowsHtml = lines.map(function (l) {
     const item = itemMap[l.ItemID] || {};
@@ -3573,10 +3579,9 @@ async function openPrintableVoucherView(docType, docId) {
 
     return `<tr>
       <td>${escapeHtml(item.ItemName || l.ItemID)}</td>
-      <td>${escapeHtml(unitLabel)}</td>
-      <td>${qty}</td>
-      <td>${rate.toFixed(2)}</td>
-      <td>${amt.toFixed(2)}</td>
+      <td>${bn(qty)} ${escapeHtml(unitLabel)}</td>
+      <td>${bn(rate.toFixed(2))}</td>
+      <td>${bn(amt.toFixed(2))}</td>
     </tr>`;
   }).join('');
 
@@ -3685,9 +3690,9 @@ async function openPrintableVoucherView(docType, docId) {
     </div>
   </div>
   <table>
-    <thead><tr><th>${L('আইটেম','Item')}</th><th>${L('একক','Unit')}</th><th>${L('পরিমাণ','Quantity')}</th><th>${L('দর','Rate')}</th><th>${L('মূল্য','Amount')}</th></tr></thead>
+    <thead><tr><th>${L('আইটেম','Item')}</th><th>${L('পরিমাণ','Quantity')}</th><th>${L('দর','Rate')}</th><th>${L('মূল্য','Amount')}</th></tr></thead>
     <tbody>${rowsHtml}</tbody>
-    <tfoot><tr><td>${L('মোট','Total')}</td><td></td><td>${totalQty}</td><td></td><td>${totalValue.toFixed(2)}</td></tr></tfoot>
+    <tfoot><tr><td>${L('মোট','Total')}</td><td>${bn(totalQty)}</td><td></td><td>${bn(totalValue.toFixed(2))}</td></tr></tfoot>
   </table>
   <div class="sign-row">
     <div class="sign-block">
