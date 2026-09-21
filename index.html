@@ -613,7 +613,12 @@ async function runPostingLogic(docType, header, docId) {
     for (const line of (lines || [])) {
       await postStockMovement(line.ItemID, header.WarehouseID, header.InvoiceDate || today, 'PurchaseInvoice', 'PurchaseInvoice', docId, Number(line.Quantity) || 0, 0);
     }
-    await postPartyLedgerEntry('Supplier', header.SupplierID, header.InvoiceDate || today, 'PurchaseInvoice', docId, 0, Number(header.TotalAmount) || 0);
+    if (header.SupplierID === 'SUP-CASH') {
+      // নগদ ক্রয় — কোনো দেনা তৈরি হবে না, সরাসরি ক্যাশ অ্যাকাউন্ট থেকে টাকা বের হয়ে যাবে
+      await postBankCashBookEntry('BC-CASH', header.InvoiceDate || today, 'PurchaseInvoice', docId, 0, Number(header.TotalAmount) || 0);
+    } else {
+      await postPartyLedgerEntry('Supplier', header.SupplierID, header.InvoiceDate || today, 'PurchaseInvoice', docId, 0, Number(header.TotalAmount) || 0);
+    }
     return;
   }
 
@@ -631,7 +636,12 @@ async function runPostingLogic(docType, header, docId) {
       await postStockMovement(line.ItemID, warehouseId, header.Date || today, 'PurchaseReturn', 'PurchaseReturn', docId, -(Number(line.Quantity) || 0), 0);
       returnTotal += (Number(line.Quantity) || 0) * (Number(line.Rate) || 0);
     }
-    await postPartyLedgerEntry('Supplier', header.SupplierID, header.Date || today, 'PurchaseReturn', docId, returnTotal, 0);
+    if (header.SupplierID === 'SUP-CASH') {
+      // নগদ ক্রয়-ফেরত — টাকা ফেরত আসবে সরাসরি ক্যাশ অ্যাকাউন্টে
+      await postBankCashBookEntry('BC-CASH', header.Date || today, 'PurchaseReturn', docId, returnTotal, 0);
+    } else {
+      await postPartyLedgerEntry('Supplier', header.SupplierID, header.Date || today, 'PurchaseReturn', docId, returnTotal, 0);
+    }
     return;
   }
 
@@ -679,7 +689,12 @@ async function runPostingLogic(docType, header, docId) {
     for (const line of (lines || [])) {
       await postStockMovement(line.ItemID, header.WarehouseID, header.InvoiceDate || today, 'SalesInvoice', 'SalesInvoice', docId, -(Number(line.Quantity) || 0), 0);
     }
-    await postPartyLedgerEntry('Customer', header.CustomerID, header.InvoiceDate || today, 'SalesInvoice', docId, Number(header.TotalAmount) || 0, 0);
+    if (header.CustomerID === 'CUS-CASH') {
+      // নগদ বিক্রয় — কোনো পাওনা তৈরি হবে না, সরাসরি ক্যাশ অ্যাকাউন্টে টাকা জমা হবে
+      await postBankCashBookEntry('BC-CASH', header.InvoiceDate || today, 'SalesInvoice', docId, Number(header.TotalAmount) || 0, 0);
+    } else {
+      await postPartyLedgerEntry('Customer', header.CustomerID, header.InvoiceDate || today, 'SalesInvoice', docId, Number(header.TotalAmount) || 0, 0);
+    }
     return;
   }
 
@@ -692,7 +707,12 @@ async function runPostingLogic(docType, header, docId) {
       await postStockMovement(line.ItemID, header.WarehouseID, header.Date || today, 'SalesReturn', 'SalesReturn', docId, Number(line.Quantity) || 0, 0);
       salesReturnTotal += (Number(line.Quantity) || 0) * (Number(line.Rate) || 0);
     }
-    await postPartyLedgerEntry('Customer', header.CustomerID, header.Date || today, 'SalesReturn', docId, 0, salesReturnTotal);
+    if (header.CustomerID === 'CUS-CASH') {
+      // নগদ বিক্রয়-ফেরত — টাকা ফেরত দেওয়া হবে সরাসরি ক্যাশ অ্যাকাউন্ট থেকে
+      await postBankCashBookEntry('BC-CASH', header.Date || today, 'SalesReturn', docId, 0, salesReturnTotal);
+    } else {
+      await postPartyLedgerEntry('Customer', header.CustomerID, header.Date || today, 'SalesReturn', docId, 0, salesReturnTotal);
+    }
     return;
   }
 
@@ -4158,6 +4178,11 @@ async function openSalesVoucherForm(defaultType, existingId) {
       <div class="field"><label>${t('গুদাম','Warehouse')}</label><select id="sv_WarehouseID"><option value="">—</option>${opts(warehouses, 'WarehouseID', 'WarehouseName', rec.WarehouseID)}</select></div>
       <div class="field"><label>${t('গ্রাহক নাম','Customer Name')}</label><select id="sv_CustomerID"><option value="">—</option>${customers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.CustomerID)}" ${rec.CustomerID===r.CustomerID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select></div>
     </div>
+    <div id="sv_CashCustomerCard" style="display:none;padding:12px;border:1px dashed var(--border);border-radius:8px;background:var(--bg);margin-bottom:14px;">
+      <div class="field"><label>${t('নগদ পার্টির আসল নাম','Actual Cash Party Name')}</label><input id="sv_CashName" value="${attr(rec.WalkInPartyName)}"></div>
+      <div class="field"><label>${t('ঠিকানা','Address')}</label><input id="sv_CashAddress" value="${attr(rec.WalkInPartyAddress)}"></div>
+      <div class="field"><label>${t('মোবাইল','Mobile')}</label><input id="sv_CashMobile" value="${attr(rec.WalkInPartyMobile)}"></div>
+    </div>
     <div id="sv_ReasonField" style="display:none;margin-top:14px;"><div class="field"><label>${t('কারণ','Reason')}</label><input id="sv_Reason" value="${attr(rec.Reason)}"></div></div>
 
     <h4 style="margin:20px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('লাইন আইটেম','Line Items')}</h4>
@@ -4185,10 +4210,16 @@ async function openSalesVoucherForm(defaultType, existingId) {
       if (!warehouseId) throw new Error(t('গুদাম বাছাই করা আবশ্যক।','Warehouse is required.'));
 
       const common = { CustomerID: customerId, SalespersonID: currentUser ? currentUser.UserID : null, WarehouseID: warehouseId };
+      const isCashCustomer = customerId === 'CUS-CASH';
 
       if (currentType === 'SalesInvoice') {
         const totalAmount = lines.reduce(function (s, l) { return s + (Number(l.Amount) || 0); }, 0);
-        const headerData = Object.assign({}, common, { InvoiceDate: val('sv_Date'), DCID: val('sv_DCID') || null, TotalAmount: totalAmount });
+        const headerData = Object.assign({}, common, {
+          InvoiceDate: val('sv_Date'), DCID: val('sv_DCID') || null, TotalAmount: totalAmount,
+          WalkInPartyName: isCashCustomer ? (val('sv_CashName') || null) : null,
+          WalkInPartyAddress: isCashCustomer ? (val('sv_CashAddress') || null) : null,
+          WalkInPartyMobile: isCashCustomer ? (val('sv_CashMobile') || null) : null
+        });
         if (isEdit) {
           await api('updateDocument', { headerSheet:'SalesInvoice', idField:'SIID', linesSheet:'SI_Lines', lineIdField:'SIID', idValue: existingId, headerData: headerData, lines: lines });
         } else {
@@ -4218,6 +4249,13 @@ async function openSalesVoucherForm(defaultType, existingId) {
   }
   document.getElementById('sv_Type').addEventListener('change', toggleSvTypeFields);
   toggleSvTypeFields();
+
+  function toggleCashCustomer() {
+    const isCash = val('sv_CustomerID') === 'CUS-CASH';
+    document.getElementById('sv_CashCustomerCard').style.display = isCash ? '' : 'none';
+  }
+  document.getElementById('sv_CustomerID').addEventListener('change', toggleCashCustomer);
+  toggleCashCustomer();
 
   function onSvLineItemChange(idx) {
     const itemId = val('sv_ln_' + idx + '_item');
