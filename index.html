@@ -3672,7 +3672,8 @@ async function openPrintableVoucherView(docType, docId) {
   <div class="meta-grid">
     <div>
       <div><b>${L(partyLabelBn, partyLabelEn)}:</b> ${escapeHtml(partyName)} ${partyZone ? '— ' + L('জোন','Zone') + ': ' + escapeHtml(partyZone) : ''}</div>
-      <div>${L('ঠিকানা','Address')}: ${escapeHtml(partyAddress || '—')} &nbsp;&nbsp; ${L('মোবাইল','Mobile')}: ${escapeHtml(partyPhone || '—')}</div>
+      <div>${L('ঠিকানা','Address')}: ${escapeHtml(partyAddress || '—')}</div>
+      <div>${L('মোবাইল','Mobile')}: ${escapeHtml(partyPhone || '—')}</div>
     </div>
     <div>
       <div><b>${L(personLabelBn, personLabelEn)}:</b> ${escapeHtml(person ? person[personNameField] : '—')}</div>
