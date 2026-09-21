@@ -4754,17 +4754,19 @@ async function renderPartyLedger(content, partyTypeFilter) {
   if (!partyTypeFilter || partyTypeFilter === 'Customer') {
     customers.filter(function (c) { return c.Status !== 'Deleted'; }).forEach(function (c) {
       const key = c.Code || c.CustomerID;
-      if (!combined[key]) combined[key] = { name: c.Name, customerId: null, supplierId: null };
+      const label = c.CompanyName || c.Name;
+      if (!combined[key]) combined[key] = { name: label, customerId: null, supplierId: null };
       combined[key].customerId = c.CustomerID;
-      if (!combined[key].name) combined[key].name = c.Name;
+      if (!combined[key].name) combined[key].name = label;
     });
   }
   if (!partyTypeFilter || partyTypeFilter === 'Supplier') {
     suppliers.filter(function (s) { return s.Status !== 'Deleted'; }).forEach(function (s) {
       const key = s.Code || s.SupplierID;
-      if (!combined[key]) combined[key] = { name: s.Name, customerId: null, supplierId: null };
+      const label = s.CompanyName || s.Name;
+      if (!combined[key]) combined[key] = { name: label, customerId: null, supplierId: null };
       combined[key].supplierId = s.SupplierID;
-      if (!combined[key].name) combined[key].name = s.Name;
+      if (!combined[key].name) combined[key].name = label;
     });
   }
   const parties = Object.keys(combined).map(function (key) { return Object.assign({ key: key }, combined[key]); });
