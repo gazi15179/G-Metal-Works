@@ -619,6 +619,18 @@ async function runPostingLogic(docType, header, docId) {
       await postBankCashBookEntry('BC-CASH', header.InvoiceDate || today, 'PurchaseInvoice', docId, 0, Number(header.TotalAmount) || 0);
     } else {
       await postPartyLedgerEntry('Supplier', header.SupplierID, header.InvoiceDate || today, 'PurchaseInvoice', docId, 0, Number(header.TotalAmount) || 0);
+      // ভাউচারের সাথে সাথেই যদি আংশিক/পূর্ণ নগদ বা ব্যাংকে প্রদান করা হয়ে থাকে,
+      // সেটা এখনই সরবরাহকারীর দেনা থেকে বাদ যাবে
+      const cashPaid = Number(header.CashPaidAmount) || 0;
+      const bankPaid = Number(header.BankPaidAmount) || 0;
+      if (cashPaid > 0) {
+        await postPartyLedgerEntry('Supplier', header.SupplierID, header.InvoiceDate || today, 'PurchaseInvoice-Payment', docId, cashPaid, 0);
+        await postBankCashBookEntry('BC-CASH', header.InvoiceDate || today, 'PurchaseInvoice-Payment', docId, 0, cashPaid);
+      }
+      if (bankPaid > 0 && header.BankAccIDForPayment) {
+        await postPartyLedgerEntry('Supplier', header.SupplierID, header.InvoiceDate || today, 'PurchaseInvoice-Payment', docId, bankPaid, 0);
+        await postBankCashBookEntry(header.BankAccIDForPayment, header.InvoiceDate || today, 'PurchaseInvoice-Payment', docId, 0, bankPaid);
+      }
     }
     return;
   }
@@ -785,19 +797,23 @@ async function reversePostedDocumentStock(docType, docId) {
   }
   await supabaseClient.from('stock_ledger').delete().eq('RefModule', docType).eq('RefID', docId);
 
-  // এই ডকুমেন্টের কারণে পার্টি লেজারে যা যা এন্ট্রি পড়েছিল, সেগুলোও উল্টে দেওয়া হচ্ছে
-  const { data: partyEntries } = await supabaseClient.from('PartyLedger').select('*').eq('RefModule', docType).eq('RefID', docId);
-  for (const e of (partyEntries || [])) {
-    await postPartyLedgerEntry(e.PartyType, e.PartyID, nowDate, docType + '-Reversal', docId, Number(e.Credit) || 0, Number(e.Debit) || 0);
-  }
-  await supabaseClient.from('PartyLedger').delete().eq('RefModule', docType).eq('RefID', docId);
+  // এই ডকুমেন্টের কারণে পার্টি লেজারে যা যা এন্ট্রি পড়েছিল (মূল এন্ট্রি + সাথে সাথে করা
+  // পেমেন্ট এন্ট্রিও), সেগুলো সবই উল্টে দেওয়া হচ্ছে
+  const refModules = [docType, docType + '-Payment'];
+  for (const refMod of refModules) {
+    const { data: partyEntries } = await supabaseClient.from('PartyLedger').select('*').eq('RefModule', refMod).eq('RefID', docId);
+    for (const e of (partyEntries || [])) {
+      await postPartyLedgerEntry(e.PartyType, e.PartyID, nowDate, docType + '-Reversal', docId, Number(e.Credit) || 0, Number(e.Debit) || 0);
+    }
+    await supabaseClient.from('PartyLedger').delete().eq('RefModule', refMod).eq('RefID', docId);
 
-  // ব্যাংক/ক্যাশ বইয়ের এন্ট্রিও উল্টে দেওয়া হচ্ছে
-  const { data: bankEntries } = await supabaseClient.from('BankCashBook').select('*').eq('RefModule', docType).eq('RefID', docId);
-  for (const e of (bankEntries || [])) {
-    await postBankCashBookEntry(e.BankCashAccID, nowDate, docType + '-Reversal', docId, Number(e.Credit) || 0, Number(e.Debit) || 0);
+    // ব্যাংক/ক্যাশ বইয়ের এন্ট্রিও উল্টে দেওয়া হচ্ছে
+    const { data: bankEntries } = await supabaseClient.from('BankCashBook').select('*').eq('RefModule', refMod).eq('RefID', docId);
+    for (const e of (bankEntries || [])) {
+      await postBankCashBookEntry(e.BankCashAccID, nowDate, docType + '-Reversal', docId, Number(e.Credit) || 0, Number(e.Debit) || 0);
+    }
+    await supabaseClient.from('BankCashBook').delete().eq('RefModule', refMod).eq('RefID', docId);
   }
-  await supabaseClient.from('BankCashBook').delete().eq('RefModule', docType).eq('RefID', docId);
 }
 
 /** এডমিনের পাসওয়ার্ড আবার যাচাই করে, পোস্ট করা ভাউচার নিরাপদে ডিলিট করে —
@@ -2192,6 +2208,8 @@ async function openPartyForm(existingCode) {
       ${amountDrCrFieldHtml('pf_CreditLimit', 'ক্রেডিট লিমিট', rec.CreditLimit)}
       <div class="field"><label>লিমিট পরিশোধের তারিখ</label><input type="date" id="pf_CreditLimitPaidDate" value="${attr(rec.CreditLimitPaidDate)}"></div>
       <div class="field"><label>ঠিকানা</label><input id="pf_Address" value="${attr(rec.Address)}"></div>
+      <div class="field"><label>ব্যাংক নাম</label><input id="pf_BankName" value="${attr(rec.BankName)}" placeholder="যেমন: সোনালী ব্যাংক, মতিঝিল শাখা"></div>
+      <div class="field"><label>ব্যাংক অ্যাকাউন্ট নম্বর</label><input id="pf_BankAccountNumber" value="${attr(rec.BankAccountNumber)}"></div>
       <div class="field"><label>অবস্থা</label><select id="pf_IsActive">
         <option value="TRUE" ${!isEdit || isTrue(rec.IsActive) ? 'selected' : ''}>Active</option>
         <option value="FALSE" ${isEdit && !isTrue(rec.IsActive) ? 'selected' : ''}>Inactive</option>
@@ -2211,6 +2229,7 @@ async function openPartyForm(existingCode) {
         Code: code, Name: name, CompanyName: val('pf_CompanyName'), Phone: val('pf_Phone'), Email: val('pf_Email'),
         Address: val('pf_Address'), Zone: val('pf_Zone'), CreditLimitPaidDate: val('pf_CreditLimitPaidDate') || null,
         OpeningBalance: readAmountDrCr('pf_OpeningBalance'), CreditLimit: readAmountDrCr('pf_CreditLimit'),
+        BankName: val('pf_BankName') || null, BankAccountNumber: val('pf_BankAccountNumber') || null,
         IsActive: val('pf_IsActive')
       };
 
@@ -3887,12 +3906,15 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
           <tr>
             <td style="padding:6px 8px;border:1px solid var(--border);white-space:nowrap;background:var(--bg);">${t('ব্যাংক প্রদানঃ','Bank Paid:')}</td>
             <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_BankPaidAmount" type="number" step="any" style="width:100%;" placeholder="৳"></td>
-            <td style="padding:6px 8px;border:1px solid var(--border);white-space:nowrap;background:var(--bg);">${t('ব্যাংক নামঃ','Bank Name:')}</td>
+            <td style="padding:6px 8px;border:1px solid var(--border);white-space:nowrap;background:var(--bg);">${t('আমাদের অ্যাকাউন্টঃ','Our Account:')}</td>
             <td style="padding:4px;border:1px solid var(--border);"><select id="pv3_BankAccID" style="width:100%;"><option value="">—</option>${optsHtml(bankAccounts, 'BankAccID', 'AccountName', '')}</select></td>
+          </tr>
+          <tr>
+            <td style="padding:6px 8px;border:1px solid var(--border);white-space:nowrap;background:var(--bg);">${t('সাপ্লায়ারের ব্যাংকঃ', "Supplier's Bank:")}</td>
+            <td colspan="3" style="padding:4px;border:1px solid var(--border);"><input id="pv3_SupplierBankInfo" readonly style="width:100%;background:var(--bg);"></td>
           </tr>
         </tbody>
       </table>
-      <p style="font-size:11px;color:var(--text-muted);margin:-8px 0 14px;">${t('(এই সেকশনটা আপাতত রেফারেন্সের জন্য — সরাসরি হিসাব-লেজারে পোস্ট হয় না, চাইলে পরের ধাপে যুক্ত করে দেব)','(This section is for reference only for now — not yet posted to the accounts ledger; can be wired up in a next step if needed)')}</p>
 
       <div style="display:flex;gap:8px;margin-bottom:10px;">
         <div style="flex:2;"><label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">${t('ভাউঃ মোট ক্রয় — কেজি','Total Purchase — kg')}</label><input id="pv3_TotPurchaseKg" readonly style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);"></div>
@@ -3947,6 +3969,18 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
           WalkInPartyAddress: isCash ? (val('pv3_CashAddress') || null) : null,
           WalkInPartyMobile: isCash ? (val('pv3_CashMobile') || null) : null
         });
+        // এই মুহূর্তে শুধু পেমেন্টের তথ্য হেডারে সেভ হচ্ছে — আসল লেজার/ব্যাংক-বই পোস্টিং
+        // ঘটবে ভাউচারটা "পোস্ট করুন" চাপার সময়, যাতে ড্রাফট অবস্থায় হিসাব না বসে
+        if (!isCash) {
+          headerData.CashPaidAmount = Number(val('pv3_CashPaidAmount')) || 0;
+          headerData.CashPaidNote = val('pv3_CashPaidNote') || null;
+          headerData.BankPaidAmount = Number(val('pv3_BankPaidAmount')) || 0;
+          headerData.BankAccIDForPayment = val('pv3_BankAccID') || null;
+          if (headerData.BankPaidAmount > 0 && !headerData.BankAccIDForPayment) {
+            throw new Error(t('ব্যাংকে প্রদানের জন্য আমাদের অ্যাকাউন্ট বাছাই করুন।','Select our account for the bank payment.'));
+          }
+        }
+
         if (isEdit && existingDocType === 'PurchaseInvoice') {
           await api('updateDocument', { headerSheet:'PurchaseInvoice', idField:'PIID', linesSheet:'PI_Lines', lineIdField:'PIID', idValue: existingId, headerData: headerData, lines: lineData });
         } else {
@@ -4014,6 +4048,14 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     const { data } = await supabaseClient.from('PartyLedger').select('Balance').eq('PartyType', 'Supplier').eq('PartyID', supplierId).order('id', { ascending: false }).limit(1);
     const balance = (data && data[0]) ? Number(data[0].Balance) || 0 : 0;
     balInput.value = formatAmountDrCr(balance, true);
+
+    const supRec = window.__pv3SupplierMap[supplierId];
+    const bankInfoEl = document.getElementById('pv3_SupplierBankInfo');
+    if (bankInfoEl) {
+      bankInfoEl.value = supRec && (supRec.BankName || supRec.BankAccountNumber)
+        ? [supRec.BankName, supRec.BankAccountNumber].filter(Boolean).join(' — ')
+        : t('তথ্য নেই','No info on file');
+    }
   }
   document.getElementById('pv3_SupplierID').addEventListener('change', toggleCashSupplier);
   toggleCashSupplier();
