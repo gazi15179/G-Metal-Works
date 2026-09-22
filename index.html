@@ -3795,68 +3795,73 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     </div>
 
     <div id="pv3_TabEntryPanel">
-      <table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:14px;">
+      <style>
+        .pv3-tbl input, .pv3-tbl select { width:100%; box-sizing:border-box; padding:4px 5px; font-size:11px; border:1px solid var(--border); border-radius:5px; background:var(--surface); color:var(--text); }
+        .pv3-tbl input:disabled, .pv3-tbl input[readonly] { background:var(--bg); color:var(--text-muted); }
+        .pv3-tbl td { vertical-align:middle; overflow:hidden; text-overflow:ellipsis; }
+      </style>
+      <table class="pv3-tbl" style="width:100%;table-layout:fixed;border-collapse:collapse;font-size:11px;margin-bottom:14px;">
+        <colgroup><col style="width:19%;"><col style="width:31%;"><col style="width:19%;"><col style="width:31%;"></colgroup>
         <thead>
           <tr>
-            <th colspan="2" style="background:#c9e8c9;color:#1a2029;padding:8px;text-align:center;border:1px solid var(--border);">${t('ক্রয় ভাউচার','Purchase Voucher')}</th>
-            <th colspan="2" style="background:#5c7a8a;color:#fff;padding:8px;text-align:center;border:1px solid var(--border);">${t('ভাউচার প্রিভিউ','Voucher Preview')}</th>
+            <th colspan="4" style="background:var(--ink-900);color:var(--amber);padding:8px;text-align:center;border:1px solid var(--border);font-size:13px;letter-spacing:.02em;">${t('ক্রয় ভাউচার','Purchase Voucher')}</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td style="background:#eaf7ea;padding:6px 8px;border:1px solid var(--border);white-space:nowrap;">${t('ভাউঃ তারিখঃ','Vou. Date:')}</td>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('ভাউঃ তারিখঃ','Vou. Date:')}</td>
             <td style="padding:4px;border:1px solid var(--border);"><input type="date" id="pv3_Date" value="${attr(rec.InvoiceDate || rec.Date) || new Date().toISOString().slice(0,10)}" style="width:100%;"></td>
-            <td style="background:#eaf1f4;padding:6px 8px;border:1px solid var(--border);white-space:nowrap;"><input type="checkbox" id="pv3_SNDateCheck" style="width:auto;vertical-align:middle;" ${rec.SupplierInvoiceDate?'checked':''}> ${t('নিঃ তারিখঃ','Sup.Vou.Date:')}</td>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;"><input type="checkbox" id="pv3_SNDateCheck" style="width:auto;vertical-align:middle;" ${rec.SupplierInvoiceDate?'checked':''}> ${t('নিঃ তারিখঃ','Sup.Vou.Date:')}</td>
             <td style="padding:4px;border:1px solid var(--border);"><input type="date" id="pv3_SupplierInvoiceDate" value="${attr(rec.SupplierInvoiceDate)}" style="width:100%;" ${rec.SupplierInvoiceDate?'':'disabled'}></td>
           </tr>
           <tr>
-            <td style="background:#eaf7ea;padding:6px 8px;border:1px solid var(--border);white-space:nowrap;">${t('ভাউঃ নম্বরঃ','Vou. No:')}</td>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('ভাউঃ নম্বরঃ','Vou. No:')}</td>
             <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো তৈরি হবে','Auto')}" readonly style="width:100%;background:var(--bg);"></td>
-            <td style="background:#eaf1f4;padding:6px 8px;border:1px solid var(--border);white-space:nowrap;"><input type="checkbox" id="pv3_SNNoCheck" style="width:auto;vertical-align:middle;" ${rec.SupplierInvoiceNo?'checked':''}> ${t('নিঃ নম্বরঃ','Sup.Vou.No:')}</td>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;"><input type="checkbox" id="pv3_SNNoCheck" style="width:auto;vertical-align:middle;" ${rec.SupplierInvoiceNo?'checked':''}> ${t('নিঃ নম্বরঃ','Sup.Vou.No:')}</td>
             <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_SupplierInvoiceNo" value="${attr(rec.SupplierInvoiceNo)}" style="width:100%;" ${rec.SupplierInvoiceNo?'':'disabled'}></td>
           </tr>
           <tr>
-            <td style="background:#eaf7ea;padding:6px 8px;border:1px solid var(--border);white-space:nowrap;">${t('সাপ্লায়ার নামঃ','Supplier:')}</td>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('সাপ্লায়ার নামঃ','Supplier:')}</td>
             <td style="padding:4px;border:1px solid var(--border);"><select id="pv3_SupplierID" style="width:100%;"><option value="">—</option>${suppliers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.SupplierID)}" ${rec.SupplierID===r.SupplierID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select></td>
-            <td style="background:#eaf1f4;padding:6px 8px;border:1px solid var(--border);white-space:nowrap;">${t('সাপ্লায়ার হিসাবঃ','Sup. Balance:')}</td>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('সাপ্লায়ার হিসাবঃ','Sup. Balance:')}</td>
             <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_SupplierBalance" readonly style="width:100%;background:var(--bg);font-weight:700;"></td>
           </tr>
           <tr>
-            <td style="background:#eaf7ea;padding:6px 8px;border:1px solid var(--border);white-space:nowrap;">${t('আইটেম(পণ্য)ঃ','Item:')}</td>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('আইটেম(পণ্য)ঃ','Item:')}</td>
             <td style="padding:4px;border:1px solid var(--border);"><select id="pv3_ItemID" style="width:100%;"><option value="">—</option></select></td>
-            <td style="background:#eaf1f4;padding:6px 8px;border:1px solid var(--border);white-space:nowrap;"><input type="checkbox" id="pv3_GroupCheck" style="width:auto;vertical-align:middle;"> ${t('গ্রুপ নামঃ','Group:')}</td>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;"><input type="checkbox" id="pv3_GroupCheck" style="width:auto;vertical-align:middle;"> ${t('গ্রুপ নামঃ','Group:')}</td>
             <td style="padding:4px;border:1px solid var(--border);"><select id="pv3_GroupSelect" disabled style="width:100%;display:none;"><option value="">—</option>${optsHtml(window.__pv3Groups, 'GroupID','GroupName','')}</select></td>
           </tr>
           <tr>
-            <td style="background:#eaf7ea;padding:6px 8px;border:1px solid var(--border);white-space:nowrap;">${t('ওয়ারহাউজঃ','Warehouse:')}</td>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('ওয়ারহাউজঃ','Warehouse:')}</td>
             <td style="padding:4px;border:1px solid var(--border);"><select id="pv3_WarehouseID" style="width:100%;"><option value="">—</option>${optsHtml(window.__pv3Warehouses, 'WarehouseID','WarehouseName', rec.WarehouseID)}</select></td>
-            <td style="background:#eaf1f4;padding:6px 8px;border:1px solid var(--border);white-space:nowrap;"><input type="checkbox" id="pv3_CatCheck" style="width:auto;vertical-align:middle;"> ${t('ক্যাটাগরিঃ','Category:')}</td>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;"><input type="checkbox" id="pv3_CatCheck" style="width:auto;vertical-align:middle;"> ${t('ক্যাটাগরিঃ','Category:')}</td>
             <td style="padding:4px;border:1px solid var(--border);"><select id="pv3_CatSelect" disabled style="width:100%;display:none;"><option value="">—</option>${optsHtml(window.__pv3Categories, 'CategoryID','CategoryName','')}</select></td>
           </tr>
           <tr>
-            <td style="background:#eaf7ea;padding:6px 8px;border:1px solid var(--border);white-space:nowrap;">${t('পরিমাণঃ','Quantity:')}</td>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('পরিমাণঃ','Quantity:')}</td>
             <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_Qty" type="number" step="any" style="width:100%;"></td>
-            <td style="background:#eaf1f4;padding:6px 8px;border:1px solid var(--border);white-space:nowrap;">${t('স্টক পরিমাণঃ','Stock Qty:')}</td>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('স্টক পরিমাণঃ','Stock Qty:')}</td>
             <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_PreviewStockQty" readonly style="width:100%;background:var(--bg);"></td>
           </tr>
           <tr>
-            <td style="background:#eaf7ea;padding:6px 8px;border:1px solid var(--border);white-space:nowrap;">${t('দরঃ','Rate:')}</td>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('দরঃ','Rate:')}</td>
             <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_Rate" type="number" step="any" style="width:100%;"></td>
-            <td style="background:#eaf1f4;padding:6px 8px;border:1px solid var(--border);white-space:nowrap;">${t('স্টক দরঃ','Stock Rate:')}</td>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('স্টক দরঃ','Stock Rate:')}</td>
             <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_PreviewStockRate" readonly style="width:100%;background:var(--bg);"></td>
           </tr>
           <tr>
-            <td style="background:#eaf7ea;padding:6px 8px;border:1px solid var(--border);white-space:nowrap;">${t('এককঃ','Unit:')}</td>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('এককঃ','Unit:')}</td>
             <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_Unit" readonly style="width:100%;background:var(--bg);"></td>
-            <td colspan="2" style="background:#5c7a8a;padding:6px 10px;border:1px solid var(--border);text-align:center;">
-              <label style="color:#fff;cursor:pointer;"><input type="checkbox" id="pv3_ConfirmPurchaseCheck" style="width:auto;vertical-align:middle;"> ${t('সেভ + ক্রয় লাইন যোগ','Save + Add Purchase Line')}</label>
+            <td colspan="2" style="background:var(--ink-900);padding:6px 10px;border:1px solid var(--border);text-align:center;">
+              <label style="color:var(--amber);cursor:pointer;font-size:11px;"><input type="checkbox" id="pv3_ConfirmPurchaseCheck" style="width:auto;vertical-align:middle;"> ${t('সেভ + ক্রয় লাইন যোগ','Save + Add Purchase Line')}</label>
             </td>
           </tr>
           <tr>
-            <td style="background:#eaf7ea;padding:6px 8px;border:1px solid var(--border);white-space:nowrap;">${t('মূল্যঃ','Amount:')}</td>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('মূল্যঃ','Amount:')}</td>
             <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_Amount" readonly style="width:100%;background:var(--bg);font-weight:700;"></td>
-            <td colspan="2" style="background:#3c5a68;padding:6px 10px;border:1px solid var(--border);text-align:center;">
-              <button type="button" id="pv3_AddReturnLineBtn" style="width:100%;background:none;border:none;color:#fff;font-weight:700;cursor:pointer;padding:4px;">+ ${t('ক্রয় ফেরত লাইন যোগ','Add Purchase Return Line')}</button>
+            <td colspan="2" style="background:var(--ink-900);padding:6px 10px;border:1px solid var(--border);text-align:center;">
+              <button type="button" id="pv3_AddReturnLineBtn" style="width:100%;background:none;border:none;color:var(--amber);font-weight:700;cursor:pointer;padding:4px;font-size:11px;">+ ${t('ক্রয় ফেরত লাইন যোগ','Add Purchase Return Line')}</button>
             </td>
           </tr>
         </tbody>
