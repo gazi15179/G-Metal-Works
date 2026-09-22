@@ -3780,6 +3780,8 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   window.__pv3ReturnLines = (isEdit && existingDocType === 'PurchaseReturn')
     ? existingLines.map(function (l) { return { itemId: l.ItemID, warehouseId: rec.WarehouseID, qty: Number(l.Quantity)||0, rate: Number(l.Rate)||0, amount: Math.round((Number(l.Quantity)||0) * (Number(l.Rate)||0)) }; })
     : [];
+  window.__pv3LastStockQty = '';
+  window.__pv3LastStockRate = '';
 
   function optsHtml(list, idF, labelF, selected) {
     return list.map(function (r) { return `<option value="${attr(r[idF])}" ${selected===r[idF]?'selected':''}>${escapeHtml(r[labelF])}</option>`; }).join('');
@@ -3792,87 +3794,92 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     </div>
 
     <div id="pv3_TabEntryPanel">
-      <div class="field"><label>${t('ইনভয়েস টাইপ','Invoice Type')}</label>
-        <select id="pv3_Type" style="padding:6px 10px;max-width:260px;">
-          <option value="PurchaseInvoice" selected>${t('ক্রয় ভাউচার','Purchase Voucher')}</option>
-        </select>
-      </div>
-      <div class="field"><label>${t('ভাউঃ তারিখ','Voucher Date')}</label><input type="date" id="pv3_Date" value="${attr(rec.InvoiceDate || rec.Date) || new Date().toISOString().slice(0,10)}"></div>
-      <div class="field"><label>${t('ভাউঃ নম্বর','Voucher No')}</label><input id="pv3_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো তৈরি হবে','Will be auto-generated')}" readonly style="background:var(--bg);"></div>
+      <div style="overflow:hidden;">
+        <div id="pv3_LeftCol" style="float:left;width:300px;padding-right:20px;box-sizing:border-box;">
+          <div class="field"><label>${t('ইনভয়েস টাইপ','Invoice Type')}</label>
+            <select id="pv3_Type" style="padding:6px 10px;">
+              <option value="PurchaseInvoice" selected>${t('ক্রয় ভাউচার','Purchase Voucher')}</option>
+            </select>
+          </div>
+          <div class="field"><label>${t('ভাউঃ তারিখ','Voucher Date')}</label><input type="date" id="pv3_Date" value="${attr(rec.InvoiceDate || rec.Date) || new Date().toISOString().slice(0,10)}"></div>
+          <div class="field"><label>${t('ভাউঃ নম্বর','Voucher No')}</label><input id="pv3_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো তৈরি হবে','Will be auto-generated')}" readonly style="background:var(--bg);"></div>
 
-      <div class="field" style="display:flex;align-items:center;gap:8px;">
-        <input type="checkbox" id="pv3_SNDateCheck" style="width:auto;" ${rec.SupplierInvoiceDate?'checked':''}>
-        <label style="margin:0;flex:1;">${t('নিঃ তারিখ','Supplier Vou. Date')}</label>
-        <input type="date" id="pv3_SupplierInvoiceDate" value="${attr(rec.SupplierInvoiceDate)}" style="flex:2;" ${rec.SupplierInvoiceDate?'':'disabled'}>
-      </div>
-      <div class="field" style="display:flex;align-items:center;gap:8px;">
-        <input type="checkbox" id="pv3_SNNoCheck" style="width:auto;" ${rec.SupplierInvoiceNo?'checked':''}>
-        <label style="margin:0;flex:1;">${t('নিঃ নম্বর','Supplier Vou. No')}</label>
-        <input id="pv3_SupplierInvoiceNo" value="${attr(rec.SupplierInvoiceNo)}" style="flex:2;" ${rec.SupplierInvoiceNo?'':'disabled'}>
-      </div>
+          <div class="field" style="display:flex;align-items:center;gap:8px;">
+            <input type="checkbox" id="pv3_SNDateCheck" style="width:auto;" ${rec.SupplierInvoiceDate?'checked':''}>
+            <label style="margin:0;flex:1;">${t('নিঃ তারিখ','Supplier Vou. Date')}</label>
+            <input type="date" id="pv3_SupplierInvoiceDate" value="${attr(rec.SupplierInvoiceDate)}" style="flex:2;" ${rec.SupplierInvoiceDate?'':'disabled'}>
+          </div>
+          <div class="field" style="display:flex;align-items:center;gap:8px;">
+            <input type="checkbox" id="pv3_SNNoCheck" style="width:auto;" ${rec.SupplierInvoiceNo?'checked':''}>
+            <label style="margin:0;flex:1;">${t('নিঃ নম্বর','Supplier Vou. No')}</label>
+            <input id="pv3_SupplierInvoiceNo" value="${attr(rec.SupplierInvoiceNo)}" style="flex:2;" ${rec.SupplierInvoiceNo?'':'disabled'}>
+          </div>
 
-      <div class="field"><label>${t('সাপ্লায়ার নাম','Supplier Name')}</label>
-        <select id="pv3_SupplierID"><option value="">—</option>${suppliers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.SupplierID)}" ${rec.SupplierID===r.SupplierID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select>
-      </div>
-      <div id="pv3_CashSupplierCard" style="display:none;padding:12px;border:1px dashed var(--border);border-radius:8px;background:var(--bg);margin-bottom:14px;">
-        <div class="field"><label>${t('নগদ পার্টির আসল নাম','Actual Cash Party Name')}</label><input id="pv3_CashName" value="${attr(rec.WalkInPartyName)}"></div>
-        <div class="field"><label>${t('ঠিকানা','Address')}</label><input id="pv3_CashAddress" value="${attr(rec.WalkInPartyAddress)}"></div>
-        <div class="field"><label>${t('মোবাইল','Mobile')}</label><input id="pv3_CashMobile" value="${attr(rec.WalkInPartyMobile)}"></div>
-      </div>
+          <div class="field"><label>${t('সাপ্লায়ার নাম','Supplier Name')}</label>
+            <select id="pv3_SupplierID"><option value="">—</option>${suppliers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.SupplierID)}" ${rec.SupplierID===r.SupplierID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select>
+          </div>
+          <div id="pv3_CashSupplierCard" style="display:none;padding:12px;border:1px dashed var(--border);border-radius:8px;background:var(--bg);margin-bottom:14px;">
+            <div class="field"><label>${t('নগদ পার্টির আসল নাম','Actual Cash Party Name')}</label><input id="pv3_CashName" value="${attr(rec.WalkInPartyName)}"></div>
+            <div class="field"><label>${t('ঠিকানা','Address')}</label><input id="pv3_CashAddress" value="${attr(rec.WalkInPartyAddress)}"></div>
+            <div class="field"><label>${t('মোবাইল','Mobile')}</label><input id="pv3_CashMobile" value="${attr(rec.WalkInPartyMobile)}"></div>
+          </div>
 
-      <h4 style="margin:20px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('লাইন আইটেম যোগ করুন','Add Line Item')}</h4>
+          <h4 style="margin:20px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('লাইন আইটেম যোগ করুন','Add Line Item')}</h4>
 
-      <div class="field" style="display:flex;align-items:center;gap:8px;">
-        <input type="checkbox" id="pv3_GroupCheck" style="width:auto;">
-        <label style="margin:0;flex:1;">${t('গ্রুপ নাম','Group Name')}</label>
-        <select id="pv3_GroupSelect" disabled style="flex:2;display:none;"><option value="">—</option>${optsHtml(window.__pv3Groups, 'GroupID','GroupName','')}</select>
-      </div>
-      <div class="field" style="display:flex;align-items:center;gap:8px;">
-        <input type="checkbox" id="pv3_CatCheck" style="width:auto;">
-        <label style="margin:0;flex:1;">${t('ক্যাটাগরি','Category')}</label>
-        <select id="pv3_CatSelect" disabled style="flex:2;display:none;"><option value="">—</option>${optsHtml(window.__pv3Categories, 'CategoryID','CategoryName','')}</select>
-      </div>
-      <div class="field"><label>${t('আইটেম (পণ্য)','Item')}</label><select id="pv3_ItemID"><option value="">—</option></select></div>
-      <div class="field"><label>${t('ওয়ারহাউজ','Warehouse')}</label><select id="pv3_WarehouseID"><option value="">—</option>${optsHtml(window.__pv3Warehouses, 'WarehouseID','WarehouseName', rec.WarehouseID)}</select></div>
-      <div class="field"><label>${t('পরিমাণ','Quantity')}</label><input id="pv3_Qty" type="number" step="any"></div>
-      <div class="field"><label>${t('দর','Rate')}</label><input id="pv3_Rate" type="number" step="any"></div>
-      <div class="field"><label>${t('একক','Unit')}</label><input id="pv3_Unit" readonly style="background:var(--bg);"></div>
-      <div class="field" style="display:flex;align-items:end;gap:8px;">
-        <div style="flex:1;"><label>${t('মূল্য (৳)','Amount (৳)')}</label><input id="pv3_Amount" readonly style="background:var(--bg);font-weight:700;"></div>
-        <div style="text-align:center;">
-          <input type="checkbox" id="pv3_ConfirmPurchaseCheck" style="width:20px;height:20px;">
-          <div style="font-size:10px;color:var(--text-muted);">${t('ক্রয়ে যোগ','Add')}</div>
+          <div class="field" style="display:flex;align-items:center;gap:8px;">
+            <input type="checkbox" id="pv3_GroupCheck" style="width:auto;">
+            <label style="margin:0;flex:1;">${t('গ্রুপ নাম','Group Name')}</label>
+            <select id="pv3_GroupSelect" disabled style="flex:2;display:none;"><option value="">—</option>${optsHtml(window.__pv3Groups, 'GroupID','GroupName','')}</select>
+          </div>
+          <div class="field" style="display:flex;align-items:center;gap:8px;">
+            <input type="checkbox" id="pv3_CatCheck" style="width:auto;">
+            <label style="margin:0;flex:1;">${t('ক্যাটাগরি','Category')}</label>
+            <select id="pv3_CatSelect" disabled style="flex:2;display:none;"><option value="">—</option>${optsHtml(window.__pv3Categories, 'CategoryID','CategoryName','')}</select>
+          </div>
+          <div class="field"><label>${t('আইটেম (পণ্য)','Item')}</label><select id="pv3_ItemID"><option value="">—</option></select></div>
+          <div class="field"><label>${t('ওয়ারহাউজ','Warehouse')}</label><select id="pv3_WarehouseID"><option value="">—</option>${optsHtml(window.__pv3Warehouses, 'WarehouseID','WarehouseName', rec.WarehouseID)}</select></div>
+          <div class="field"><label>${t('পরিমাণ','Quantity')}</label><input id="pv3_Qty" type="number" step="any"></div>
+          <div class="field"><label>${t('দর','Rate')}</label><input id="pv3_Rate" type="number" step="any"></div>
+          <div class="field"><label>${t('একক','Unit')}</label><input id="pv3_Unit" readonly style="background:var(--bg);"></div>
+          <div class="field" style="display:flex;align-items:end;gap:8px;">
+            <div style="flex:1;"><label>${t('মূল্য (৳)','Amount (৳)')}</label><input id="pv3_Amount" readonly style="background:var(--bg);font-weight:700;"></div>
+            <div style="text-align:center;">
+              <input type="checkbox" id="pv3_ConfirmPurchaseCheck" style="width:20px;height:20px;">
+              <div style="font-size:10px;color:var(--text-muted);">${t('ক্রয়ে যোগ','Add')}</div>
+            </div>
+          </div>
+          <button type="button" class="btn btn-outline" style="width:auto;margin-top:4px;" id="pv3_AddReturnLineBtn">+ ${t('ক্রয় ফেরত লাইন','Purchase Return Line')}</button>
+        </div>
+
+        <div id="pv3_RightCol" style="margin-left:300px;">
+          <div style="display:flex;gap:10px;margin-bottom:14px;">
+            <div class="field" style="flex:1;margin:0;"><label>${t('পরিমাণ (স্টক)','Quantity (Stock)')}</label><input id="pv3_PreviewStockQty" readonly style="background:var(--bg);"></div>
+            <div class="field" style="flex:1;margin:0;"><label>${t('দর','Rate')}</label><input id="pv3_PreviewStockRate" readonly style="background:var(--bg);"></div>
+          </div>
+
+          <div style="display:flex;gap:8px;margin-bottom:10px;">
+            <div style="flex:2;"><label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">${t('ভাউঃ মোট ক্রয় — কেজি','Total Purchase — kg')}</label><input id="pv3_TotPurchaseKg" readonly style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);"></div>
+            <div style="flex:2;"><label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">${t('ভাউঃ মোট ক্রয় — পিস','Total Purchase — pcs')}</label><input id="pv3_TotPurchasePcs" readonly style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);"></div>
+            <div style="flex:1;"><label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">${t('মোট মূল্য','Total Amount')}</label><input id="pv3_TotPurchaseAmt" readonly style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);font-weight:700;"></div>
+          </div>
+
+          <div style="display:flex;gap:8px;margin-bottom:10px;">
+            <div style="flex:2;"><label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">${t('ভাউঃ মোট ক্রয় ফেরত — কেজি','Total Return — kg')}</label><input id="pv3_TotReturnKg" readonly style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);"></div>
+            <div style="flex:2;"><label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">${t('ভাউঃ মোট ক্রয় ফেরত — পিস','Total Return — pcs')}</label><input id="pv3_TotReturnPcs" readonly style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);"></div>
+            <div style="flex:1;"><label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">${t('মোট মূল্য','Total Amount')}</label><input id="pv3_TotReturnAmt" readonly style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);font-weight:700;"></div>
+          </div>
+
+          <div class="field"><label>${t('মোট টাকা (ক্রয় − ক্রয় ফেরত)','Net Amount (Purchase − Return)')}</label><input id="pv3_NetAmount" readonly style="background:var(--bg);font-weight:800;font-size:16px;"></div>
         </div>
       </div>
-      <button type="button" class="btn btn-outline" style="width:auto;margin-top:4px;" id="pv3_AddReturnLineBtn">+ ${t('ক্রয় ফেরত লাইন','Purchase Return Line')}</button>
     </div>
 
     <div id="pv3_TabPreviewPanel" style="display:none;">
-      <div style="display:flex;gap:10px;margin-bottom:14px;">
-        <div class="field" style="flex:1;margin:0;"><label>${t('পরিমাণ (স্টক)','Quantity (Stock)')}</label><input id="pv3_PreviewStockQty" readonly style="background:var(--bg);"></div>
-        <div class="field" style="flex:1;margin:0;"><label>${t('দর','Rate')}</label><input id="pv3_PreviewStockRate" readonly style="background:var(--bg);"></div>
-      </div>
-
-      <div style="display:flex;gap:8px;margin-bottom:10px;">
-        <div style="flex:2;"><label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">${t('ভাউঃ মোট ক্রয় — কেজি','Total Purchase — kg')}</label><input id="pv3_TotPurchaseKg" readonly style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);"></div>
-        <div style="flex:2;"><label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">${t('ভাউঃ মোট ক্রয় — পিস','Total Purchase — pcs')}</label><input id="pv3_TotPurchasePcs" readonly style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);"></div>
-        <div style="flex:1;"><label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">${t('মোট মূল্য','Total Amount')}</label><input id="pv3_TotPurchaseAmt" readonly style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);font-weight:700;"></div>
-      </div>
-
-      <div style="display:flex;gap:8px;margin-bottom:10px;">
-        <div style="flex:2;"><label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">${t('ভাউঃ মোট ক্রয় ফেরত — কেজি','Total Return — kg')}</label><input id="pv3_TotReturnKg" readonly style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);"></div>
-        <div style="flex:2;"><label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">${t('ভাউঃ মোট ক্রয় ফেরত — পিস','Total Return — pcs')}</label><input id="pv3_TotReturnPcs" readonly style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);"></div>
-        <div style="flex:1;"><label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">${t('মোট মূল্য','Total Amount')}</label><input id="pv3_TotReturnAmt" readonly style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);font-weight:700;"></div>
-      </div>
-
-      <div class="field"><label>${t('মোট টাকা (ক্রয় − ক্রয় ফেরত)','Net Amount (Purchase − Return)')}</label><input id="pv3_NetAmount" readonly style="background:var(--bg);font-weight:800;font-size:16px;"></div>
-
-      <div style="display:flex;gap:8px;margin:16px 0;">
+      <div style="display:flex;gap:8px;margin-bottom:16px;">
         <button type="button" class="btn btn-primary" style="width:auto;" id="pv3_LivePrintBtn">🖨️ ${t('প্রিন্ট','Print')}</button>
         <button type="button" class="btn btn-outline" style="width:auto;" id="pv3_LiveShareBtn">🔗 ${t('শেয়ার','Share')}</button>
       </div>
-
-      <div id="pv3_LivePreviewBody" style="border-top:1px solid var(--border);padding-top:14px;font-size:12.5px;"></div>
+      <div id="pv3_LivePreviewBody" style="font-size:12.5px;"></div>
     </div>
   `;
 
@@ -3931,7 +3938,6 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     }
   });
 
-  // ---- ট্যাব সুইচিং ----
   function showTab(tab) {
     const entryBtn = document.getElementById('pv3_TabEntryBtn'), previewBtn = document.getElementById('pv3_TabPreviewBtn');
     const entryPanel = document.getElementById('pv3_TabEntryPanel'), previewPanel = document.getElementById('pv3_TabPreviewPanel');
@@ -3943,7 +3949,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       entryPanel.style.display = 'none'; previewPanel.style.display = '';
       previewBtn.style.borderBottomColor = 'var(--amber)'; previewBtn.style.color = 'var(--text)';
       entryBtn.style.borderBottomColor = 'transparent'; entryBtn.style.color = 'var(--text-muted)';
-      renderPreviewTab();
+      renderFullPreview();
     }
   }
   document.getElementById('pv3_TabEntryBtn').addEventListener('click', function () { showTab('entry'); });
@@ -3952,6 +3958,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   function toggleCashSupplier() {
     const isCash = val('pv3_SupplierID') === 'SUP-CASH';
     document.getElementById('pv3_CashSupplierCard').style.display = isCash ? '' : 'none';
+    renderRightSummary();
   }
   document.getElementById('pv3_SupplierID').addEventListener('change', toggleCashSupplier);
   toggleCashSupplier();
@@ -3984,11 +3991,6 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   document.getElementById('pv3_CatSelect').addEventListener('change', refreshItemDropdown);
   refreshItemDropdown();
 
-  // বর্তমানে বাছাই করা আইটেমের স্টক পরিমাণ ও দর — মনে রাখা হয় যাতে
-  // প্রিভিউ ট্যাবে গেলে সর্বশেষ বাছাই করা আইটেমেরটাই দেখা যায়
-  window.__pv3LastStockQty = '';
-  window.__pv3LastStockRate = '';
-
   async function onItemOrWarehouseChange() {
     const itemId = val('pv3_ItemID');
     const warehouseId = val('pv3_WarehouseID');
@@ -4003,6 +4005,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       window.__pv3LastStockQty = '';
     }
     recalcAmount();
+    renderRightSummary();
   }
   document.getElementById('pv3_ItemID').addEventListener('change', onItemOrWarehouseChange);
   document.getElementById('pv3_WarehouseID').addEventListener('change', onItemOrWarehouseChange);
@@ -4047,6 +4050,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     window.__pv3PurchaseLines.push(line);
     resetLineEntry();
     this.checked = false;
+    renderRightSummary();
     showToast(t('ক্রয় লাইন যোগ হয়েছে ✅','Purchase line added ✅'), 'success');
   });
   document.getElementById('pv3_AddReturnLineBtn').addEventListener('click', function () {
@@ -4054,13 +4058,13 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     if (!line) return;
     window.__pv3ReturnLines.push(line);
     resetLineEntry();
+    renderRightSummary();
     showToast(t('ক্রয় ফেরত লাইন যোগ হয়েছে ✅','Purchase return line added ✅'), 'success');
   });
 
-  window.__pv3RemovePurchaseLine = function (i) { window.__pv3PurchaseLines.splice(i, 1); renderPreviewTab(); };
-  window.__pv3RemoveReturnLine = function (i) { window.__pv3ReturnLines.splice(i, 1); renderPreviewTab(); };
+  window.__pv3RemovePurchaseLine = function (i) { window.__pv3PurchaseLines.splice(i, 1); renderRightSummary(); renderFullPreview(); };
+  window.__pv3RemoveReturnLine = function (i) { window.__pv3ReturnLines.splice(i, 1); renderRightSummary(); renderFullPreview(); };
 
-  // "কেজি" ও "পিস" — এই দুই এককের যোগফল আলাদাভাবে বের করে (মিশ্র আইটেমের ভাউচারেও সঠিক থাকে)
   function kgPcsTotals(lines) {
     let kg = 0, pcs = 0;
     lines.forEach(function (l) {
@@ -4070,6 +4074,25 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       else if (unitName.indexOf('পিস') !== -1 || unitName.toLowerCase().indexOf('pc') !== -1) pcs += l.qty;
     });
     return { kg: kg, pcs: pcs };
+  }
+
+  function renderRightSummary() {
+    document.getElementById('pv3_PreviewStockQty').value = window.__pv3LastStockQty;
+    document.getElementById('pv3_PreviewStockRate').value = window.__pv3LastStockRate;
+
+    const purchTotals = kgPcsTotals(window.__pv3PurchaseLines);
+    const purchAmt = window.__pv3PurchaseLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
+    document.getElementById('pv3_TotPurchaseKg').value = purchTotals.kg + ' ' + t('কেজি','kg');
+    document.getElementById('pv3_TotPurchasePcs').value = purchTotals.pcs + ' ' + t('পিস','pcs');
+    document.getElementById('pv3_TotPurchaseAmt').value = purchAmt.toFixed(2);
+
+    const retTotals = kgPcsTotals(window.__pv3ReturnLines);
+    const retAmt = window.__pv3ReturnLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
+    document.getElementById('pv3_TotReturnKg').value = retTotals.kg + ' ' + t('কেজি','kg');
+    document.getElementById('pv3_TotReturnPcs').value = retTotals.pcs + ' ' + t('পিস','pcs');
+    document.getElementById('pv3_TotReturnAmt').value = retAmt.toFixed(2);
+
+    document.getElementById('pv3_NetAmount').value = '৳ ' + (purchAmt - retAmt).toFixed(2);
   }
 
   function miniLinesTable(lines, removeFnName) {
@@ -4087,30 +4110,15 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       <tbody>${rows}</tbody></table>`;
   }
 
-  function renderPreviewTab() {
-    document.getElementById('pv3_PreviewStockQty').value = window.__pv3LastStockQty;
-    document.getElementById('pv3_PreviewStockRate').value = window.__pv3LastStockRate;
-
-    const purchTotals = kgPcsTotals(window.__pv3PurchaseLines);
-    const purchAmt = window.__pv3PurchaseLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
-    document.getElementById('pv3_TotPurchaseKg').value = purchTotals.kg + ' ' + t('কেজি','kg');
-    document.getElementById('pv3_TotPurchasePcs').value = purchTotals.pcs + ' ' + t('পিস','pcs');
-    document.getElementById('pv3_TotPurchaseAmt').value = purchAmt.toFixed(2);
-
-    const retTotals = kgPcsTotals(window.__pv3ReturnLines);
-    const retAmt = window.__pv3ReturnLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
-    document.getElementById('pv3_TotReturnKg').value = retTotals.kg + ' ' + t('কেজি','kg');
-    document.getElementById('pv3_TotReturnPcs').value = retTotals.pcs + ' ' + t('পিস','pcs');
-    document.getElementById('pv3_TotReturnAmt').value = retAmt.toFixed(2);
-
-    document.getElementById('pv3_NetAmount').value = '৳ ' + (purchAmt - retAmt).toFixed(2);
-
+  function renderFullPreview() {
+    const wrap = document.getElementById('pv3_LivePreviewBody');
+    if (!wrap) return;
     const supplierId = val('pv3_SupplierID');
     const isCash = supplierId === 'SUP-CASH';
     const supplierRec = window.__pv3SupplierMap[supplierId];
     const supplierName = isCash ? ('নগদ' + (val('pv3_CashName') ? ' (' + val('pv3_CashName') + ')' : '')) : (supplierRec ? (supplierRec.CompanyName || supplierRec.Name) : '—');
 
-    document.getElementById('pv3_LivePreviewBody').innerHTML = `
+    wrap.innerHTML = `
       <div style="text-align:center;border-bottom:2px solid var(--ink-900);padding-bottom:8px;margin-bottom:10px;">
         <b style="font-family:'Oswald',sans-serif;font-size:15px;">জি মেটাল ওয়ার্কস</b>
         <div style="font-size:11px;color:var(--text-muted);">${t('ক্রয় ভাউচার','Purchase Voucher')}</div>
@@ -4185,6 +4193,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   document.getElementById('pv3_LivePrintBtn').addEventListener('click', function () { openLivePrintOrShare('print'); });
   document.getElementById('pv3_LiveShareBtn').addEventListener('click', function () { openLivePrintOrShare('share'); });
 
+  renderRightSummary();
   showTab('entry');
 }
 async function renderSalesVoucherPage(content, defaultType) {
