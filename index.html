@@ -3786,8 +3786,8 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   }
 
   const bodyHtml = `
-    <div style="display:grid;grid-template-columns:280px 1fr;gap:20px;align-items:start;">
-      <div id="pv3_LeftCol">
+    <div style="overflow:hidden;">
+      <div id="pv3_LeftCol" style="float:left;width:300px;padding-right:20px;box-sizing:border-box;">
         <div class="field"><label>${t('ইনভয়েস টাইপ','Invoice Type')}</label>
           <select id="pv3_Type" style="padding:6px 10px;">
             <option value="PurchaseInvoice" selected>${t('ক্রয় ভাউচার','Purchase Voucher')}</option>
@@ -3855,7 +3855,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
         <button type="button" class="btn btn-outline" style="width:auto;margin-top:4px;" id="pv3_AddReturnLineBtn">+ ${t('ক্রয় ফেরত লাইন','Purchase Return Line')}</button>
       </div>
 
-      <div id="pv3_RightCol">
+      <div id="pv3_RightCol" style="margin-left:300px;">
         <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;">
           <div style="background:var(--ink-900);color:var(--amber);padding:10px 14px;display:flex;justify-content:space-between;align-items:center;">
             <b style="font-size:13px;">${t('লাইভ ভাউচার প্রিভিউ','Live Voucher Preview')}</b>
