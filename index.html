@@ -3818,6 +3818,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
           <div class="field"><label>${t('সাপ্লায়ার নাম','Supplier Name')}</label>
             <select id="pv3_SupplierID"><option value="">—</option>${suppliers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.SupplierID)}" ${rec.SupplierID===r.SupplierID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select>
           </div>
+          <div class="field" id="pv3_SupplierBalanceField" style="display:none;"><label>${t('জের (বর্তমান বকেয়া)','Balance (Current Due)')}</label><input id="pv3_SupplierBalance" readonly style="background:var(--bg);font-weight:700;"></div>
           <div id="pv3_CashSupplierCard" style="display:none;padding:12px;border:1px dashed var(--border);border-radius:8px;background:var(--bg);margin-bottom:14px;">
             <div class="field"><label>${t('নগদ পার্টির আসল নাম','Actual Cash Party Name')}</label><input id="pv3_CashName" value="${attr(rec.WalkInPartyName)}"></div>
             <div class="field"><label>${t('ঠিকানা','Address')}</label><input id="pv3_CashAddress" value="${attr(rec.WalkInPartyAddress)}"></div>
@@ -3838,7 +3839,17 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
           </div>
           <div class="field"><label>${t('আইটেম (পণ্য)','Item')}</label><select id="pv3_ItemID"><option value="">—</option></select></div>
           <div class="field"><label>${t('ওয়ারহাউজ','Warehouse')}</label><select id="pv3_WarehouseID"><option value="">—</option>${optsHtml(window.__pv3Warehouses, 'WarehouseID','WarehouseName', rec.WarehouseID)}</select></div>
+          <div class="field" style="display:flex;align-items:center;gap:8px;">
+            <input type="checkbox" id="pv3_StockQtyCheck" style="width:auto;" checked>
+            <label style="margin:0;flex:1;">${t('পরিমাণ (স্টক)','Quantity (Stock)')}</label>
+            <input id="pv3_PreviewStockQty" readonly style="flex:2;background:var(--bg);">
+          </div>
           <div class="field"><label>${t('পরিমাণ','Quantity')}</label><input id="pv3_Qty" type="number" step="any"></div>
+          <div class="field" style="display:flex;align-items:center;gap:8px;">
+            <input type="checkbox" id="pv3_StockRateCheck" style="width:auto;" checked>
+            <label style="margin:0;flex:1;">${t('দর (স্টক)','Rate (Stock)')}</label>
+            <input id="pv3_PreviewStockRate" readonly style="flex:2;background:var(--bg);">
+          </div>
           <div class="field"><label>${t('দর','Rate')}</label><input id="pv3_Rate" type="number" step="any"></div>
           <div class="field"><label>${t('একক','Unit')}</label><input id="pv3_Unit" readonly style="background:var(--bg);"></div>
           <div class="field" style="display:flex;align-items:end;gap:8px;">
@@ -3852,11 +3863,6 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
         </div>
 
         <div id="pv3_RightCol" style="margin-left:300px;">
-          <div style="display:flex;gap:10px;margin-bottom:14px;">
-            <div class="field" style="flex:1;margin:0;"><label>${t('পরিমাণ (স্টক)','Quantity (Stock)')}</label><input id="pv3_PreviewStockQty" readonly style="background:var(--bg);"></div>
-            <div class="field" style="flex:1;margin:0;"><label>${t('দর','Rate')}</label><input id="pv3_PreviewStockRate" readonly style="background:var(--bg);"></div>
-          </div>
-
           <div style="display:flex;gap:8px;margin-bottom:10px;">
             <div style="flex:2;"><label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">${t('ভাউঃ মোট ক্রয় — কেজি','Total Purchase — kg')}</label><input id="pv3_TotPurchaseKg" readonly style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);"></div>
             <div style="flex:2;"><label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">${t('ভাউঃ মোট ক্রয় — পিস','Total Purchase — pcs')}</label><input id="pv3_TotPurchasePcs" readonly style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);"></div>
@@ -3955,10 +3961,23 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   document.getElementById('pv3_TabEntryBtn').addEventListener('click', function () { showTab('entry'); });
   document.getElementById('pv3_TabPreviewBtn').addEventListener('click', function () { showTab('preview'); });
 
-  function toggleCashSupplier() {
-    const isCash = val('pv3_SupplierID') === 'SUP-CASH';
+  async function toggleCashSupplier() {
+    const supplierId = val('pv3_SupplierID');
+    const isCash = supplierId === 'SUP-CASH';
     document.getElementById('pv3_CashSupplierCard').style.display = isCash ? '' : 'none';
     renderRightSummary();
+
+    const balField = document.getElementById('pv3_SupplierBalanceField');
+    const balInput = document.getElementById('pv3_SupplierBalance');
+    if (!supplierId || isCash) {
+      balField.style.display = 'none';
+      return;
+    }
+    balField.style.display = '';
+    balInput.value = t('লোড হচ্ছে...','Loading...');
+    const { data } = await supabaseClient.from('PartyLedger').select('Balance').eq('PartyType', 'Supplier').eq('PartyID', supplierId).order('id', { ascending: false }).limit(1);
+    const balance = (data && data[0]) ? Number(data[0].Balance) || 0 : 0;
+    balInput.value = formatAmountDrCr(balance, true);
   }
   document.getElementById('pv3_SupplierID').addEventListener('change', toggleCashSupplier);
   toggleCashSupplier();
@@ -4004,11 +4023,21 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     } else {
       window.__pv3LastStockQty = '';
     }
+    if (document.getElementById('pv3_StockQtyCheck').checked) document.getElementById('pv3_PreviewStockQty').value = window.__pv3LastStockQty;
+    if (document.getElementById('pv3_StockRateCheck').checked) document.getElementById('pv3_PreviewStockRate').value = window.__pv3LastStockRate;
     recalcAmount();
     renderRightSummary();
   }
   document.getElementById('pv3_ItemID').addEventListener('change', onItemOrWarehouseChange);
   document.getElementById('pv3_WarehouseID').addEventListener('change', onItemOrWarehouseChange);
+  document.getElementById('pv3_StockQtyCheck').addEventListener('change', function () {
+    document.getElementById('pv3_PreviewStockQty').style.display = this.checked ? '' : 'none';
+    if (this.checked) document.getElementById('pv3_PreviewStockQty').value = window.__pv3LastStockQty;
+  });
+  document.getElementById('pv3_StockRateCheck').addEventListener('change', function () {
+    document.getElementById('pv3_PreviewStockRate').style.display = this.checked ? '' : 'none';
+    if (this.checked) document.getElementById('pv3_PreviewStockRate').value = window.__pv3LastStockRate;
+  });
 
   function recalcAmount() {
     const qty = Number(val('pv3_Qty')) || 0;
