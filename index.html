@@ -393,6 +393,7 @@ const MODULES = [
     {key:'uom', bn:'একক (Unit)', en:'Unit Master'},{key:'categories', bn:'ক্যাটাগরি মাস্টার', en:'Category Master'},
     {key:'groups', bn:'গ্রুপ মাস্টার', en:'Group Master'},
     {key:'employees', bn:'কর্মচারী মাস্টার', en:'Employee Master'},
+    {key:'bankMaster', bn:'ব্যাংক মাস্টার', en:'Bank Master'},
   ]},
   {key:'purchase', bn:'ক্রয়', en:'Purchase', sub:[
     {key:'pr', bn:'ক্রয় অনুরোধ', en:'Purchase Requisition'},{key:'po', bn:'ক্রয় আদেশ', en:'Purchase Order'},
@@ -440,7 +441,7 @@ const MODULES = [
 
 // এখন পর্যন্ত যেসব পেজ সত্যিই কাজ করে (Phase 3 — Core মডিউল)
 const READY_PAGES = ['dashboard','companyProfile','userManagement','roles','activityLog',
-  'items','customers','suppliers','warehouses','uom','categories','employees','party','partyLedger','zones','groups','purchasers','salespersons',
+  'items','customers','suppliers','warehouses','uom','categories','employees','party','partyLedger','zones','groups','purchasers','salespersons','bankMaster',
   'pr','po','grn','pi','pret','pvoucherList',
   'stockOverview','goodsReceive','materialIssue','stockTransfer','stockAdjust','stockLedger',
   'so','dc','si','sr','custLedger',
@@ -1602,6 +1603,7 @@ const MASTER_CONFIGS = {
     ]
   }
 };
+MASTER_CONFIGS.bankMaster = MASTER_CONFIGS.bankCash; // মাস্টার মডিউল থেকেও একই ব্যাংক/ক্যাশ অ্যাকাউন্ট পেজ খোলার শর্টকাট
 
 async function renderMasterCrudPage(content, config) {
   const records = await api('list', { sheet: config.sheet });
@@ -3983,6 +3985,17 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       renderFullPreview();
     }
   }
+  function wireRevealCheckbox(checkId, fieldId) {
+    const check = document.getElementById(checkId), field = document.getElementById(fieldId);
+    function sync() {
+      field.disabled = !check.checked;
+      if (!check.checked) field.value = '';
+    }
+    check.addEventListener('change', sync);
+  }
+  wireRevealCheckbox('pv3_SNDateCheck', 'pv3_SupplierInvoiceDate');
+  wireRevealCheckbox('pv3_SNNoCheck', 'pv3_SupplierInvoiceNo');
+
   document.getElementById('pv3_TabEntryBtn').addEventListener('click', function () { showTab('entry'); });
   document.getElementById('pv3_TabPreviewBtn').addEventListener('click', function () { showTab('preview'); });
 
