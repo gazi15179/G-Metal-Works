@@ -3898,38 +3898,27 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       <table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:14px;">
         <tbody>
           <tr>
-            <td style="padding:6px 8px;border:1px solid var(--border);white-space:nowrap;background:var(--bg);">${t('নগদ প্রদানঃ','Cash Paid:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_CashPaidAmount" type="number" step="any" style="width:100%;" placeholder="৳"></td>
-            <td style="padding:6px 8px;border:1px solid var(--border);white-space:nowrap;background:var(--bg);">${t('বিবরণঃ','Description:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_CashPaidNote" style="width:100%;"></td>
-          </tr>
-          <tr>
-            <td style="padding:6px 8px;border:1px solid var(--border);white-space:nowrap;background:var(--bg);">${t('ব্যাংক প্রদানঃ','Bank Paid:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_BankPaidAmount" type="number" step="any" style="width:100%;" placeholder="৳"></td>
-            <td style="padding:6px 8px;border:1px solid var(--border);white-space:nowrap;background:var(--bg);">${t('সাপ্লায়ারের ব্যাংকঃ', "Supplier's Bank:")}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_SupplierBankName" readonly style="width:100%;background:var(--bg);"></td>
-          </tr>
-          <tr>
-            <td style="padding:6px 8px;border:1px solid var(--border);white-space:nowrap;background:var(--bg);">${t('অ্যাকাউন্ট নম্বরঃ','Account No:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_SupplierBankAccNo" readonly style="width:100%;background:var(--bg);"></td>
-            <td style="padding:6px 8px;border:1px solid var(--border);white-space:nowrap;background:var(--bg);">${t('বিবরণ/নোটঃ','Note:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_BankPaidNote" style="width:100%;"></td>
-          </tr>
-          <tr>
-            <td style="padding:6px 8px;border:1px solid var(--border);white-space:nowrap;background:var(--bg);">${t('প্রদানের ধরনঃ','Payment Method:')}</td>
-            <td colspan="3" style="padding:4px;border:1px solid var(--border);">
-              <select id="pv3_BankPayMethod" style="width:100%;">
-                <option value="CashToSupplierBank">${t('নগদ টু সাপ্লায়ার ব্যাংক','Cash to Supplier Bank')}</option>
-                <option value="OurBankToSupplierBank">${t('নিজের ব্যাংক টু সাপ্লায়ার ব্যাংক','Our Bank to Supplier Bank')}</option>
+            <td style="padding:4px;border:1px solid var(--border);">
+              <select id="pv3_PayTypeSelect" style="width:100%;">
+                <option value="Cash">${t('নগদ প্রদান','Cash Paid')}</option>
+                <option value="Bank">${t('ব্যাংক প্রদান','Bank Paid')}</option>
               </select>
             </td>
-          </tr>
-          <tr id="pv3_OurBankRow" style="display:none;">
-            <td style="padding:6px 8px;border:1px solid var(--border);white-space:nowrap;background:var(--bg);">${t('আমাদের ব্যাংকঃ','Our Bank:')}</td>
-            <td colspan="3" style="padding:4px;border:1px solid var(--border);"><select id="pv3_BankAccID" style="width:100%;"><option value="">—</option>${optsHtml(bankAccounts, 'BankAccID', 'AccountName', '')}</select></td>
+            <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_PayAmount" type="number" step="any" style="width:100%;" placeholder="৳"></td>
+            <td colspan="2" style="padding:4px 8px;border:1px solid var(--border);" id="pv3_PayExtraArea">
+              <input id="pv3_CashPaidNote" style="width:100%;" placeholder="${t('নোট (ঐচ্ছিক)','Note (optional)')}">
+              <div id="pv3_BankPaySummary" style="display:none;font-size:10.5px;color:var(--text-muted);cursor:pointer;">${t('টাকা লিখলে বিস্তারিত জিজ্ঞাসা করা হবে','Details will be asked once you enter an amount')}</div>
+            </td>
           </tr>
         </tbody>
       </table>
+      <input type="hidden" id="pv3_CashPaidAmount" value="">
+      <input type="hidden" id="pv3_BankPaidAmount" value="">
+      <input type="hidden" id="pv3_BankPayMethod" value="CashToSupplierBank">
+      <input type="hidden" id="pv3_BankAccID" value="">
+      <input type="hidden" id="pv3_BankPaidNote" value="">
+      <input type="hidden" id="pv3_SupplierBankName" value="">
+      <input type="hidden" id="pv3_SupplierBankAccNo" value="">
 
       <div style="display:flex;gap:8px;margin-bottom:10px;">
         <div style="flex:2;"><label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">${t('ভাউঃ মোট ক্রয় — কেজি','Total Purchase — kg')}</label><input id="pv3_TotPurchaseKg" readonly style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);"></div>
@@ -3990,6 +3979,9 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
           headerData.CashPaidAmount = Number(val('pv3_CashPaidAmount')) || 0;
           headerData.CashPaidNote = val('pv3_CashPaidNote') || null;
           headerData.BankPaidAmount = Number(val('pv3_BankPaidAmount')) || 0;
+          if (headerData.BankPaidAmount > 0 && !pv3BankPopupFilled) {
+            throw new Error(t('ব্যাংক প্রদানের বিবরণ (পপআপে) পূরণ করুন।','Fill in the bank payment details (in the popup).'));
+          }
           headerData.BankPaidNote = val('pv3_BankPaidNote') || null;
           const bankPayMethod = val('pv3_BankPayMethod');
           if (headerData.BankPaidAmount > 0 && bankPayMethod === 'OurBankToSupplierBank') {
@@ -4077,8 +4069,123 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     if (bankNameEl) bankNameEl.value = (supRec && supRec.BankName) ? supRec.BankName : t('তথ্য নেই','No info');
     if (bankAccNoEl) bankAccNoEl.value = (supRec && supRec.BankAccountNumber) ? supRec.BankAccountNumber : t('তথ্য নেই','No info');
   }
-  document.getElementById('pv3_BankPayMethod').addEventListener('change', function () {
-    document.getElementById('pv3_OurBankRow').style.display = this.value === 'OurBankToSupplierBank' ? '' : 'none';
+  function updateBankPaySummary() {
+    const summaryEl = document.getElementById('pv3_BankPaySummary');
+    const amt = Number(val('pv3_BankPaidAmount')) || 0;
+    if (!summaryEl) return;
+    if (amt <= 0) { summaryEl.textContent = t('টাকা লিখলে বিস্তারিত জিজ্ঞাসা করা হবে','Details will be asked once you enter an amount'); return; }
+    const method = val('pv3_BankPayMethod');
+    const methodLabel = method === 'OurBankToSupplierBank' ? t('নিজের ব্যাংক টু সাপ্লায়ার ব্যাংক','Our Bank to Supplier Bank') : t('নগদ টু সাপ্লায়ার ব্যাংক','Cash to Supplier Bank');
+    const bankAccId = val('pv3_BankAccID');
+    const bankAccLabel = bankAccId ? (bankAccounts.find(function (b) { return b.BankAccID === bankAccId; }) || {}).AccountName : '';
+    summaryEl.textContent = methodLabel + (bankAccLabel ? ' (' + bankAccLabel + ')' : '') + (val('pv3_BankPaidNote') ? ' — ' + val('pv3_BankPaidNote') : '');
+  }
+
+  let pv3BankPopupFilled = false;
+  function openBankPaymentPopup() {
+    const amt = Number(val('pv3_BankPaidAmount')) || 0;
+    if (amt <= 0) return;
+
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+    const supBankName = val('pv3_SupplierBankName') || t('তথ্য নেই','No info');
+    const supBankAcc = val('pv3_SupplierBankAccNo') || t('তথ্য নেই','No info');
+    const curMethod = val('pv3_BankPayMethod') || 'CashToSupplierBank';
+    const curBankAcc = val('pv3_BankAccID') || '';
+    const curNote = val('pv3_BankPaidNote') || '';
+
+    overlay.innerHTML = `
+      <div style="background:var(--surface);border-radius:12px;max-width:380px;width:100%;padding:20px;max-height:90vh;overflow-y:auto;">
+        <h3 style="margin:0 0 14px;font-size:15px;">${t('ব্যাংক প্রদানের বিবরণ','Bank Payment Details')}</h3>
+        <div class="field"><label>${t('পরিমাণ','Amount')}</label><input value="৳ ${amt}" readonly style="background:var(--bg);"></div>
+        <div class="field"><label>${t('প্রদানের ধরন','Payment Method')} *</label>
+          <select id="pv3_PopMethod" data-order="0">
+            <option value="CashToSupplierBank" ${curMethod==='CashToSupplierBank'?'selected':''}>${t('নগদ টু সাপ্লায়ার ব্যাংক','Cash to Supplier Bank')}</option>
+            <option value="OurBankToSupplierBank" ${curMethod==='OurBankToSupplierBank'?'selected':''}>${t('নিজের ব্যাংক টু সাপ্লায়ার ব্যাংক','Our Bank to Supplier Bank')}</option>
+          </select>
+        </div>
+        <div class="field" id="pv3_PopOurBankField" style="display:none;"><label>${t('আমাদের ব্যাংক','Our Bank')} *</label>
+          <select id="pv3_PopBankAcc" data-order="1"><option value="">—</option>${optsHtml(bankAccounts, 'BankAccID', 'AccountName', curBankAcc)}</select>
+        </div>
+        <div class="field"><label>${t('সাপ্লায়ারের ব্যাংক','Supplier\u2019s Bank')}</label><input value="${attr(supBankName)}" readonly style="background:var(--bg);"></div>
+        <div class="field"><label>${t('অ্যাকাউন্ট নম্বর','Account No')}</label><input value="${attr(supBankAcc)}" readonly style="background:var(--bg);"></div>
+        <div class="field"><label>${t('বিবরণ/নোট','Note')} *</label><input id="pv3_PopNote" data-order="2" value="${attr(curNote)}" placeholder="${t('যেমন: চালানের বিপরীতে অগ্রিম পরিশোধ','e.g. Advance against this invoice')}"></div>
+        <div style="display:flex;gap:8px;margin-top:16px;">
+          <button type="button" id="pv3_PopCancel" class="btn" style="flex:1;">${t('বাতিল','Cancel')}</button>
+          <button type="button" id="pv3_PopConfirm" data-order="3" class="btn btn-primary" style="flex:1;">${t('নিশ্চিত করুন','Confirm')}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    function togglePopOurBank() {
+      document.getElementById('pv3_PopOurBankField').style.display = document.getElementById('pv3_PopMethod').value === 'OurBankToSupplierBank' ? '' : 'none';
+    }
+    document.getElementById('pv3_PopMethod').addEventListener('change', togglePopOurBank);
+    togglePopOurBank();
+
+    // ডেস্কটপে কীবোর্ড দিয়ে দ্রুত চলাচল: Enter = পরের ঘর, Escape = আগের ঘর
+    function focusableFields() {
+      return Array.from(overlay.querySelectorAll('[data-order]')).filter(function (el) { return el.offsetParent !== null; });
+    }
+    overlay.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' && e.key !== 'Escape') return;
+      const fields = focusableFields();
+      const curIdx = fields.indexOf(document.activeElement);
+      if (curIdx === -1) return;
+      e.preventDefault();
+      if (e.key === 'Enter') {
+        const next = fields[curIdx + 1];
+        if (next) { next.focus(); } else { document.getElementById('pv3_PopConfirm').click(); }
+      } else {
+        const prev = fields[curIdx - 1];
+        if (prev) prev.focus(); else document.getElementById('pv3_PopCancel').click();
+      }
+    });
+
+    document.getElementById('pv3_PopCancel').addEventListener('click', function () {
+      document.getElementById('pv3_PayAmount').value = '';
+      document.getElementById('pv3_BankPaidAmount').value = '';
+      pv3BankPopupFilled = false;
+      updateBankPaySummary();
+      overlay.remove();
+    });
+    document.getElementById('pv3_PopConfirm').addEventListener('click', function () {
+      const method = val('pv3_PopMethod');
+      const note = document.getElementById('pv3_PopNote').value.trim();
+      const ourBank = val('pv3_PopBankAcc');
+      if (!note) { showToast(t('বিবরণ/নোট লিখুন।','Enter a note.'), 'error'); return; }
+      if (method === 'OurBankToSupplierBank' && !ourBank) { showToast(t('আমাদের ব্যাংক বাছাই করুন।','Select our bank.'), 'error'); return; }
+      document.getElementById('pv3_BankPayMethod').value = method;
+      document.getElementById('pv3_BankAccID').value = method === 'OurBankToSupplierBank' ? ourBank : '';
+      document.getElementById('pv3_BankPaidNote').value = note;
+      pv3BankPopupFilled = true;
+      updateBankPaySummary();
+      overlay.remove();
+    });
+    document.getElementById('pv3_PopMethod').focus();
+  }
+
+  function togglePayType() {
+    const isCash = val('pv3_PayTypeSelect') === 'Cash';
+    document.getElementById('pv3_CashPaidNote').style.display = isCash ? '' : 'none';
+    document.getElementById('pv3_BankPaySummary').style.display = isCash ? 'none' : '';
+    document.getElementById('pv3_PayAmount').value = isCash ? val('pv3_CashPaidAmount') : val('pv3_BankPaidAmount');
+  }
+  document.getElementById('pv3_PayTypeSelect').addEventListener('change', togglePayType);
+  togglePayType();
+
+  document.getElementById('pv3_PayAmount').addEventListener('change', function () {
+    const isCash = val('pv3_PayTypeSelect') === 'Cash';
+    if (isCash) {
+      document.getElementById('pv3_CashPaidAmount').value = this.value;
+    } else {
+      document.getElementById('pv3_BankPaidAmount').value = this.value;
+      if (Number(this.value) > 0 && !pv3BankPopupFilled) openBankPaymentPopup();
+      if (!(Number(this.value) > 0)) { pv3BankPopupFilled = false; updateBankPaySummary(); }
+    }
+  });
+  document.getElementById('pv3_BankPaySummary').addEventListener('click', function () {
+    if (Number(val('pv3_BankPaidAmount')) > 0) openBankPaymentPopup();
   });
 
   document.getElementById('pv3_SupplierID').addEventListener('change', toggleCashSupplier);
