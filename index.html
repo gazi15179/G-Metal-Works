@@ -707,6 +707,18 @@ async function runPostingLogic(docType, header, docId) {
       await postBankCashBookEntry('BC-CASH', header.InvoiceDate || today, 'SalesInvoice', docId, Number(header.TotalAmount) || 0, 0);
     } else {
       await postPartyLedgerEntry('Customer', header.CustomerID, header.InvoiceDate || today, 'SalesInvoice', docId, Number(header.TotalAmount) || 0, 0);
+      // ভাউচারের সাথে সাথেই যদি আংশিক/পূর্ণ নগদ বা ব্যাংকে গ্রহণ করা হয়ে থাকে,
+      // সেটা এখনই গ্রাহকের পাওনা থেকে বাদ যাবে
+      const cashReceived = Number(header.CashReceivedAmount) || 0;
+      const bankReceived = Number(header.BankReceivedAmount) || 0;
+      if (cashReceived > 0) {
+        await postPartyLedgerEntry('Customer', header.CustomerID, header.InvoiceDate || today, 'SalesInvoice-Receipt', docId, 0, cashReceived);
+        await postBankCashBookEntry('BC-CASH', header.InvoiceDate || today, 'SalesInvoice-Receipt', docId, cashReceived, 0);
+      }
+      if (bankReceived > 0 && header.BankAccIDForReceipt) {
+        await postPartyLedgerEntry('Customer', header.CustomerID, header.InvoiceDate || today, 'SalesInvoice-Receipt', docId, 0, bankReceived);
+        await postBankCashBookEntry(header.BankAccIDForReceipt, header.InvoiceDate || today, 'SalesInvoice-Receipt', docId, bankReceived, 0);
+      }
     }
     return;
   }
@@ -799,7 +811,7 @@ async function reversePostedDocumentStock(docType, docId) {
 
   // এই ডকুমেন্টের কারণে পার্টি লেজারে যা যা এন্ট্রি পড়েছিল (মূল এন্ট্রি + সাথে সাথে করা
   // পেমেন্ট এন্ট্রিও), সেগুলো সবই উল্টে দেওয়া হচ্ছে
-  const refModules = [docType, docType + '-Payment'];
+  const refModules = [docType, docType + '-Payment', docType + '-Receipt'];
   for (const refMod of refModules) {
     const { data: partyEntries } = await supabaseClient.from('PartyLedger').select('*').eq('RefModule', refMod).eq('RefID', docId);
     for (const e of (partyEntries || [])) {
@@ -4583,22 +4595,23 @@ async function deletePostedSalesVoucher(docType, docId) {
 }
 
 async function openSalesVoucherForm(defaultType, existingId) {
-  const svData = await cachedListMultiple(['Customers', 'Items', 'SalesInvoice', 'DeliveryChallan', 'ItemGroups', 'Categories', 'UOM', 'Warehouses']);
-  const customers = svData.Customers, items = svData.Items, invoicesForRef = svData.SalesInvoice,
-        deliveryChallans = svData.DeliveryChallan,
-        groups = svData.ItemGroups, categories = svData.Categories, units = svData.UOM, warehouses = svData.Warehouses;
-  window.__svItems = items.filter(function (i) { return i.Status !== 'Deleted'; });
-  window.__svItemMap = {}; items.forEach(function (i) { window.__svItemMap[i.ItemID] = i; });
-  window.__svGroups = groups.filter(function (g) { return g.Status !== 'Deleted'; });
-  window.__svCategories = categories.filter(function (c) { return c.Status !== 'Deleted'; });
-  window.__svUnitMap = {}; units.forEach(function (u) { window.__svUnitMap[u.UOMID] = u; });
+  const svData = await cachedListMultiple(['Customers', 'Items', 'ItemGroups', 'Categories', 'UOM', 'Warehouses', 'BankCashAccounts']);
+  const customers = svData.Customers, items = svData.Items,
+        groups = svData.ItemGroups, categories = svData.Categories, units = svData.UOM, warehouses = svData.Warehouses,
+        bankAccounts = (svData.BankCashAccounts || []).filter(function (b) { return b.Status !== 'Deleted'; });
+  window.__sv3ItemMap = {}; items.forEach(function (i) { window.__sv3ItemMap[i.ItemID] = i; });
+  window.__sv3Items = items.filter(function (i) { return i.Status !== 'Deleted'; });
+  window.__sv3Groups = groups.filter(function (g) { return g.Status !== 'Deleted'; });
+  window.__sv3Categories = categories.filter(function (c) { return c.Status !== 'Deleted'; });
+  window.__sv3UnitMap = {}; units.forEach(function (u) { window.__sv3UnitMap[u.UOMID] = u; });
+  window.__sv3Warehouses = warehouses.filter(function (w) { return w.Status !== 'Deleted'; });
+  window.__sv3CustomerMap = {}; customers.forEach(function (c) { window.__sv3CustomerMap[c.CustomerID] = c; });
 
   const isEdit = !!existingId;
-  let existingHeader = null, existingLines = [];
-  let type = defaultType || 'SalesInvoice';
+  let existingHeader = null, existingLines = [], existingDocType = defaultType || 'SalesInvoice';
 
   if (isEdit) {
-    const config = type === 'SalesReturn'
+    const config = existingDocType === 'SalesReturn'
       ? { headerSheet:'SalesReturn', idField:'SRID', linesSheet:'SR_Lines', lineIdField:'SRID', idValue: existingId }
       : { headerSheet:'SalesInvoice', idField:'SIID', linesSheet:'SI_Lines', lineIdField:'SIID', idValue: existingId };
     let doc;
@@ -4616,86 +4629,215 @@ async function openSalesVoucherForm(defaultType, existingId) {
     }
   }
 
-  window.__svLineRows = isEdit
-    ? existingLines.map(function (l) { return { itemId: l.ItemID, qty: l.Quantity, rate: l.Rate }; })
-    : [{}];
+  const rec = existingHeader || {};
 
-  function opts(list, idF, labelF, selected) {
-    return list.filter(function (r) { return r.Status !== 'Deleted'; })
-      .map(function (r) { return `<option value="${attr(r[idF])}" ${selected===r[idF]?'selected':''}>${escapeHtml(r[labelF])}</option>`; }).join('');
+  window.__sv3SaleLines = (isEdit && existingDocType === 'SalesInvoice')
+    ? existingLines.map(function (l) {
+        const amt = Math.round((Number(l.Quantity)||0) * (Number(l.Rate)||0));
+        const commAmt = Number(l.CommissionAmount) || 0;
+        return { itemId: l.ItemID, warehouseId: rec.WarehouseID, qty: Number(l.Quantity)||0, rate: Number(l.Rate)||0, amount: amt, commRate: Number(l.CommissionRate)||0, commAmount: commAmt, netAmount: l.NetAmount !== null && l.NetAmount !== undefined ? Number(l.NetAmount) : (amt - commAmt) };
+      })
+    : [];
+  window.__sv3ReturnLines = (isEdit && existingDocType === 'SalesReturn')
+    ? existingLines.map(function (l) {
+        const amt = Math.round((Number(l.Quantity)||0) * (Number(l.Rate)||0));
+        const commAmt = Number(l.CommissionAmount) || 0;
+        return { itemId: l.ItemID, warehouseId: rec.WarehouseID, qty: Number(l.Quantity)||0, rate: Number(l.Rate)||0, amount: amt, commRate: Number(l.CommissionRate)||0, commAmount: commAmt, netAmount: l.NetAmount !== null && l.NetAmount !== undefined ? Number(l.NetAmount) : (amt - commAmt) };
+      })
+    : [];
+  window.__sv3LastStockQty = '';
+  window.__sv3LastStockRate = '';
+
+  function optsHtml(list, idF, labelF, selected) {
+    return list.map(function (r) { return `<option value="${attr(r[idF])}" ${selected===r[idF]?'selected':''}>${escapeHtml(r[labelF])}</option>`; }).join('');
   }
 
-  const rec = existingHeader || {};
   const bodyHtml = `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
-      <div class="field"><label>${t('ইনভয়েস টাইপ','Invoice Type')}</label>
-        <select id="sv_Type" ${isEdit?'disabled':''}>
-          <option value="SalesInvoice" ${type!=='SalesReturn'?'selected':''}>${t('বিক্রয় ভাউচার','Sales Voucher')}</option>
-          <option value="SalesReturn" ${type==='SalesReturn'?'selected':''}>${t('বিক্রয় ফেরত ভাউচার','Sales Return Voucher')}</option>
-        </select>
-      </div>
-      <div class="field"><label>${t('তারিখ','Date')}</label><input type="date" id="sv_Date" value="${attr(rec.InvoiceDate || rec.Date) || new Date().toISOString().slice(0,10)}"></div>
-      <div class="field"><label>${t('ভাউচার নম্বর','Voucher No')}</label><input id="sv_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো তৈরি হবে','Will be auto-generated')}" readonly style="background:var(--bg);"></div>
-      <div class="field" id="sv_SIField" style="display:none;"><label>${t('বিক্রয় চালান রেফারেন্স','Sales Invoice Reference')}</label><select id="sv_SIID"><option value="">—</option>${opts(invoicesForRef, 'SIID', 'SIID', rec.SIID)}</select></div>
-      <div class="field" id="sv_DCField"><label>${t('ডেলিভারি চালান রেফারেন্স (ঐচ্ছিক)','Delivery Challan Reference (optional)')}</label><select id="sv_DCID"><option value="">—</option>${opts(deliveryChallans, 'DCID', 'DCID', rec.DCID)}</select></div>
-      <div class="field"><label>${t('গুদাম','Warehouse')}</label><select id="sv_WarehouseID"><option value="">—</option>${opts(warehouses, 'WarehouseID', 'WarehouseName', rec.WarehouseID)}</select></div>
-      <div class="field"><label>${t('গ্রাহক নাম','Customer Name')}</label><select id="sv_CustomerID"><option value="">—</option>${customers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.CustomerID)}" ${rec.CustomerID===r.CustomerID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select></div>
+    <div style="display:flex;border-bottom:2px solid var(--border);margin-bottom:16px;">
+      <button type="button" id="sv3_TabEntryBtn" style="flex:1;padding:10px;border:none;background:none;cursor:pointer;font-weight:700;border-bottom:3px solid var(--amber);color:var(--text);">${t('বিক্রয় ভাউচার','Sales Voucher')}</button>
+      <button type="button" id="sv3_TabPreviewBtn" style="flex:1;padding:10px;border:none;background:none;cursor:pointer;font-weight:700;border-bottom:3px solid transparent;color:var(--text-muted);">${t('ভাউচার তালিকা','Voucher List')}</button>
     </div>
-    <div id="sv_CashCustomerCard" style="display:none;padding:12px;border:1px dashed var(--border);border-radius:8px;background:var(--bg);margin-bottom:14px;">
-      <div class="field"><label>${t('নগদ পার্টির আসল নাম','Actual Cash Party Name')}</label><input id="sv_CashName" value="${attr(rec.WalkInPartyName)}"></div>
-      <div class="field"><label>${t('ঠিকানা','Address')}</label><input id="sv_CashAddress" value="${attr(rec.WalkInPartyAddress)}"></div>
-      <div class="field"><label>${t('মোবাইল','Mobile')}</label><input id="sv_CashMobile" value="${attr(rec.WalkInPartyMobile)}"></div>
-    </div>
-    <div id="sv_ReasonField" style="display:none;margin-top:14px;"><div class="field"><label>${t('কারণ','Reason')}</label><input id="sv_Reason" value="${attr(rec.Reason)}"></div></div>
 
-    <h4 style="margin:20px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('লাইন আইটেম','Line Items')}</h4>
-    <div id="sv_LinesWrap"></div>
-    <button type="button" class="btn" style="width:auto;margin-top:8px;" id="sv_AddLineBtn">${t('+ লাইন যোগ করুন','+ Add Line')}</button>`;
+    <div id="sv3_TabEntryPanel">
+      <style>
+        .sv3-tbl input, .sv3-tbl select { width:100%; box-sizing:border-box; padding:4px 5px; font-size:11px; border:1px solid var(--border); border-radius:5px; background:var(--surface); color:var(--text); }
+        .sv3-tbl input:disabled, .sv3-tbl input[readonly] { background:var(--bg); color:var(--text-muted); }
+        .sv3-tbl td { vertical-align:middle; overflow:hidden; text-overflow:ellipsis; }
+      </style>
+      <table class="sv3-tbl" style="width:100%;table-layout:fixed;border-collapse:collapse;font-size:11px;margin-bottom:14px;">
+        <colgroup><col style="width:19%;"><col style="width:31%;"><col style="width:19%;"><col style="width:31%;"></colgroup>
+        <thead>
+          <tr>
+            <th colspan="4" style="background:var(--ink-900);color:var(--amber);padding:8px;text-align:center;border:1px solid var(--border);font-size:13px;letter-spacing:.02em;">${t('বিক্রয় ভাউচার','Sales Voucher')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('ভাউঃ তারিখঃ','Vou. Date:')}</td>
+            <td style="padding:4px;border:1px solid var(--border);"><input type="date" id="sv3_Date" value="${attr(rec.InvoiceDate || rec.Date) || new Date().toISOString().slice(0,10)}" style="width:100%;"></td>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('গ্রাহক নামঃ','Customer:')}</td>
+            <td style="padding:4px;border:1px solid var(--border);"><select id="sv3_CustomerID" style="width:100%;"><option value="">—</option>${customers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.CustomerID)}" ${rec.CustomerID===r.CustomerID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select></td>
+          </tr>
+          <tr>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('ভাউঃ নম্বরঃ','Vou. No:')}</td>
+            <td style="padding:4px;border:1px solid var(--border);"><input id="sv3_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো তৈরি হবে','Auto')}" readonly style="width:100%;background:var(--bg);"></td>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('গ্রাহক হিসাবঃ','Cust. Balance:')}</td>
+            <td style="padding:4px;border:1px solid var(--border);"><input id="sv3_CustomerBalance" readonly style="width:100%;background:var(--bg);font-weight:700;"></td>
+          </tr>
+          <tr>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('আইটেম(পণ্য)ঃ','Item:')}</td>
+            <td style="padding:4px;border:1px solid var(--border);"><select id="sv3_ItemID" style="width:100%;"><option value="">—</option></select></td>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;"><input type="checkbox" id="sv3_GroupCheck" style="width:auto;vertical-align:middle;"> ${t('গ্রুপ নামঃ','Group:')}</td>
+            <td style="padding:4px;border:1px solid var(--border);"><select id="sv3_GroupSelect" disabled style="width:100%;display:none;"><option value="">—</option>${optsHtml(window.__sv3Groups, 'GroupID','GroupName','')}</select></td>
+          </tr>
+          <tr>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('ওয়ারহাউজঃ','Warehouse:')}</td>
+            <td style="padding:4px;border:1px solid var(--border);"><select id="sv3_WarehouseID" style="width:100%;"><option value="">—</option>${optsHtml(window.__sv3Warehouses, 'WarehouseID','WarehouseName', rec.WarehouseID)}</select></td>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;"><input type="checkbox" id="sv3_CatCheck" style="width:auto;vertical-align:middle;"> ${t('ক্যাটাগরিঃ','Category:')}</td>
+            <td style="padding:4px;border:1px solid var(--border);"><select id="sv3_CatSelect" disabled style="width:100%;display:none;"><option value="">—</option>${optsHtml(window.__sv3Categories, 'CategoryID','CategoryName','')}</select></td>
+          </tr>
+          <tr>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('পরিমাণঃ','Quantity:')}</td>
+            <td style="padding:4px;border:1px solid var(--border);"><input id="sv3_Qty" type="number" step="any" style="width:100%;"></td>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('স্টক পরিমাণঃ','Stock Qty:')}</td>
+            <td style="padding:4px;border:1px solid var(--border);"><input id="sv3_PreviewStockQty" readonly style="width:100%;background:var(--bg);"></td>
+          </tr>
+          <tr>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('দরঃ','Rate:')}</td>
+            <td style="padding:4px;border:1px solid var(--border);"><input id="sv3_Rate" type="number" step="any" style="width:100%;"></td>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('স্টক দরঃ','Stock Rate:')}</td>
+            <td style="padding:4px;border:1px solid var(--border);"><input id="sv3_PreviewStockRate" readonly style="width:100%;background:var(--bg);"></td>
+          </tr>
+          <tr>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('এককঃ','Unit:')}</td>
+            <td style="padding:4px;border:1px solid var(--border);"><input id="sv3_Unit" readonly style="width:100%;background:var(--bg);"></td>
+            <td colspan="2" style="background:var(--ink-900);padding:6px 10px;border:1px solid var(--border);text-align:center;">
+              <label style="color:var(--amber);cursor:pointer;font-size:11px;"><input type="checkbox" id="sv3_ConfirmSaleCheck" style="width:auto;vertical-align:middle;"> ${t('সেভ + বিক্রয় লাইন যোগ','Save + Add Sale Line')}</label>
+            </td>
+          </tr>
+          <tr>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('মূল্যঃ','Amount:')}</td>
+            <td style="padding:4px;border:1px solid var(--border);"><input id="sv3_Amount" readonly style="width:100%;background:var(--bg);font-weight:700;"></td>
+            <td colspan="2" style="background:var(--ink-900);padding:6px 10px;border:1px solid var(--border);text-align:center;">
+              <button type="button" id="sv3_AddReturnLineBtn" style="width:100%;background:none;border:none;color:var(--amber);font-weight:700;cursor:pointer;padding:4px;font-size:11px;">+ ${t('বিক্রয় ফেরত লাইন যোগ','Add Sale Return Line')}</button>
+            </td>
+          </tr>
+          <tr>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;"><input type="checkbox" id="sv3_CommCheck" style="width:auto;vertical-align:middle;"> ${t('কমিঃ (%)ঃ','Comm. (%):')}</td>
+            <td style="padding:4px;border:1px solid var(--border);"><input id="sv3_CommRate" type="number" step="any" style="width:100%;" placeholder="0" disabled></td>
+            <td colspan="2" style="padding:4px 8px;border:1px solid var(--border);font-size:10.5px;color:var(--text-muted);">${t('টিক দিলে তবেই এই আইটেমে কমিশন হিসাব হবে','Only checked lines get commission applied')}</td>
+          </tr>
+          <tr id="sv3_CommResultRow" style="display:none;">
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('(-)কমিঃঃ','(-) Comm.:')}</td>
+            <td style="padding:4px;border:1px solid var(--border);"><input id="sv3_CommAmount" readonly style="width:100%;background:var(--bg);"></td>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('নিট মূল্যঃ','Net Amount:')}</td>
+            <td style="padding:4px;border:1px solid var(--border);"><input id="sv3_NetLineAmount" readonly style="width:100%;background:var(--bg);font-weight:700;"></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div id="sv3_CashCustomerCard" style="display:none;padding:12px;border:1px dashed var(--border);border-radius:8px;background:var(--bg);margin-bottom:14px;">
+        <div class="field"><label>${t('নগদ পার্টির আসল নাম','Actual Cash Party Name')}</label><input id="sv3_CashName" value="${attr(rec.WalkInPartyName)}"></div>
+        <div class="field"><label>${t('ঠিকানা','Address')}</label><input id="sv3_CashAddress" value="${attr(rec.WalkInPartyAddress)}"></div>
+        <div class="field"><label>${t('মোবাইল','Mobile')}</label><input id="sv3_CashMobile" value="${attr(rec.WalkInPartyMobile)}"></div>
+      </div>
+
+      <h4 style="margin:16px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('নগদ ও ব্যাংক হিসাব','Cash & Bank Account')}</h4>
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:14px;">
+        <tbody>
+          <tr>
+            <td style="padding:4px;border:1px solid var(--border);">
+              <select id="sv3_RecTypeSelect" style="width:100%;">
+                <option value="Cash">${t('নগদ গ্রহণ','Cash Received')}</option>
+                <option value="Bank">${t('ব্যাংকে গ্রহণ','Bank Received')}</option>
+              </select>
+            </td>
+            <td style="padding:4px;border:1px solid var(--border);"><input id="sv3_RecAmount" type="number" step="any" style="width:100%;" placeholder="৳"></td>
+            <td colspan="2" style="padding:4px 8px;border:1px solid var(--border);" id="sv3_RecExtraArea">
+              <input id="sv3_CashReceivedNote" style="width:100%;" placeholder="${t('নোট (ঐচ্ছিক)','Note (optional)')}">
+              <div id="sv3_BankRecSummary" style="display:none;font-size:10.5px;color:var(--text-muted);cursor:pointer;">${t('টাকা লিখলে বিস্তারিত জিজ্ঞাসা করা হবে','Details will be asked once you enter an amount')}</div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <input type="hidden" id="sv3_CashReceivedAmount" value="">
+      <input type="hidden" id="sv3_BankReceivedAmount" value="">
+      <input type="hidden" id="sv3_BankAccID" value="">
+      <input type="hidden" id="sv3_BankReceivedNote" value="">
+      <input type="hidden" id="sv3_CustomerBankName" value="">
+      <input type="hidden" id="sv3_CustomerBankAccNo" value="">
+    </div>
+
+    <div id="sv3_TabPreviewPanel" style="display:none;">
+      <h4 style="margin:0 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;">${t('ভাউচার তালিকা','Voucher List')}</h4>
+      <div id="sv3_VoucherListWrap" style="margin-bottom:20px;"><div class="empty-state">${t('লোড হচ্ছে...','Loading...')}</div></div>
+
+      <h4 style="margin:16px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('বর্তমান খসড়ার প্রিভিউ','Current Draft Preview')}</h4>
+      <div style="display:flex;gap:8px;margin-bottom:16px;">
+        <button type="button" class="btn btn-outline" style="width:auto;" id="sv3_LivePageSetupBtn">📄 ${t('পেজ সেটাপ','Page Setup')}</button>
+        <button type="button" class="btn btn-primary" style="width:auto;" id="sv3_LivePrintBtn">🖨️ ${t('প্রিন্ট','Print')}</button>
+        <button type="button" class="btn btn-outline" style="width:auto;" id="sv3_LiveShareBtn">🔗 ${t('শেয়ার','Share')}</button>
+      </div>
+      <div id="sv3_LivePreviewBody" style="font-size:12.5px;"></div>
+    </div>
+  `;
 
   openModal({
     title: (isEdit ? t('সম্পাদনা — ','Edit — ') : t('নতুন — ','New — ')) + t('বিক্রয় ভাউচার','Sales Voucher'),
     bodyHtml: bodyHtml,
     wide: true,
     onSave: async function () {
-      const currentType = val('sv_Type');
-      const customerId = val('sv_CustomerID');
-      if (!customerId) throw new Error(t('গ্রাহক বাছাই করা আবশ্যক।','Customer is required.'));
+      const customerId = val('sv3_CustomerID');
+      if (!customerId) throw new Error(t('গ্রাহক তথ্য আবশ্যক।','Customer information is required.'));
 
-      const lines = window.__svLineRows.map(function (_, idx) {
-        const itemId = val('sv_ln_' + idx + '_item');
-        const qty = Number(val('sv_ln_' + idx + '_qty')) || 0;
-        const rate = Number(val('sv_ln_' + idx + '_rate')) || 0;
-        return { ItemID: itemId, Quantity: qty, Rate: rate, Amount: qty * rate };
-      }).filter(function (l) { return l.ItemID && l.Quantity > 0; });
-      if (lines.length === 0) throw new Error(t('অন্তত একটা লাইন আইটেম যোগ করুন।','Add at least one line item.'));
+      const hasSale = window.__sv3SaleLines.length > 0;
+      const hasReturn = window.__sv3ReturnLines.length > 0;
+      if (!hasSale && !hasReturn) throw new Error(t('অন্তত একটা বিক্রয় বা ফেরত লাইন যোগ করুন।','Add at least one sale or return line.'));
 
-      const warehouseId = val('sv_WarehouseID');
-      if (!warehouseId) throw new Error(t('গুদাম বাছাই করা আবশ্যক।','Warehouse is required.'));
+      const isCash = customerId === 'CUS-CASH';
+      const common = {
+        CustomerID: customerId,
+        SalespersonID: currentUser ? currentUser.UserID : null
+      };
 
-      const common = { CustomerID: customerId, SalespersonID: currentUser ? currentUser.UserID : null, WarehouseID: warehouseId };
-      const isCashCustomer = customerId === 'CUS-CASH';
-
-      if (currentType === 'SalesInvoice') {
-        const totalAmount = lines.reduce(function (s, l) { return s + (Number(l.Amount) || 0); }, 0);
+      if (hasSale) {
+        const warehouseId = window.__sv3SaleLines[0].warehouseId;
+        if (!warehouseId) throw new Error(t('বিক্রয় লাইনে গুদাম আবশ্যক।','Warehouse is required for sale lines.'));
+        const lineData = window.__sv3SaleLines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, Rate: l.rate, Amount: l.amount, CommissionRate: l.commRate || 0, CommissionAmount: l.commAmount || 0, NetAmount: l.netAmount !== undefined ? l.netAmount : l.amount }; });
+        const totalAmount = lineData.reduce(function (s, l) { return s + (Number(l.Amount) || 0); }, 0);
         const headerData = Object.assign({}, common, {
-          InvoiceDate: val('sv_Date'), DCID: val('sv_DCID') || null, TotalAmount: totalAmount,
-          WalkInPartyName: isCashCustomer ? (val('sv_CashName') || null) : null,
-          WalkInPartyAddress: isCashCustomer ? (val('sv_CashAddress') || null) : null,
-          WalkInPartyMobile: isCashCustomer ? (val('sv_CashMobile') || null) : null
+          InvoiceDate: val('sv3_Date'), WarehouseID: warehouseId, TotalAmount: totalAmount,
+          WalkInPartyName: isCash ? (val('sv3_CashName') || null) : null,
+          WalkInPartyAddress: isCash ? (val('sv3_CashAddress') || null) : null,
+          WalkInPartyMobile: isCash ? (val('sv3_CashMobile') || null) : null
         });
-        if (isEdit) {
-          await api('updateDocument', { headerSheet:'SalesInvoice', idField:'SIID', linesSheet:'SI_Lines', lineIdField:'SIID', idValue: existingId, headerData: headerData, lines: lines });
-        } else {
-          await api('createDocument', { headerSheet:'SalesInvoice', idField:'SIID', idPrefix:'SI', requiredFields:['CustomerID','WarehouseID'], linesSheet:'SI_Lines', lineIdField:'SIID', headerData: headerData, lines: lines });
+        if (!isCash) {
+          headerData.CashReceivedAmount = Number(val('sv3_CashReceivedAmount')) || 0;
+          headerData.CashReceivedNote = val('sv3_CashReceivedNote') || null;
+          headerData.BankReceivedAmount = Number(val('sv3_BankReceivedAmount')) || 0;
+          if (headerData.BankReceivedAmount > 0 && !sv3BankPopupFilled) {
+            throw new Error(t('ব্যাংকে গ্রহণের বিবরণ (পপআপে) পূরণ করুন।','Fill in the bank receipt details (in the popup).'));
+          }
+          headerData.BankReceivedNote = val('sv3_BankReceivedNote') || null;
+          headerData.BankAccIDForReceipt = headerData.BankReceivedAmount > 0 ? (val('sv3_BankAccID') || null) : null;
         }
-      } else {
-        const siId = val('sv_SIID');
-        if (!siId) throw new Error(t('বিক্রয় ফেরতের জন্য বিক্রয় চালান রেফারেন্স আবশ্যক।','Sales invoice reference is required for a sales return.'));
-        const headerData = Object.assign({}, common, { Date: val('sv_Date'), SIID: siId, Reason: val('sv_Reason') });
-        if (isEdit) {
-          await api('updateDocument', { headerSheet:'SalesReturn', idField:'SRID', linesSheet:'SR_Lines', lineIdField:'SRID', idValue: existingId, headerData: headerData, lines: lines });
+
+        if (isEdit && existingDocType === 'SalesInvoice') {
+          await api('updateDocument', { headerSheet:'SalesInvoice', idField:'SIID', linesSheet:'SI_Lines', lineIdField:'SIID', idValue: existingId, headerData: headerData, lines: lineData });
         } else {
-          await api('createDocument', { headerSheet:'SalesReturn', idField:'SRID', idPrefix:'SR', requiredFields:['CustomerID','WarehouseID','SIID'], linesSheet:'SR_Lines', lineIdField:'SRID', headerData: headerData, lines: lines });
+          await api('createDocument', { headerSheet:'SalesInvoice', idField:'SIID', idPrefix:'SI', requiredFields:['CustomerID','WarehouseID'], linesSheet:'SI_Lines', lineIdField:'SIID', headerData: headerData, lines: lineData });
+        }
+      }
+
+      if (hasReturn) {
+        const warehouseId = window.__sv3ReturnLines[0].warehouseId;
+        if (!warehouseId) throw new Error(t('ফেরত লাইনে গুদাম আবশ্যক।','Warehouse is required for return lines.'));
+        const lineData = window.__sv3ReturnLines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, Rate: l.rate, CommissionRate: l.commRate || 0, CommissionAmount: l.commAmount || 0, NetAmount: l.netAmount !== undefined ? l.netAmount : l.amount }; });
+        const headerData = Object.assign({}, common, { Date: val('sv3_Date'), WarehouseID: warehouseId });
+        if (isEdit && existingDocType === 'SalesReturn') {
+          await api('updateDocument', { headerSheet:'SalesReturn', idField:'SRID', linesSheet:'SR_Lines', lineIdField:'SRID', idValue: existingId, headerData: headerData, lines: lineData });
+        } else {
+          await api('createDocument', { headerSheet:'SalesReturn', idField:'SRID', idPrefix:'SR', requiredFields:['CustomerID','WarehouseID'], linesSheet:'SR_Lines', lineIdField:'SRID', headerData: headerData, lines: lineData });
         }
       }
 
@@ -4704,109 +4846,413 @@ async function openSalesVoucherForm(defaultType, existingId) {
     }
   });
 
-  function toggleSvTypeFields() {
-    const isReturn = val('sv_Type') === 'SalesReturn';
-    document.getElementById('sv_SIField').style.display = isReturn ? '' : 'none';
-    document.getElementById('sv_DCField').style.display = isReturn ? 'none' : '';
-    document.getElementById('sv_ReasonField').style.display = isReturn ? '' : 'none';
+  function showTab(tab) {
+    const entryBtn = document.getElementById('sv3_TabEntryBtn'), previewBtn = document.getElementById('sv3_TabPreviewBtn');
+    const entryPanel = document.getElementById('sv3_TabEntryPanel'), previewPanel = document.getElementById('sv3_TabPreviewPanel');
+    if (tab === 'entry') {
+      entryPanel.style.display = ''; previewPanel.style.display = 'none';
+      entryBtn.style.borderBottomColor = 'var(--amber)'; entryBtn.style.color = 'var(--text)';
+      previewBtn.style.borderBottomColor = 'transparent'; previewBtn.style.color = 'var(--text-muted)';
+    } else {
+      entryPanel.style.display = 'none'; previewPanel.style.display = '';
+      previewBtn.style.borderBottomColor = 'var(--amber)'; previewBtn.style.color = 'var(--text)';
+      entryBtn.style.borderBottomColor = 'transparent'; entryBtn.style.color = 'var(--text-muted)';
+      renderFullPreview();
+      loadVoucherListTab();
+    }
   }
-  document.getElementById('sv_Type').addEventListener('change', toggleSvTypeFields);
-  toggleSvTypeFields();
 
-  function toggleCashCustomer() {
-    const isCash = val('sv_CustomerID') === 'CUS-CASH';
-    document.getElementById('sv_CashCustomerCard').style.display = isCash ? '' : 'none';
+  async function loadVoucherListTab() {
+    const wrap = document.getElementById('sv3_VoucherListWrap');
+    if (!wrap) return;
+    const [invoices, returns] = await Promise.all([
+      api('list', { sheet:'SalesInvoice' }), api('list', { sheet:'SalesReturn' })
+    ]);
+    const merged = invoices.filter(function (r) { return r.Status !== 'Deleted'; }).map(function (r) {
+      return { type:'SalesInvoice', typeLabel: t('বিক্রয়','Sale'), id:r.SIID, date:r.InvoiceDate, customerId:r.CustomerID, amount:r.TotalAmount };
+    }).concat(returns.filter(function (r) { return r.Status !== 'Deleted'; }).map(function (r) {
+      return { type:'SalesReturn', typeLabel: t('ফেরত','Return'), id:r.SRID, date:r.Date, customerId:r.CustomerID, amount:null };
+    })).sort(function (a, b) { return String(b.date || '').localeCompare(String(a.date || '')); }).slice(0, 30);
+
+    if (merged.length === 0) { wrap.innerHTML = `<div class="empty-state">${t('কোনো ভাউচার নেই।','No vouchers yet.')}</div>`; return; }
+    const rows = merged.map(function (r) {
+      const custName = r.customerId === 'CUS-CASH' ? t('নগদ','Cash') : ((window.__sv3CustomerMap[r.customerId] || {}).CompanyName || (window.__sv3CustomerMap[r.customerId] || {}).Name || r.customerId);
+      return `<tr>
+        <td>${escapeHtml(r.date || '')}</td><td>${escapeHtml(r.typeLabel)}</td><td>${escapeHtml(r.id)}</td><td>${escapeHtml(custName)}</td>
+        <td style="text-align:right;">${r.amount !== null ? Number(r.amount).toFixed(2) : '—'}</td>
+        <td><button type="button" class="btn btn-outline" style="width:auto;padding:4px 10px;font-size:11px;" onclick='openPrintableVoucherView(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})'>${t('প্রিভিউ','Preview')}</button></td>
+      </tr>`;
+    }).join('');
+    wrap.innerHTML = `<table class="data-table" style="font-size:12px;"><thead><tr><th>${t('তারিখ','Date')}</th><th>${t('ধরন','Type')}</th><th>${t('আইডি','ID')}</th><th>${t('গ্রাহক','Customer')}</th><th>${t('মূল্য','Amount')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
   }
-  document.getElementById('sv_CustomerID').addEventListener('change', toggleCashCustomer);
+
+  document.getElementById('sv3_TabEntryBtn').addEventListener('click', function () { showTab('entry'); });
+  document.getElementById('sv3_TabPreviewBtn').addEventListener('click', function () { showTab('preview'); });
+
+  async function toggleCashCustomer() {
+    const customerId = val('sv3_CustomerID');
+    const isCash = customerId === 'CUS-CASH';
+    document.getElementById('sv3_CashCustomerCard').style.display = isCash ? '' : 'none';
+    renderRightSummary();
+
+    const balInput = document.getElementById('sv3_CustomerBalance');
+    if (!customerId || isCash) {
+      balInput.value = '';
+      return;
+    }
+    balInput.value = t('লোড হচ্ছে...','Loading...');
+    const { data } = await supabaseClient.from('PartyLedger').select('Balance').eq('PartyType', 'Customer').eq('PartyID', customerId).order('id', { ascending: false }).limit(1);
+    const balance = (data && data[0]) ? Number(data[0].Balance) || 0 : 0;
+    balInput.value = formatAmountDrCr(balance, true);
+
+    const custRec = window.__sv3CustomerMap[customerId];
+    const bankNameEl = document.getElementById('sv3_CustomerBankName');
+    const bankAccNoEl = document.getElementById('sv3_CustomerBankAccNo');
+    if (bankNameEl) bankNameEl.value = (custRec && custRec.BankName) ? custRec.BankName : t('তথ্য নেই','No info');
+    if (bankAccNoEl) bankAccNoEl.value = (custRec && custRec.BankAccountNumber) ? custRec.BankAccountNumber : t('তথ্য নেই','No info');
+  }
+
+  function updateBankRecSummary() {
+    const summaryEl = document.getElementById('sv3_BankRecSummary');
+    const amt = Number(val('sv3_BankReceivedAmount')) || 0;
+    if (!summaryEl) return;
+    if (amt <= 0) { summaryEl.textContent = t('টাকা লিখলে বিস্তারিত জিজ্ঞাসা করা হবে','Details will be asked once you enter an amount'); return; }
+    const bankAccId = val('sv3_BankAccID');
+    const bankAccLabel = bankAccId ? (bankAccounts.find(function (b) { return b.BankAccID === bankAccId; }) || {}).AccountName : '';
+    summaryEl.textContent = (bankAccLabel || t('ব্যাংক বাছাই করা হয়নি','No bank selected')) + (val('sv3_BankReceivedNote') ? ' — ' + val('sv3_BankReceivedNote') : '');
+  }
+
+  let sv3BankPopupFilled = false;
+  function openBankReceiptPopup() {
+    const amt = Number(val('sv3_BankReceivedAmount')) || 0;
+    if (amt <= 0) return;
+
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+    const custBankName = val('sv3_CustomerBankName') || t('তথ্য নেই','No info');
+    const custBankAcc = val('sv3_CustomerBankAccNo') || t('তথ্য নেই','No info');
+    const curBankAcc = val('sv3_BankAccID') || '';
+    const curNote = val('sv3_BankReceivedNote') || '';
+
+    overlay.innerHTML = `
+      <div style="background:var(--surface);border-radius:12px;max-width:380px;width:100%;padding:20px;max-height:90vh;overflow-y:auto;">
+        <h3 style="margin:0 0 14px;font-size:15px;">${t('ব্যাংকে গ্রহণের বিবরণ','Bank Receipt Details')}</h3>
+        <div class="field"><label>${t('পরিমাণ','Amount')}</label><input value="৳ ${amt}" readonly style="background:var(--bg);"></div>
+        <div class="field"><label>${t('আমাদের ব্যাংক','Our Bank')} *</label>
+          <select id="sv3_PopBankAcc" data-order="0"><option value="">—</option>${optsHtml(bankAccounts, 'BankAccID', 'AccountName', curBankAcc)}</select>
+        </div>
+        <div class="field"><label>${t('গ্রাহকের ব্যাংক','Customer\u2019s Bank')}</label><input value="${attr(custBankName)}" readonly style="background:var(--bg);"></div>
+        <div class="field"><label>${t('অ্যাকাউন্ট নম্বর','Account No')}</label><input value="${attr(custBankAcc)}" readonly style="background:var(--bg);"></div>
+        <div class="field"><label>${t('বিবরণ/নোট','Note')} *</label><input id="sv3_PopNote" data-order="1" value="${attr(curNote)}" placeholder="${t('যেমন: চালানের বিপরীতে গ্রহণ','e.g. Received against this invoice')}"></div>
+        <div style="display:flex;gap:8px;margin-top:16px;">
+          <button type="button" id="sv3_PopCancel" class="btn" style="flex:1;">${t('বাতিল','Cancel')}</button>
+          <button type="button" id="sv3_PopConfirm" data-order="2" class="btn btn-primary" style="flex:1;">${t('নিশ্চিত করুন','Confirm')}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    function focusableFields() {
+      return Array.from(overlay.querySelectorAll('[data-order]')).filter(function (el) { return el.offsetParent !== null; });
+    }
+    overlay.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' && e.key !== 'Escape') return;
+      const fields = focusableFields();
+      const curIdx = fields.indexOf(document.activeElement);
+      if (curIdx === -1) return;
+      e.preventDefault();
+      if (e.key === 'Enter') {
+        const next = fields[curIdx + 1];
+        if (next) { next.focus(); } else { document.getElementById('sv3_PopConfirm').click(); }
+      } else {
+        const prev = fields[curIdx - 1];
+        if (prev) prev.focus(); else document.getElementById('sv3_PopCancel').click();
+      }
+    });
+
+    document.getElementById('sv3_PopCancel').addEventListener('click', function () {
+      document.getElementById('sv3_RecAmount').value = '';
+      document.getElementById('sv3_BankReceivedAmount').value = '';
+      sv3BankPopupFilled = false;
+      updateBankRecSummary();
+      overlay.remove();
+    });
+    document.getElementById('sv3_PopConfirm').addEventListener('click', function () {
+      const ourBank = val('sv3_PopBankAcc');
+      const note = document.getElementById('sv3_PopNote').value.trim();
+      if (!ourBank) { showToast(t('আমাদের ব্যাংক বাছাই করুন।','Select our bank.'), 'error'); return; }
+      if (!note) { showToast(t('বিবরণ/নোট লিখুন।','Enter a note.'), 'error'); return; }
+      document.getElementById('sv3_BankAccID').value = ourBank;
+      document.getElementById('sv3_BankReceivedNote').value = note;
+      sv3BankPopupFilled = true;
+      updateBankRecSummary();
+      overlay.remove();
+    });
+    document.getElementById('sv3_PopBankAcc').focus();
+  }
+
+  function toggleRecType() {
+    const isCash = val('sv3_RecTypeSelect') === 'Cash';
+    document.getElementById('sv3_CashReceivedNote').style.display = isCash ? '' : 'none';
+    document.getElementById('sv3_BankRecSummary').style.display = isCash ? 'none' : '';
+    document.getElementById('sv3_RecAmount').value = isCash ? val('sv3_CashReceivedAmount') : val('sv3_BankReceivedAmount');
+  }
+  document.getElementById('sv3_RecTypeSelect').addEventListener('change', toggleRecType);
+  toggleRecType();
+
+  document.getElementById('sv3_RecAmount').addEventListener('change', function () {
+    const isCash = val('sv3_RecTypeSelect') === 'Cash';
+    if (isCash) {
+      document.getElementById('sv3_CashReceivedAmount').value = this.value;
+    } else {
+      document.getElementById('sv3_BankReceivedAmount').value = this.value;
+      if (Number(this.value) > 0 && !sv3BankPopupFilled) openBankReceiptPopup();
+      if (!(Number(this.value) > 0)) { sv3BankPopupFilled = false; updateBankRecSummary(); }
+    }
+  });
+  document.getElementById('sv3_BankRecSummary').addEventListener('click', function () {
+    if (Number(val('sv3_BankReceivedAmount')) > 0) openBankReceiptPopup();
+  });
+
+  document.getElementById('sv3_CustomerID').addEventListener('change', toggleCashCustomer);
   toggleCashCustomer();
 
-  function onSvLineItemChange(idx) {
-    const itemId = val('sv_ln_' + idx + '_item');
-    const item = window.__svItemMap[itemId];
-    if (item) {
-      const groupSel = document.getElementById('sv_ln_' + idx + '_group');
-      const catSel = document.getElementById('sv_ln_' + idx + '_cat');
-      const unitEl = document.getElementById('sv_ln_' + idx + '_unit');
-      if (groupSel && item.GroupID) groupSel.value = item.GroupID;
-      if (catSel && item.CategoryID) catSel.value = item.CategoryID;
-      if (unitEl) unitEl.textContent = (window.__svUnitMap[item.UOMID] && window.__svUnitMap[item.UOMID].UOMName) || '—';
-      const rateInput = document.getElementById('sv_ln_' + idx + '_rate');
-      if (rateInput && !rateInput.value && item.SalesPrice) rateInput.value = item.SalesPrice;
+  function refreshItemDropdown() {
+    const groupChecked = document.getElementById('sv3_GroupCheck').checked;
+    const catChecked = document.getElementById('sv3_CatCheck').checked;
+    const groupVal = val('sv3_GroupSelect'), catVal = val('sv3_CatSelect');
+    let list = window.__sv3Items;
+    if (groupChecked && groupVal) list = list.filter(function (i) { return i.GroupID === groupVal; });
+    if (catChecked && catVal) list = list.filter(function (i) { return i.CategoryID === catVal; });
+    const sel = document.getElementById('sv3_ItemID');
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">—</option>' + list.map(function (i) { return `<option value="${attr(i.ItemID)}">${escapeHtml(i.ItemName)}</option>`; }).join('');
+    if (list.some(function (i) { return i.ItemID === prev; })) sel.value = prev;
+  }
+  document.getElementById('sv3_GroupCheck').addEventListener('change', function () {
+    const sel = document.getElementById('sv3_GroupSelect');
+    sel.disabled = !this.checked; sel.style.display = this.checked ? '' : 'none';
+    if (!this.checked) sel.value = '';
+    refreshItemDropdown();
+  });
+  document.getElementById('sv3_GroupSelect').addEventListener('change', refreshItemDropdown);
+  document.getElementById('sv3_CatCheck').addEventListener('change', function () {
+    const sel = document.getElementById('sv3_CatSelect');
+    sel.disabled = !this.checked; sel.style.display = this.checked ? '' : 'none';
+    if (!this.checked) sel.value = '';
+    refreshItemDropdown();
+  });
+  document.getElementById('sv3_CatSelect').addEventListener('change', refreshItemDropdown);
+  refreshItemDropdown();
+
+  async function onItemOrWarehouseChange() {
+    const itemId = val('sv3_ItemID');
+    const warehouseId = val('sv3_WarehouseID');
+    const item = window.__sv3ItemMap[itemId];
+    document.getElementById('sv3_Unit').value = item ? ((window.__sv3UnitMap[item.UOMID]||{}).UOMName || '') : '';
+    window.__sv3LastStockRate = item ? (Number(item.StandardCost)||0).toFixed(2) : '';
+    if (item && warehouseId) {
+      const { data } = await supabaseClient.from('current_stock').select('QtyOnHand').eq('ItemID', itemId).eq('WarehouseID', warehouseId).maybeSingle();
+      const unitName = (window.__sv3UnitMap[item.UOMID] || {}).UOMName || '';
+      window.__sv3LastStockQty = data ? ((Number(data.QtyOnHand)||0) + ' ' + unitName) : t('কোনো স্টক নেই','No stock');
+    } else {
+      window.__sv3LastStockQty = '';
     }
-    recalcSvLine(idx);
+    document.getElementById('sv3_PreviewStockQty').value = window.__sv3LastStockQty;
+    document.getElementById('sv3_PreviewStockRate').value = window.__sv3LastStockRate;
+    if (!val('sv3_Rate') && item && item.SalesPrice) document.getElementById('sv3_Rate').value = item.SalesPrice;
+    recalcAmount();
+    renderRightSummary();
   }
-  window.updateSvLineItem = onSvLineItemChange;
+  document.getElementById('sv3_ItemID').addEventListener('change', onItemOrWarehouseChange);
+  document.getElementById('sv3_WarehouseID').addEventListener('change', onItemOrWarehouseChange);
 
-  function recalcSvLine(idx) {
-    const itemId = val('sv_ln_' + idx + '_item');
-    const item = window.__svItemMap[itemId];
-    const qty = Number(val('sv_ln_' + idx + '_qty')) || 0;
-    const rate = Number(val('sv_ln_' + idx + '_rate')) || 0;
-    const amtEl = document.getElementById('sv_ln_' + idx + '_amt');
-    const profitEl = document.getElementById('sv_ln_' + idx + '_profit');
-    if (!amtEl) return;
-
-    const value = qty * rate;
-    amtEl.textContent = value.toFixed(2);
-
-    if (profitEl) {
-      const costRate = item ? (Number(item.StandardCost) || 0) : 0;
-      if (value > 0 && qty > 0 && costRate > 0) {
-        const profit = value - (qty * costRate);
-        profitEl.textContent = profit.toFixed(2);
-        profitEl.style.color = profit < 0 ? 'var(--danger)' : 'var(--success)';
-      } else {
-        profitEl.textContent = '—';
-        profitEl.style.color = '';
-      }
+  function recalcAmount() {
+    const qty = Number(val('sv3_Qty')) || 0;
+    const rate = Number(val('sv3_Rate')) || 0;
+    const amount = Math.round(qty * rate);
+    document.getElementById('sv3_Amount').value = amount;
+    if (document.getElementById('sv3_CommCheck').checked) {
+      const commRate = Number(val('sv3_CommRate')) || 0;
+      const commAmount = amount * commRate / 100;
+      document.getElementById('sv3_CommAmount').value = commAmount.toFixed(2);
+      document.getElementById('sv3_NetLineAmount').value = (amount - commAmount).toFixed(2);
     }
-    updateSvTotalProfit();
   }
-  window.updateSvLine = recalcSvLine;
+  document.getElementById('sv3_Qty').addEventListener('input', recalcAmount);
+  document.getElementById('sv3_Rate').addEventListener('input', recalcAmount);
+  document.getElementById('sv3_CommRate').addEventListener('input', recalcAmount);
+  document.getElementById('sv3_CommCheck').addEventListener('change', function () {
+    document.getElementById('sv3_CommRate').disabled = !this.checked;
+    document.getElementById('sv3_CommResultRow').style.display = this.checked ? '' : 'none';
+    if (!this.checked) { document.getElementById('sv3_CommRate').value = ''; document.getElementById('sv3_CommAmount').value = ''; document.getElementById('sv3_NetLineAmount').value = ''; }
+    recalcAmount();
+  });
 
-  function updateSvTotalProfit() {
-    const totalEl = document.getElementById('sv_TotalProfit');
-    if (!totalEl) return;
-    let total = 0, hasAny = false;
-    (window.__svLineRows || []).forEach(function (_, idx) {
-      const el = document.getElementById('sv_ln_' + idx + '_profit');
-      if (el && el.textContent !== '—') { total += Number(el.textContent) || 0; hasAny = true; }
-    });
-    totalEl.textContent = hasAny ? total.toFixed(2) : '—';
-    totalEl.style.color = total < 0 ? 'var(--danger)' : 'var(--success)';
+  function resetLineEntry() {
+    document.getElementById('sv3_GroupCheck').checked = false;
+    const groupSel = document.getElementById('sv3_GroupSelect'); groupSel.disabled = true; groupSel.style.display = 'none'; groupSel.value = '';
+    document.getElementById('sv3_CatCheck').checked = false;
+    const catSel = document.getElementById('sv3_CatSelect'); catSel.disabled = true; catSel.style.display = 'none'; catSel.value = '';
+    refreshItemDropdown();
+    document.getElementById('sv3_ItemID').value = '';
+    document.getElementById('sv3_WarehouseID').value = '';
+    document.getElementById('sv3_Qty').value = '';
+    document.getElementById('sv3_Rate').value = '';
+    document.getElementById('sv3_Unit').value = '';
+    document.getElementById('sv3_Amount').value = '';
+    document.getElementById('sv3_CommCheck').checked = false;
+    document.getElementById('sv3_CommRate').disabled = true;
+    document.getElementById('sv3_CommResultRow').style.display = 'none';
+    document.getElementById('sv3_CommRate').value = '';
+    document.getElementById('sv3_CommAmount').value = '';
+    document.getElementById('sv3_NetLineAmount').value = '';
   }
 
-  function renderSvLines() {
-    const wrap = document.getElementById('sv_LinesWrap');
-    if (!wrap) return;
-    const headers = [['আইটেম','Item'],['গ্রুপ','Group'],['ক্যাটাগরি','Category'],['পরিমাণ','Quantity'],['একক','Unit'],['দর','Rate'],['মূল্য','Value'],['লাভ','Profit']];
-    const headCells = headers.map(function (h) { return `<th>${t(h[0], h[1])}</th>`; }).join('') + '<th></th>';
-    const rows = window.__svLineRows.map(function (row, idx) {
-      const item = row.itemId ? window.__svItemMap[row.itemId] : null;
-      const groupOpts = window.__svGroups.map(function (g) { return `<option value="${attr(g.GroupID)}" ${item&&item.GroupID===g.GroupID?'selected':''}>${escapeHtml(g.GroupName)}</option>`; }).join('');
-      const catOpts = window.__svCategories.map(function (c) { return `<option value="${attr(c.CategoryID)}" ${item&&item.CategoryID===c.CategoryID?'selected':''}>${escapeHtml(c.CategoryName)}</option>`; }).join('');
-      const unitLabel = item && window.__svUnitMap[item.UOMID] ? window.__svUnitMap[item.UOMID].UOMName : '—';
-      return `
-        <tr>
-          <td><select id="sv_ln_${idx}_item" onchange="updateSvLineItem(${idx})"><option value="">—</option>${opts(window.__svItems, 'ItemID', 'ItemName', row.itemId)}</select></td>
-          <td><select id="sv_ln_${idx}_group" style="min-width:90px;"><option value="">—</option>${groupOpts}</select></td>
-          <td><select id="sv_ln_${idx}_cat" style="min-width:90px;"><option value="">—</option>${catOpts}</select></td>
-          <td><input id="sv_ln_${idx}_qty" type="number" step="any" value="${row.qty||''}" oninput="updateSvLine(${idx})" style="width:80px;"></td>
-          <td id="sv_ln_${idx}_unit" style="color:var(--text-muted);">${escapeHtml(unitLabel)}</td>
-          <td><input id="sv_ln_${idx}_rate" type="number" step="any" value="${row.rate||''}" oninput="updateSvLine(${idx})" style="width:80px;"></td>
-          <td id="sv_ln_${idx}_amt" style="font-weight:600;">0.00</td>
-          <td id="sv_ln_${idx}_profit" style="font-weight:600;">—</td>
-          <td><button type="button" onclick="window.__removeSvLine(${idx})">✕</button></td>
-        </tr>`;
+  function collectCurrentLine() {
+    const itemId = val('sv3_ItemID');
+    const warehouseId = val('sv3_WarehouseID');
+    const qty = Number(val('sv3_Qty')) || 0;
+    const rate = Number(val('sv3_Rate')) || 0;
+    if (!itemId) { showToast(t('আইটেম বাছাই করুন।','Select an item.'), 'error'); return null; }
+    if (!warehouseId) { showToast(t('গুদাম বাছাই করুন।','Select a warehouse.'), 'error'); return null; }
+    if (!(qty > 0 && rate > 0)) { showToast(t('পরিমাণ ও দর দিন।','Enter quantity and rate.'), 'error'); return null; }
+    const amount = Math.round(qty * rate);
+    const useComm = document.getElementById('sv3_CommCheck').checked;
+    const commRate = useComm ? (Number(val('sv3_CommRate')) || 0) : 0;
+    const commAmount = useComm ? Number((amount * commRate / 100).toFixed(2)) : 0;
+    return { itemId: itemId, warehouseId: warehouseId, qty: qty, rate: rate, amount: amount, commRate: commRate, commAmount: commAmount, netAmount: useComm ? Number((amount - commAmount).toFixed(2)) : amount };
+  }
+
+  document.getElementById('sv3_ConfirmSaleCheck').addEventListener('change', function () {
+    if (!this.checked) return;
+    const line = collectCurrentLine();
+    if (!line) { this.checked = false; return; }
+    window.__sv3SaleLines.push(line);
+    resetLineEntry();
+    this.checked = false;
+    renderRightSummary();
+    showToast(t('বিক্রয় লাইন যোগ হয়েছে ✅','Sale line added ✅'), 'success');
+  });
+  document.getElementById('sv3_AddReturnLineBtn').addEventListener('click', function () {
+    const line = collectCurrentLine();
+    if (!line) return;
+    window.__sv3ReturnLines.push(line);
+    resetLineEntry();
+    renderRightSummary();
+    showToast(t('বিক্রয় ফেরত লাইন যোগ হয়েছে ✅','Sale return line added ✅'), 'success');
+  });
+
+  window.__sv3RemoveSaleLine = function (i) { window.__sv3SaleLines.splice(i, 1); renderRightSummary(); renderFullPreview(); };
+  window.__sv3RemoveReturnLine = function (i) { window.__sv3ReturnLines.splice(i, 1); renderRightSummary(); renderFullPreview(); };
+
+  function renderRightSummary() {
+    document.getElementById('sv3_PreviewStockQty').value = window.__sv3LastStockQty;
+    document.getElementById('sv3_PreviewStockRate').value = window.__sv3LastStockRate;
+  }
+
+  function miniLinesTable(lines, removeFnName, showComm) {
+    if (lines.length === 0) return `<div style="color:var(--text-muted);padding:8px 0;">${t('কোনো লাইন নেই।','No lines.')}</div>`;
+    const rows = lines.map(function (l, i) {
+      const item = window.__sv3ItemMap[l.itemId] || {};
+      return `<tr>
+        <td>${i + 1}</td><td>${escapeHtml(item.ItemName || l.itemId)}</td>
+        <td style="text-align:right;">${l.qty}</td><td style="text-align:right;">${l.rate}</td><td style="text-align:right;"><b>${l.amount}</b></td>
+        ${showComm ? `<td style="text-align:right;">${l.commRate || 0}</td><td style="text-align:right;">${(l.commAmount||0).toFixed ? l.commAmount.toFixed(2) : l.commAmount}</td><td style="text-align:right;"><b>${(l.netAmount!==undefined?l.netAmount:l.amount).toFixed ? l.netAmount.toFixed(2) : l.netAmount}</b></td>` : ''}
+        <td><button type="button" onclick="${removeFnName}(${i})" style="border:none;background:none;cursor:pointer;color:var(--danger);">✕</button></td>
+      </tr>`;
     }).join('');
-    wrap.innerHTML = `<table class="data-table"><thead><tr>${headCells}</tr></thead><tbody>${rows}</tbody></table>
-      <div style="margin-top:10px;font-size:14px;font-weight:700;text-align:right;">${t('আনুমানিক মোট লাভ','Estimated Total Profit')}: <span id="sv_TotalProfit">0.00</span></div>
-      <p style="font-size:11px;color:var(--text-muted);margin:4px 0 0;text-align:right;">${t('(আইটেম মাস্টারে দেওয়া "স্ট্যান্ডার্ড কস্ট"-এর ভিত্তিতে আনুমানিক হিসাব)', '(Estimated based on the "Standard Cost" set in Item Master)')}</p>`;
-    window.__svLineRows.forEach(function (_, idx) { recalcSvLine(idx); });
+    return `<table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <thead><tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;">${t('ক্রঃ','No.')}</th><th style="text-align:left;">${t('আইটেম','Item')}</th><th style="text-align:right;">${t('পরিমাণ','Qty')}</th><th style="text-align:right;">${t('দর','Rate')}</th><th style="text-align:right;">${t('মূল্য','Amt')}</th>${showComm ? `<th style="text-align:right;">${t('কমিঃ','Comm.')}</th><th style="text-align:right;">${t('(-)কমিঃ','(-)Comm.')}</th><th style="text-align:right;">${t('নিট মূল্য','Net Amt')}</th>` : ''}<th></th></tr></thead>
+      <tbody>${rows}</tbody></table>`;
   }
-  window.__removeSvLine = function (idx) { window.__svLineRows.splice(idx, 1); renderSvLines(); };
-  document.getElementById('sv_AddLineBtn').addEventListener('click', function () { window.__svLineRows.push({}); renderSvLines(); });
-  renderSvLines();
+
+  function renderFullPreview() {
+    const wrap = document.getElementById('sv3_LivePreviewBody');
+    if (!wrap) return;
+    const customerId = val('sv3_CustomerID');
+    const isCash = customerId === 'CUS-CASH';
+    const custRec = window.__sv3CustomerMap[customerId];
+    const custName = isCash ? ('নগদ' + (val('sv3_CashName') ? ' (' + val('sv3_CashName') + ')' : '')) : (custRec ? (custRec.CompanyName || custRec.Name) : '—');
+
+    wrap.innerHTML = `
+      <div style="text-align:center;border-bottom:2px solid var(--ink-900);padding-bottom:8px;margin-bottom:10px;">
+        <b style="font-family:'Oswald',sans-serif;font-size:15px;">জি মেটাল ওয়ার্কস</b>
+        <div style="font-size:11px;color:var(--text-muted);">${t('বিক্রয় ভাউচার','Sales Voucher')}</div>
+      </div>
+      <div style="margin-bottom:8px;">
+        <div><b>${t('তারিখ','Date')}:</b> ${escapeHtml(val('sv3_Date'))}</div>
+        <div><b>${t('গ্রাহক','Customer')}:</b> ${escapeHtml(custName)}</div>
+      </div>
+      <div style="font-weight:700;font-size:12px;margin:10px 0 4px;">${t('বিক্রীত পণ্য','Sold Items')}</div>
+      ${miniLinesTable(window.__sv3SaleLines, 'window.__sv3RemoveSaleLine', true)}
+      <div style="font-weight:700;font-size:12px;margin:14px 0 4px;">${t('ফেরত পণ্য','Returned Items')}</div>
+      ${miniLinesTable(window.__sv3ReturnLines, 'window.__sv3RemoveReturnLine', true)}
+      <div style="display:flex;justify-content:space-between;margin-top:40px;font-size:11px;text-align:center;">
+        <div style="width:31%;"><div style="border-top:1px solid #333;padding-top:4px;">${t('ক্রেতার স্বাঃ','Buyer Sign')}</div></div>
+        <div style="width:31%;"><div style="border-top:1px solid #333;padding-top:4px;">${t('অথরাইজেশন স্বাঃ','Authorization')}<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div></div>
+        <div style="width:31%;"><div style="border-top:1px solid #333;padding-top:4px;">${t('বিক্রয়কারী স্বাঃ','Salesperson Sign')}<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div></div>
+      </div>`;
+  }
+
+  async function openLivePrintOrShare(action) {
+    if (window.__sv3SaleLines.length === 0 && window.__sv3ReturnLines.length === 0) {
+      showToast(t('প্রিন্ট করার জন্য অন্তত একটা লাইন যোগ করুন।','Add at least one line to print.'), 'error');
+      return;
+    }
+    const customerId = val('sv3_CustomerID');
+    const isCash = customerId === 'CUS-CASH';
+    const custRec = window.__sv3CustomerMap[customerId];
+    const custName = isCash ? ('নগদ' + (val('sv3_CashName') ? ' (' + val('sv3_CashName') + ')' : '')) : (custRec ? (custRec.CompanyName || custRec.Name) : '—');
+    const company = await api('getSingleton', { sheet:'CompanyProfile' });
+    const saleTotal = window.__sv3SaleLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
+    const returnTotal = window.__sv3ReturnLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
+
+    function tableRows(lines) {
+      return lines.map(function (l) {
+        const item = window.__sv3ItemMap[l.itemId] || {};
+        return `<tr><td>${escapeHtml(item.ItemName || l.itemId)}</td><td>${l.qty}</td><td>${l.rate}</td><td>${l.amount}</td></tr>`;
+      }).join('');
+    }
+
+    const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><title>বিক্রয় ভাউচার (খসড়া প্রিভিউ)</title>
+<link href="https://fonts.googleapis.com/css2?family=Anek+Bangla:wght@400;500;600;700&family=Oswald:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  body{font-family:'Anek Bangla',sans-serif;color:#1b1f27;max-width:800px;margin:30px auto;padding:0 20px;}
+  h1{font-family:'Oswald',sans-serif;font-size:20px;text-align:center;margin:0 0 4px;}
+  .sub{text-align:center;color:#888;font-size:12px;margin-bottom:16px;}
+  table{width:100%;border-collapse:collapse;margin:8px 0;}
+  th,td{border:1px solid #ccc;padding:6px 8px;font-size:12.5px;text-align:center;}
+  th{background:#1a2029;color:#f2a33c;}
+  .totalline{text-align:right;font-weight:700;margin:6px 0;}
+  .sign-row{display:flex;justify-content:space-between;margin-top:60px;text-align:center;font-size:12px;}
+  .sign-row div{width:31%;border-top:1px solid #333;padding-top:6px;}
+  .toolbar{margin-bottom:16px;} .toolbar button{padding:8px 16px;border-radius:8px;border:1px solid #1a2029;background:#1a2029;color:#f2a33c;font-size:13px;cursor:pointer;}
+  @page { size: A5; margin: 10mm; }
+  @media print{.toolbar{display:none;}}
+</style></head><body>
+  <div class="toolbar"><button onclick="window.print()">🖨️ প্রিন্ট করুন</button></div>
+  <h1>${escapeHtml(company.CompanyName || 'জি মেটাল ওয়ার্কস')}</h1>
+  <div class="sub">বিক্রয় ভাউচার (খসড়া — এখনো সেভ হয়নি) — তারিখ: ${escapeHtml(val('sv3_Date'))} — গ্রাহক: ${escapeHtml(custName)}</div>
+  ${window.__sv3SaleLines.length > 0 ? `<h3>বিক্রীত পণ্য</h3><table><thead><tr><th>আইটেম</th><th>পরিমাণ</th><th>দর</th><th>মূল্য</th></tr></thead><tbody>${tableRows(window.__sv3SaleLines)}</tbody></table><div class="totalline">মোট বিক্রয়: ৳ ${saleTotal.toFixed(2)}</div>` : ''}
+  ${window.__sv3ReturnLines.length > 0 ? `<h3>ফেরত পণ্য</h3><table><thead><tr><th>আইটেম</th><th>পরিমাণ</th><th>দর</th><th>মূল্য</th></tr></thead><tbody>${tableRows(window.__sv3ReturnLines)}</tbody></table><div class="totalline">মোট ফেরত: ৳ ${returnTotal.toFixed(2)}</div>` : ''}
+  <div class="totalline" style="font-size:15px;border-top:2px solid #1a2029;padding-top:8px;">নিট মোট: ৳ ${(saleTotal - returnTotal).toFixed(2)}</div>
+  <div class="sign-row"><div>ক্রেতার স্বাঃ</div><div>অথরাইজেশন স্বাঃ<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div><div>বিক্রয়কারী স্বাঃ<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div></div>
+</body></html>`;
+
+    const win = window.open('', '_blank');
+    if (!win) { showToast(t('পপ-আপ ব্লক হয়েছে — এই সাইটের জন্য পপ-আপ অনুমতি দিন।','Pop-up was blocked — please allow pop-ups for this site.'), 'error'); return; }
+    win.document.write(html);
+    win.document.close();
+    if (action === 'share' && win.navigator && win.navigator.share) {
+      try { await win.navigator.share({ title: 'বিক্রয় ভাউচার', text: 'নিট মোট: ৳ ' + (saleTotal - returnTotal).toFixed(2) }); } catch (e) {}
+    }
+  }
+  document.getElementById('sv3_LivePageSetupBtn').addEventListener('click', function () { openLivePrintOrShare('print'); });
+  document.getElementById('sv3_LivePrintBtn').addEventListener('click', function () { openLivePrintOrShare('print'); });
+  document.getElementById('sv3_LiveShareBtn').addEventListener('click', function () { openLivePrintOrShare('share'); });
+
+  renderRightSummary();
+  showTab('entry');
 }
 
 /* ============================================================
