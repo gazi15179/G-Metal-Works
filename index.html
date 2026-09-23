@@ -3833,7 +3833,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   const bodyHtml = `
     <div style="display:flex;border-bottom:2px solid var(--border);margin-bottom:16px;">
       <button type="button" id="pv3_TabEntryBtn" style="flex:1;padding:10px;border:none;background:none;cursor:pointer;font-weight:700;border-bottom:3px solid var(--amber);color:var(--text);">${t('ক্রয় ভাউচার','Purchase Voucher')}</button>
-      <button type="button" id="pv3_TabPreviewBtn" style="flex:1;padding:10px;border:none;background:none;cursor:pointer;font-weight:700;border-bottom:3px solid transparent;color:var(--text-muted);">${t('ভাউচার তালিকা','Voucher List')}</button>
+      <button type="button" id="pv3_TabPreviewBtn" style="flex:1;padding:10px;border:none;background:none;cursor:pointer;font-weight:700;border-bottom:3px solid transparent;color:var(--text-muted);">${t('লাইভ প্রিভিউ ভাউচার','Live Preview Voucher')}</button>
     </div>
 
     <div id="pv3_TabEntryPanel">
@@ -3955,10 +3955,6 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     </div>
 
     <div id="pv3_TabPreviewPanel" style="display:none;">
-      <h4 style="margin:0 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;">${t('ভাউচার তালিকা','Voucher List')}</h4>
-      <div id="pv3_VoucherListWrap" style="margin-bottom:20px;"><div class="empty-state">${t('লোড হচ্ছে...','Loading...')}</div></div>
-
-      <h4 style="margin:16px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('বর্তমান খসড়ার প্রিভিউ','Current Draft Preview')}</h4>
       <div style="display:flex;gap:8px;margin-bottom:16px;">
         <button type="button" class="btn btn-outline" style="width:auto;" id="pv3_LivePageSetupBtn">📄 ${t('পেজ সেটাপ','Page Setup')}</button>
         <button type="button" class="btn btn-primary" style="width:auto;" id="pv3_LivePrintBtn">🖨️ ${t('প্রিন্ট','Print')}</button>
@@ -4057,33 +4053,9 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       previewBtn.style.borderBottomColor = 'var(--amber)'; previewBtn.style.color = 'var(--text)';
       entryBtn.style.borderBottomColor = 'transparent'; entryBtn.style.color = 'var(--text-muted)';
       renderFullPreview();
-      loadVoucherListTab();
     }
   }
 
-  async function loadVoucherListTab() {
-    const wrap = document.getElementById('pv3_VoucherListWrap');
-    if (!wrap) return;
-    const [invoices, returns] = await Promise.all([
-      api('list', { sheet:'PurchaseInvoice' }), api('list', { sheet:'PurchaseReturn' })
-    ]);
-    const merged = invoices.filter(function (r) { return r.Status !== 'Deleted'; }).map(function (r) {
-      return { type:'PurchaseInvoice', typeLabel: t('ক্রয়','Purchase'), id:r.PIID, date:r.InvoiceDate, supplierId:r.SupplierID, amount:r.TotalAmount };
-    }).concat(returns.filter(function (r) { return r.Status !== 'Deleted'; }).map(function (r) {
-      return { type:'PurchaseReturn', typeLabel: t('ফেরত','Return'), id:r.PRetID, date:r.Date, supplierId:r.SupplierID, amount:null };
-    })).sort(function (a, b) { return String(b.date || '').localeCompare(String(a.date || '')); }).slice(0, 30);
-
-    if (merged.length === 0) { wrap.innerHTML = `<div class="empty-state">${t('কোনো ভাউচার নেই।','No vouchers yet.')}</div>`; return; }
-    const rows = merged.map(function (r) {
-      const supName = r.supplierId === 'SUP-CASH' ? t('নগদ','Cash') : ((window.__pv3SupplierMap[r.supplierId] || {}).CompanyName || (window.__pv3SupplierMap[r.supplierId] || {}).Name || r.supplierId);
-      return `<tr>
-        <td>${escapeHtml(r.date || '')}</td><td>${escapeHtml(r.typeLabel)}</td><td>${escapeHtml(r.id)}</td><td>${escapeHtml(supName)}</td>
-        <td style="text-align:right;">${r.amount !== null ? Number(r.amount).toFixed(2) : '—'}</td>
-        <td><button type="button" class="btn btn-outline" style="width:auto;padding:4px 10px;font-size:11px;" onclick='openPrintableVoucherView(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})'>${t('প্রিভিউ','Preview')}</button></td>
-      </tr>`;
-    }).join('');
-    wrap.innerHTML = `<table class="data-table" style="font-size:12px;"><thead><tr><th>${t('তারিখ','Date')}</th><th>${t('ধরন','Type')}</th><th>${t('আইডি','ID')}</th><th>${t('সাপ্লায়ার','Supplier')}</th><th>${t('মূল্য','Amount')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
-  }
   function wireRevealCheckbox(checkId, fieldId) {
     const check = document.getElementById(checkId), field = document.getElementById(fieldId);
     function sync() {
@@ -4655,7 +4627,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
   const bodyHtml = `
     <div style="display:flex;border-bottom:2px solid var(--border);margin-bottom:16px;">
       <button type="button" id="sv3_TabEntryBtn" style="flex:1;padding:10px;border:none;background:none;cursor:pointer;font-weight:700;border-bottom:3px solid var(--amber);color:var(--text);">${t('বিক্রয় ভাউচার','Sales Voucher')}</button>
-      <button type="button" id="sv3_TabPreviewBtn" style="flex:1;padding:10px;border:none;background:none;cursor:pointer;font-weight:700;border-bottom:3px solid transparent;color:var(--text-muted);">${t('ভাউচার তালিকা','Voucher List')}</button>
+      <button type="button" id="sv3_TabPreviewBtn" style="flex:1;padding:10px;border:none;background:none;cursor:pointer;font-weight:700;border-bottom:3px solid transparent;color:var(--text-muted);">${t('লাইভ প্রিভিউ ভাউচার','Live Preview Voucher')}</button>
     </div>
 
     <div id="sv3_TabEntryPanel">
@@ -4769,10 +4741,6 @@ async function openSalesVoucherForm(defaultType, existingId) {
     </div>
 
     <div id="sv3_TabPreviewPanel" style="display:none;">
-      <h4 style="margin:0 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;">${t('ভাউচার তালিকা','Voucher List')}</h4>
-      <div id="sv3_VoucherListWrap" style="margin-bottom:20px;"><div class="empty-state">${t('লোড হচ্ছে...','Loading...')}</div></div>
-
-      <h4 style="margin:16px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('বর্তমান খসড়ার প্রিভিউ','Current Draft Preview')}</h4>
       <div style="display:flex;gap:8px;margin-bottom:16px;">
         <button type="button" class="btn btn-outline" style="width:auto;" id="sv3_LivePageSetupBtn">📄 ${t('পেজ সেটাপ','Page Setup')}</button>
         <button type="button" class="btn btn-primary" style="width:auto;" id="sv3_LivePrintBtn">🖨️ ${t('প্রিন্ট','Print')}</button>
@@ -4858,32 +4826,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
       previewBtn.style.borderBottomColor = 'var(--amber)'; previewBtn.style.color = 'var(--text)';
       entryBtn.style.borderBottomColor = 'transparent'; entryBtn.style.color = 'var(--text-muted)';
       renderFullPreview();
-      loadVoucherListTab();
     }
-  }
-
-  async function loadVoucherListTab() {
-    const wrap = document.getElementById('sv3_VoucherListWrap');
-    if (!wrap) return;
-    const [invoices, returns] = await Promise.all([
-      api('list', { sheet:'SalesInvoice' }), api('list', { sheet:'SalesReturn' })
-    ]);
-    const merged = invoices.filter(function (r) { return r.Status !== 'Deleted'; }).map(function (r) {
-      return { type:'SalesInvoice', typeLabel: t('বিক্রয়','Sale'), id:r.SIID, date:r.InvoiceDate, customerId:r.CustomerID, amount:r.TotalAmount };
-    }).concat(returns.filter(function (r) { return r.Status !== 'Deleted'; }).map(function (r) {
-      return { type:'SalesReturn', typeLabel: t('ফেরত','Return'), id:r.SRID, date:r.Date, customerId:r.CustomerID, amount:null };
-    })).sort(function (a, b) { return String(b.date || '').localeCompare(String(a.date || '')); }).slice(0, 30);
-
-    if (merged.length === 0) { wrap.innerHTML = `<div class="empty-state">${t('কোনো ভাউচার নেই।','No vouchers yet.')}</div>`; return; }
-    const rows = merged.map(function (r) {
-      const custName = r.customerId === 'CUS-CASH' ? t('নগদ','Cash') : ((window.__sv3CustomerMap[r.customerId] || {}).CompanyName || (window.__sv3CustomerMap[r.customerId] || {}).Name || r.customerId);
-      return `<tr>
-        <td>${escapeHtml(r.date || '')}</td><td>${escapeHtml(r.typeLabel)}</td><td>${escapeHtml(r.id)}</td><td>${escapeHtml(custName)}</td>
-        <td style="text-align:right;">${r.amount !== null ? Number(r.amount).toFixed(2) : '—'}</td>
-        <td><button type="button" class="btn btn-outline" style="width:auto;padding:4px 10px;font-size:11px;" onclick='openPrintableVoucherView(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})'>${t('প্রিভিউ','Preview')}</button></td>
-      </tr>`;
-    }).join('');
-    wrap.innerHTML = `<table class="data-table" style="font-size:12px;"><thead><tr><th>${t('তারিখ','Date')}</th><th>${t('ধরন','Type')}</th><th>${t('আইডি','ID')}</th><th>${t('গ্রাহক','Customer')}</th><th>${t('মূল্য','Amount')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
   }
 
   document.getElementById('sv3_TabEntryBtn').addEventListener('click', function () { showTab('entry'); });
