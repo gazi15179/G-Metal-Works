@@ -3927,17 +3927,6 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       <input type="hidden" id="pv3_SupplierBankName" value="">
       <input type="hidden" id="pv3_SupplierBankAccNo" value="">
 
-      <div style="display:flex;gap:8px;margin-bottom:10px;">
-        <div style="flex:2;"><label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">${t('ভাউঃ মোট ক্রয় — কেজি','Total Purchase — kg')}</label><input id="pv3_TotPurchaseKg" readonly style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);"></div>
-        <div style="flex:2;"><label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">${t('ভাউঃ মোট ক্রয় — পিস','Total Purchase — pcs')}</label><input id="pv3_TotPurchasePcs" readonly style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);"></div>
-        <div style="flex:1;"><label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">${t('মোট মূল্য','Total Amount')}</label><input id="pv3_TotPurchaseAmt" readonly style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);font-weight:700;"></div>
-      </div>
-      <div style="display:flex;gap:8px;margin-bottom:10px;">
-        <div style="flex:2;"><label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">${t('ভাউঃ মোট ক্রয় ফেরত — কেজি','Total Return — kg')}</label><input id="pv3_TotReturnKg" readonly style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);"></div>
-        <div style="flex:2;"><label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">${t('ভাউঃ মোট ক্রয় ফেরত — পিস','Total Return — pcs')}</label><input id="pv3_TotReturnPcs" readonly style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);"></div>
-        <div style="flex:1;"><label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">${t('মোট মূল্য','Total Amount')}</label><input id="pv3_TotReturnAmt" readonly style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);font-weight:700;"></div>
-      </div>
-      <div class="field"><label>${t('মোট টাকা (ক্রয় − ক্রয় ফেরত)','Net Amount (Purchase − Return)')}</label><input id="pv3_NetAmount" readonly style="background:var(--bg);font-weight:800;font-size:16px;"></div>
     </div>
 
     <div id="pv3_TabPreviewPanel" style="display:none;">
@@ -4348,20 +4337,6 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   function renderRightSummary() {
     document.getElementById('pv3_PreviewStockQty').value = window.__pv3LastStockQty;
     document.getElementById('pv3_PreviewStockRate').value = window.__pv3LastStockRate;
-
-    const purchTotals = kgPcsTotals(window.__pv3PurchaseLines);
-    const purchAmt = window.__pv3PurchaseLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
-    document.getElementById('pv3_TotPurchaseKg').value = purchTotals.kg + ' ' + t('কেজি','kg');
-    document.getElementById('pv3_TotPurchasePcs').value = purchTotals.pcs + ' ' + t('পিস','pcs');
-    document.getElementById('pv3_TotPurchaseAmt').value = purchAmt.toFixed(2);
-
-    const retTotals = kgPcsTotals(window.__pv3ReturnLines);
-    const retAmt = window.__pv3ReturnLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
-    document.getElementById('pv3_TotReturnKg').value = retTotals.kg + ' ' + t('কেজি','kg');
-    document.getElementById('pv3_TotReturnPcs').value = retTotals.pcs + ' ' + t('পিস','pcs');
-    document.getElementById('pv3_TotReturnAmt').value = retAmt.toFixed(2);
-
-    document.getElementById('pv3_NetAmount').value = '৳ ' + (purchAmt - retAmt).toFixed(2);
   }
 
   function miniLinesTable(lines, removeFnName) {
