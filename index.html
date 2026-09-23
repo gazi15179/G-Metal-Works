@@ -4147,15 +4147,19 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     togglePopOurBank();
 
     // ডেস্কটপে কীবোর্ড দিয়ে দ্রুত চলাচল: Enter = পরের ঘর, Escape = আগের ঘর
+    // document-এ capture-phase-এ শোনা হচ্ছে যাতে <select>-এর নিজস্ব কীবোর্ড
+    // আচরণ (কোনো কোনো ব্রাউজারে) মাঝপথে আটকে না দেয়; পপআপ বন্ধ হলে সরিয়ে ফেলা হয়
     function focusableFields() {
       return Array.from(overlay.querySelectorAll('[data-order]')).filter(function (el) { return el.offsetParent !== null; });
     }
-    overlay.addEventListener('keydown', function (e) {
+    function keyNavHandler(e) {
       if (e.key !== 'Enter' && e.key !== 'Escape') return;
+      if (!overlay.contains(document.activeElement)) return;
       const fields = focusableFields();
       const curIdx = fields.indexOf(document.activeElement);
       if (curIdx === -1) return;
       e.preventDefault();
+      e.stopPropagation();
       if (e.key === 'Enter') {
         const next = fields[curIdx + 1];
         if (next) { next.focus(); } else { document.getElementById('pv3_PopConfirm').click(); }
@@ -4163,14 +4167,19 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
         const prev = fields[curIdx - 1];
         if (prev) prev.focus(); else document.getElementById('pv3_PopCancel').click();
       }
-    });
+    }
+    document.addEventListener('keydown', keyNavHandler, true);
+    function closePopup() {
+      document.removeEventListener('keydown', keyNavHandler, true);
+      overlay.remove();
+    }
 
     document.getElementById('pv3_PopCancel').addEventListener('click', function () {
       document.getElementById('pv3_PayAmount').value = '';
       document.getElementById('pv3_BankPaidAmount').value = '';
       pv3BankPopupFilled = false;
       updateBankPaySummary();
-      overlay.remove();
+      closePopup();
     });
     document.getElementById('pv3_PopConfirm').addEventListener('click', function () {
       const method = val('pv3_PopMethod');
@@ -4183,9 +4192,9 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       document.getElementById('pv3_BankPaidNote').value = note;
       pv3BankPopupFilled = true;
       updateBankPaySummary();
-      overlay.remove();
+      closePopup();
     });
-    document.getElementById('pv3_PopMethod').focus();
+    setTimeout(function () { document.getElementById('pv3_PopMethod').focus(); }, 0);
   }
 
   function togglePayType() {
@@ -4374,39 +4383,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       <tbody>${rows}</tbody></table>`;
   }
 
-  function renderFullPreview() {
-    const wrap = document.getElementById('pv3_LivePreviewBody');
-    if (!wrap) return;
-    const supplierId = val('pv3_SupplierID');
-    const isCash = supplierId === 'SUP-CASH';
-    const supplierRec = window.__pv3SupplierMap[supplierId];
-    const supplierName = isCash ? ('নগদ' + (val('pv3_CashName') ? ' (' + val('pv3_CashName') + ')' : '')) : (supplierRec ? (supplierRec.CompanyName || supplierRec.Name) : '—');
-
-    wrap.innerHTML = `
-      <div style="text-align:center;border-bottom:2px solid var(--ink-900);padding-bottom:8px;margin-bottom:10px;">
-        <b style="font-family:'Oswald',sans-serif;font-size:15px;">জি মেটাল ওয়ার্কস</b>
-        <div style="font-size:11px;color:var(--text-muted);">${t('ক্রয় ভাউচার','Purchase Voucher')}</div>
-      </div>
-      <div style="margin-bottom:8px;">
-        <div><b>${t('তারিখ','Date')}:</b> ${escapeHtml(val('pv3_Date'))}</div>
-        <div><b>${t('সাপ্লায়ার','Supplier')}:</b> ${escapeHtml(supplierName)}</div>
-      </div>
-      <div style="font-weight:700;font-size:12px;margin:10px 0 4px;">${t('ক্রয়কৃত পণ্য','Purchased Items')}</div>
-      ${miniLinesTable(window.__pv3PurchaseLines, 'window.__pv3RemovePurchaseLine', true)}
-      <div style="font-weight:700;font-size:12px;margin:14px 0 4px;">${t('ক্রয় ফেরত পণ্য','Returned Items')}</div>
-      ${miniLinesTable(window.__pv3ReturnLines, 'window.__pv3RemoveReturnLine', true)}
-      <div style="display:flex;justify-content:space-between;margin-top:40px;font-size:11px;text-align:center;">
-        <div style="width:31%;"><div style="border-top:1px solid #333;padding-top:4px;">${t('বিক্রেতার স্বাঃ','Seller Sign')}</div></div>
-        <div style="width:31%;"><div style="border-top:1px solid #333;padding-top:4px;">${t('অথরাইজেশন স্বাঃ','Authorization')}<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div></div>
-        <div style="width:31%;"><div style="border-top:1px solid #333;padding-top:4px;">${t('ক্রয়কারী স্বাঃ','Purchaser Sign')}<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div></div>
-      </div>`;
-  }
-
-  async function openLivePrintOrShare(action) {
-    if (window.__pv3PurchaseLines.length === 0 && window.__pv3ReturnLines.length === 0) {
-      showToast(t('প্রিন্ট করার জন্য অন্তত একটা লাইন যোগ করুন।','Add at least one line to print.'), 'error');
-      return;
-    }
+  async function buildDraftPrintHtml() {
     const supplierId = val('pv3_SupplierID');
     const isCash = supplierId === 'SUP-CASH';
     const supplierRec = window.__pv3SupplierMap[supplierId];
@@ -4422,10 +4399,10 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       }).join('');
     }
 
-    const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><title>ক্রয় ভাউচার (খসড়া প্রিভিউ)</title>
+    return `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><title>ক্রয় ভাউচার (খসড়া প্রিভিউ)</title>
 <link href="https://fonts.googleapis.com/css2?family=Anek+Bangla:wght@400;500;600;700&family=Oswald:wght@600;700&display=swap" rel="stylesheet">
 <style>
-  body{font-family:'Anek Bangla',sans-serif;color:#1b1f27;max-width:800px;margin:30px auto;padding:0 20px;}
+  body{font-family:'Anek Bangla',sans-serif;color:#1b1f27;max-width:800px;margin:20px auto;padding:0 20px;}
   h1{font-family:'Oswald',sans-serif;font-size:20px;text-align:center;margin:0 0 4px;}
   .sub{text-align:center;color:#888;font-size:12px;margin-bottom:16px;}
   table{width:100%;border-collapse:collapse;margin:8px 0;}
@@ -4434,11 +4411,8 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   .totalline{text-align:right;font-weight:700;margin:6px 0;}
   .sign-row{display:flex;justify-content:space-between;margin-top:60px;text-align:center;font-size:12px;}
   .sign-row div{width:31%;border-top:1px solid #333;padding-top:6px;}
-  .toolbar{margin-bottom:16px;} .toolbar button{padding:8px 16px;border-radius:8px;border:1px solid #1a2029;background:#1a2029;color:#f2a33c;font-size:13px;cursor:pointer;}
   @page { size: A5; margin: 10mm; }
-  @media print{.toolbar{display:none;}}
 </style></head><body>
-  <div class="toolbar"><button onclick="window.print()">🖨️ প্রিন্ট করুন</button></div>
   <h1>${escapeHtml(company.CompanyName || 'জি মেটাল ওয়ার্কস')}</h1>
   <div class="sub">ক্রয় ভাউচার (খসড়া — এখনো সেভ হয়নি) — তারিখ: ${escapeHtml(val('pv3_Date'))} — সাপ্লায়ার: ${escapeHtml(supplierName)}</div>
   ${window.__pv3PurchaseLines.length > 0 ? `<h3>ক্রয়কৃত পণ্য</h3><table><thead><tr><th>আইটেম</th><th>পরিমাণ</th><th>দর</th><th>মূল্য</th></tr></thead><tbody>${tableRows(window.__pv3PurchaseLines)}</tbody></table><div class="totalline">মোট ক্রয়: ৳ ${purchaseTotal.toFixed(2)}</div>` : ''}
@@ -4446,18 +4420,43 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   <div class="totalline" style="font-size:15px;border-top:2px solid #1a2029;padding-top:8px;">নিট মোট: ৳ ${(purchaseTotal - returnTotal).toFixed(2)}</div>
   <div class="sign-row"><div>বিক্রেতার স্বাঃ</div><div>অথরাইজেশন স্বাঃ<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div><div>ক্রয়কারী স্বাঃ<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div></div>
 </body></html>`;
+  }
 
-    const win = window.open('', '_blank');
-    if (!win) { showToast(t('পপ-আপ ব্লক হয়েছে — এই সাইটের জন্য পপ-আপ অনুমতি দিন।','Pop-up was blocked — please allow pop-ups for this site.'), 'error'); return; }
-    win.document.write(html);
-    win.document.close();
-    if (action === 'share' && win.navigator && win.navigator.share) {
-      try { await win.navigator.share({ title: 'ক্রয় ভাউচার', text: 'নিট মোট: ৳ ' + (purchaseTotal - returnTotal).toFixed(2) }); } catch (e) {}
+  async function renderFullPreview() {
+    const wrap = document.getElementById('pv3_LivePreviewBody');
+    if (!wrap) return;
+    if (window.__pv3PurchaseLines.length === 0 && window.__pv3ReturnLines.length === 0) {
+      wrap.innerHTML = `<div class="empty-state">${t('অন্তত একটা লাইন যোগ করলে প্রিভিউ দেখা যাবে।','Add at least one line to see the preview.')}</div>`;
+      return;
+    }
+    const html = await buildDraftPrintHtml();
+    wrap.innerHTML = `<iframe id="pv3_PreviewFrame" style="width:100%;height:70vh;border:1px solid var(--border);border-radius:8px;background:#fff;" srcdoc="${attr(html)}"></iframe>`;
+  }
+
+  function printDraftFrame() {
+    const frame = document.getElementById('pv3_PreviewFrame');
+    if (!frame || !frame.contentWindow) { showToast(t('প্রিন্ট করার জন্য অন্তত একটা লাইন যোগ করুন।','Add at least one line to print.'), 'error'); return; }
+    frame.contentWindow.focus();
+    frame.contentWindow.print();
+  }
+  async function shareDraft() {
+    if (window.__pv3PurchaseLines.length === 0 && window.__pv3ReturnLines.length === 0) {
+      showToast(t('শেয়ার করার জন্য অন্তত একটা লাইন যোগ করুন।','Add at least one line to share.'), 'error');
+      return;
+    }
+    const purchaseTotal = window.__pv3PurchaseLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
+    const returnTotal = window.__pv3ReturnLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
+    const text = 'ক্রয় ভাউচার — নিট মোট: ৳ ' + (purchaseTotal - returnTotal).toFixed(2);
+    if (navigator.share) {
+      try { await navigator.share({ title: 'ক্রয় ভাউচার', text: text }); } catch (e) {}
+    } else if (navigator.clipboard) {
+      await navigator.clipboard.writeText(text);
+      showToast(t('তথ্য ক্লিপবোর্ডে কপি হয়েছে।','Copied to clipboard.'), 'success');
     }
   }
-  document.getElementById('pv3_LivePageSetupBtn').addEventListener('click', function () { openLivePrintOrShare('print'); });
-  document.getElementById('pv3_LivePrintBtn').addEventListener('click', function () { openLivePrintOrShare('print'); });
-  document.getElementById('pv3_LiveShareBtn').addEventListener('click', function () { openLivePrintOrShare('share'); });
+  document.getElementById('pv3_LivePageSetupBtn').addEventListener('click', printDraftFrame);
+  document.getElementById('pv3_LivePrintBtn').addEventListener('click', printDraftFrame);
+  document.getElementById('pv3_LiveShareBtn').addEventListener('click', shareDraft);
 
   renderRightSummary();
   showTab('entry');
@@ -4647,12 +4646,18 @@ async function openSalesVoucherForm(defaultType, existingId) {
           <tr>
             <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('ভাউঃ তারিখঃ','Vou. Date:')}</td>
             <td style="padding:4px;border:1px solid var(--border);"><input type="date" id="sv3_Date" value="${attr(rec.InvoiceDate || rec.Date) || new Date().toISOString().slice(0,10)}" style="width:100%;"></td>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('গ্রাহক নামঃ','Customer:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><select id="sv3_CustomerID" style="width:100%;"><option value="">—</option>${customers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.CustomerID)}" ${rec.CustomerID===r.CustomerID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select></td>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;"><input type="checkbox" id="sv3_ManualDateCheck" style="width:auto;vertical-align:middle;" ${rec.ManualVoucherDate?'checked':''}> ${t('নিঃ তারিখঃ','Manual Vou. Date:')}</td>
+            <td style="padding:4px;border:1px solid var(--border);"><input type="date" id="sv3_ManualVoucherDate" value="${attr(rec.ManualVoucherDate)}" style="width:100%;" ${rec.ManualVoucherDate?'':'disabled'}></td>
           </tr>
           <tr>
             <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('ভাউঃ নম্বরঃ','Vou. No:')}</td>
             <td style="padding:4px;border:1px solid var(--border);"><input id="sv3_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো তৈরি হবে','Auto')}" readonly style="width:100%;background:var(--bg);"></td>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;"><input type="checkbox" id="sv3_ManualNoCheck" style="width:auto;vertical-align:middle;" ${rec.ManualVoucherNo?'checked':''}> ${t('নিঃ নম্বরঃ','Manual Vou. No:')}</td>
+            <td style="padding:4px;border:1px solid var(--border);"><input id="sv3_ManualVoucherNo" value="${attr(rec.ManualVoucherNo)}" style="width:100%;" ${rec.ManualVoucherNo?'':'disabled'}></td>
+          </tr>
+          <tr>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('গ্রাহক নামঃ','Customer:')}</td>
+            <td style="padding:4px;border:1px solid var(--border);"><select id="sv3_CustomerID" style="width:100%;"><option value="">—</option>${customers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.CustomerID)}" ${rec.CustomerID===r.CustomerID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select></td>
             <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('গ্রাহক হিসাবঃ','Cust. Balance:')}</td>
             <td style="padding:4px;border:1px solid var(--border);"><input id="sv3_CustomerBalance" readonly style="width:100%;background:var(--bg);font-weight:700;"></td>
           </tr>
@@ -4775,6 +4780,8 @@ async function openSalesVoucherForm(defaultType, existingId) {
         const totalAmount = lineData.reduce(function (s, l) { return s + (Number(l.Amount) || 0); }, 0);
         const headerData = Object.assign({}, common, {
           InvoiceDate: val('sv3_Date'), WarehouseID: warehouseId, TotalAmount: totalAmount,
+          ManualVoucherDate: document.getElementById('sv3_ManualDateCheck').checked ? (val('sv3_ManualVoucherDate') || null) : null,
+          ManualVoucherNo: document.getElementById('sv3_ManualNoCheck').checked ? (val('sv3_ManualVoucherNo') || null) : null,
           WalkInPartyName: isCash ? (val('sv3_CashName') || null) : null,
           WalkInPartyAddress: isCash ? (val('sv3_CashAddress') || null) : null,
           WalkInPartyMobile: isCash ? (val('sv3_CashMobile') || null) : null
@@ -4828,6 +4835,17 @@ async function openSalesVoucherForm(defaultType, existingId) {
       renderFullPreview();
     }
   }
+
+  function wireRevealCheckbox(checkId, fieldId) {
+    const check = document.getElementById(checkId), field = document.getElementById(fieldId);
+    function sync() {
+      field.disabled = !check.checked;
+      if (!check.checked) field.value = '';
+    }
+    check.addEventListener('change', sync);
+  }
+  wireRevealCheckbox('sv3_ManualDateCheck', 'sv3_ManualVoucherDate');
+  wireRevealCheckbox('sv3_ManualNoCheck', 'sv3_ManualVoucherNo');
 
   document.getElementById('sv3_TabEntryBtn').addEventListener('click', function () { showTab('entry'); });
   document.getElementById('sv3_TabPreviewBtn').addEventListener('click', function () { showTab('preview'); });
@@ -4897,12 +4915,14 @@ async function openSalesVoucherForm(defaultType, existingId) {
     function focusableFields() {
       return Array.from(overlay.querySelectorAll('[data-order]')).filter(function (el) { return el.offsetParent !== null; });
     }
-    overlay.addEventListener('keydown', function (e) {
+    function keyNavHandler(e) {
       if (e.key !== 'Enter' && e.key !== 'Escape') return;
+      if (!overlay.contains(document.activeElement)) return;
       const fields = focusableFields();
       const curIdx = fields.indexOf(document.activeElement);
       if (curIdx === -1) return;
       e.preventDefault();
+      e.stopPropagation();
       if (e.key === 'Enter') {
         const next = fields[curIdx + 1];
         if (next) { next.focus(); } else { document.getElementById('sv3_PopConfirm').click(); }
@@ -4910,14 +4930,19 @@ async function openSalesVoucherForm(defaultType, existingId) {
         const prev = fields[curIdx - 1];
         if (prev) prev.focus(); else document.getElementById('sv3_PopCancel').click();
       }
-    });
+    }
+    document.addEventListener('keydown', keyNavHandler, true);
+    function closePopup() {
+      document.removeEventListener('keydown', keyNavHandler, true);
+      overlay.remove();
+    }
 
     document.getElementById('sv3_PopCancel').addEventListener('click', function () {
       document.getElementById('sv3_RecAmount').value = '';
       document.getElementById('sv3_BankReceivedAmount').value = '';
       sv3BankPopupFilled = false;
       updateBankRecSummary();
-      overlay.remove();
+      closePopup();
     });
     document.getElementById('sv3_PopConfirm').addEventListener('click', function () {
       const ourBank = val('sv3_PopBankAcc');
@@ -4928,9 +4953,9 @@ async function openSalesVoucherForm(defaultType, existingId) {
       document.getElementById('sv3_BankReceivedNote').value = note;
       sv3BankPopupFilled = true;
       updateBankRecSummary();
-      overlay.remove();
+      closePopup();
     });
-    document.getElementById('sv3_PopBankAcc').focus();
+    setTimeout(function () { document.getElementById('sv3_PopBankAcc').focus(); }, 0);
   }
 
   function toggleRecType() {
@@ -5109,39 +5134,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
       <tbody>${rows}</tbody></table>`;
   }
 
-  function renderFullPreview() {
-    const wrap = document.getElementById('sv3_LivePreviewBody');
-    if (!wrap) return;
-    const customerId = val('sv3_CustomerID');
-    const isCash = customerId === 'CUS-CASH';
-    const custRec = window.__sv3CustomerMap[customerId];
-    const custName = isCash ? ('নগদ' + (val('sv3_CashName') ? ' (' + val('sv3_CashName') + ')' : '')) : (custRec ? (custRec.CompanyName || custRec.Name) : '—');
-
-    wrap.innerHTML = `
-      <div style="text-align:center;border-bottom:2px solid var(--ink-900);padding-bottom:8px;margin-bottom:10px;">
-        <b style="font-family:'Oswald',sans-serif;font-size:15px;">জি মেটাল ওয়ার্কস</b>
-        <div style="font-size:11px;color:var(--text-muted);">${t('বিক্রয় ভাউচার','Sales Voucher')}</div>
-      </div>
-      <div style="margin-bottom:8px;">
-        <div><b>${t('তারিখ','Date')}:</b> ${escapeHtml(val('sv3_Date'))}</div>
-        <div><b>${t('গ্রাহক','Customer')}:</b> ${escapeHtml(custName)}</div>
-      </div>
-      <div style="font-weight:700;font-size:12px;margin:10px 0 4px;">${t('বিক্রীত পণ্য','Sold Items')}</div>
-      ${miniLinesTable(window.__sv3SaleLines, 'window.__sv3RemoveSaleLine', true)}
-      <div style="font-weight:700;font-size:12px;margin:14px 0 4px;">${t('ফেরত পণ্য','Returned Items')}</div>
-      ${miniLinesTable(window.__sv3ReturnLines, 'window.__sv3RemoveReturnLine', true)}
-      <div style="display:flex;justify-content:space-between;margin-top:40px;font-size:11px;text-align:center;">
-        <div style="width:31%;"><div style="border-top:1px solid #333;padding-top:4px;">${t('ক্রেতার স্বাঃ','Buyer Sign')}</div></div>
-        <div style="width:31%;"><div style="border-top:1px solid #333;padding-top:4px;">${t('অথরাইজেশন স্বাঃ','Authorization')}<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div></div>
-        <div style="width:31%;"><div style="border-top:1px solid #333;padding-top:4px;">${t('বিক্রয়কারী স্বাঃ','Salesperson Sign')}<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div></div>
-      </div>`;
-  }
-
-  async function openLivePrintOrShare(action) {
-    if (window.__sv3SaleLines.length === 0 && window.__sv3ReturnLines.length === 0) {
-      showToast(t('প্রিন্ট করার জন্য অন্তত একটা লাইন যোগ করুন।','Add at least one line to print.'), 'error');
-      return;
-    }
+  async function buildDraftPrintHtml() {
     const customerId = val('sv3_CustomerID');
     const isCash = customerId === 'CUS-CASH';
     const custRec = window.__sv3CustomerMap[customerId];
@@ -5157,10 +5150,10 @@ async function openSalesVoucherForm(defaultType, existingId) {
       }).join('');
     }
 
-    const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><title>বিক্রয় ভাউচার (খসড়া প্রিভিউ)</title>
+    return `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><title>বিক্রয় ভাউচার (খসড়া প্রিভিউ)</title>
 <link href="https://fonts.googleapis.com/css2?family=Anek+Bangla:wght@400;500;600;700&family=Oswald:wght@600;700&display=swap" rel="stylesheet">
 <style>
-  body{font-family:'Anek Bangla',sans-serif;color:#1b1f27;max-width:800px;margin:30px auto;padding:0 20px;}
+  body{font-family:'Anek Bangla',sans-serif;color:#1b1f27;max-width:800px;margin:20px auto;padding:0 20px;}
   h1{font-family:'Oswald',sans-serif;font-size:20px;text-align:center;margin:0 0 4px;}
   .sub{text-align:center;color:#888;font-size:12px;margin-bottom:16px;}
   table{width:100%;border-collapse:collapse;margin:8px 0;}
@@ -5169,11 +5162,8 @@ async function openSalesVoucherForm(defaultType, existingId) {
   .totalline{text-align:right;font-weight:700;margin:6px 0;}
   .sign-row{display:flex;justify-content:space-between;margin-top:60px;text-align:center;font-size:12px;}
   .sign-row div{width:31%;border-top:1px solid #333;padding-top:6px;}
-  .toolbar{margin-bottom:16px;} .toolbar button{padding:8px 16px;border-radius:8px;border:1px solid #1a2029;background:#1a2029;color:#f2a33c;font-size:13px;cursor:pointer;}
   @page { size: A5; margin: 10mm; }
-  @media print{.toolbar{display:none;}}
 </style></head><body>
-  <div class="toolbar"><button onclick="window.print()">🖨️ প্রিন্ট করুন</button></div>
   <h1>${escapeHtml(company.CompanyName || 'জি মেটাল ওয়ার্কস')}</h1>
   <div class="sub">বিক্রয় ভাউচার (খসড়া — এখনো সেভ হয়নি) — তারিখ: ${escapeHtml(val('sv3_Date'))} — গ্রাহক: ${escapeHtml(custName)}</div>
   ${window.__sv3SaleLines.length > 0 ? `<h3>বিক্রীত পণ্য</h3><table><thead><tr><th>আইটেম</th><th>পরিমাণ</th><th>দর</th><th>মূল্য</th></tr></thead><tbody>${tableRows(window.__sv3SaleLines)}</tbody></table><div class="totalline">মোট বিক্রয়: ৳ ${saleTotal.toFixed(2)}</div>` : ''}
@@ -5181,18 +5171,43 @@ async function openSalesVoucherForm(defaultType, existingId) {
   <div class="totalline" style="font-size:15px;border-top:2px solid #1a2029;padding-top:8px;">নিট মোট: ৳ ${(saleTotal - returnTotal).toFixed(2)}</div>
   <div class="sign-row"><div>ক্রেতার স্বাঃ</div><div>অথরাইজেশন স্বাঃ<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div><div>বিক্রয়কারী স্বাঃ<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div></div>
 </body></html>`;
+  }
 
-    const win = window.open('', '_blank');
-    if (!win) { showToast(t('পপ-আপ ব্লক হয়েছে — এই সাইটের জন্য পপ-আপ অনুমতি দিন।','Pop-up was blocked — please allow pop-ups for this site.'), 'error'); return; }
-    win.document.write(html);
-    win.document.close();
-    if (action === 'share' && win.navigator && win.navigator.share) {
-      try { await win.navigator.share({ title: 'বিক্রয় ভাউচার', text: 'নিট মোট: ৳ ' + (saleTotal - returnTotal).toFixed(2) }); } catch (e) {}
+  async function renderFullPreview() {
+    const wrap = document.getElementById('sv3_LivePreviewBody');
+    if (!wrap) return;
+    if (window.__sv3SaleLines.length === 0 && window.__sv3ReturnLines.length === 0) {
+      wrap.innerHTML = `<div class="empty-state">${t('অন্তত একটা লাইন যোগ করলে প্রিভিউ দেখা যাবে।','Add at least one line to see the preview.')}</div>`;
+      return;
+    }
+    const html = await buildDraftPrintHtml();
+    wrap.innerHTML = `<iframe id="sv3_PreviewFrame" style="width:100%;height:70vh;border:1px solid var(--border);border-radius:8px;background:#fff;" srcdoc="${attr(html)}"></iframe>`;
+  }
+
+  function printDraftFrame() {
+    const frame = document.getElementById('sv3_PreviewFrame');
+    if (!frame || !frame.contentWindow) { showToast(t('প্রিন্ট করার জন্য অন্তত একটা লাইন যোগ করুন।','Add at least one line to print.'), 'error'); return; }
+    frame.contentWindow.focus();
+    frame.contentWindow.print();
+  }
+  async function shareDraft() {
+    if (window.__sv3SaleLines.length === 0 && window.__sv3ReturnLines.length === 0) {
+      showToast(t('শেয়ার করার জন্য অন্তত একটা লাইন যোগ করুন।','Add at least one line to share.'), 'error');
+      return;
+    }
+    const saleTotal = window.__sv3SaleLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
+    const returnTotal = window.__sv3ReturnLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
+    const text = 'বিক্রয় ভাউচার — নিট মোট: ৳ ' + (saleTotal - returnTotal).toFixed(2);
+    if (navigator.share) {
+      try { await navigator.share({ title: 'বিক্রয় ভাউচার', text: text }); } catch (e) {}
+    } else if (navigator.clipboard) {
+      await navigator.clipboard.writeText(text);
+      showToast(t('তথ্য ক্লিপবোর্ডে কপি হয়েছে।','Copied to clipboard.'), 'success');
     }
   }
-  document.getElementById('sv3_LivePageSetupBtn').addEventListener('click', function () { openLivePrintOrShare('print'); });
-  document.getElementById('sv3_LivePrintBtn').addEventListener('click', function () { openLivePrintOrShare('print'); });
-  document.getElementById('sv3_LiveShareBtn').addEventListener('click', function () { openLivePrintOrShare('share'); });
+  document.getElementById('sv3_LivePageSetupBtn').addEventListener('click', printDraftFrame);
+  document.getElementById('sv3_LivePrintBtn').addEventListener('click', printDraftFrame);
+  document.getElementById('sv3_LiveShareBtn').addEventListener('click', shareDraft);
 
   renderRightSummary();
   showTab('entry');
