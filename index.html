@@ -3664,6 +3664,7 @@ async function openPrintableVoucherView(docType, docId) {
   .sign-block{width:31%;text-align:center;}
   .sign-line{border-top:1px solid #333;margin-bottom:6px;}
   .sign-block p{margin:2px 0;font-size:12.5px;}
+  @page { size: A5; margin: 10mm; }
   @media print { .toolbar{display:none;} body{margin:0;} }
   @media (max-width:700px) {
     body{margin:14px auto;padding:0 10px;}
@@ -3812,7 +3813,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   const bodyHtml = `
     <div style="display:flex;border-bottom:2px solid var(--border);margin-bottom:16px;">
       <button type="button" id="pv3_TabEntryBtn" style="flex:1;padding:10px;border:none;background:none;cursor:pointer;font-weight:700;border-bottom:3px solid var(--amber);color:var(--text);">${t('ক্রয় ভাউচার','Purchase Voucher')}</button>
-      <button type="button" id="pv3_TabPreviewBtn" style="flex:1;padding:10px;border:none;background:none;cursor:pointer;font-weight:700;border-bottom:3px solid transparent;color:var(--text-muted);">${t('লাইভ প্রিভিউ ভাউচার','Live Preview Voucher')}</button>
+      <button type="button" id="pv3_TabPreviewBtn" style="flex:1;padding:10px;border:none;background:none;cursor:pointer;font-weight:700;border-bottom:3px solid transparent;color:var(--text-muted);">${t('ভাউচার তালিকা','Voucher List')}</button>
     </div>
 
     <div id="pv3_TabEntryPanel">
@@ -3894,6 +3895,12 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
         <div class="field"><label>${t('মোবাইল','Mobile')}</label><input id="pv3_CashMobile" value="${attr(rec.WalkInPartyMobile)}"></div>
       </div>
 
+      <div class="field" style="display:flex;align-items:center;gap:8px;border-top:1px solid var(--border);padding-top:14px;">
+        <input type="checkbox" id="pv3_CommCheck" style="width:auto;">
+        <label style="margin:0;flex:1;">${t('কমিঃ (কমিশন)','Comm. (Commission)')}</label>
+        <input id="pv3_CommAmount" type="number" step="any" style="flex:2;" placeholder="৳" disabled>
+      </div>
+
       <h4 style="margin:16px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('নগদ ও ব্যাংক হিসাব','Cash & Bank Account')}</h4>
       <table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:14px;">
         <tbody>
@@ -3934,7 +3941,12 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     </div>
 
     <div id="pv3_TabPreviewPanel" style="display:none;">
+      <h4 style="margin:0 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;">${t('ভাউচার তালিকা','Voucher List')}</h4>
+      <div id="pv3_VoucherListWrap" style="margin-bottom:20px;"><div class="empty-state">${t('লোড হচ্ছে...','Loading...')}</div></div>
+
+      <h4 style="margin:16px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('বর্তমান খসড়ার প্রিভিউ','Current Draft Preview')}</h4>
       <div style="display:flex;gap:8px;margin-bottom:16px;">
+        <button type="button" class="btn btn-outline" style="width:auto;" id="pv3_LivePageSetupBtn">📄 ${t('পেজ সেটাপ','Page Setup')}</button>
         <button type="button" class="btn btn-primary" style="width:auto;" id="pv3_LivePrintBtn">🖨️ ${t('প্রিন্ট','Print')}</button>
         <button type="button" class="btn btn-outline" style="width:auto;" id="pv3_LiveShareBtn">🔗 ${t('শেয়ার','Share')}</button>
       </div>
@@ -3971,7 +3983,8 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
           InvoiceDate: val('pv3_Date'), WarehouseID: warehouseId, TotalAmount: totalAmount,
           WalkInPartyName: isCash ? (val('pv3_CashName') || null) : null,
           WalkInPartyAddress: isCash ? (val('pv3_CashAddress') || null) : null,
-          WalkInPartyMobile: isCash ? (val('pv3_CashMobile') || null) : null
+          WalkInPartyMobile: isCash ? (val('pv3_CashMobile') || null) : null,
+          CommissionAmount: document.getElementById('pv3_CommCheck').checked ? (Number(val('pv3_CommAmount')) || 0) : null
         });
         // এই মুহূর্তে শুধু পেমেন্টের তথ্য হেডারে সেভ হচ্ছে — আসল লেজার/ব্যাংক-বই পোস্টিং
         // ঘটবে ভাউচারটা "পোস্ট করুন" চাপার সময়, যাতে ড্রাফট অবস্থায় হিসাব না বসে
@@ -4031,7 +4044,32 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       previewBtn.style.borderBottomColor = 'var(--amber)'; previewBtn.style.color = 'var(--text)';
       entryBtn.style.borderBottomColor = 'transparent'; entryBtn.style.color = 'var(--text-muted)';
       renderFullPreview();
+      loadVoucherListTab();
     }
+  }
+
+  async function loadVoucherListTab() {
+    const wrap = document.getElementById('pv3_VoucherListWrap');
+    if (!wrap) return;
+    const [invoices, returns] = await Promise.all([
+      api('list', { sheet:'PurchaseInvoice' }), api('list', { sheet:'PurchaseReturn' })
+    ]);
+    const merged = invoices.filter(function (r) { return r.Status !== 'Deleted'; }).map(function (r) {
+      return { type:'PurchaseInvoice', typeLabel: t('ক্রয়','Purchase'), id:r.PIID, date:r.InvoiceDate, supplierId:r.SupplierID, amount:r.TotalAmount };
+    }).concat(returns.filter(function (r) { return r.Status !== 'Deleted'; }).map(function (r) {
+      return { type:'PurchaseReturn', typeLabel: t('ফেরত','Return'), id:r.PRetID, date:r.Date, supplierId:r.SupplierID, amount:null };
+    })).sort(function (a, b) { return String(b.date || '').localeCompare(String(a.date || '')); }).slice(0, 30);
+
+    if (merged.length === 0) { wrap.innerHTML = `<div class="empty-state">${t('কোনো ভাউচার নেই।','No vouchers yet.')}</div>`; return; }
+    const rows = merged.map(function (r) {
+      const supName = r.supplierId === 'SUP-CASH' ? t('নগদ','Cash') : ((window.__pv3SupplierMap[r.supplierId] || {}).CompanyName || (window.__pv3SupplierMap[r.supplierId] || {}).Name || r.supplierId);
+      return `<tr>
+        <td>${escapeHtml(r.date || '')}</td><td>${escapeHtml(r.typeLabel)}</td><td>${escapeHtml(r.id)}</td><td>${escapeHtml(supName)}</td>
+        <td style="text-align:right;">${r.amount !== null ? Number(r.amount).toFixed(2) : '—'}</td>
+        <td><button type="button" class="btn btn-outline" style="width:auto;padding:4px 10px;font-size:11px;" onclick='openPrintableVoucherView(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})'>${t('প্রিভিউ','Preview')}</button></td>
+      </tr>`;
+    }).join('');
+    wrap.innerHTML = `<table class="data-table" style="font-size:12px;"><thead><tr><th>${t('তারিখ','Date')}</th><th>${t('ধরন','Type')}</th><th>${t('আইডি','ID')}</th><th>${t('সাপ্লায়ার','Supplier')}</th><th>${t('মূল্য','Amount')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
   }
   function wireRevealCheckbox(checkId, fieldId) {
     const check = document.getElementById(checkId), field = document.getElementById(fieldId);
@@ -4043,6 +4081,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   }
   wireRevealCheckbox('pv3_SNDateCheck', 'pv3_SupplierInvoiceDate');
   wireRevealCheckbox('pv3_SNNoCheck', 'pv3_SupplierInvoiceNo');
+  wireRevealCheckbox('pv3_CommCheck', 'pv3_CommAmount');
 
   document.getElementById('pv3_TabEntryBtn').addEventListener('click', function () { showTab('entry'); });
   document.getElementById('pv3_TabPreviewBtn').addEventListener('click', function () { showTab('preview'); });
@@ -4401,6 +4440,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   .sign-row{display:flex;justify-content:space-between;margin-top:60px;text-align:center;font-size:12px;}
   .sign-row div{width:31%;border-top:1px solid #333;padding-top:6px;}
   .toolbar{margin-bottom:16px;} .toolbar button{padding:8px 16px;border-radius:8px;border:1px solid #1a2029;background:#1a2029;color:#f2a33c;font-size:13px;cursor:pointer;}
+  @page { size: A5; margin: 10mm; }
   @media print{.toolbar{display:none;}}
 </style></head><body>
   <div class="toolbar"><button onclick="window.print()">🖨️ প্রিন্ট করুন</button></div>
@@ -4420,6 +4460,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       try { await win.navigator.share({ title: 'ক্রয় ভাউচার', text: 'নিট মোট: ৳ ' + (purchaseTotal - returnTotal).toFixed(2) }); } catch (e) {}
     }
   }
+  document.getElementById('pv3_LivePageSetupBtn').addEventListener('click', function () { openLivePrintOrShare('print'); });
   document.getElementById('pv3_LivePrintBtn').addEventListener('click', function () { openLivePrintOrShare('print'); });
   document.getElementById('pv3_LiveShareBtn').addEventListener('click', function () { openLivePrintOrShare('share'); });
 
