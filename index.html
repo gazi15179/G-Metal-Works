@@ -3798,10 +3798,18 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   const rec = existingHeader || {};
 
   window.__pv3PurchaseLines = (isEdit && existingDocType === 'PurchaseInvoice')
-    ? existingLines.map(function (l) { return { itemId: l.ItemID, warehouseId: rec.WarehouseID, qty: Number(l.Quantity)||0, rate: Number(l.Rate)||0, amount: Math.round((Number(l.Quantity)||0) * (Number(l.Rate)||0)) }; })
+    ? existingLines.map(function (l) {
+        const amt = Math.round((Number(l.Quantity)||0) * (Number(l.Rate)||0));
+        const commAmt = Number(l.CommissionAmount) || 0;
+        return { itemId: l.ItemID, warehouseId: rec.WarehouseID, qty: Number(l.Quantity)||0, rate: Number(l.Rate)||0, amount: amt, commRate: Number(l.CommissionRate)||0, commAmount: commAmt, netAmount: l.NetAmount !== null && l.NetAmount !== undefined ? Number(l.NetAmount) : (amt - commAmt) };
+      })
     : [];
   window.__pv3ReturnLines = (isEdit && existingDocType === 'PurchaseReturn')
-    ? existingLines.map(function (l) { return { itemId: l.ItemID, warehouseId: rec.WarehouseID, qty: Number(l.Quantity)||0, rate: Number(l.Rate)||0, amount: Math.round((Number(l.Quantity)||0) * (Number(l.Rate)||0)) }; })
+    ? existingLines.map(function (l) {
+        const amt = Math.round((Number(l.Quantity)||0) * (Number(l.Rate)||0));
+        const commAmt = Number(l.CommissionAmount) || 0;
+        return { itemId: l.ItemID, warehouseId: rec.WarehouseID, qty: Number(l.Quantity)||0, rate: Number(l.Rate)||0, amount: amt, commRate: Number(l.CommissionRate)||0, commAmount: commAmt, netAmount: l.NetAmount !== null && l.NetAmount !== undefined ? Number(l.NetAmount) : (amt - commAmt) };
+      })
     : [];
   window.__pv3LastStockQty = '';
   window.__pv3LastStockRate = '';
@@ -3886,6 +3894,17 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
               <button type="button" id="pv3_AddReturnLineBtn" style="width:100%;background:none;border:none;color:var(--amber);font-weight:700;cursor:pointer;padding:4px;font-size:11px;">+ ${t('ক্রয় ফেরত লাইন যোগ','Add Purchase Return Line')}</button>
             </td>
           </tr>
+          <tr>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;"><input type="checkbox" id="pv3_CommCheck" style="width:auto;vertical-align:middle;"> ${t('কমিঃ (%)ঃ','Comm. (%):')}</td>
+            <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_CommRate" type="number" step="any" style="width:100%;" placeholder="0" disabled></td>
+            <td colspan="2" style="padding:4px 8px;border:1px solid var(--border);font-size:10.5px;color:var(--text-muted);">${t('টিক দিলে তবেই এই আইটেমে কমিশন হিসাব হবে','Only checked lines get commission applied')}</td>
+          </tr>
+          <tr id="pv3_CommResultRow" style="display:none;">
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('(-)কমিঃঃ','(-) Comm.:')}</td>
+            <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_CommAmount" readonly style="width:100%;background:var(--bg);"></td>
+            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('নিট মূল্যঃ','Net Amount:')}</td>
+            <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_NetLineAmount" readonly style="width:100%;background:var(--bg);font-weight:700;"></td>
+          </tr>
         </tbody>
       </table>
 
@@ -3893,12 +3912,6 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
         <div class="field"><label>${t('নগদ পার্টির আসল নাম','Actual Cash Party Name')}</label><input id="pv3_CashName" value="${attr(rec.WalkInPartyName)}"></div>
         <div class="field"><label>${t('ঠিকানা','Address')}</label><input id="pv3_CashAddress" value="${attr(rec.WalkInPartyAddress)}"></div>
         <div class="field"><label>${t('মোবাইল','Mobile')}</label><input id="pv3_CashMobile" value="${attr(rec.WalkInPartyMobile)}"></div>
-      </div>
-
-      <div class="field" style="display:flex;align-items:center;gap:8px;border-top:1px solid var(--border);padding-top:14px;">
-        <input type="checkbox" id="pv3_CommCheck" style="width:auto;">
-        <label style="margin:0;flex:1;">${t('কমিঃ (কমিশন)','Comm. (Commission)')}</label>
-        <input id="pv3_CommAmount" type="number" step="any" style="flex:2;" placeholder="৳" disabled>
       </div>
 
       <h4 style="margin:16px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('নগদ ও ব্যাংক হিসাব','Cash & Bank Account')}</h4>
@@ -3966,14 +3979,13 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       if (hasPurchase) {
         const warehouseId = window.__pv3PurchaseLines[0].warehouseId;
         if (!warehouseId) throw new Error(t('ক্রয় লাইনে গুদাম আবশ্যক।','Warehouse is required for purchase lines.'));
-        const lineData = window.__pv3PurchaseLines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, Rate: l.rate, Amount: l.amount }; });
+        const lineData = window.__pv3PurchaseLines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, Rate: l.rate, Amount: l.amount, CommissionRate: l.commRate || 0, CommissionAmount: l.commAmount || 0, NetAmount: l.netAmount !== undefined ? l.netAmount : l.amount }; });
         const totalAmount = lineData.reduce(function (s, l) { return s + (Number(l.Amount) || 0); }, 0);
         const headerData = Object.assign({}, common, {
           InvoiceDate: val('pv3_Date'), WarehouseID: warehouseId, TotalAmount: totalAmount,
           WalkInPartyName: isCash ? (val('pv3_CashName') || null) : null,
           WalkInPartyAddress: isCash ? (val('pv3_CashAddress') || null) : null,
-          WalkInPartyMobile: isCash ? (val('pv3_CashMobile') || null) : null,
-          CommissionAmount: document.getElementById('pv3_CommCheck').checked ? (Number(val('pv3_CommAmount')) || 0) : null
+          WalkInPartyMobile: isCash ? (val('pv3_CashMobile') || null) : null
         });
         // এই মুহূর্তে শুধু পেমেন্টের তথ্য হেডারে সেভ হচ্ছে — আসল লেজার/ব্যাংক-বই পোস্টিং
         // ঘটবে ভাউচারটা "পোস্ট করুন" চাপার সময়, যাতে ড্রাফট অবস্থায় হিসাব না বসে
@@ -4007,7 +4019,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       if (hasReturn) {
         const warehouseId = window.__pv3ReturnLines[0].warehouseId;
         if (!warehouseId) throw new Error(t('ফেরত লাইনে গুদাম আবশ্যক।','Warehouse is required for return lines.'));
-        const lineData = window.__pv3ReturnLines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, Rate: l.rate }; });
+        const lineData = window.__pv3ReturnLines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, Rate: l.rate, CommissionRate: l.commRate || 0, CommissionAmount: l.commAmount || 0, NetAmount: l.netAmount !== undefined ? l.netAmount : l.amount }; });
         const headerData = Object.assign({}, common, { Date: val('pv3_Date'), WarehouseID: warehouseId });
         if (isEdit && existingDocType === 'PurchaseReturn') {
           await api('updateDocument', { headerSheet:'PurchaseReturn', idField:'PRetID', linesSheet:'PR_Return_Lines', lineIdField:'PRetID', idValue: existingId, headerData: headerData, lines: lineData });
@@ -4070,7 +4082,6 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   }
   wireRevealCheckbox('pv3_SNDateCheck', 'pv3_SupplierInvoiceDate');
   wireRevealCheckbox('pv3_SNNoCheck', 'pv3_SupplierInvoiceNo');
-  wireRevealCheckbox('pv3_CommCheck', 'pv3_CommAmount');
 
   document.getElementById('pv3_TabEntryBtn').addEventListener('click', function () { showTab('entry'); });
   document.getElementById('pv3_TabPreviewBtn').addEventListener('click', function () { showTab('preview'); });
@@ -4271,10 +4282,24 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   function recalcAmount() {
     const qty = Number(val('pv3_Qty')) || 0;
     const rate = Number(val('pv3_Rate')) || 0;
-    document.getElementById('pv3_Amount').value = Math.round(qty * rate);
+    const amount = Math.round(qty * rate);
+    document.getElementById('pv3_Amount').value = amount;
+    if (document.getElementById('pv3_CommCheck').checked) {
+      const commRate = Number(val('pv3_CommRate')) || 0;
+      const commAmount = amount * commRate / 100;
+      document.getElementById('pv3_CommAmount').value = commAmount.toFixed(2);
+      document.getElementById('pv3_NetLineAmount').value = (amount - commAmount).toFixed(2);
+    }
   }
   document.getElementById('pv3_Qty').addEventListener('input', recalcAmount);
   document.getElementById('pv3_Rate').addEventListener('input', recalcAmount);
+  document.getElementById('pv3_CommRate').addEventListener('input', recalcAmount);
+  document.getElementById('pv3_CommCheck').addEventListener('change', function () {
+    document.getElementById('pv3_CommRate').disabled = !this.checked;
+    document.getElementById('pv3_CommResultRow').style.display = this.checked ? '' : 'none';
+    if (!this.checked) { document.getElementById('pv3_CommRate').value = ''; document.getElementById('pv3_CommAmount').value = ''; document.getElementById('pv3_NetLineAmount').value = ''; }
+    recalcAmount();
+  });
 
   function resetLineEntry() {
     document.getElementById('pv3_GroupCheck').checked = false;
@@ -4288,6 +4313,12 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     document.getElementById('pv3_Rate').value = '';
     document.getElementById('pv3_Unit').value = '';
     document.getElementById('pv3_Amount').value = '';
+    document.getElementById('pv3_CommCheck').checked = false;
+    document.getElementById('pv3_CommRate').disabled = true;
+    document.getElementById('pv3_CommResultRow').style.display = 'none';
+    document.getElementById('pv3_CommRate').value = '';
+    document.getElementById('pv3_CommAmount').value = '';
+    document.getElementById('pv3_NetLineAmount').value = '';
   }
 
   function collectCurrentLine() {
@@ -4298,7 +4329,11 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     if (!itemId) { showToast(t('আইটেম বাছাই করুন।','Select an item.'), 'error'); return null; }
     if (!warehouseId) { showToast(t('গুদাম বাছাই করুন।','Select a warehouse.'), 'error'); return null; }
     if (!(qty > 0 && rate > 0)) { showToast(t('পরিমাণ ও দর দিন।','Enter quantity and rate.'), 'error'); return null; }
-    return { itemId: itemId, warehouseId: warehouseId, qty: qty, rate: rate, amount: Math.round(qty * rate) };
+    const amount = Math.round(qty * rate);
+    const useComm = document.getElementById('pv3_CommCheck').checked;
+    const commRate = useComm ? (Number(val('pv3_CommRate')) || 0) : 0;
+    const commAmount = useComm ? Number((amount * commRate / 100).toFixed(2)) : 0;
+    return { itemId: itemId, warehouseId: warehouseId, qty: qty, rate: rate, amount: amount, commRate: commRate, commAmount: commAmount, netAmount: useComm ? Number((amount - commAmount).toFixed(2)) : amount };
   }
 
   document.getElementById('pv3_ConfirmPurchaseCheck').addEventListener('change', function () {
@@ -4339,18 +4374,19 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     document.getElementById('pv3_PreviewStockRate').value = window.__pv3LastStockRate;
   }
 
-  function miniLinesTable(lines, removeFnName) {
+  function miniLinesTable(lines, removeFnName, showComm) {
     if (lines.length === 0) return `<div style="color:var(--text-muted);padding:8px 0;">${t('কোনো লাইন নেই।','No lines.')}</div>`;
     const rows = lines.map(function (l, i) {
       const item = window.__pv3ItemMap[l.itemId] || {};
       return `<tr>
         <td>${i + 1}</td><td>${escapeHtml(item.ItemName || l.itemId)}</td>
         <td style="text-align:right;">${l.qty}</td><td style="text-align:right;">${l.rate}</td><td style="text-align:right;"><b>${l.amount}</b></td>
+        ${showComm ? `<td style="text-align:right;">${l.commRate || 0}</td><td style="text-align:right;">${(l.commAmount||0).toFixed ? l.commAmount.toFixed(2) : l.commAmount}</td><td style="text-align:right;"><b>${(l.netAmount!==undefined?l.netAmount:l.amount).toFixed ? l.netAmount.toFixed(2) : l.netAmount}</b></td>` : ''}
         <td><button type="button" onclick="${removeFnName}(${i})" style="border:none;background:none;cursor:pointer;color:var(--danger);">✕</button></td>
       </tr>`;
     }).join('');
     return `<table style="width:100%;border-collapse:collapse;font-size:12px;">
-      <thead><tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;">${t('ক্রঃ','No.')}</th><th style="text-align:left;">${t('আইটেম','Item')}</th><th style="text-align:right;">${t('পরিমাণ','Qty')}</th><th style="text-align:right;">${t('দর','Rate')}</th><th style="text-align:right;">${t('মূল্য','Amt')}</th><th></th></tr></thead>
+      <thead><tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;">${t('ক্রঃ','No.')}</th><th style="text-align:left;">${t('আইটেম','Item')}</th><th style="text-align:right;">${t('পরিমাণ','Qty')}</th><th style="text-align:right;">${t('দর','Rate')}</th><th style="text-align:right;">${t('মূল্য','Amt')}</th>${showComm ? `<th style="text-align:right;">${t('কমিঃ','Comm.')}</th><th style="text-align:right;">${t('(-)কমিঃ','(-)Comm.')}</th><th style="text-align:right;">${t('নিট মূল্য','Net Amt')}</th>` : ''}<th></th></tr></thead>
       <tbody>${rows}</tbody></table>`;
   }
 
@@ -4372,9 +4408,9 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
         <div><b>${t('সাপ্লায়ার','Supplier')}:</b> ${escapeHtml(supplierName)}</div>
       </div>
       <div style="font-weight:700;font-size:12px;margin:10px 0 4px;">${t('ক্রয়কৃত পণ্য','Purchased Items')}</div>
-      ${miniLinesTable(window.__pv3PurchaseLines, 'window.__pv3RemovePurchaseLine')}
+      ${miniLinesTable(window.__pv3PurchaseLines, 'window.__pv3RemovePurchaseLine', true)}
       <div style="font-weight:700;font-size:12px;margin:14px 0 4px;">${t('ক্রয় ফেরত পণ্য','Returned Items')}</div>
-      ${miniLinesTable(window.__pv3ReturnLines, 'window.__pv3RemoveReturnLine')}
+      ${miniLinesTable(window.__pv3ReturnLines, 'window.__pv3RemoveReturnLine', true)}
       <div style="display:flex;justify-content:space-between;margin-top:40px;font-size:11px;text-align:center;">
         <div style="width:31%;"><div style="border-top:1px solid #333;padding-top:4px;">${t('বিক্রেতার স্বাঃ','Seller Sign')}</div></div>
         <div style="width:31%;"><div style="border-top:1px solid #333;padding-top:4px;">${t('অথরাইজেশন স্বাঃ','Authorization')}<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div></div>
