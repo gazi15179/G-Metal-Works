@@ -1929,6 +1929,7 @@ async function openItemForm(existing) {
         <div class="field"><label>${t('পণ্য','Item')}</label><input id="it_Op_ItemEcho" readonly style="background:var(--bg);"></div>
         <div class="field"><label>${t('ওয়ারহাউজ','Warehouse')}</label><select id="it_Op_WarehouseID" ${currentItemId?'':'disabled'}>${opts(warehouses, 'WarehouseID', 'WarehouseName', '')}</select></div>
         <div class="field"><label>${t('পরিমাণ','Quantity')}</label><input id="it_Op_Qty" type="number" step="any" ${currentItemId?'':'disabled'}></div>
+        <div class="field"><label>${t('একক','Unit')}</label><input id="it_Op_UnitEcho" readonly style="background:var(--bg);"></div>
         <div class="field"><label>${t('দর','Rate')}</label><input id="it_Op_Rate" type="number" step="any" ${currentItemId?'':'disabled'}></div>
         <div class="field"><label>${t('মূল্য','Value')}</label><input id="it_Op_Value" readonly style="background:var(--bg);font-weight:600;"></div>
       </div>
@@ -1978,7 +1979,7 @@ async function openItemForm(existing) {
     const uomId = val('it_UOMID');
     const unit = window.__itemFormUnits.find(function (u) { return u.UOMID === uomId; });
     const label = unit ? unit.UOMName : '—';
-    ['it_StdPurchaseUnitEcho', 'it_StdSalesUnitEcho'].forEach(function (id) {
+    ['it_StdPurchaseUnitEcho', 'it_StdSalesUnitEcho', 'it_Op_UnitEcho'].forEach(function (id) {
       const el = document.getElementById(id);
       if (el) el.value = label;
     });
