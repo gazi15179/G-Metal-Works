@@ -3838,87 +3838,24 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     </div>
 
     <div id="pv3_TabEntryPanel">
-      <style>
-        .pv3-tbl input, .pv3-tbl select { width:100%; box-sizing:border-box; padding:4px 5px; font-size:11px; border:1px solid var(--border); border-radius:5px; background:var(--surface); color:var(--text); }
-        .pv3-tbl input:disabled, .pv3-tbl input[readonly] { background:var(--bg); color:var(--text-muted); }
-        .pv3-tbl td { vertical-align:middle; overflow:hidden; text-overflow:ellipsis; }
-      </style>
-      <table class="pv3-tbl" style="width:100%;table-layout:auto;border-collapse:collapse;font-size:11px;margin-bottom:14px;">
-        <thead>
-          <tr>
-            <th colspan="4" style="background:var(--ink-900);color:var(--amber);padding:8px;text-align:center;border:1px solid var(--border);font-size:13px;letter-spacing:.02em;">${t('ক্রয় ভাউচার','Purchase Voucher')}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('ভাউঃ তারিখঃ','Vou. Date:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input type="date" id="pv3_Date" value="${attr(rec.InvoiceDate || rec.Date) || new Date().toISOString().slice(0,10)}" style="width:100%;"></td>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;"><input type="checkbox" id="pv3_SNDateCheck" style="width:auto;vertical-align:middle;" ${rec.SupplierInvoiceDate?'checked':''}> ${t('নিঃ তারিখঃ','Sup.Vou.Date:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input type="date" id="pv3_SupplierInvoiceDate" value="${attr(rec.SupplierInvoiceDate)}" style="width:100%;" ${rec.SupplierInvoiceDate?'':'disabled'}></td>
-          </tr>
-          <tr>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('ভাউঃ নম্বরঃ','Vou. No:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো তৈরি হবে','Auto')}" readonly style="width:100%;background:var(--bg);"></td>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;"><input type="checkbox" id="pv3_SNNoCheck" style="width:auto;vertical-align:middle;" ${rec.SupplierInvoiceNo?'checked':''}> ${t('নিঃ নম্বরঃ','Sup.Vou.No:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_SupplierInvoiceNo" value="${attr(rec.SupplierInvoiceNo)}" style="width:100%;" ${rec.SupplierInvoiceNo?'':'disabled'}></td>
-          </tr>
-          <tr>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('সাপ্লায়ার নামঃ','Supplier:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><select id="pv3_SupplierID" style="width:100%;"><option value="">—</option>${suppliers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.SupplierID)}" ${rec.SupplierID===r.SupplierID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select></td>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('সাপ্লায়ার হিসাবঃ','Sup. Balance:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_SupplierBalance" readonly style="width:100%;background:var(--bg);font-weight:700;"></td>
-          </tr>
-          <tr>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('আইটেম(পণ্য)ঃ','Item:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><select id="pv3_ItemID" style="width:100%;"><option value="">—</option></select></td>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;"><input type="checkbox" id="pv3_GroupCheck" style="width:auto;vertical-align:middle;"> ${t('গ্রুপ নামঃ','Group:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><select id="pv3_GroupSelect" disabled style="width:100%;display:none;"><option value="">—</option>${optsHtml(window.__pv3Groups, 'GroupID','GroupName','')}</select></td>
-          </tr>
-          <tr>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('ওয়ারহাউজঃ','Warehouse:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><select id="pv3_WarehouseID" style="width:100%;"><option value="">—</option>${optsHtml(window.__pv3Warehouses, 'WarehouseID','WarehouseName', rec.WarehouseID)}</select></td>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;"><input type="checkbox" id="pv3_CatCheck" style="width:auto;vertical-align:middle;"> ${t('ক্যাটাগরিঃ','Category:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><select id="pv3_CatSelect" disabled style="width:100%;display:none;"><option value="">—</option>${optsHtml(window.__pv3Categories, 'CategoryID','CategoryName','')}</select></td>
-          </tr>
-          <tr>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('পরিমাণঃ','Quantity:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_Qty" type="number" step="any" style="width:100%;"></td>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('স্টক পরিমাণঃ','Stock Qty:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_PreviewStockQty" readonly style="width:100%;background:var(--bg);"></td>
-          </tr>
-          <tr>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('দরঃ','Rate:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_Rate" type="number" step="any" style="width:100%;"></td>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('স্টক দরঃ','Stock Rate:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_PreviewStockRate" readonly style="width:100%;background:var(--bg);"></td>
-          </tr>
-          <tr>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('এককঃ','Unit:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_Unit" readonly style="width:100%;background:var(--bg);"></td>
-            <td colspan="2" style="background:var(--ink-900);padding:6px 10px;border:1px solid var(--border);text-align:center;">
-              <label style="color:var(--amber);cursor:pointer;font-size:11px;"><input type="checkbox" id="pv3_ConfirmPurchaseCheck" style="width:auto;vertical-align:middle;"> ${t('সেভ + ক্রয় লাইন যোগ','Save + Add Purchase Line')}</label>
-            </td>
-          </tr>
-          <tr>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('মূল্যঃ','Amount:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_Amount" readonly style="width:100%;background:var(--bg);font-weight:700;"></td>
-            <td colspan="2" style="background:var(--ink-900);padding:6px 10px;border:1px solid var(--border);text-align:center;">
-              <button type="button" id="pv3_AddReturnLineBtn" style="width:100%;background:none;border:none;color:var(--amber);font-weight:700;cursor:pointer;padding:4px;font-size:11px;">+ ${t('ক্রয় ফেরত লাইন যোগ','Add Purchase Return Line')}</button>
-            </td>
-          </tr>
-          <tr>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;"><input type="checkbox" id="pv3_CommCheck" style="width:auto;vertical-align:middle;"> ${t('কমিঃ (%)ঃ','Comm. (%):')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_CommRate" type="number" step="any" style="width:100%;" placeholder="0" disabled></td>
-            <td colspan="2" style="padding:4px 8px;border:1px solid var(--border);font-size:10.5px;color:var(--text-muted);">${t('টিক দিলে তবেই এই আইটেমে কমিশন হিসাব হবে','Only checked lines get commission applied')}</td>
-          </tr>
-          <tr id="pv3_CommResultRow" style="display:none;">
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('(-)কমিঃঃ','(-) Comm.:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_CommAmount" readonly style="width:100%;background:var(--bg);"></td>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('নিট মূল্যঃ','Net Amount:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_NetLineAmount" readonly style="width:100%;background:var(--bg);font-weight:700;"></td>
-          </tr>
-        </tbody>
-      </table>
+      <h4 style="margin:0 0 12px;font-size:13px;color:var(--amber);text-transform:uppercase;background:var(--ink-900);padding:8px;text-align:center;border-radius:6px;">${t('ক্রয় ভাউচার','Purchase Voucher')}</h4>
+
+      <div class="field"><label>${t('১. ভাউচার তারিখঃ','1. Voucher Date:')}</label><input type="date" id="pv3_Date" value="${attr(rec.InvoiceDate || rec.Date) || new Date().toISOString().slice(0,10)}"></div>
+      <div class="field"><label>${t('২. ভাউচার নম্বরঃ','2. Voucher No:')}</label><input id="pv3_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো তৈরি হবে','Auto')}" readonly style="background:var(--bg);"></div>
+
+      <div class="field" style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="pv3_SNDateCheck" style="width:auto;" ${rec.SupplierInvoiceDate?'checked':''}>
+        <label style="margin:0;flex-shrink:0;">${t('৩. নিঃতারিখঃ','3. Manual Date:')}</label>
+        <input type="date" id="pv3_SupplierInvoiceDate" value="${attr(rec.SupplierInvoiceDate)}" style="flex:1;" ${rec.SupplierInvoiceDate?'':'disabled'}>
+      </div>
+      <div class="field" style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="pv3_SNNoCheck" style="width:auto;" ${rec.SupplierInvoiceNo?'checked':''}>
+        <label style="margin:0;flex-shrink:0;">${t('৪. নিঃনম্বরঃ','4. Manual No:')}</label>
+        <input id="pv3_SupplierInvoiceNo" value="${attr(rec.SupplierInvoiceNo)}" style="flex:1;" ${rec.SupplierInvoiceNo?'':'disabled'}>
+      </div>
+
+      <div class="field"><label>${t('৫. সাপ্লায়ার নামঃ','5. Supplier:')}</label><select id="pv3_SupplierID"><option value="">—</option>${suppliers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.SupplierID)}" ${rec.SupplierID===r.SupplierID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select></div>
+      <div class="field"><label>${t('৬. সাপ্লায়ার হিসাবঃ','6. Supplier Balance:')}</label><input id="pv3_SupplierBalance" readonly style="background:var(--bg);font-weight:700;"></div>
 
       <div id="pv3_CashSupplierCard" style="display:none;padding:12px;border:1px dashed var(--border);border-radius:8px;background:var(--bg);margin-bottom:14px;">
         <div class="field"><label>${t('নগদ পার্টির আসল নাম','Actual Cash Party Name')}</label><input id="pv3_CashName" value="${attr(rec.WalkInPartyName)}"></div>
@@ -3926,24 +3863,54 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
         <div class="field"><label>${t('মোবাইল','Mobile')}</label><input id="pv3_CashMobile" value="${attr(rec.WalkInPartyMobile)}"></div>
       </div>
 
+      <div class="field" style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="pv3_GroupCheck" style="width:auto;">
+        <label style="margin:0;flex-shrink:0;">${t('৭. গ্রুপ নামঃ','7. Group:')}</label>
+        <select id="pv3_GroupSelect" disabled style="flex:1;display:none;"><option value="">—</option>${optsHtml(window.__pv3Groups, 'GroupID','GroupName','')}</select>
+      </div>
+      <div class="field" style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="pv3_CatCheck" style="width:auto;">
+        <label style="margin:0;flex-shrink:0;">${t('৮. ক্যাটাগরিঃ','8. Category:')}</label>
+        <select id="pv3_CatSelect" disabled style="flex:1;display:none;"><option value="">—</option>${optsHtml(window.__pv3Categories, 'CategoryID','CategoryName','')}</select>
+      </div>
+
+      <div class="field"><label>${t('৯. আইটেমঃ','9. Item:')}</label><select id="pv3_ItemID"><option value="">—</option></select></div>
+      <div class="field"><label>${t('১০. ওয়ারহাউজঃ','10. Warehouse:')}</label><select id="pv3_WarehouseID"><option value="">—</option>${optsHtml(window.__pv3Warehouses, 'WarehouseID','WarehouseName', rec.WarehouseID)}</select></div>
+      <div class="field"><label>${t('১১. স্টক পরিমাণঃ','11. Stock Qty:')}</label><input id="pv3_PreviewStockQty" readonly style="background:var(--bg);"></div>
+      <div class="field"><label>${t('১২. পরিমাণঃ','12. Quantity:')}</label><input id="pv3_Qty" type="number" step="any"></div>
+      <div class="field"><label>${t('১৩. স্টক দরঃ','13. Stock Rate:')}</label><input id="pv3_PreviewStockRate" readonly style="background:var(--bg);"></div>
+      <div class="field"><label>${t('১৪. আঃক্রয় দরঃ (ডিফল্ট)','14. Std. Purchase Rate (default):')}</label><input id="pv3_PreviewStdPurchaseRate" readonly style="background:var(--bg);"></div>
+      <div class="field"><label>${t('১৫. দরঃ','15. Rate:')}</label><input id="pv3_Rate" type="number" step="any"></div>
+      <div class="field"><label>${t('১৬. এককঃ','16. Unit:')}</label><input id="pv3_Unit" readonly style="background:var(--bg);"></div>
+      <div class="field"><label>${t('১৭. মূল্যঃ','17. Amount:')}</label><input id="pv3_Amount" readonly style="background:var(--bg);font-weight:700;"></div>
+
+      <div class="field" style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="pv3_CommCheck" style="width:auto;">
+        <label style="margin:0;flex-shrink:0;">${t('কমিঃ (%)ঃ','Comm. (%):')}</label>
+        <input id="pv3_CommRate" type="number" step="any" style="flex:1;" placeholder="0" disabled>
+      </div>
+      <div id="pv3_CommResultRow" style="display:none;">
+        <div class="field"><label>${t('(-)কমিঃঃ','(-) Comm.:')}</label><input id="pv3_CommAmount" readonly style="background:var(--bg);"></div>
+        <div class="field"><label>${t('নিট মূল্যঃ','Net Amount:')}</label><input id="pv3_NetLineAmount" readonly style="background:var(--bg);font-weight:700;"></div>
+      </div>
+
+      <label style="display:flex;align-items:center;gap:8px;background:var(--ink-900);color:var(--amber);padding:10px;border-radius:8px;cursor:pointer;margin-bottom:10px;font-size:13px;font-weight:600;">
+        <input type="checkbox" id="pv3_ConfirmPurchaseCheck" style="width:auto;"> ✓ ${t('সেভ + ক্রয় লাইন যোগ','Save + Add Purchase Line')}
+      </label>
+      <button type="button" id="pv3_AddReturnLineBtn" class="btn" style="width:100%;background:var(--ink-900);color:var(--amber);margin-bottom:16px;">+ ${t('ক্রয় ফেরত লাইন যোগ','Add Purchase Return Line')}</button>
+
       <h4 style="margin:16px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('নগদ ও ব্যাংক হিসাব','Cash & Bank Account')}</h4>
-      <table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:14px;">
-        <tbody>
-          <tr>
-            <td style="padding:4px;border:1px solid var(--border);">
-              <select id="pv3_PayTypeSelect" style="width:100%;">
-                <option value="Cash">${t('নগদ প্রদান','Cash Paid')}</option>
-                <option value="Bank">${t('ব্যাংক প্রদান','Bank Paid')}</option>
-              </select>
-            </td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="pv3_PayAmount" type="number" step="any" style="width:100%;" placeholder="৳"></td>
-            <td colspan="2" style="padding:4px 8px;border:1px solid var(--border);" id="pv3_PayExtraArea">
-              <input id="pv3_CashPaidNote" style="width:100%;" placeholder="${t('নোট (ঐচ্ছিক)','Note (optional)')}">
-              <div id="pv3_BankPaySummary" style="display:none;font-size:10.5px;color:var(--text-muted);cursor:pointer;">${t('টাকা লিখলে বিস্তারিত জিজ্ঞাসা করা হবে','Details will be asked once you enter an amount')}</div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <div class="field">
+        <select id="pv3_PayTypeSelect">
+          <option value="Cash">${t('নগদ প্রদান','Cash Paid')}</option>
+          <option value="Bank">${t('ব্যাংক প্রদান','Bank Paid')}</option>
+        </select>
+      </div>
+      <div class="field"><input id="pv3_PayAmount" type="number" step="any" placeholder="৳"></div>
+      <div class="field" id="pv3_PayExtraArea">
+        <input id="pv3_CashPaidNote" placeholder="${t('নোট (ঐচ্ছিক)','Note (optional)')}">
+        <div id="pv3_BankPaySummary" style="display:none;font-size:11px;color:var(--text-muted);cursor:pointer;margin-top:6px;">${t('টাকা লিখলে বিস্তারিত জিজ্ঞাসা করা হবে','Details will be asked once you enter an amount')}</div>
+      </div>
       <input type="hidden" id="pv3_CashPaidAmount" value="">
       <input type="hidden" id="pv3_BankPaidAmount" value="">
       <input type="hidden" id="pv3_BankPayMethod" value="CashToSupplierBank">
@@ -4266,6 +4233,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     }
     document.getElementById('pv3_PreviewStockQty').value = window.__pv3LastStockQty;
     document.getElementById('pv3_PreviewStockRate').value = window.__pv3LastStockRate;
+    document.getElementById('pv3_PreviewStdPurchaseRate').value = item ? (Number(item.StandardCost)||0).toFixed(2) : '';
     recalcAmount();
     renderRightSummary();
   }
@@ -4306,6 +4274,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     document.getElementById('pv3_Rate').value = '';
     document.getElementById('pv3_Unit').value = '';
     document.getElementById('pv3_Amount').value = '';
+    document.getElementById('pv3_PreviewStdPurchaseRate').value = '';
     document.getElementById('pv3_CommCheck').checked = false;
     document.getElementById('pv3_CommRate').disabled = true;
     document.getElementById('pv3_CommResultRow').style.display = 'none';
@@ -4630,87 +4599,24 @@ async function openSalesVoucherForm(defaultType, existingId) {
     </div>
 
     <div id="sv3_TabEntryPanel">
-      <style>
-        .sv3-tbl input, .sv3-tbl select { width:100%; box-sizing:border-box; padding:4px 5px; font-size:11px; border:1px solid var(--border); border-radius:5px; background:var(--surface); color:var(--text); }
-        .sv3-tbl input:disabled, .sv3-tbl input[readonly] { background:var(--bg); color:var(--text-muted); }
-        .sv3-tbl td { vertical-align:middle; overflow:hidden; text-overflow:ellipsis; }
-      </style>
-      <table class="sv3-tbl" style="width:100%;table-layout:auto;border-collapse:collapse;font-size:11px;margin-bottom:14px;">
-        <thead>
-          <tr>
-            <th colspan="4" style="background:var(--ink-900);color:var(--amber);padding:8px;text-align:center;border:1px solid var(--border);font-size:13px;letter-spacing:.02em;">${t('বিক্রয় ভাউচার','Sales Voucher')}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('ভাউঃ তারিখঃ','Vou. Date:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input type="date" id="sv3_Date" value="${attr(rec.InvoiceDate || rec.Date) || new Date().toISOString().slice(0,10)}" style="width:100%;"></td>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;"><input type="checkbox" id="sv3_ManualDateCheck" style="width:auto;vertical-align:middle;" ${rec.ManualVoucherDate?'checked':''}> ${t('নিঃ তারিখঃ','Manual Vou. Date:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input type="date" id="sv3_ManualVoucherDate" value="${attr(rec.ManualVoucherDate)}" style="width:100%;" ${rec.ManualVoucherDate?'':'disabled'}></td>
-          </tr>
-          <tr>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('ভাউঃ নম্বরঃ','Vou. No:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="sv3_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো তৈরি হবে','Auto')}" readonly style="width:100%;background:var(--bg);"></td>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;"><input type="checkbox" id="sv3_ManualNoCheck" style="width:auto;vertical-align:middle;" ${rec.ManualVoucherNo?'checked':''}> ${t('নিঃ নম্বরঃ','Manual Vou. No:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="sv3_ManualVoucherNo" value="${attr(rec.ManualVoucherNo)}" style="width:100%;" ${rec.ManualVoucherNo?'':'disabled'}></td>
-          </tr>
-          <tr>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('গ্রাহক নামঃ','Customer:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><select id="sv3_CustomerID" style="width:100%;"><option value="">—</option>${customers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.CustomerID)}" ${rec.CustomerID===r.CustomerID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select></td>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('গ্রাহক হিসাবঃ','Cust. Balance:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="sv3_CustomerBalance" readonly style="width:100%;background:var(--bg);font-weight:700;"></td>
-          </tr>
-          <tr>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('আইটেম(পণ্য)ঃ','Item:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><select id="sv3_ItemID" style="width:100%;"><option value="">—</option></select></td>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;"><input type="checkbox" id="sv3_GroupCheck" style="width:auto;vertical-align:middle;"> ${t('গ্রুপ নামঃ','Group:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><select id="sv3_GroupSelect" disabled style="width:100%;display:none;"><option value="">—</option>${optsHtml(window.__sv3Groups, 'GroupID','GroupName','')}</select></td>
-          </tr>
-          <tr>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('ওয়ারহাউজঃ','Warehouse:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><select id="sv3_WarehouseID" style="width:100%;"><option value="">—</option>${optsHtml(window.__sv3Warehouses, 'WarehouseID','WarehouseName', rec.WarehouseID)}</select></td>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;"><input type="checkbox" id="sv3_CatCheck" style="width:auto;vertical-align:middle;"> ${t('ক্যাটাগরিঃ','Category:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><select id="sv3_CatSelect" disabled style="width:100%;display:none;"><option value="">—</option>${optsHtml(window.__sv3Categories, 'CategoryID','CategoryName','')}</select></td>
-          </tr>
-          <tr>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('পরিমাণঃ','Quantity:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="sv3_Qty" type="number" step="any" style="width:100%;"></td>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('স্টক পরিমাণঃ','Stock Qty:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="sv3_PreviewStockQty" readonly style="width:100%;background:var(--bg);"></td>
-          </tr>
-          <tr>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('দরঃ','Rate:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="sv3_Rate" type="number" step="any" style="width:100%;"></td>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('স্টক দরঃ','Stock Rate:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="sv3_PreviewStockRate" readonly style="width:100%;background:var(--bg);"></td>
-          </tr>
-          <tr>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('এককঃ','Unit:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="sv3_Unit" readonly style="width:100%;background:var(--bg);"></td>
-            <td colspan="2" style="background:var(--ink-900);padding:6px 10px;border:1px solid var(--border);text-align:center;">
-              <label style="color:var(--amber);cursor:pointer;font-size:11px;"><input type="checkbox" id="sv3_ConfirmSaleCheck" style="width:auto;vertical-align:middle;"> ${t('সেভ + বিক্রয় লাইন যোগ','Save + Add Sale Line')}</label>
-            </td>
-          </tr>
-          <tr>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('মূল্যঃ','Amount:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="sv3_Amount" readonly style="width:100%;background:var(--bg);font-weight:700;"></td>
-            <td colspan="2" style="background:var(--ink-900);padding:6px 10px;border:1px solid var(--border);text-align:center;">
-              <button type="button" id="sv3_AddReturnLineBtn" style="width:100%;background:none;border:none;color:var(--amber);font-weight:700;cursor:pointer;padding:4px;font-size:11px;">+ ${t('বিক্রয় ফেরত লাইন যোগ','Add Sale Return Line')}</button>
-            </td>
-          </tr>
-          <tr>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;"><input type="checkbox" id="sv3_CommCheck" style="width:auto;vertical-align:middle;"> ${t('কমিঃ (%)ঃ','Comm. (%):')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="sv3_CommRate" type="number" step="any" style="width:100%;" placeholder="0" disabled></td>
-            <td colspan="2" style="padding:4px 8px;border:1px solid var(--border);font-size:10.5px;color:var(--text-muted);">${t('টিক দিলে তবেই এই আইটেমে কমিশন হিসাব হবে','Only checked lines get commission applied')}</td>
-          </tr>
-          <tr id="sv3_CommResultRow" style="display:none;">
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('(-)কমিঃঃ','(-) Comm.:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="sv3_CommAmount" readonly style="width:100%;background:var(--bg);"></td>
-            <td style="background:var(--bg);padding:5px 6px;border:1px solid var(--border);font-weight:600;">${t('নিট মূল্যঃ','Net Amount:')}</td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="sv3_NetLineAmount" readonly style="width:100%;background:var(--bg);font-weight:700;"></td>
-          </tr>
-        </tbody>
-      </table>
+      <h4 style="margin:0 0 12px;font-size:13px;color:var(--amber);text-transform:uppercase;background:var(--ink-900);padding:8px;text-align:center;border-radius:6px;">${t('বিক্রয় ভাউচার','Sales Voucher')}</h4>
+
+      <div class="field"><label>${t('১. ভাউচার তারিখঃ','1. Voucher Date:')}</label><input type="date" id="sv3_Date" value="${attr(rec.InvoiceDate || rec.Date) || new Date().toISOString().slice(0,10)}"></div>
+      <div class="field"><label>${t('২. ভাউচার নম্বরঃ','2. Voucher No:')}</label><input id="sv3_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো তৈরি হবে','Auto')}" readonly style="background:var(--bg);"></div>
+
+      <div class="field" style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="sv3_ManualDateCheck" style="width:auto;" ${rec.ManualVoucherDate?'checked':''}>
+        <label style="margin:0;flex-shrink:0;">${t('৩. নিঃতারিখঃ','3. Manual Date:')}</label>
+        <input type="date" id="sv3_ManualVoucherDate" value="${attr(rec.ManualVoucherDate)}" style="flex:1;" ${rec.ManualVoucherDate?'':'disabled'}>
+      </div>
+      <div class="field" style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="sv3_ManualNoCheck" style="width:auto;" ${rec.ManualVoucherNo?'checked':''}>
+        <label style="margin:0;flex-shrink:0;">${t('৪. নিঃনম্বরঃ','4. Manual No:')}</label>
+        <input id="sv3_ManualVoucherNo" value="${attr(rec.ManualVoucherNo)}" style="flex:1;" ${rec.ManualVoucherNo?'':'disabled'}>
+      </div>
+
+      <div class="field"><label>${t('৫. গ্রাহক নামঃ','5. Customer:')}</label><select id="sv3_CustomerID"><option value="">—</option>${customers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.CustomerID)}" ${rec.CustomerID===r.CustomerID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select></div>
+      <div class="field"><label>${t('৬. গ্রাহক হিসাবঃ','6. Customer Balance:')}</label><input id="sv3_CustomerBalance" readonly style="background:var(--bg);font-weight:700;"></div>
 
       <div id="sv3_CashCustomerCard" style="display:none;padding:12px;border:1px dashed var(--border);border-radius:8px;background:var(--bg);margin-bottom:14px;">
         <div class="field"><label>${t('নগদ পার্টির আসল নাম','Actual Cash Party Name')}</label><input id="sv3_CashName" value="${attr(rec.WalkInPartyName)}"></div>
@@ -4718,24 +4624,54 @@ async function openSalesVoucherForm(defaultType, existingId) {
         <div class="field"><label>${t('মোবাইল','Mobile')}</label><input id="sv3_CashMobile" value="${attr(rec.WalkInPartyMobile)}"></div>
       </div>
 
+      <div class="field" style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="sv3_GroupCheck" style="width:auto;">
+        <label style="margin:0;flex-shrink:0;">${t('৭. গ্রুপ নামঃ','7. Group:')}</label>
+        <select id="sv3_GroupSelect" disabled style="flex:1;display:none;"><option value="">—</option>${optsHtml(window.__sv3Groups, 'GroupID','GroupName','')}</select>
+      </div>
+      <div class="field" style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="sv3_CatCheck" style="width:auto;">
+        <label style="margin:0;flex-shrink:0;">${t('৮. ক্যাটাগরিঃ','8. Category:')}</label>
+        <select id="sv3_CatSelect" disabled style="flex:1;display:none;"><option value="">—</option>${optsHtml(window.__sv3Categories, 'CategoryID','CategoryName','')}</select>
+      </div>
+
+      <div class="field"><label>${t('৯. আইটেমঃ','9. Item:')}</label><select id="sv3_ItemID"><option value="">—</option></select></div>
+      <div class="field"><label>${t('১০. ওয়ারহাউজঃ','10. Warehouse:')}</label><select id="sv3_WarehouseID"><option value="">—</option>${optsHtml(window.__sv3Warehouses, 'WarehouseID','WarehouseName', rec.WarehouseID)}</select></div>
+      <div class="field"><label>${t('১১. স্টক পরিমাণঃ','11. Stock Qty:')}</label><input id="sv3_PreviewStockQty" readonly style="background:var(--bg);"></div>
+      <div class="field"><label>${t('১২. পরিমাণঃ','12. Quantity:')}</label><input id="sv3_Qty" type="number" step="any"></div>
+      <div class="field"><label>${t('১৩. স্টক দরঃ','13. Stock Rate:')}</label><input id="sv3_PreviewStockRate" readonly style="background:var(--bg);"></div>
+      <div class="field"><label>${t('১৪. আঃ বিঃ দরঃ (ডিফল্ট)','14. Std. Sales Rate (default):')}</label><input id="sv3_PreviewStdSalesRate" readonly style="background:var(--bg);"></div>
+      <div class="field"><label>${t('১৫. দরঃ','15. Rate:')}</label><input id="sv3_Rate" type="number" step="any"></div>
+      <div class="field"><label>${t('১৬. এককঃ','16. Unit:')}</label><input id="sv3_Unit" readonly style="background:var(--bg);"></div>
+      <div class="field"><label>${t('১৭. মূল্যঃ','17. Amount:')}</label><input id="sv3_Amount" readonly style="background:var(--bg);font-weight:700;"></div>
+
+      <div class="field" style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="sv3_CommCheck" style="width:auto;">
+        <label style="margin:0;flex-shrink:0;">${t('কমিঃ (%)ঃ','Comm. (%):')}</label>
+        <input id="sv3_CommRate" type="number" step="any" style="flex:1;" placeholder="0" disabled>
+      </div>
+      <div id="sv3_CommResultRow" style="display:none;">
+        <div class="field"><label>${t('(-)কমিঃঃ','(-) Comm.:')}</label><input id="sv3_CommAmount" readonly style="background:var(--bg);"></div>
+        <div class="field"><label>${t('নিট মূল্যঃ','Net Amount:')}</label><input id="sv3_NetLineAmount" readonly style="background:var(--bg);font-weight:700;"></div>
+      </div>
+
+      <label style="display:flex;align-items:center;gap:8px;background:var(--ink-900);color:var(--amber);padding:10px;border-radius:8px;cursor:pointer;margin-bottom:10px;font-size:13px;font-weight:600;">
+        <input type="checkbox" id="sv3_ConfirmSaleCheck" style="width:auto;"> ✓ ${t('সেভ + বিক্রয় লাইন যোগ','Save + Add Sale Line')}
+      </label>
+      <button type="button" id="sv3_AddReturnLineBtn" class="btn" style="width:100%;background:var(--ink-900);color:var(--amber);margin-bottom:16px;">+ ${t('বিক্রয় ফেরত লাইন যোগ','Add Sale Return Line')}</button>
+
       <h4 style="margin:16px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('নগদ ও ব্যাংক হিসাব','Cash & Bank Account')}</h4>
-      <table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:14px;">
-        <tbody>
-          <tr>
-            <td style="padding:4px;border:1px solid var(--border);">
-              <select id="sv3_RecTypeSelect" style="width:100%;">
-                <option value="Cash">${t('নগদ গ্রহণ','Cash Received')}</option>
-                <option value="Bank">${t('ব্যাংকে গ্রহণ','Bank Received')}</option>
-              </select>
-            </td>
-            <td style="padding:4px;border:1px solid var(--border);"><input id="sv3_RecAmount" type="number" step="any" style="width:100%;" placeholder="৳"></td>
-            <td colspan="2" style="padding:4px 8px;border:1px solid var(--border);" id="sv3_RecExtraArea">
-              <input id="sv3_CashReceivedNote" style="width:100%;" placeholder="${t('নোট (ঐচ্ছিক)','Note (optional)')}">
-              <div id="sv3_BankRecSummary" style="display:none;font-size:10.5px;color:var(--text-muted);cursor:pointer;">${t('টাকা লিখলে বিস্তারিত জিজ্ঞাসা করা হবে','Details will be asked once you enter an amount')}</div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <div class="field">
+        <select id="sv3_RecTypeSelect">
+          <option value="Cash">${t('নগদ গ্রহণ','Cash Received')}</option>
+          <option value="Bank">${t('ব্যাংকে গ্রহণ','Bank Received')}</option>
+        </select>
+      </div>
+      <div class="field"><input id="sv3_RecAmount" type="number" step="any" placeholder="৳"></div>
+      <div class="field" id="sv3_RecExtraArea">
+        <input id="sv3_CashReceivedNote" placeholder="${t('নোট (ঐচ্ছিক)','Note (optional)')}">
+        <div id="sv3_BankRecSummary" style="display:none;font-size:11px;color:var(--text-muted);cursor:pointer;margin-top:6px;">${t('টাকা লিখলে বিস্তারিত জিজ্ঞাসা করা হবে','Details will be asked once you enter an amount')}</div>
+      </div>
       <input type="hidden" id="sv3_CashReceivedAmount" value="">
       <input type="hidden" id="sv3_BankReceivedAmount" value="">
       <input type="hidden" id="sv3_BankAccID" value="">
@@ -5026,6 +4962,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
     }
     document.getElementById('sv3_PreviewStockQty').value = window.__sv3LastStockQty;
     document.getElementById('sv3_PreviewStockRate').value = window.__sv3LastStockRate;
+    document.getElementById('sv3_PreviewStdSalesRate').value = item ? (Number(item.SalesPrice)||0).toFixed(2) : '';
     if (!val('sv3_Rate') && item && item.SalesPrice) document.getElementById('sv3_Rate').value = item.SalesPrice;
     recalcAmount();
     renderRightSummary();
@@ -5067,6 +5004,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
     document.getElementById('sv3_Rate').value = '';
     document.getElementById('sv3_Unit').value = '';
     document.getElementById('sv3_Amount').value = '';
+    document.getElementById('sv3_PreviewStdSalesRate').value = '';
     document.getElementById('sv3_CommCheck').checked = false;
     document.getElementById('sv3_CommRate').disabled = true;
     document.getElementById('sv3_CommResultRow').style.display = 'none';
