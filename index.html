@@ -3916,7 +3916,10 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       <div class="field"><label>${t('১১. স্টক পরিমাণঃ','11. Stock Qty:')}</label><input id="pv3_PreviewStockQty" readonly style="background:var(--bg);"></div>
       <div class="field"><label>${t('১২. পরিমাণঃ','12. Quantity:')}</label><input id="pv3_Qty" type="number" step="any"></div>
       <div class="field"><label>${t('১৩. স্টক দরঃ','13. Stock Rate:')}</label><input id="pv3_PreviewStockRate" readonly style="background:var(--bg);"></div>
-      <div class="field"><label>${t('১৪. আঃক্রয় দরঃ (ডিফল্ট)','14. Std. Purchase Rate (default):')}</label><input id="pv3_PreviewStdPurchaseRate" readonly style="background:var(--bg);"></div>
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pv3_StdPurchaseCheck" style="width:auto;"> ${t('১৪. আঃক্রয় দরঃ (ডিফল্ট)','14. Std. Purchase Rate (default):')}</label>
+        <input id="pv3_PreviewStdPurchaseRate" readonly style="background:var(--bg);display:none;">
+      </div>
       <div class="field"><label>${t('১৫. দরঃ','15. Rate:')}</label><input id="pv3_Rate" type="number" step="any"></div>
       <div class="field"><label>${t('১৬. এককঃ','16. Unit:')}</label><input id="pv3_Unit" readonly style="background:var(--bg);"></div>
       <div class="field"><label>${t('১৭. মূল্যঃ','17. Amount:')}</label><input id="pv3_Amount" readonly style="background:var(--bg);font-weight:700;"></div>
@@ -4065,12 +4068,15 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     const check = document.getElementById(checkId), field = document.getElementById(fieldId);
     function sync() {
       field.disabled = !check.checked;
+      field.style.display = check.checked ? '' : 'none';
       if (!check.checked) field.value = '';
     }
     check.addEventListener('change', sync);
+    sync();
   }
   wireRevealCheckbox('pv3_SNDateCheck', 'pv3_SupplierInvoiceDate');
   wireRevealCheckbox('pv3_SNNoCheck', 'pv3_SupplierInvoiceNo');
+  wireRevealCheckbox('pv3_StdPurchaseCheck', 'pv3_PreviewStdPurchaseRate');
   wireSequentialKeyNav(document.getElementById('pv3_TabEntryPanel'));
 
   document.getElementById('pv3_TabEntryBtn').addEventListener('click', function () { showTab('entry'); });
@@ -4686,7 +4692,10 @@ async function openSalesVoucherForm(defaultType, existingId) {
       <div class="field"><label>${t('১১. স্টক পরিমাণঃ','11. Stock Qty:')}</label><input id="sv3_PreviewStockQty" readonly style="background:var(--bg);"></div>
       <div class="field"><label>${t('১২. পরিমাণঃ','12. Quantity:')}</label><input id="sv3_Qty" type="number" step="any"></div>
       <div class="field"><label>${t('১৩. স্টক দরঃ','13. Stock Rate:')}</label><input id="sv3_PreviewStockRate" readonly style="background:var(--bg);"></div>
-      <div class="field"><label>${t('১৪. আঃ বিঃ দরঃ (ডিফল্ট)','14. Std. Sales Rate (default):')}</label><input id="sv3_PreviewStdSalesRate" readonly style="background:var(--bg);"></div>
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="sv3_StdSalesCheck" style="width:auto;"> ${t('১৪. আঃ বিঃ দরঃ (ডিফল্ট)','14. Std. Sales Rate (default):')}</label>
+        <input id="sv3_PreviewStdSalesRate" readonly style="background:var(--bg);display:none;">
+      </div>
       <div class="field"><label>${t('১৫. দরঃ','15. Rate:')}</label><input id="sv3_Rate" type="number" step="any"></div>
       <div class="field"><label>${t('১৬. এককঃ','16. Unit:')}</label><input id="sv3_Unit" readonly style="background:var(--bg);"></div>
       <div class="field"><label>${t('১৭. মূল্যঃ','17. Amount:')}</label><input id="sv3_Amount" readonly style="background:var(--bg);font-weight:700;"></div>
@@ -4823,12 +4832,15 @@ async function openSalesVoucherForm(defaultType, existingId) {
     const check = document.getElementById(checkId), field = document.getElementById(fieldId);
     function sync() {
       field.disabled = !check.checked;
+      field.style.display = check.checked ? '' : 'none';
       if (!check.checked) field.value = '';
     }
     check.addEventListener('change', sync);
+    sync();
   }
   wireRevealCheckbox('sv3_ManualDateCheck', 'sv3_ManualVoucherDate');
   wireRevealCheckbox('sv3_ManualNoCheck', 'sv3_ManualVoucherNo');
+  wireRevealCheckbox('sv3_StdSalesCheck', 'sv3_PreviewStdSalesRate');
   wireSequentialKeyNav(document.getElementById('sv3_TabEntryPanel'));
 
   document.getElementById('sv3_TabEntryBtn').addEventListener('click', function () { showTab('entry'); });
