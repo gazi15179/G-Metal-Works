@@ -3838,6 +3838,21 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     </div>
 
     <div id="pv3_TabEntryPanel">
+      <style>
+        .pv3-compact .field{margin-bottom:6px;}
+        .pv3-compact .field label{display:block;font-size:10.5px;font-weight:600;margin-bottom:2px;}
+        .pv3-compact .field input,.pv3-compact .field select{padding:5px 7px;font-size:12px;border-radius:6px;height:30px;}
+        .pv3-compact .field[style*="display:flex"]{flex-wrap:nowrap;}
+        .pv3-compact .field[style*="display:flex"] label{flex-shrink:0;white-space:nowrap;font-size:10px;}
+        .pv3-compact .field[style*="display:flex"] input[type="checkbox"]{width:14px;height:14px;flex-shrink:0;}
+        .pv3-compact .field[style*="display:flex"] input:not([type="checkbox"]),
+        .pv3-compact .field[style*="display:flex"] select{min-width:0;width:0;flex:1 1 auto;padding:4px 5px;font-size:10.5px;}
+        @media (max-width:420px){
+          .pv3-compact .field input,.pv3-compact .field select{font-size:11.5px;padding:4px 6px;height:28px;}
+          .pv3-compact .field label{font-size:10px;}
+        }
+      </style>
+      <div class="pv3-compact">
       <h4 style="margin:0 0 12px;font-size:13px;color:var(--amber);text-transform:uppercase;background:var(--ink-900);padding:8px;text-align:center;border-radius:6px;">${t('ক্রয় ভাউচার','Purchase Voucher')}</h4>
 
       <div class="field"><label>${t('১. ভাউচার তারিখঃ','1. Voucher Date:')}</label><input type="date" id="pv3_Date" value="${attr(rec.InvoiceDate || rec.Date) || new Date().toISOString().slice(0,10)}"></div>
@@ -3894,10 +3909,12 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
         <div class="field"><label>${t('নিট মূল্যঃ','Net Amount:')}</label><input id="pv3_NetLineAmount" readonly style="background:var(--bg);font-weight:700;"></div>
       </div>
 
-      <label style="display:flex;align-items:center;gap:8px;background:var(--ink-900);color:var(--amber);padding:10px;border-radius:8px;cursor:pointer;margin-bottom:10px;font-size:13px;font-weight:600;">
-        <input type="checkbox" id="pv3_ConfirmPurchaseCheck" style="width:auto;"> ✓ ${t('সেভ + ক্রয় লাইন যোগ','Save + Add Purchase Line')}
-      </label>
-      <button type="button" id="pv3_AddReturnLineBtn" class="btn" style="width:100%;background:var(--ink-900);color:var(--amber);margin-bottom:16px;">+ ${t('ক্রয় ফেরত লাইন যোগ','Add Purchase Return Line')}</button>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">
+        <label style="display:flex;align-items:center;gap:8px;background:var(--ink-900);color:var(--amber);padding:8px 10px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;">
+          <input type="checkbox" id="pv3_ConfirmPurchaseCheck" style="width:auto;"> ✓ ${t('সেভ + ক্রয় লাইন যোগ','Save + Add Purchase Line')}
+        </label>
+        <button type="button" id="pv3_AddReturnLineBtn" class="btn" style="width:100%;background:var(--ink-900);color:var(--amber);padding:8px 10px;font-size:12px;">+ ${t('ক্রয় ফেরত লাইন যোগ','Add Purchase Return Line')}</button>
+      </div>
 
       <h4 style="margin:16px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('নগদ ও ব্যাংক হিসাব','Cash & Bank Account')}</h4>
       <div class="field">
@@ -3918,7 +3935,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       <input type="hidden" id="pv3_BankPaidNote" value="">
       <input type="hidden" id="pv3_SupplierBankName" value="">
       <input type="hidden" id="pv3_SupplierBankAccNo" value="">
-
+      </div>
     </div>
 
     <div id="pv3_TabPreviewPanel" style="display:none;">
@@ -4599,6 +4616,21 @@ async function openSalesVoucherForm(defaultType, existingId) {
     </div>
 
     <div id="sv3_TabEntryPanel">
+      <style>
+        .sv3-compact .field{margin-bottom:6px;}
+        .sv3-compact .field label{display:block;font-size:10.5px;font-weight:600;margin-bottom:2px;}
+        .sv3-compact .field input,.sv3-compact .field select{padding:5px 7px;font-size:12px;border-radius:6px;height:30px;}
+        .sv3-compact .field[style*="display:flex"]{flex-wrap:nowrap;}
+        .sv3-compact .field[style*="display:flex"] label{flex-shrink:0;white-space:nowrap;font-size:10px;}
+        .sv3-compact .field[style*="display:flex"] input[type="checkbox"]{width:14px;height:14px;flex-shrink:0;}
+        .sv3-compact .field[style*="display:flex"] input:not([type="checkbox"]),
+        .sv3-compact .field[style*="display:flex"] select{min-width:0;width:0;flex:1 1 auto;padding:4px 5px;font-size:10.5px;}
+        @media (max-width:420px){
+          .sv3-compact .field input,.sv3-compact .field select{font-size:11.5px;padding:4px 6px;height:28px;}
+          .sv3-compact .field label{font-size:10px;}
+        }
+      </style>
+      <div class="sv3-compact">
       <h4 style="margin:0 0 12px;font-size:13px;color:var(--amber);text-transform:uppercase;background:var(--ink-900);padding:8px;text-align:center;border-radius:6px;">${t('বিক্রয় ভাউচার','Sales Voucher')}</h4>
 
       <div class="field"><label>${t('১. ভাউচার তারিখঃ','1. Voucher Date:')}</label><input type="date" id="sv3_Date" value="${attr(rec.InvoiceDate || rec.Date) || new Date().toISOString().slice(0,10)}"></div>
@@ -4655,10 +4687,12 @@ async function openSalesVoucherForm(defaultType, existingId) {
         <div class="field"><label>${t('নিট মূল্যঃ','Net Amount:')}</label><input id="sv3_NetLineAmount" readonly style="background:var(--bg);font-weight:700;"></div>
       </div>
 
-      <label style="display:flex;align-items:center;gap:8px;background:var(--ink-900);color:var(--amber);padding:10px;border-radius:8px;cursor:pointer;margin-bottom:10px;font-size:13px;font-weight:600;">
-        <input type="checkbox" id="sv3_ConfirmSaleCheck" style="width:auto;"> ✓ ${t('সেভ + বিক্রয় লাইন যোগ','Save + Add Sale Line')}
-      </label>
-      <button type="button" id="sv3_AddReturnLineBtn" class="btn" style="width:100%;background:var(--ink-900);color:var(--amber);margin-bottom:16px;">+ ${t('বিক্রয় ফেরত লাইন যোগ','Add Sale Return Line')}</button>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">
+        <label style="display:flex;align-items:center;gap:8px;background:var(--ink-900);color:var(--amber);padding:8px 10px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;">
+          <input type="checkbox" id="sv3_ConfirmSaleCheck" style="width:auto;"> ✓ ${t('সেভ + বিক্রয় লাইন যোগ','Save + Add Sale Line')}
+        </label>
+        <button type="button" id="sv3_AddReturnLineBtn" class="btn" style="width:100%;background:var(--ink-900);color:var(--amber);padding:8px 10px;font-size:12px;">+ ${t('বিক্রয় ফেরত লাইন যোগ','Add Sale Return Line')}</button>
+      </div>
 
       <h4 style="margin:16px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('নগদ ও ব্যাংক হিসাব','Cash & Bank Account')}</h4>
       <div class="field">
@@ -4678,6 +4712,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
       <input type="hidden" id="sv3_BankReceivedNote" value="">
       <input type="hidden" id="sv3_CustomerBankName" value="">
       <input type="hidden" id="sv3_CustomerBankAccNo" value="">
+      </div>
     </div>
 
     <div id="sv3_TabPreviewPanel" style="display:none;">
