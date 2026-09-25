@@ -3655,7 +3655,8 @@ async function openPrintableVoucherView(docType, docId) {
 <title>${titleBn} — ${escapeHtml(docId)}</title>
 <link href="https://fonts.googleapis.com/css2?family=Anek+Bangla:wght@400;500;600;700&family=Oswald:wght@600;700&display=swap" rel="stylesheet">
 <style>
-  body{font-family:'Anek Bangla','Inter',sans-serif;color:#1b1f27;max-width:800px;margin:30px auto;padding:0 20px;}
+  body{font-family:'Anek Bangla','Inter',sans-serif;color:#1b1f27;max-width:800px;margin:30px auto;padding:0 20px;position:relative;}
+  .watermark{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-30deg);font-family:'Oswald',sans-serif;font-size:90px;font-weight:700;color:rgba(18,22,29,.06);letter-spacing:.05em;z-index:0;pointer-events:none;white-space:nowrap;}
   .doc-head{display:grid;grid-template-columns:100px 1fr 195px;align-items:center;gap:12px;border-bottom:3px solid #1a2029;padding-bottom:16px;margin-bottom:20px;}
   .doc-logo{width:90px;height:90px;border:1px dashed #c7cbd3;border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden;color:#aab0ba;font-size:11px;text-align:center;}
   .doc-logo img{max-width:100%;max-height:100%;object-fit:contain;}
@@ -3705,16 +3706,17 @@ async function openPrintableVoucherView(docType, docId) {
     <div class="doc-logo">${company.LogoURL ? `<img src="${attr(company.LogoURL)}" alt="Logo">` : L('লোগো','Logo')}</div>
     <div class="doc-center">
       <h1>${escapeHtml(company.CompanyName || 'জি মেটাল ওয়ার্কস')}</h1>
-      <p>${escapeHtml(company.Address || '')}</p>
-      <p>${escapeHtml(company.Phone || '')} ${company.Email ? '· ' + escapeHtml(company.Email) : ''}</p>
+      <p>আলামপুর ব্রীজঘাট বাজার, কোটচাঁদপুর রোড</p>
+      <p>মহেশপুর, ঝিনাইদহ &nbsp;&nbsp;&nbsp; মোবাঃ 01713901556</p>
     </div>
     <div class="doc-right">
       <h2>${L(titleBn, titleEn)}</h2>
+      <p>${L('ভাউচার তারিখ','Voucher Date')}: <b>${escapeHtml(voucherDate)}</b></p>
       <p>${L('ভাউচার নম্বর','Voucher No')}: <b>${escapeHtml(docId)}</b></p>
-      <p>${L('তারিখ','Date')}: ${escapeHtml(voucherDate)}</p>
-      <p><span data-bn="${attr('প্রিন্টের সময়: ' + printedAt)}" data-en="${attr('Printed at: ' + printedAtEn)}">${escapeHtml('প্রিন্টের সময়: ' + printedAt)}</span></p>
+      <p><span data-bn="${attr('প্রিন্ট সময়: ' + printedAt)}" data-en="${attr('Print time: ' + printedAtEn)}">${escapeHtml('প্রিন্ট সময়: ' + printedAt)}</span></p>
     </div>
   </div>
+  <div class="watermark">gmetal</div>
   <div class="meta-grid">
     <div>
       <div><b>${L(partyLabelBn, partyLabelEn)}:</b> ${escapeHtml(partyName)} ${partyZone ? '— ' + L('জোন','Zone') + ': ' + escapeHtml(partyZone) : ''}</div>
@@ -3722,7 +3724,6 @@ async function openPrintableVoucherView(docType, docId) {
       <div>${L('মোবাইল','Mobile')}: ${escapeHtml(partyPhone || '—')}</div>
     </div>
     <div>
-      <div><b>${L(personLabelBn, personLabelEn)}:</b> ${escapeHtml(person ? person[personNameField] : '—')}</div>
       ${header.SupplierInvoiceNo ? `<div><b>${L('নিঃভাউঃনম্বর','Supplier Voucher No')}:</b> ${escapeHtml(header.SupplierInvoiceNo)}</div>` : ''}
       ${header.SupplierInvoiceDate ? `<div><b>${L('নিঃভাউঃতারিখ','Supplier Voucher Date')}:</b> ${escapeHtml(header.SupplierInvoiceDate)}</div>` : ''}
       ${header.GRNID ? `<div><b>GRN:</b> ${escapeHtml(header.GRNID)}</div>` : ''}
@@ -3749,6 +3750,7 @@ async function openPrintableVoucherView(docType, docId) {
       <div class="sign-line"></div>
       <p><b>${L(personLabelBn + ' স্বাঃ', personLabelEn + "'s Signature")}</b></p>
       <p>${escapeHtml(person ? (person.FullName || '') : '')}</p>
+      <p style="font-size:10.5px;color:#888;">${escapeHtml(person ? (person.Email || '') : '')}</p>
     </div>
   </div>
   <p class="footer-note"><span data-bn="${attr('তৈরি হয়েছে: ' + new Date().toLocaleString('bn-BD'))}" data-en="${attr('Generated on: ' + new Date().toLocaleString('en-US'))}">${escapeHtml('তৈরি হয়েছে: ' + new Date().toLocaleString('bn-BD'))}</span></p>
