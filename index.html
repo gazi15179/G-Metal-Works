@@ -3773,6 +3773,36 @@ async function openPrintableVoucherView(docType, docId) {
   win.document.close();
 }
 
+/** ডেস্কটপে যেকোনো ফর্মে Enter চাপলে পরের ইনপুট ফিল্ডে, Escape চাপলে আগের
+ *  ফিল্ডে ফোকাস যাবে — শুধু দৃশ্যমান ও সক্রিয় (disabled নয়) input/select/textarea
+ *  ধরে, checkbox বাদ দিয়ে (checkbox নিজের স্বাভাবিক Space/click আচরণ রাখবে)। */
+function wireSequentialKeyNav(container) {
+  if (!container) return;
+  function focusable() {
+    return Array.from(container.querySelectorAll('input, select, textarea')).filter(function (el) {
+      return !el.disabled && el.type !== 'checkbox' && el.offsetParent !== null;
+    });
+  }
+  function handler(e) {
+    if (e.key !== 'Enter' && e.key !== 'Escape') return;
+    if (!document.body.contains(container)) { document.removeEventListener('keydown', handler, true); return; }
+    if (!container.contains(document.activeElement)) return;
+    if (document.activeElement.tagName === 'TEXTAREA' && e.key === 'Enter') return; // টেক্সট-এরিয়াতে Enter মানে নতুন লাইন
+    const fields = focusable();
+    const idx = fields.indexOf(document.activeElement);
+    if (idx === -1) return;
+    e.preventDefault();
+    if (e.key === 'Enter') {
+      const next = fields[idx + 1];
+      if (next) next.focus();
+    } else {
+      const prev = fields[idx - 1];
+      if (prev) prev.focus();
+    }
+  }
+  document.addEventListener('keydown', handler, true);
+}
+
 async function openPurchaseVoucherForm(defaultType, existingId) {
   const pvData = await cachedListMultiple(['Suppliers', 'Items', 'ItemGroups', 'Categories', 'UOM', 'Warehouses', 'BankCashAccounts']);
   const suppliers = pvData.Suppliers, items = pvData.Items,
@@ -3842,11 +3872,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
         .pv3-compact .field{margin-bottom:6px;}
         .pv3-compact .field label{display:block;font-size:10.5px;font-weight:600;margin-bottom:2px;}
         .pv3-compact .field input,.pv3-compact .field select{padding:5px 7px;font-size:12px;border-radius:6px;height:30px;width:calc(100% - 1in) !important;max-width:calc(100% - 1in) !important;box-sizing:border-box;}
-        .pv3-compact .field[style*="display:flex"]{flex-wrap:nowrap;}
-        .pv3-compact .field[style*="display:flex"] label{flex-shrink:0;white-space:nowrap;font-size:10px;}
-        .pv3-compact .field[style*="display:flex"] input[type="checkbox"]{width:14px;height:14px;flex-shrink:0;}
-        .pv3-compact .field[style*="display:flex"] input:not([type="checkbox"]),
-        .pv3-compact .field[style*="display:flex"] select{min-width:0 !important;width:0 !important;max-width:none !important;flex:1 1 auto;padding:4px 5px;font-size:10.5px;}
+        .pv3-compact .field label input[type="checkbox"]{width:15px !important;height:15px;flex-shrink:0;max-width:none !important;}
         @media (max-width:420px){
           .pv3-compact .field input,.pv3-compact .field select{font-size:11.5px;padding:4px 6px;height:28px;}
           .pv3-compact .field label{font-size:10px;}
@@ -3858,15 +3884,13 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       <div class="field"><label>${t('১. ভাউচার তারিখঃ','1. Voucher Date:')}</label><input type="date" id="pv3_Date" value="${attr(rec.InvoiceDate || rec.Date) || new Date().toISOString().slice(0,10)}"></div>
       <div class="field"><label>${t('২. ভাউচার নম্বরঃ','2. Voucher No:')}</label><input id="pv3_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো তৈরি হবে','Auto')}" readonly style="background:var(--bg);"></div>
 
-      <div class="field" style="display:flex;align-items:center;gap:8px;">
-        <input type="checkbox" id="pv3_SNDateCheck" style="width:auto;" ${rec.SupplierInvoiceDate?'checked':''}>
-        <label style="margin:0;flex-shrink:0;">${t('৩. নিঃতারিখঃ','3. Manual Date:')}</label>
-        <input type="date" id="pv3_SupplierInvoiceDate" value="${attr(rec.SupplierInvoiceDate)}" style="flex:1;" ${rec.SupplierInvoiceDate?'':'disabled'}>
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pv3_SNDateCheck" style="width:auto;" ${rec.SupplierInvoiceDate?'checked':''}> ${t('৩. নিঃতারিখঃ','3. Manual Date:')}</label>
+        <input type="date" id="pv3_SupplierInvoiceDate" value="${attr(rec.SupplierInvoiceDate)}" ${rec.SupplierInvoiceDate?'':'disabled'}>
       </div>
-      <div class="field" style="display:flex;align-items:center;gap:8px;">
-        <input type="checkbox" id="pv3_SNNoCheck" style="width:auto;" ${rec.SupplierInvoiceNo?'checked':''}>
-        <label style="margin:0;flex-shrink:0;">${t('৪. নিঃনম্বরঃ','4. Manual No:')}</label>
-        <input id="pv3_SupplierInvoiceNo" value="${attr(rec.SupplierInvoiceNo)}" style="flex:1;" ${rec.SupplierInvoiceNo?'':'disabled'}>
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pv3_SNNoCheck" style="width:auto;" ${rec.SupplierInvoiceNo?'checked':''}> ${t('৪. নিঃনম্বরঃ','4. Manual No:')}</label>
+        <input id="pv3_SupplierInvoiceNo" value="${attr(rec.SupplierInvoiceNo)}" ${rec.SupplierInvoiceNo?'':'disabled'}>
       </div>
 
       <div class="field"><label>${t('৫. সাপ্লায়ার নামঃ','5. Supplier:')}</label><select id="pv3_SupplierID"><option value="">—</option>${suppliers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.SupplierID)}" ${rec.SupplierID===r.SupplierID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select></div>
@@ -3878,15 +3902,13 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
         <div class="field"><label>${t('মোবাইল','Mobile')}</label><input id="pv3_CashMobile" value="${attr(rec.WalkInPartyMobile)}"></div>
       </div>
 
-      <div class="field" style="display:flex;align-items:center;gap:8px;">
-        <input type="checkbox" id="pv3_GroupCheck" style="width:auto;">
-        <label style="margin:0;flex-shrink:0;">${t('৭. গ্রুপ নামঃ','7. Group:')}</label>
-        <select id="pv3_GroupSelect" disabled style="flex:1;display:none;"><option value="">—</option>${optsHtml(window.__pv3Groups, 'GroupID','GroupName','')}</select>
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pv3_GroupCheck" style="width:auto;"> ${t('৭. গ্রুপ নামঃ','7. Group:')}</label>
+        <select id="pv3_GroupSelect" disabled style="display:none;"><option value="">—</option>${optsHtml(window.__pv3Groups, 'GroupID','GroupName','')}</select>
       </div>
-      <div class="field" style="display:flex;align-items:center;gap:8px;">
-        <input type="checkbox" id="pv3_CatCheck" style="width:auto;">
-        <label style="margin:0;flex-shrink:0;">${t('৮. ক্যাটাগরিঃ','8. Category:')}</label>
-        <select id="pv3_CatSelect" disabled style="flex:1;display:none;"><option value="">—</option>${optsHtml(window.__pv3Categories, 'CategoryID','CategoryName','')}</select>
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pv3_CatCheck" style="width:auto;"> ${t('৮. ক্যাটাগরিঃ','8. Category:')}</label>
+        <select id="pv3_CatSelect" disabled style="display:none;"><option value="">—</option>${optsHtml(window.__pv3Categories, 'CategoryID','CategoryName','')}</select>
       </div>
 
       <div class="field"><label>${t('৯. আইটেমঃ','9. Item:')}</label><select id="pv3_ItemID"><option value="">—</option></select></div>
@@ -3899,10 +3921,9 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       <div class="field"><label>${t('১৬. এককঃ','16. Unit:')}</label><input id="pv3_Unit" readonly style="background:var(--bg);"></div>
       <div class="field"><label>${t('১৭. মূল্যঃ','17. Amount:')}</label><input id="pv3_Amount" readonly style="background:var(--bg);font-weight:700;"></div>
 
-      <div class="field" style="display:flex;align-items:center;gap:8px;">
-        <input type="checkbox" id="pv3_CommCheck" style="width:auto;">
-        <label style="margin:0;flex-shrink:0;">${t('কমিঃ (%)ঃ','Comm. (%):')}</label>
-        <input id="pv3_CommRate" type="number" step="any" style="flex:1;" placeholder="0" disabled>
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pv3_CommCheck" style="width:auto;"> ${t('কমিঃ (%)ঃ','Comm. (%):')}</label>
+        <input id="pv3_CommRate" type="number" step="any" placeholder="0" disabled>
       </div>
       <div id="pv3_CommResultRow" style="display:none;">
         <div class="field"><label>${t('(-)কমিঃঃ','(-) Comm.:')}</label><input id="pv3_CommAmount" readonly style="background:var(--bg);"></div>
@@ -4050,6 +4071,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   }
   wireRevealCheckbox('pv3_SNDateCheck', 'pv3_SupplierInvoiceDate');
   wireRevealCheckbox('pv3_SNNoCheck', 'pv3_SupplierInvoiceNo');
+  wireSequentialKeyNav(document.getElementById('pv3_TabEntryPanel'));
 
   document.getElementById('pv3_TabEntryBtn').addEventListener('click', function () { showTab('entry'); });
   document.getElementById('pv3_TabPreviewBtn').addEventListener('click', function () { showTab('preview'); });
@@ -4620,11 +4642,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
         .sv3-compact .field{margin-bottom:6px;}
         .sv3-compact .field label{display:block;font-size:10.5px;font-weight:600;margin-bottom:2px;}
         .sv3-compact .field input,.sv3-compact .field select{padding:5px 7px;font-size:12px;border-radius:6px;height:30px;width:calc(100% - 1in) !important;max-width:calc(100% - 1in) !important;box-sizing:border-box;}
-        .sv3-compact .field[style*="display:flex"]{flex-wrap:nowrap;}
-        .sv3-compact .field[style*="display:flex"] label{flex-shrink:0;white-space:nowrap;font-size:10px;}
-        .sv3-compact .field[style*="display:flex"] input[type="checkbox"]{width:14px;height:14px;flex-shrink:0;}
-        .sv3-compact .field[style*="display:flex"] input:not([type="checkbox"]),
-        .sv3-compact .field[style*="display:flex"] select{min-width:0 !important;width:0 !important;max-width:none !important;flex:1 1 auto;padding:4px 5px;font-size:10.5px;}
+        .sv3-compact .field label input[type="checkbox"]{width:15px !important;height:15px;flex-shrink:0;max-width:none !important;}
         @media (max-width:420px){
           .sv3-compact .field input,.sv3-compact .field select{font-size:11.5px;padding:4px 6px;height:28px;}
           .sv3-compact .field label{font-size:10px;}
@@ -4636,15 +4654,13 @@ async function openSalesVoucherForm(defaultType, existingId) {
       <div class="field"><label>${t('১. ভাউচার তারিখঃ','1. Voucher Date:')}</label><input type="date" id="sv3_Date" value="${attr(rec.InvoiceDate || rec.Date) || new Date().toISOString().slice(0,10)}"></div>
       <div class="field"><label>${t('২. ভাউচার নম্বরঃ','2. Voucher No:')}</label><input id="sv3_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো তৈরি হবে','Auto')}" readonly style="background:var(--bg);"></div>
 
-      <div class="field" style="display:flex;align-items:center;gap:8px;">
-        <input type="checkbox" id="sv3_ManualDateCheck" style="width:auto;" ${rec.ManualVoucherDate?'checked':''}>
-        <label style="margin:0;flex-shrink:0;">${t('৩. নিঃতারিখঃ','3. Manual Date:')}</label>
-        <input type="date" id="sv3_ManualVoucherDate" value="${attr(rec.ManualVoucherDate)}" style="flex:1;" ${rec.ManualVoucherDate?'':'disabled'}>
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="sv3_ManualDateCheck" style="width:auto;" ${rec.ManualVoucherDate?'checked':''}> ${t('৩. নিঃতারিখঃ','3. Manual Date:')}</label>
+        <input type="date" id="sv3_ManualVoucherDate" value="${attr(rec.ManualVoucherDate)}" ${rec.ManualVoucherDate?'':'disabled'}>
       </div>
-      <div class="field" style="display:flex;align-items:center;gap:8px;">
-        <input type="checkbox" id="sv3_ManualNoCheck" style="width:auto;" ${rec.ManualVoucherNo?'checked':''}>
-        <label style="margin:0;flex-shrink:0;">${t('৪. নিঃনম্বরঃ','4. Manual No:')}</label>
-        <input id="sv3_ManualVoucherNo" value="${attr(rec.ManualVoucherNo)}" style="flex:1;" ${rec.ManualVoucherNo?'':'disabled'}>
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="sv3_ManualNoCheck" style="width:auto;" ${rec.ManualVoucherNo?'checked':''}> ${t('৪. নিঃনম্বরঃ','4. Manual No:')}</label>
+        <input id="sv3_ManualVoucherNo" value="${attr(rec.ManualVoucherNo)}" ${rec.ManualVoucherNo?'':'disabled'}>
       </div>
 
       <div class="field"><label>${t('৫. গ্রাহক নামঃ','5. Customer:')}</label><select id="sv3_CustomerID"><option value="">—</option>${customers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.CustomerID)}" ${rec.CustomerID===r.CustomerID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select></div>
@@ -4656,15 +4672,13 @@ async function openSalesVoucherForm(defaultType, existingId) {
         <div class="field"><label>${t('মোবাইল','Mobile')}</label><input id="sv3_CashMobile" value="${attr(rec.WalkInPartyMobile)}"></div>
       </div>
 
-      <div class="field" style="display:flex;align-items:center;gap:8px;">
-        <input type="checkbox" id="sv3_GroupCheck" style="width:auto;">
-        <label style="margin:0;flex-shrink:0;">${t('৭. গ্রুপ নামঃ','7. Group:')}</label>
-        <select id="sv3_GroupSelect" disabled style="flex:1;display:none;"><option value="">—</option>${optsHtml(window.__sv3Groups, 'GroupID','GroupName','')}</select>
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="sv3_GroupCheck" style="width:auto;"> ${t('৭. গ্রুপ নামঃ','7. Group:')}</label>
+        <select id="sv3_GroupSelect" disabled style="display:none;"><option value="">—</option>${optsHtml(window.__sv3Groups, 'GroupID','GroupName','')}</select>
       </div>
-      <div class="field" style="display:flex;align-items:center;gap:8px;">
-        <input type="checkbox" id="sv3_CatCheck" style="width:auto;">
-        <label style="margin:0;flex-shrink:0;">${t('৮. ক্যাটাগরিঃ','8. Category:')}</label>
-        <select id="sv3_CatSelect" disabled style="flex:1;display:none;"><option value="">—</option>${optsHtml(window.__sv3Categories, 'CategoryID','CategoryName','')}</select>
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="sv3_CatCheck" style="width:auto;"> ${t('৮. ক্যাটাগরিঃ','8. Category:')}</label>
+        <select id="sv3_CatSelect" disabled style="display:none;"><option value="">—</option>${optsHtml(window.__sv3Categories, 'CategoryID','CategoryName','')}</select>
       </div>
 
       <div class="field"><label>${t('৯. আইটেমঃ','9. Item:')}</label><select id="sv3_ItemID"><option value="">—</option></select></div>
@@ -4677,10 +4691,9 @@ async function openSalesVoucherForm(defaultType, existingId) {
       <div class="field"><label>${t('১৬. এককঃ','16. Unit:')}</label><input id="sv3_Unit" readonly style="background:var(--bg);"></div>
       <div class="field"><label>${t('১৭. মূল্যঃ','17. Amount:')}</label><input id="sv3_Amount" readonly style="background:var(--bg);font-weight:700;"></div>
 
-      <div class="field" style="display:flex;align-items:center;gap:8px;">
-        <input type="checkbox" id="sv3_CommCheck" style="width:auto;">
-        <label style="margin:0;flex-shrink:0;">${t('কমিঃ (%)ঃ','Comm. (%):')}</label>
-        <input id="sv3_CommRate" type="number" step="any" style="flex:1;" placeholder="0" disabled>
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="sv3_CommCheck" style="width:auto;"> ${t('কমিঃ (%)ঃ','Comm. (%):')}</label>
+        <input id="sv3_CommRate" type="number" step="any" placeholder="0" disabled>
       </div>
       <div id="sv3_CommResultRow" style="display:none;">
         <div class="field"><label>${t('(-)কমিঃঃ','(-) Comm.:')}</label><input id="sv3_CommAmount" readonly style="background:var(--bg);"></div>
@@ -4816,6 +4829,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
   }
   wireRevealCheckbox('sv3_ManualDateCheck', 'sv3_ManualVoucherDate');
   wireRevealCheckbox('sv3_ManualNoCheck', 'sv3_ManualVoucherNo');
+  wireSequentialKeyNav(document.getElementById('sv3_TabEntryPanel'));
 
   document.getElementById('sv3_TabEntryBtn').addEventListener('click', function () { showTab('entry'); });
   document.getElementById('sv3_TabPreviewBtn').addEventListener('click', function () { showTab('preview'); });
