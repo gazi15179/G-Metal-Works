@@ -3725,7 +3725,7 @@ async function openPrintableVoucherView(docType, docId) {
     </div>
     <div class="doc-right">
       <h2>${L(titleBn, titleEn)}</h2>
-      <p>${L('ভাউচার তারিখ','Voucher Date')}: <b>${escapeHtml(voucherDate)}</b></p>
+      <p>${L('ভাউচার তারিখ','Voucher Date')}: <b>${escapeHtml(formatShortDate(voucherDate))}</b></p>
       <p>${L('ভাউচার নম্বর','Voucher No')}: <b>${escapeHtml(docId)}</b></p>
       <p><span data-bn="${attr('প্রিন্টঃ' + printedAt)}" data-en="${attr('Print: ' + printedAtEn)}">${escapeHtml('প্রিন্টঃ' + printedAt)}</span></p>
     </div>
@@ -3734,8 +3734,7 @@ async function openPrintableVoucherView(docType, docId) {
   <div class="meta-grid">
     <div>
       <div><b>${L(partyLabelBn, partyLabelEn)}:</b> ${escapeHtml(partyName)} ${partyZone ? '— ' + L('জোন','Zone') + ': ' + escapeHtml(partyZone) : ''}</div>
-      <div>${L('ঠিকানা','Address')}: ${escapeHtml(partyAddress || '—')}</div>
-      <div>${L('মোবাইল','Mobile')}: ${escapeHtml(partyPhone || '—')}</div>
+      <div>${L('ঠিকানা','Address')}: ${escapeHtml(partyAddress || '—')} &nbsp;&nbsp;&nbsp;&nbsp; ${L('মোবাইল','Mobile')}: ${escapeHtml(partyPhone || '—')}</div>
     </div>
     <div>
       ${header.SupplierInvoiceNo ? `<div><b>${L('নিঃভাউঃনম্বর','Supplier Voucher No')}:</b> ${escapeHtml(header.SupplierInvoiceNo)}</div>` : ''}
@@ -4451,7 +4450,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   @page { size: A5; margin: 10mm; }
 </style></head><body>
   <h1>${escapeHtml(company.CompanyName || 'জি মেটাল ওয়ার্কস')}</h1>
-  <div class="sub">ক্রয় ভাউচার (খসড়া — এখনো সেভ হয়নি) — তারিখ: ${escapeHtml(val('pv3_Date'))} — সাপ্লায়ার: ${escapeHtml(supplierName)}</div>
+  <div class="sub">ক্রয় ভাউচার (খসড়া — এখনো সেভ হয়নি) — তারিখ: ${escapeHtml(formatShortDate(val('pv3_Date')))} — সাপ্লায়ার: ${escapeHtml(supplierName)}</div>
   ${window.__pv3PurchaseLines.length > 0 ? `<h3>ক্রয়কৃত পণ্য</h3>${linesTableHtml(window.__pv3PurchaseLines)}<div class="totalline">মোট ক্রয়: ৳ ${purchaseTotal.toFixed(2)}</div>` : ''}
   ${window.__pv3ReturnLines.length > 0 ? `<h3>ক্রয় ফেরত পণ্য</h3>${linesTableHtml(window.__pv3ReturnLines)}<div class="totalline">মোট ক্রয় ফেরত: ৳ ${returnTotal.toFixed(2)}</div>` : ''}
   <div class="totalline" style="font-size:15px;border-top:2px solid #1a2029;padding-top:8px;">নিট মোট: ৳ ${(purchaseTotal - returnTotal).toFixed(2)}</div>
@@ -5189,7 +5188,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
   @page { size: A5; margin: 10mm; }
 </style></head><body>
   <h1>${escapeHtml(company.CompanyName || 'জি মেটাল ওয়ার্কস')}</h1>
-  <div class="sub">বিক্রয় ভাউচার (খসড়া — এখনো সেভ হয়নি) — তারিখ: ${escapeHtml(val('sv3_Date'))} — গ্রাহক: ${escapeHtml(custName)}</div>
+  <div class="sub">বিক্রয় ভাউচার (খসড়া — এখনো সেভ হয়নি) — তারিখ: ${escapeHtml(formatShortDate(val('sv3_Date')))} — গ্রাহক: ${escapeHtml(custName)}</div>
   ${window.__sv3SaleLines.length > 0 ? `<h3>বিক্রীত পণ্য</h3>${linesTableHtml(window.__sv3SaleLines)}<div class="totalline">মোট বিক্রয়: ৳ ${saleTotal.toFixed(2)}</div>` : ''}
   ${window.__sv3ReturnLines.length > 0 ? `<h3>ফেরত পণ্য</h3>${linesTableHtml(window.__sv3ReturnLines)}<div class="totalline">মোট ফেরত: ৳ ${returnTotal.toFixed(2)}</div>` : ''}
   <div class="totalline" style="font-size:15px;border-top:2px solid #1a2029;padding-top:8px;">নিট মোট: ৳ ${(saleTotal - returnTotal).toFixed(2)}</div>
@@ -5848,7 +5847,7 @@ function openPartyLedgerPrintView(partyName, rows, refModuleInfo) {
     runningBalance += debit - credit;
     const info = refModuleInfo(r.RefModule);
     return `<tr>
-      <td>${escapeHtml(r.Date)}</td>
+      <td>${escapeHtml(formatShortDate(r.Date))}</td>
       <td>${escapeHtml(L(info.desc[0], info.desc[1]))}</td>
       <td>${escapeHtml(L(info.type[0], info.type[1]))}</td>
       <td>${escapeHtml(r.RefID)}</td>
@@ -6224,6 +6223,16 @@ function formatPrintDate(d) {
   const mi = String(d.getMinutes()).padStart(2, '0');
   const ss = String(d.getSeconds()).padStart(2, '0');
   return dd + '/' + mm + '/' + yy + ';' + h + ':' + mi + ':' + ss + ampm;
+}
+
+/** ভাউচারের নিজের তারিখ (সেভ থাকে YYYY-MM-DD হিসেবে) প্রিন্টে DD-MM-YY
+ *  আকারে দেখানোর জন্য — যেমন 2026-09-25 → 25-09-26 */
+function formatShortDate(isoDate) {
+  if (!isoDate) return '';
+  const parts = String(isoDate).split('-');
+  if (parts.length !== 3) return isoDate;
+  const [yyyy, mm, dd] = parts;
+  return dd + '-' + mm + '-' + yyyy.slice(-2);
 }
 
 function formatAmountDrCr(v, showLabel) {
