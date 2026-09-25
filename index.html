@@ -582,7 +582,8 @@ async function postPartyLedgerEntry(partyType, partyId, date, refModule, refId, 
 
   const { error } = await supabaseClient.from('PartyLedger').insert({
     PartyType: partyType, PartyID: partyId, Date: date, RefModule: refModule, RefID: refId,
-    Debit: debit, Credit: credit, Balance: newBalance
+    Debit: debit, Credit: credit, Balance: newBalance,
+    CreatedBy: currentUser ? (currentUser.FullName || currentUser.Email || null) : null
   });
   if (error) throw new Error(error.message);
 }
@@ -5679,45 +5680,110 @@ async function renderPartyLedger(content, partyTypeFilter) {
   // "পার্টি" পেজ থেকে তৈরি হওয়া একই ব্যক্তি/প্রতিষ্ঠান Customers ও Suppliers —
   // দুই টেবিলেই আলাদা ID নিয়ে থাকে, কিন্তু একই "Code" শেয়ার করে। এখানে সেই
   // Code দিয়ে দুটোকে একত্র করে একটামাত্র নাম/অ্যাকাউন্ট হিসেবে দেখানো হচ্ছে।
-  const combined = {}; // key: Code (বা কোড না থাকলে নিজের ID) → { name, customerId, supplierId }
+  const combined = {}; // key: Code (বা কোড না থাকলে নিজের ID) → { name, customerId, supplierId, zone }
   if (!partyTypeFilter || partyTypeFilter === 'Customer') {
     customers.filter(function (c) { return c.Status !== 'Deleted'; }).forEach(function (c) {
       const key = c.Code || c.CustomerID;
       const label = c.CompanyName || c.Name;
-      if (!combined[key]) combined[key] = { name: label, customerId: null, supplierId: null };
+      if (!combined[key]) combined[key] = { name: label, customerId: null, supplierId: null, zone: c.Zone || '' };
       combined[key].customerId = c.CustomerID;
       if (!combined[key].name) combined[key].name = label;
+      if (!combined[key].zone) combined[key].zone = c.Zone || '';
     });
   }
   if (!partyTypeFilter || partyTypeFilter === 'Supplier') {
     suppliers.filter(function (s) { return s.Status !== 'Deleted'; }).forEach(function (s) {
       const key = s.Code || s.SupplierID;
       const label = s.CompanyName || s.Name;
-      if (!combined[key]) combined[key] = { name: label, customerId: null, supplierId: null };
+      if (!combined[key]) combined[key] = { name: label, customerId: null, supplierId: null, zone: s.Zone || '' };
       combined[key].supplierId = s.SupplierID;
       if (!combined[key].name) combined[key].name = label;
+      if (!combined[key].zone) combined[key].zone = s.Zone || '';
     });
   }
-  const parties = Object.keys(combined).map(function (key) { return Object.assign({ key: key }, combined[key]); });
+  const parties = Object.keys(combined).map(function (key) { return Object.assign({ key: key }, combined[key]); })
+    .sort(function (a, b) { return String(a.name).localeCompare(String(b.name), 'bn'); });
+  const zoneList = Array.from(new Set(parties.map(function (p) { return p.zone; }).filter(Boolean))).sort(function (a, b) { return String(a).localeCompare(String(b), 'bn'); });
+
+  function partyOptionsHtml(list) {
+    return list.map(function (p) { return `<option data-key="${attr(p.key)}" value="${escapeHtml(p.name)}${p.zone ? ' — ' + escapeHtml(p.zone) : ''}"></option>`; }).join('');
+  }
 
   content.innerHTML = `
     <div class="page-head"><div>
         <h1 class="i18n" data-bn="${partyTypeFilter==='Customer'?'গ্রাহক লেজার':'পার্টি লেজার'}" data-en="${partyTypeFilter==='Customer'?'Customer Ledger':'Party Ledger'}">${t(partyTypeFilter==='Customer'?'গ্রাহক লেজার':'পার্টি লেজার', partyTypeFilter==='Customer'?'Customer Ledger':'Party Ledger')}</h1>
         <p class="i18n" data-bn="একটা পার্টি বাছাই করে তার সব (ক্রয়+বিক্রয়) হিসাব এক জায়গায় দেখুন" data-en="Select a party to see all its (purchase+sales) entries in one place">${t('একটা পার্টি বাছাই করে তার সব (ক্রয়+বিক্রয়) হিসাব এক জায়গায় দেখুন','Select a party to see all its (purchase+sales) entries in one place')}</p>
       </div>
-      <select id="plPartyFilter" style="width:auto;min-width:220px;">
-        <option value="">${t('— পার্টি বাছাই করুন —','— Select party —')}</option>
-        ${parties.map(function (p) { return `<option value="${attr(p.key)}">${escapeHtml(p.name)}</option>`; }).join('')}
-      </select>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;margin:0;"><input type="checkbox" id="plZoneCheck" style="width:auto;"> ${t('জোন','Zone')}</label>
+        <select id="plZoneFilter" style="width:auto;min-width:140px;" disabled>
+          <option value="">${t('সব জোন','All Zones')}</option>
+          ${zoneList.map(function (z) { return `<option value="${attr(z)}">${escapeHtml(z)}</option>`; }).join('')}
+        </select>
+        <input id="plPartySearch" list="plPartyDatalist" placeholder="${t('পার্টির নাম লিখে খুঁজুন...','Type to search party...')}" style="width:auto;min-width:240px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:13.5px;">
+        <datalist id="plPartyDatalist">${partyOptionsHtml(parties)}</datalist>
+        <button type="button" id="plPrintBtn" class="btn btn-outline" style="width:auto;display:none;">🖨️ ${t('প্রিন্ট প্রিভিউ','Print Preview')}</button>
+      </div>
     </div>
     <div class="panel"><div id="plWrap"><div class="empty-state">${t('উপরে একটা পার্টি বাছাই করুন।','Select a party above.')}</div></div></div>`;
 
-  document.getElementById('plPartyFilter').addEventListener('change', async function (e) {
+  const zoneCheck = document.getElementById('plZoneCheck');
+  const zoneSelect = document.getElementById('plZoneFilter');
+  const searchInput = document.getElementById('plPartySearch');
+  const datalist = document.getElementById('plPartyDatalist');
+  const printBtn = document.getElementById('plPrintBtn');
+  let currentPartyKey = null;
+
+  // চেকবক্স টিক দিলে তবেই জোন ড্রপডাউন সক্রিয় হবে — প্রয়োজন না হলে এটা এড়িয়ে
+  // সরাসরি সব পার্টি থেকে লিখে খোঁজা যাবে
+  zoneCheck.addEventListener('change', function () {
+    zoneSelect.disabled = !zoneCheck.checked;
+    if (!zoneCheck.checked) {
+      zoneSelect.value = '';
+      datalist.innerHTML = partyOptionsHtml(parties);
+      searchInput.value = '';
+    }
+  });
+
+  // জোন বাছাই করলে সার্চ-তালিকা শুধু সেই জোনের পার্টি দিয়ে ছেঁকে দেওয়া হবে
+  zoneSelect.addEventListener('change', function () {
+    const zone = zoneSelect.value;
+    const filtered = zone ? parties.filter(function (p) { return p.zone === zone; }) : parties;
+    datalist.innerHTML = partyOptionsHtml(filtered);
+    searchInput.value = '';
+  });
+
+  function findPartyByTypedValue(typedValue) {
+    const opt = Array.from(datalist.options).find(function (o) { return o.value === typedValue; });
+    return opt ? opt.getAttribute('data-key') : null;
+  }
+
+  // প্রতিটা RefModule-এর জন্য "বিবরণী" ও "ভাউচার ধরন" — ইন-অ্যাপ টেবিল ও A4 প্রিন্ট দুই জায়গাতেই ব্যবহার হয়
+  function refModuleInfo(refModule) {
+    const map = {
+      PurchaseInvoice: { desc:['ক্রয় ভাউচার পোস্টিং','Purchase voucher posting'], type:['ক্রয়','Purchase'] },
+      'PurchaseInvoice-Payment': { desc:['ক্রয় ভাউচারে প্রদান','Payment against purchase voucher'], type:['পেমেন্ট','Payment'] },
+      PurchaseReturn: { desc:['ক্রয় ফেরত ভাউচার পোস্টিং','Purchase return posting'], type:['ক্রয় ফেরত','Purchase Return'] },
+      SalesInvoice: { desc:['বিক্রয় ভাউচার পোস্টিং','Sales voucher posting'], type:['বিক্রয়','Sales'] },
+      'SalesInvoice-Receipt': { desc:['বিক্রয় ভাউচারে গ্রহণ','Receipt against sales voucher'], type:['রিসিট','Receipt'] },
+      SalesReturn: { desc:['বিক্রয় ফেরত ভাউচার পোস্টিং','Sales return posting'], type:['বিক্রয় ফেরত','Sales Return'] },
+      ContraVoucher: { desc:['কন্ট্রা ভাউচার','Contra voucher'], type:['কন্ট্রা','Contra'] },
+      PaymentVoucher: { desc:['পেমেন্ট ভাউচার','Payment voucher'], type:['পেমেন্ট','Payment'] },
+      ReceiptVoucher: { desc:['রিসিট ভাউচার','Receipt voucher'], type:['রিসিট','Receipt'] }
+    };
+    return map[refModule] || { desc:[refModule, refModule], type:[refModule, refModule] };
+  }
+
+  let lastRows = [], lastParty = null, lastPartyName = '';
+
+  async function loadLedgerForKey(key) {
     const wrap = document.getElementById('plWrap');
-    if (!wrap) return; // ব্যবহারকারী এই ফাঁকে অন্য পেজ/ট্যাবে চলে গেলে এই এলিমেন্ট আর DOM-এ থাকবে না
-    const key = e.target.value;
+    if (!wrap) return;
+    currentPartyKey = key;
+    printBtn.style.display = key ? '' : 'none';
     if (!key) { wrap.innerHTML = `<div class="empty-state">${t('উপরে একটা পার্টি বাছাই করুন।','Select a party above.')}</div>`; return; }
     const party = combined[key];
+    lastParty = party; lastPartyName = party.name;
     wrap.innerHTML = `<div class="empty-state">${t('লোড হচ্ছে...','Loading...')}</div>`;
 
     const allEntries = await api('list', { sheet:'PartyLedger' });
@@ -5725,24 +5791,123 @@ async function renderPartyLedger(content, partyTypeFilter) {
       return (party.customerId && r.PartyType === 'Customer' && r.PartyID === party.customerId) ||
              (party.supplierId && r.PartyType === 'Supplier' && r.PartyID === party.supplierId);
     }).sort(function (a, b) { return String(a.Date || '').localeCompare(String(b.Date || '')); });
+    lastRows = rows;
 
     if (rows.length === 0) { wrap.innerHTML = `<div class="empty-state">${t('কোনো এন্ট্রি পাওয়া যায়নি।','No entries found.')}</div>`; return; }
 
     // দুই দিকের (ক্রয় + বিক্রয়) এন্ট্রি একসাথে মিলিয়ে, তারিখ অনুযায়ী সাজিয়ে,
     // নতুন করে একটামাত্র চলমান ব্যালেন্স হিসাব করা হচ্ছে — টেবিলে যেটা আলাদা
     // আলাদা করে জমা ছিল সেটার উপর ভরসা না করে, যাতে দুই পাশ মিলে সত্যিকারের একটা হিসাব পাওয়া যায়
-    let runningBalance = 0;
-    const headers = [['তারিখ','Date'],['ধরন','Type'],['রেফারেন্স','Reference'],['Debit','Debit'],['Credit','Credit'],['ব্যালেন্স','Balance']];
+    let runningBalance = 0, totalDebit = 0, totalCredit = 0;
+    // "PurchaseInvoice-Payment" জাতীয় সাফিক্স-লাগানো রেফারেন্সের আসল ভাউচার এখনো
+    // মূল ডকুমেন্টেই (RefID একই) থাকে — তাই "ভিউ" বাটনের জন্য সাফিক্স বাদ দিয়ে মূল ধরন বের করা হচ্ছে
+    const viewableTypes = { PurchaseInvoice:1, PurchaseReturn:1, SalesInvoice:1, SalesReturn:1 };
+    const headers = [['তারিখ','Date'],['ধরন','Type'],['রেফারেন্স','Reference'],['Debit','Debit'],['Credit','Credit'],['ব্যালেন্স','Balance'],['','']];
     const headCells = headers.map(function (h) { return `<th>${t(h[0], h[1])}</th>`; }).join('');
     const bodyRows = rows.map(function (r) {
       const debit = Number(r.Debit || 0), credit = Number(r.Credit || 0);
       runningBalance += debit - credit;
+      totalDebit += debit; totalCredit += credit;
       const typeLabel = r.PartyType === 'Customer' ? t('বিক্রয়','Sales') : t('ক্রয়','Purchase');
+      const baseType = String(r.RefModule || '').split('-')[0];
+      const viewBtn = viewableTypes[baseType]
+        ? `<button type="button" class="btn btn-outline" style="width:auto;padding:4px 10px;font-size:11px;" onclick='openPrintableVoucherView(${JSON.stringify(baseType)}, ${JSON.stringify(r.RefID)})'>${t('ভিউ','View')}</button>`
+        : '';
       return `<tr><td>${escapeHtml(r.Date)}</td><td>${typeLabel}</td><td>${escapeHtml(r.RefModule)} — ${escapeHtml(r.RefID)}</td>
-        <td>${debit.toFixed(2)}</td><td>${credit.toFixed(2)}</td><td><b>${formatAmountDrCr(runningBalance, true)}</b></td></tr>`;
+        <td>${debit.toFixed(2)}</td><td>${credit.toFixed(2)}</td><td><b>${formatAmountDrCr(runningBalance, true)}</b></td><td>${viewBtn}</td></tr>`;
     }).join('');
-    wrap.innerHTML = `<table class="data-table"><thead><tr>${headCells}</tr></thead><tbody>${bodyRows}</tbody></table>`;
+    wrap.innerHTML = `
+      <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:14px;padding:12px 14px;background:var(--bg);border-radius:8px;font-size:13px;">
+        <div><span style="color:var(--text-muted);">${t('মোট Debit','Total Debit')}:</span> <b>${totalDebit.toFixed(2)}</b></div>
+        <div><span style="color:var(--text-muted);">${t('মোট Credit','Total Credit')}:</span> <b>${totalCredit.toFixed(2)}</b></div>
+        <div><span style="color:var(--text-muted);">${t('সর্বশেষ ব্যালেন্স','Closing Balance')}:</span> <b>${formatAmountDrCr(runningBalance, true)}</b></div>
+      </div>
+      <table class="data-table"><thead><tr>${headCells}</tr></thead><tbody>${bodyRows}</tbody></table>`;
+  }
+
+  searchInput.addEventListener('change', function () {
+    const key = findPartyByTypedValue(searchInput.value.trim());
+    if (!key && searchInput.value.trim()) { showToast(t('তালিকা থেকে একটা পার্টি বাছাই করুন।','Pick a party from the list.'), 'error'); return; }
+    loadLedgerForKey(key);
   });
+
+  printBtn.addEventListener('click', function () {
+    if (!lastRows.length) { showToast(t('কোনো এন্ট্রি নেই।','No entries.'), 'error'); return; }
+    openPartyLedgerPrintView(lastPartyName, lastRows, refModuleInfo);
+  });
+}
+
+/** পার্টি লেজারের A4 প্রিন্ট-প্রিভিউ — তারিখ | বিবরণী | ভাউচার ধরন | ভাউচার নং |
+ *  ডেবিট | ক্রেডিট | ব্যালান্স | ব্যবহারকারী কলামসহ, নতুন ট্যাবে খোলে */
+function openPartyLedgerPrintView(partyName, rows, refModuleInfo) {
+  const lang = currentLang || 'bn';
+  const L = function (bn, en) { return lang === 'bn' ? bn : en; };
+  let runningBalance = 0;
+  const bodyRows = rows.map(function (r) {
+    const debit = Number(r.Debit || 0), credit = Number(r.Credit || 0);
+    runningBalance += debit - credit;
+    const info = refModuleInfo(r.RefModule);
+    return `<tr>
+      <td>${escapeHtml(r.Date)}</td>
+      <td>${escapeHtml(L(info.desc[0], info.desc[1]))}</td>
+      <td>${escapeHtml(L(info.type[0], info.type[1]))}</td>
+      <td>${escapeHtml(r.RefID)}</td>
+      <td>${debit ? debit.toFixed(2) : ''}</td>
+      <td>${credit ? credit.toFixed(2) : ''}</td>
+      <td><b>${formatAmountDrCr(runningBalance, true)}</b></td>
+      <td>${escapeHtml(r.CreatedBy || '—')}</td>
+    </tr>`;
+  }).join('');
+  const totalDebit = rows.reduce(function (s, r) { return s + (Number(r.Debit) || 0); }, 0);
+  const totalCredit = rows.reduce(function (s, r) { return s + (Number(r.Credit) || 0); }, 0);
+
+  const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${L('পার্টি লেজার','Party Ledger')} — ${escapeHtml(partyName)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Anek+Bangla:wght@400;500;600;700&family=Oswald:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  body{font-family:'Anek Bangla',sans-serif;color:#1b1f27;max-width:1000px;margin:20px auto;padding:0 20px;width:100%;box-sizing:border-box;}
+  html,body{max-width:100%;overflow-x:hidden;}
+  h1{font-family:'Oswald',sans-serif;font-size:19px;margin:0 0 4px;text-align:center;}
+  .sub{text-align:center;color:#888;font-size:12px;margin-bottom:16px;}
+  table{width:100%;border-collapse:collapse;margin:8px 0;}
+  th,td{border:1px solid #ccc;padding:6px 8px;font-size:11.5px;text-align:center;}
+  th{background:#1a2029;color:#f2a33c;}
+  tfoot td{font-weight:700;border-top:2px solid #1a2029;}
+  .toolbar{display:flex;gap:10px;margin-bottom:20px;align-items:center;flex-wrap:wrap;}
+  .toolbar button{font-family:inherit;font-size:13px;font-weight:600;padding:9px 16px;border-radius:8px;border:1px solid #d1d5db;background:#f5f6f8;cursor:pointer;}
+  .toolbar button.primary{background:#1a2029;color:#f2a33c;border-color:#1a2029;}
+  @page { size: A4; margin: 12mm; }
+  @media print { .toolbar{display:none;} }
+</style></head><body>
+  <div class="toolbar">
+    <button onclick="window.print()">📄 ${L('পেজ সেটাপ','Page Setup')}</button>
+    <button class="primary" onclick="window.print()">🖨️ ${L('প্রিন্ট','Print')}</button>
+    <button id="shareBtn">🔗 ${L('শেয়ার','Share')}</button>
+  </div>
+  <h1>${L('পার্টি লেজার','Party Ledger')} — ${escapeHtml(partyName)}</h1>
+  <div class="sub">${L('প্রিন্ট সময়','Print time')}: ${new Date().toLocaleString(lang === 'bn' ? 'bn-BD' : 'en-US')}</div>
+  <table>
+    <thead><tr>
+      <th>${L('তারিখ','Date')}</th><th>${L('বিবরণী','Description')}</th><th>${L('ভাউচার ধরন','Voucher Type')}</th><th>${L('ভাউচার নং','Voucher No')}</th>
+      <th>${L('ডেবিট','Debit')}</th><th>${L('ক্রেডিট','Credit')}</th><th>${L('ব্যালান্স','Balance')}</th><th>${L('ব্যবহারকারী','User')}</th>
+    </tr></thead>
+    <tbody>${bodyRows}</tbody>
+    <tfoot><tr><td colspan="4">${L('মোট','Total')}</td><td>${totalDebit.toFixed(2)}</td><td>${totalCredit.toFixed(2)}</td><td colspan="2"><b>${formatAmountDrCr(runningBalance, true)}</b></td></tr></tfoot>
+  </table>
+<script>
+  document.getElementById('shareBtn').addEventListener('click', async function () {
+    const text = ${JSON.stringify(L('পার্টি লেজার','Party Ledger'))} + ' — ' + ${JSON.stringify(partyName)};
+    if (navigator.share) { try { await navigator.share({ title: text, text: text }); } catch (e) {} }
+    else if (navigator.clipboard) { await navigator.clipboard.writeText(text); alert(${JSON.stringify(L('ক্লিপবোর্ডে কপি হয়েছে।','Copied to clipboard.'))}); }
+  });
+<\/script>
+</body></html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) { showToast(t('পপ-আপ ব্লক হয়েছে — এই সাইটের জন্য পপ-আপ অনুমতি দিন।','Pop-up was blocked — please allow pop-ups for this site.'), 'error'); return; }
+  win.document.write(html);
+  win.document.close();
 }
 
 /* ============================================================
