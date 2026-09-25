@@ -3643,8 +3643,8 @@ async function openPrintableVoucherView(docType, docId) {
   };
   const titleBn = titleMap[docType][0], titleEn = titleMap[docType][1];
   const voucherDate = header.InvoiceDate || header.Date || '';
-  const printedAt = new Date().toLocaleString('bn-BD');
-  const printedAtEn = new Date().toLocaleString('en-US');
+  const printedAt = formatPrintDate();
+  const printedAtEn = formatPrintDate();
   const partyLabelBn = isSales ? 'গ্রাহক' : 'সাপ্লায়ার', partyLabelEn = isSales ? 'Customer' : 'Supplier';
   const personLabelBn = isSales ? 'বিক্রয়কারী' : 'ক্রয়কারী', personLabelEn = isSales ? 'Salesperson' : 'Purchaser';
   const isCashParty = header[partyIdField] === 'SUP-CASH' || header[partyIdField] === 'CUS-CASH';
@@ -3727,7 +3727,7 @@ async function openPrintableVoucherView(docType, docId) {
       <h2>${L(titleBn, titleEn)}</h2>
       <p>${L('ভাউচার তারিখ','Voucher Date')}: <b>${escapeHtml(voucherDate)}</b></p>
       <p>${L('ভাউচার নম্বর','Voucher No')}: <b>${escapeHtml(docId)}</b></p>
-      <p><span data-bn="${attr('প্রিন্ট সময়: ' + printedAt)}" data-en="${attr('Print time: ' + printedAtEn)}">${escapeHtml('প্রিন্ট সময়: ' + printedAt)}</span></p>
+      <p><span data-bn="${attr('প্রিন্টঃ' + printedAt)}" data-en="${attr('Print: ' + printedAtEn)}">${escapeHtml('প্রিন্টঃ' + printedAt)}</span></p>
     </div>
   </div>
   <div class="watermark">gmetal</div>
@@ -3766,7 +3766,7 @@ async function openPrintableVoucherView(docType, docId) {
       <p>${escapeHtml(person ? (person.FullName || '') : '')}</p>
     </div>
   </div>
-  <p class="footer-note"><span data-bn="${attr('তৈরি হয়েছে: ' + new Date().toLocaleString('bn-BD'))}" data-en="${attr('Generated on: ' + new Date().toLocaleString('en-US'))}">${escapeHtml('তৈরি হয়েছে: ' + new Date().toLocaleString('bn-BD'))}</span></p>
+  <p class="footer-note"><span data-bn="${attr('তৈরি হয়েছে: ' + formatPrintDate())}" data-en="${attr('Generated on: ' + formatPrintDate())}">${escapeHtml('তৈরি হয়েছে: ' + formatPrintDate())}</span></p>
   <script>
     function setDocLang(lang) {
       document.querySelectorAll('[data-bn]').forEach(function (el) { el.textContent = el.getAttribute('data-' + lang); });
@@ -5886,7 +5886,7 @@ function openPartyLedgerPrintView(partyName, rows, refModuleInfo) {
     <button id="shareBtn">🔗 ${L('শেয়ার','Share')}</button>
   </div>
   <h1>${L('পার্টি লেজার','Party Ledger')} — ${escapeHtml(partyName)}</h1>
-  <div class="sub">${L('প্রিন্ট সময়','Print time')}: ${new Date().toLocaleString(lang === 'bn' ? 'bn-BD' : 'en-US')}</div>
+  <div class="sub">${L('প্রিন্টঃ','Print: ')}${formatPrintDate()}</div>
   <table>
     <thead><tr>
       <th>${L('তারিখ','Date')}</th><th>${L('বিবরণী','Description')}</th><th>${L('ভাউচার ধরন','Voucher Type')}</th><th>${L('ভাউচার নং','Voucher No')}</th>
@@ -6211,6 +6211,21 @@ function readAmountDrCr(id) {
   const cr = Number(val(id + '_cr')) || 0;
   return dr - cr;
 }
+/** সব ভাউচার/লেজার প্রিন্টে ব্যবহৃত তারিখ+সময়ের কমপ্যাক্ট ফরম্যাট —
+ *  যেমন 26/09/26;4:27:21AM (DD/MM/YY;H:MM:SSAM/PM) */
+function formatPrintDate(d) {
+  d = d || new Date();
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yy = String(d.getFullYear()).slice(-2);
+  let h = d.getHours();
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12; if (h === 0) h = 12;
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  return dd + '/' + mm + '/' + yy + ';' + h + ':' + mi + ':' + ss + ampm;
+}
+
 function formatAmountDrCr(v, showLabel) {
   const num = Number(v) || 0;
   const abs = Math.abs(num).toFixed(2);
