@@ -3605,18 +3605,23 @@ async function openPrintableVoucherView(docType, docId) {
   }
 
   // আইটেম | পরিমাণ (একক-সহ) | দর | মূল্য — একক আলাদা কলামে না, পরিমাণের পাশেই
-  let totalQty = 0, totalValue = 0;
+  let totalQty = 0, totalValue = 0, totalComm = 0, totalNet = 0;
+  const hasComm = lines.some(function (l) { return Number(l.CommissionAmount) > 0; });
   const rowsHtml = lines.map(function (l) {
     const item = itemMap[l.ItemID] || {};
     const qty = Number(l.Quantity) || 0, rate = Number(l.Rate) || 0, amt = qty * rate;
     const unitLabel = unitMap[item.UOMID] || '';
-    totalQty += qty; totalValue += amt;
+    const commRate = Number(l.CommissionRate) || 0;
+    const commAmt = Number(l.CommissionAmount) || 0;
+    const netAmt = (l.NetAmount !== null && l.NetAmount !== undefined) ? Number(l.NetAmount) : (amt - commAmt);
+    totalQty += qty; totalValue += amt; totalComm += commAmt; totalNet += netAmt;
 
     return `<tr>
       <td>${escapeHtml(item.ItemName || l.ItemID)}</td>
       <td>${bn(qty)} ${escapeHtml(unitLabel)}</td>
       <td>${bn(rate.toFixed(2))}</td>
       <td>${bn(amt.toFixed(2))}</td>
+      ${hasComm ? `<td>${bn(commRate)}%</td><td>${bn(commAmt.toFixed(2))}</td><td><b>${bn(netAmt.toFixed(2))}</b></td>` : ''}
     </tr>`;
   }).join('');
 
@@ -3726,9 +3731,9 @@ async function openPrintableVoucherView(docType, docId) {
     </div>
   </div>
   <table>
-    <thead><tr><th>${L('আইটেম','Item')}</th><th>${L('পরিমাণ','Quantity')}</th><th>${L('দর','Rate')}</th><th>${L('মূল্য','Amount')}</th></tr></thead>
+    <thead><tr><th>${L('আইটেম','Item')}</th><th>${L('পরিমাণ','Quantity')}</th><th>${L('দর','Rate')}</th><th>${L('মূল্য','Amount')}</th>${hasComm ? `<th>${L('কমিঃ','Comm.')}</th><th>${L('(-)কমিঃ','(-) Comm.')}</th><th>${L('নিট মূল্য','Net Amount')}</th>` : ''}</tr></thead>
     <tbody>${rowsHtml}</tbody>
-    <tfoot><tr><td>${L('মোট','Total')}</td><td>${bn(totalQty)}</td><td></td><td>${bn(totalValue.toFixed(2))}</td></tr></tfoot>
+    <tfoot><tr><td>${L('মোট','Total')}</td><td>${bn(totalQty)}</td><td></td><td>${bn(totalValue.toFixed(2))}</td>${hasComm ? `<td></td><td>${bn(totalComm.toFixed(2))}</td><td>${bn(totalNet.toFixed(2))}</td>` : ''}</tr></tfoot>
   </table>
   <div class="sign-row">
     <div class="sign-block">
@@ -4406,11 +4411,14 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     const purchaseTotal = window.__pv3PurchaseLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
     const returnTotal = window.__pv3ReturnLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
 
-    function tableRows(lines) {
-      return lines.map(function (l) {
+    function linesTableHtml(lines) {
+      const hasComm = lines.some(function (l) { return (l.commAmount || 0) > 0; });
+      const rows = lines.map(function (l) {
         const item = window.__pv3ItemMap[l.itemId] || {};
-        return `<tr><td>${escapeHtml(item.ItemName || l.itemId)}</td><td>${l.qty}</td><td>${l.rate}</td><td>${l.amount}</td></tr>`;
+        const net = l.netAmount !== undefined ? l.netAmount : l.amount;
+        return `<tr><td>${escapeHtml(item.ItemName || l.itemId)}</td><td>${l.qty}</td><td>${l.rate}</td><td>${l.amount}</td>${hasComm ? `<td>${l.commRate || 0}%</td><td>${(l.commAmount||0).toFixed(2)}</td><td><b>${net.toFixed ? net.toFixed(2) : net}</b></td>` : ''}</tr>`;
       }).join('');
+      return `<table><thead><tr><th>আইটেম</th><th>পরিমাণ</th><th>দর</th><th>মূল্য</th>${hasComm ? '<th>কমিঃ</th><th>(-)কমিঃ</th><th>নিট মূল্য</th>' : ''}</tr></thead><tbody>${rows}</tbody></table>`;
     }
 
     return `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><title>ক্রয় ভাউচার (খসড়া প্রিভিউ)</title>
@@ -4429,8 +4437,8 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
 </style></head><body>
   <h1>${escapeHtml(company.CompanyName || 'জি মেটাল ওয়ার্কস')}</h1>
   <div class="sub">ক্রয় ভাউচার (খসড়া — এখনো সেভ হয়নি) — তারিখ: ${escapeHtml(val('pv3_Date'))} — সাপ্লায়ার: ${escapeHtml(supplierName)}</div>
-  ${window.__pv3PurchaseLines.length > 0 ? `<h3>ক্রয়কৃত পণ্য</h3><table><thead><tr><th>আইটেম</th><th>পরিমাণ</th><th>দর</th><th>মূল্য</th></tr></thead><tbody>${tableRows(window.__pv3PurchaseLines)}</tbody></table><div class="totalline">মোট ক্রয়: ৳ ${purchaseTotal.toFixed(2)}</div>` : ''}
-  ${window.__pv3ReturnLines.length > 0 ? `<h3>ক্রয় ফেরত পণ্য</h3><table><thead><tr><th>আইটেম</th><th>পরিমাণ</th><th>দর</th><th>মূল্য</th></tr></thead><tbody>${tableRows(window.__pv3ReturnLines)}</tbody></table><div class="totalline">মোট ক্রয় ফেরত: ৳ ${returnTotal.toFixed(2)}</div>` : ''}
+  ${window.__pv3PurchaseLines.length > 0 ? `<h3>ক্রয়কৃত পণ্য</h3>${linesTableHtml(window.__pv3PurchaseLines)}<div class="totalline">মোট ক্রয়: ৳ ${purchaseTotal.toFixed(2)}</div>` : ''}
+  ${window.__pv3ReturnLines.length > 0 ? `<h3>ক্রয় ফেরত পণ্য</h3>${linesTableHtml(window.__pv3ReturnLines)}<div class="totalline">মোট ক্রয় ফেরত: ৳ ${returnTotal.toFixed(2)}</div>` : ''}
   <div class="totalline" style="font-size:15px;border-top:2px solid #1a2029;padding-top:8px;">নিট মোট: ৳ ${(purchaseTotal - returnTotal).toFixed(2)}</div>
   <div class="sign-row"><div>বিক্রেতার স্বাঃ</div><div>অথরাইজেশন স্বাঃ<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div><div>ক্রয়কারী স্বাঃ<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div></div>
 </body></html>`;
@@ -5141,11 +5149,14 @@ async function openSalesVoucherForm(defaultType, existingId) {
     const saleTotal = window.__sv3SaleLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
     const returnTotal = window.__sv3ReturnLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
 
-    function tableRows(lines) {
-      return lines.map(function (l) {
+    function linesTableHtml(lines) {
+      const hasComm = lines.some(function (l) { return (l.commAmount || 0) > 0; });
+      const rows = lines.map(function (l) {
         const item = window.__sv3ItemMap[l.itemId] || {};
-        return `<tr><td>${escapeHtml(item.ItemName || l.itemId)}</td><td>${l.qty}</td><td>${l.rate}</td><td>${l.amount}</td></tr>`;
+        const net = l.netAmount !== undefined ? l.netAmount : l.amount;
+        return `<tr><td>${escapeHtml(item.ItemName || l.itemId)}</td><td>${l.qty}</td><td>${l.rate}</td><td>${l.amount}</td>${hasComm ? `<td>${l.commRate || 0}%</td><td>${(l.commAmount||0).toFixed(2)}</td><td><b>${net.toFixed ? net.toFixed(2) : net}</b></td>` : ''}</tr>`;
       }).join('');
+      return `<table><thead><tr><th>আইটেম</th><th>পরিমাণ</th><th>দর</th><th>মূল্য</th>${hasComm ? '<th>কমিঃ</th><th>(-)কমিঃ</th><th>নিট মূল্য</th>' : ''}</tr></thead><tbody>${rows}</tbody></table>`;
     }
 
     return `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><title>বিক্রয় ভাউচার (খসড়া প্রিভিউ)</title>
@@ -5164,8 +5175,8 @@ async function openSalesVoucherForm(defaultType, existingId) {
 </style></head><body>
   <h1>${escapeHtml(company.CompanyName || 'জি মেটাল ওয়ার্কস')}</h1>
   <div class="sub">বিক্রয় ভাউচার (খসড়া — এখনো সেভ হয়নি) — তারিখ: ${escapeHtml(val('sv3_Date'))} — গ্রাহক: ${escapeHtml(custName)}</div>
-  ${window.__sv3SaleLines.length > 0 ? `<h3>বিক্রীত পণ্য</h3><table><thead><tr><th>আইটেম</th><th>পরিমাণ</th><th>দর</th><th>মূল্য</th></tr></thead><tbody>${tableRows(window.__sv3SaleLines)}</tbody></table><div class="totalline">মোট বিক্রয়: ৳ ${saleTotal.toFixed(2)}</div>` : ''}
-  ${window.__sv3ReturnLines.length > 0 ? `<h3>ফেরত পণ্য</h3><table><thead><tr><th>আইটেম</th><th>পরিমাণ</th><th>দর</th><th>মূল্য</th></tr></thead><tbody>${tableRows(window.__sv3ReturnLines)}</tbody></table><div class="totalline">মোট ফেরত: ৳ ${returnTotal.toFixed(2)}</div>` : ''}
+  ${window.__sv3SaleLines.length > 0 ? `<h3>বিক্রীত পণ্য</h3>${linesTableHtml(window.__sv3SaleLines)}<div class="totalline">মোট বিক্রয়: ৳ ${saleTotal.toFixed(2)}</div>` : ''}
+  ${window.__sv3ReturnLines.length > 0 ? `<h3>ফেরত পণ্য</h3>${linesTableHtml(window.__sv3ReturnLines)}<div class="totalline">মোট ফেরত: ৳ ${returnTotal.toFixed(2)}</div>` : ''}
   <div class="totalline" style="font-size:15px;border-top:2px solid #1a2029;padding-top:8px;">নিট মোট: ৳ ${(saleTotal - returnTotal).toFixed(2)}</div>
   <div class="sign-row"><div>ক্রেতার স্বাঃ</div><div>অথরাইজেশন স্বাঃ<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div><div>বিক্রয়কারী স্বাঃ<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div></div>
 </body></html>`;
