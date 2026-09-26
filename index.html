@@ -4932,15 +4932,25 @@ async function openSalesVoucherForm(defaultType, existingId) {
         <div class="field"><label>${t('আমাদের ব্যাংক','Our Bank')} *</label>
           <select id="sv3_PopBankAcc" data-order="0"><option value="">—</option>${optsHtml(bankAccounts, 'BankAccID', 'AccountName', curBankAcc)}</select>
         </div>
-        <div class="field"><label>${t('গ্রাহকের ব্যাংক','Customer\u2019s Bank')}</label><input value="${attr(custBankName)}" readonly style="background:var(--bg);"></div>
-        <div class="field"><label>${t('অ্যাকাউন্ট নম্বর','Account No')}</label><input value="${attr(custBankAcc)}" readonly style="background:var(--bg);"></div>
-        <div class="field"><label>${t('বিবরণ/নোট','Note')} *</label><input id="sv3_PopNote" data-order="1" value="${attr(curNote)}" placeholder="${t('যেমন: চালানের বিপরীতে গ্রহণ','e.g. Received against this invoice')}"></div>
+        <div class="field" style="display:flex;align-items:center;gap:6px;">
+          <input type="checkbox" id="sv3_PopCustBankCheck" style="width:auto;">
+          <label style="margin:0;">${t('গ্রাহকের নিজের ব্যাংক থেকে এসেছে (ঐচ্ছিক)','From customer\u2019s own bank (optional)')}</label>
+        </div>
+        <div id="sv3_PopCustBankFields" style="display:none;">
+          <div class="field"><label>${t('গ্রাহকের ব্যাংক','Customer\u2019s Bank')}</label><input value="${attr(custBankName)}" readonly style="background:var(--bg);"></div>
+          <div class="field"><label>${t('অ্যাকাউন্ট নম্বর','Account No')}</label><input value="${attr(custBankAcc)}" readonly style="background:var(--bg);"></div>
+        </div>
+        <div class="field"><label>${t('বিবরণ/নোট','Note')} *</label><input id="sv3_PopNote" data-order="1" value="${attr(curNote)}" placeholder="${t('টিক না দিলে এখানে কোন ব্যাংক/বিকাশ/নগদ থেকে এলো লিখুন','If unchecked, write which bank/bKash/Nagad it came from')}"></div>
         <div style="display:flex;gap:8px;margin-top:16px;">
           <button type="button" id="sv3_PopCancel" class="btn" style="flex:1;">${t('বাতিল','Cancel')}</button>
           <button type="button" id="sv3_PopConfirm" data-order="2" class="btn btn-primary" style="flex:1;">${t('নিশ্চিত করুন','Confirm')}</button>
         </div>
       </div>`;
     document.body.appendChild(overlay);
+
+    document.getElementById('sv3_PopCustBankCheck').addEventListener('change', function () {
+      document.getElementById('sv3_PopCustBankFields').style.display = this.checked ? '' : 'none';
+    });
 
     function focusableFields() {
       return Array.from(overlay.querySelectorAll('[data-order]')).filter(function (el) { return el.offsetParent !== null; });
