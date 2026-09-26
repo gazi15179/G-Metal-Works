@@ -3848,7 +3848,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   window.__pv3Warehouses = warehouses.filter(function (w) { return w.Status !== 'Deleted'; });
   window.__pv3SupplierMap = {}; suppliers.forEach(function (s) { window.__pv3SupplierMap[s.SupplierID] = s; });
   window.__pv3ExpenseCategories = (pvData.ExpenseCategories || []).filter(function (c) { return c.Status !== 'Deleted'; });
-  window.__pv3CashExpense = { amount: 0, category: '', note: '' };
+  window.__pv3CashExpense = { amount: 0, subAmounts: {} };
   const pv3ZoneList = Array.from(new Set(suppliers.filter(function (s) { return s.Status !== 'Deleted' && s.Zone; }).map(function (s) { return s.Zone; }))).sort(function (a, b) { return String(a).localeCompare(String(b), 'bn'); });
 
   const isEdit = !!existingId;
@@ -3874,7 +3874,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   }
 
   const rec = existingHeader || {};
-  if (rec.CashExpenseAmount) window.__pv3CashExpense = { amount: Number(rec.CashExpenseAmount) || 0, category: rec.CashExpenseCategory || '', note: rec.CashExpenseNote || '' };
+  if (rec.CashExpenseAmount) window.__pv3CashExpense = { amount: Number(rec.CashExpenseAmount) || 0, subAmounts: {} };
 
   window.__pv3PurchaseLines = (isEdit && existingDocType === 'PurchaseInvoice')
     ? existingLines.map(function (l) {
@@ -3981,7 +3981,12 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
         <button type="button" id="pv3_AddReturnLineBtn" class="btn" style="width:100%;background:var(--ink-900);color:var(--amber);padding:8px 10px;font-size:12px;">+ ${t('ক্রয় ফেরত লাইন যোগ','Add Purchase Return Line')}</button>
       </div>
 
-      <button type="button" id="pv3_CashExpenseBtn" class="btn btn-outline" style="width:100%;margin-bottom:16px;">💰 <span id="pv3_CashExpenseBtnLabel">${t('নগদ খরচ যোগ','Add Cash Expense')}</span></button>
+      <div class="field" style="display:flex;align-items:center;gap:6px;">
+        <input type="checkbox" id="pv3_ExpCheck" style="width:auto;">
+        <label style="margin:0;flex-shrink:0;">${t('খরচ(+)ঃ','Expense(+):')}</label>
+        <input id="pv3_ExpTotalAmount" type="number" step="any" style="flex:1;" placeholder="৳">
+      </div>
+      <div id="pv3_ExpSubWrap" style="display:none;margin-bottom:16px;"></div>
 
       <h4 style="margin:16px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('নগদ ও ব্যাংক হিসাব','Cash & Bank Account')}</h4>
       <div class="field">
@@ -4042,11 +4047,14 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
         const itemsTotal = lineData.reduce(function (s, l) { return s + (Number(l.Amount) || 0); }, 0);
         const cashExpenseAmount = (window.__pv3CashExpense && window.__pv3CashExpense.amount) || 0;
         const totalAmount = itemsTotal + cashExpenseAmount;
+        const cashExpenseBreakdown = Object.keys((window.__pv3CashExpense && window.__pv3CashExpense.subAmounts) || {})
+          .map(function (catId) { const cat = window.__pv3ExpenseCategories.find(function (c) { return c.ExpCatID === catId; }); const amt = window.__pv3CashExpense.subAmounts[catId]; return (cat && amt > 0) ? (cat.ExpCatName + ': ৳' + amt) : null; })
+          .filter(Boolean).join(', ');
         const headerData = Object.assign({}, common, {
           InvoiceDate: val('pv3_Date'), WarehouseID: warehouseId, TotalAmount: totalAmount,
           CashExpenseAmount: cashExpenseAmount || null,
-          CashExpenseCategory: (window.__pv3CashExpense && window.__pv3CashExpense.category) || null,
-          CashExpenseNote: (window.__pv3CashExpense && window.__pv3CashExpense.note) || null,
+          CashExpenseCategory: null,
+          CashExpenseNote: cashExpenseBreakdown || null,
           WalkInPartyName: isCash ? (val('pv3_CashName') || null) : null,
           WalkInPartyAddress: isCash ? (val('pv3_CashAddress') || null) : null,
           WalkInPartyMobile: isCash ? (val('pv3_CashMobile') || null) : null
@@ -4144,111 +4152,106 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   });
   document.getElementById('pv3_ZoneFilter').addEventListener('change', refreshPv3SupplierOptions);
 
-  function updatePv3CashExpenseBtnLabel() {
-    const lbl = document.getElementById('pv3_CashExpenseBtnLabel');
-    if (!lbl) return;
-    const exp = window.__pv3CashExpense;
-    lbl.textContent = (exp && exp.amount > 0)
-      ? t('নগদ খরচ যোগঃ ', 'Cash Expense Added: ') + exp.amount.toFixed(2)
-      : t('নগদ খরচ যোগ','Add Cash Expense');
+  // "খরচ(+)ঃ" — চেকবক্স টিক না থাকলেও এই ঘরে সরাসরি একটামাত্র (লাম্প-সাম) পরিমাণ
+  // লেখা যাবে; টিক দিলে নিচে খাত-ভিত্তিক ভাঙন দেখা যাবে এবং প্রতিটা খাতের
+  // পরিমাণ যোগ হয়ে এই উপরের ঘরেই স্বয়ংক্রিয়ভাবে বসে যাবে
+  function pv3RecalcExpenseTotal() {
+    if (!document.getElementById('pv3_ExpCheck').checked) return; // ম্যানুয়াল মোডে থাকলে হাত দেওয়া হবে না
+    const rows = document.querySelectorAll('#pv3_ExpSubWrap [data-exp-amount]');
+    let sum = 0;
+    rows.forEach(function (inp) { sum += Number(inp.value) || 0; });
+    document.getElementById('pv3_ExpTotalAmount').value = sum || '';
+    window.__pv3CashExpense.amount = sum;
   }
-  updatePv3CashExpenseBtnLabel();
 
-  function openCashExpensePopup() {
-    const overlay = document.createElement('div');
-    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
-    const exp = window.__pv3CashExpense || { amount: 0, category: '', note: '' };
-    function catOptsHtml(selected) {
-      return window.__pv3ExpenseCategories.map(function (c) { return `<option value="${attr(c.ExpCatName)}" ${selected===c.ExpCatName?'selected':''}>${escapeHtml(c.ExpCatName)}</option>`; }).join('');
-    }
-    overlay.innerHTML = `
-      <div style="background:var(--surface);border-radius:12px;max-width:380px;width:100%;padding:20px;max-height:90vh;overflow-y:auto;">
-        <h3 style="margin:0 0 14px;font-size:15px;">${t('নগদ খরচ যোগ','Add Cash Expense')}</h3>
-        <div class="field"><label>${t('বস্তা/ট্রান্সপোর্ট/ভ্যান ইত্যাদি খরচের পরিমাণ','Sack/Transport/Van etc. expense amount')}</label><input id="pv3_ExpAmount" type="number" step="any" value="${exp.amount || ''}" placeholder="৳"></div>
-        <div class="field" style="display:flex;align-items:center;gap:6px;">
-          <input type="checkbox" id="pv3_ExpCatCheck" style="width:auto;" ${exp.category ? 'checked' : ''}>
-          <label style="margin:0;">${t('খরচের খাত থেকে বাছাই করবো','Pick from an expense category')}</label>
-        </div>
-        <div id="pv3_ExpCatBlock" style="display:${exp.category ? '' : 'none'};">
-          <div class="field"><label>${t('খরচের খাতঃ','Expense Category:')}</label>
-            <div style="display:flex;gap:6px;">
-              <select id="pv3_ExpCatSelect" style="flex:1;">${catOptsHtml(exp.category)}</select>
-              <button type="button" id="pv3_ExpCatAdd" class="btn btn-outline" style="width:auto;padding:6px 10px;" title="${t('নতুন খাত যোগ','Add category')}">➕</button>
-              <button type="button" id="pv3_ExpCatEdit" class="btn btn-outline" style="width:auto;padding:6px 10px;" title="${t('খাতের নাম সম্পাদনা','Edit category name')}">✏️</button>
-              <button type="button" id="pv3_ExpCatDel" class="btn btn-outline" style="width:auto;padding:6px 10px;" title="${t('খাত মুছুন','Delete category')}">🗑️</button>
-            </div>
-          </div>
-        </div>
-        <div id="pv3_ExpNoteBlock" class="field" style="display:${exp.category ? 'none' : ''};">
-          <label>${t('বিবরণঃ','Description:')}</label>
-          <input id="pv3_ExpNote" value="${attr(exp.note)}" placeholder="${t('যেমন: বস্তা ক্রয় ও ভ্যান ভাড়া','e.g. Sack purchase and van fare')}">
-        </div>
-        <div style="display:flex;gap:8px;margin-top:16px;">
-          <button type="button" id="pv3_ExpCancel" class="btn" style="flex:1;">${t('বাতিল','Cancel')}</button>
-          <button type="button" id="pv3_ExpConfirm" class="btn btn-primary" style="flex:1;">${t('নিশ্চিত করুন','Confirm')}</button>
-        </div>
+  function pv3RenderExpSubRows() {
+    const wrap = document.getElementById('pv3_ExpSubWrap');
+    const amounts = window.__pv3CashExpense.subAmounts || {};
+    wrap.innerHTML = `
+      <div style="border:1px solid var(--border);border-radius:8px;padding:10px;">
+        <div id="pv3_ExpSubRows"></div>
+        <button type="button" id="pv3_ExpAddCatBtn" class="btn btn-outline" style="width:100%;margin-top:6px;padding:6px;font-size:12px;">➕ ${t('নতুন সাবখাত','New Sub-category')}</button>
       </div>`;
-    document.body.appendChild(overlay);
+    const rowsWrap = document.getElementById('pv3_ExpSubRows');
+    function renderRows() {
+      rowsWrap.innerHTML = window.__pv3ExpenseCategories.map(function (c) {
+        const amt = amounts[c.ExpCatID] || '';
+        return `<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;" data-cat-id="${attr(c.ExpCatID)}">
+          <input data-exp-name value="${attr(c.ExpCatName)}" style="flex:1.4;">
+          <input data-exp-amount type="number" step="any" value="${amt}" placeholder="৳" style="flex:1;">
+          <button type="button" data-exp-save class="btn btn-outline" style="width:auto;padding:5px 8px;" title="${t('নাম সেভ করুন','Save name')}">💾</button>
+          <button type="button" data-exp-del class="btn btn-outline" style="width:auto;padding:5px 8px;" title="${t('মুছুন','Delete')}">🗑️</button>
+        </div>`;
+      }).join('') || `<div style="color:var(--text-muted);font-size:12px;padding:4px 0;">${t('কোনো সাবখাত নেই — নিচে থেকে যোগ করুন।','No sub-categories yet — add one below.')}</div>`;
 
-    document.getElementById('pv3_ExpCatCheck').addEventListener('change', function () {
-      document.getElementById('pv3_ExpCatBlock').style.display = this.checked ? '' : 'none';
-      document.getElementById('pv3_ExpNoteBlock').style.display = this.checked ? 'none' : '';
-    });
-    document.getElementById('pv3_ExpCatAdd').addEventListener('click', async function () {
-      const name = prompt(t('নতুন খরচের খাতের নাম লিখুন:','Enter new expense category name:'));
+      rowsWrap.querySelectorAll('[data-exp-amount]').forEach(function (inp) {
+        inp.addEventListener('input', function () {
+          const catId = this.closest('[data-cat-id]').getAttribute('data-cat-id');
+          window.__pv3CashExpense.subAmounts[catId] = Number(this.value) || 0;
+          pv3RecalcExpenseTotal();
+        });
+      });
+      rowsWrap.querySelectorAll('[data-exp-save]').forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          const row = this.closest('[data-cat-id]');
+          const catId = row.getAttribute('data-cat-id');
+          const nameInput = row.querySelector('[data-exp-name]');
+          const newName = nameInput.value.trim();
+          if (!newName) { showToast(t('খাতের নাম দিন।','Enter a category name.'), 'error'); return; }
+          try {
+            await api('update', { sheet:'ExpenseCategories', idField:'ExpCatID', idValue: catId, data:{ ExpCatName: newName } });
+            const cat = window.__pv3ExpenseCategories.find(function (c) { return c.ExpCatID === catId; });
+            if (cat) cat.ExpCatName = newName;
+            showToast(t('সেভ হয়েছে ✅','Saved ✅'), 'success');
+          } catch (err) { showToast(err.message, 'error'); }
+        });
+      });
+      rowsWrap.querySelectorAll('[data-exp-del]').forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          const row = this.closest('[data-cat-id]');
+          const catId = row.getAttribute('data-cat-id');
+          if (!confirm(t('এই সাবখাতটা মুছে ফেলতে চান?','Delete this sub-category?'))) return;
+          try {
+            await api('delete', { sheet:'ExpenseCategories', idField:'ExpCatID', idValue: catId });
+            window.__pv3ExpenseCategories = window.__pv3ExpenseCategories.filter(function (c) { return c.ExpCatID !== catId; });
+            delete window.__pv3CashExpense.subAmounts[catId];
+            renderRows();
+            pv3RecalcExpenseTotal();
+            showToast(t('মুছে ফেলা হয়েছে ✅','Deleted ✅'), 'success');
+          } catch (err) { showToast(err.message, 'error'); }
+        });
+      });
+    }
+    renderRows();
+
+    document.getElementById('pv3_ExpAddCatBtn').addEventListener('click', async function () {
+      const name = prompt(t('নতুন সাবখাতের নাম লিখুন:','Enter new sub-category name:'));
       if (!name || !name.trim()) return;
       try {
-        const rec = await api('create', { sheet:'ExpenseCategories', idField:'ExpCatID', idPrefix:'EXPCAT', requiredFields:['ExpCatName'], data:{ ExpCatName: name.trim() } });
-        window.__pv3ExpenseCategories.push(rec);
-        const sel = document.getElementById('pv3_ExpCatSelect');
-        const opt = document.createElement('option'); opt.value = rec.ExpCatName; opt.textContent = rec.ExpCatName; opt.selected = true;
-        sel.appendChild(opt);
-        showToast(t('খাত যোগ হয়েছে ✅','Category added ✅'), 'success');
+        const rec2 = await api('create', { sheet:'ExpenseCategories', idField:'ExpCatID', idPrefix:'EXPCAT', requiredFields:['ExpCatName'], data:{ ExpCatName: name.trim() } });
+        window.__pv3ExpenseCategories.push(rec2);
+        renderRows();
+        showToast(t('সাবখাত যোগ হয়েছে ✅','Sub-category added ✅'), 'success');
       } catch (err) { showToast(err.message, 'error'); }
-    });
-    document.getElementById('pv3_ExpCatEdit').addEventListener('click', async function () {
-      const sel = document.getElementById('pv3_ExpCatSelect');
-      const current = window.__pv3ExpenseCategories.find(function (c) { return c.ExpCatName === sel.value; });
-      if (!current) { showToast(t('আগে একটা খাত বাছাই করুন।','Select a category first.'), 'error'); return; }
-      const name = prompt(t('নতুন নাম লিখুন:','Enter new name:'), current.ExpCatName);
-      if (!name || !name.trim() || name.trim() === current.ExpCatName) return;
-      try {
-        await api('update', { sheet:'ExpenseCategories', idField:'ExpCatID', idValue: current.ExpCatID, data:{ ExpCatName: name.trim() } });
-        current.ExpCatName = name.trim();
-        sel.options[sel.selectedIndex].value = name.trim();
-        sel.options[sel.selectedIndex].textContent = name.trim();
-        showToast(t('আপডেট হয়েছে ✅','Updated ✅'), 'success');
-      } catch (err) { showToast(err.message, 'error'); }
-    });
-    document.getElementById('pv3_ExpCatDel').addEventListener('click', async function () {
-      const sel = document.getElementById('pv3_ExpCatSelect');
-      const current = window.__pv3ExpenseCategories.find(function (c) { return c.ExpCatName === sel.value; });
-      if (!current) { showToast(t('আগে একটা খাত বাছাই করুন।','Select a category first.'), 'error'); return; }
-      if (!confirm(t('এই খাতটা মুছে ফেলতে চান?','Delete this category?'))) return;
-      try {
-        await api('delete', { sheet:'ExpenseCategories', idField:'ExpCatID', idValue: current.ExpCatID });
-        window.__pv3ExpenseCategories = window.__pv3ExpenseCategories.filter(function (c) { return c.ExpCatID !== current.ExpCatID; });
-        sel.remove(sel.selectedIndex);
-        showToast(t('মুছে ফেলা হয়েছে ✅','Deleted ✅'), 'success');
-      } catch (err) { showToast(err.message, 'error'); }
-    });
-
-    document.getElementById('pv3_ExpCancel').addEventListener('click', function () { overlay.remove(); });
-    document.getElementById('pv3_ExpConfirm').addEventListener('click', function () {
-      const amount = Number(val('pv3_ExpAmount')) || 0;
-      const useCat = document.getElementById('pv3_ExpCatCheck').checked;
-      if (amount <= 0) { showToast(t('খরচের পরিমাণ দিন।','Enter the expense amount.'), 'error'); return; }
-      const category = useCat ? val('pv3_ExpCatSelect') : '';
-      const note = useCat ? '' : (document.getElementById('pv3_ExpNote').value.trim());
-      if (!useCat && !note) { showToast(t('বিবরণ লিখুন অথবা খাত থেকে বাছাই করুন।','Write a description or pick a category.'), 'error'); return; }
-      window.__pv3CashExpense = { amount: amount, category: category, note: note };
-      updatePv3CashExpenseBtnLabel();
-      renderFullPreview();
-      overlay.remove();
-      showToast(t('নগদ খরচ যোগ হয়েছে ✅','Cash expense added ✅'), 'success');
     });
   }
-  document.getElementById('pv3_CashExpenseBtn').addEventListener('click', openCashExpensePopup);
+
+  document.getElementById('pv3_ExpCheck').addEventListener('change', function () {
+    const wrap = document.getElementById('pv3_ExpSubWrap');
+    wrap.style.display = this.checked ? '' : 'none';
+    if (this.checked) {
+      if (!window.__pv3CashExpense.subAmounts) window.__pv3CashExpense.subAmounts = {};
+      pv3RenderExpSubRows();
+      pv3RecalcExpenseTotal();
+    }
+  });
+  document.getElementById('pv3_ExpTotalAmount').addEventListener('input', function () {
+    window.__pv3CashExpense.amount = Number(this.value) || 0;
+  });
+  // এডিট মোডে আগে থেকে টাকার অংক থাকলে সেটা ঘরে বসিয়ে দেওয়া
+  if (window.__pv3CashExpense && window.__pv3CashExpense.amount) {
+    document.getElementById('pv3_ExpTotalAmount').value = window.__pv3CashExpense.amount;
+  }
 
   document.getElementById('pv3_TabEntryBtn').addEventListener('click', function () { showTab('entry'); });
   document.getElementById('pv3_TabPreviewBtn').addEventListener('click', function () { showTab('preview'); });
@@ -4768,7 +4771,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
   window.__sv3Warehouses = warehouses.filter(function (w) { return w.Status !== 'Deleted'; });
   window.__sv3CustomerMap = {}; customers.forEach(function (c) { window.__sv3CustomerMap[c.CustomerID] = c; });
   window.__sv3ExpenseCategories = (svData.ExpenseCategories || []).filter(function (c) { return c.Status !== 'Deleted'; });
-  window.__sv3CashExpense = { amount: 0, category: '', note: '' };
+  window.__sv3CashExpense = { amount: 0, subAmounts: {} };
   const sv3ZoneList = Array.from(new Set(customers.filter(function (c) { return c.Status !== 'Deleted' && c.Zone; }).map(function (c) { return c.Zone; }))).sort(function (a, b) { return String(a).localeCompare(String(b), 'bn'); });
 
   const isEdit = !!existingId;
@@ -4794,7 +4797,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
   }
 
   const rec = existingHeader || {};
-  if (rec.CashExpenseAmount) window.__sv3CashExpense = { amount: Number(rec.CashExpenseAmount) || 0, category: rec.CashExpenseCategory || '', note: rec.CashExpenseNote || '' };
+  if (rec.CashExpenseAmount) window.__sv3CashExpense = { amount: Number(rec.CashExpenseAmount) || 0, subAmounts: {} };
 
   window.__sv3SaleLines = (isEdit && existingDocType === 'SalesInvoice')
     ? existingLines.map(function (l) {
@@ -4901,7 +4904,12 @@ async function openSalesVoucherForm(defaultType, existingId) {
         <button type="button" id="sv3_AddReturnLineBtn" class="btn" style="width:100%;background:var(--ink-900);color:var(--amber);padding:8px 10px;font-size:12px;">+ ${t('বিক্রয় ফেরত লাইন যোগ','Add Sale Return Line')}</button>
       </div>
 
-      <button type="button" id="sv3_CashExpenseBtn" class="btn btn-outline" style="width:100%;margin-bottom:16px;">💰 <span id="sv3_CashExpenseBtnLabel">${t('নগদ খরচ যোগ','Add Cash Expense')}</span></button>
+      <div class="field" style="display:flex;align-items:center;gap:6px;">
+        <input type="checkbox" id="sv3_ExpCheck" style="width:auto;">
+        <label style="margin:0;flex-shrink:0;">${t('খরচ(+)ঃ','Expense(+):')}</label>
+        <input id="sv3_ExpTotalAmount" type="number" step="any" style="flex:1;" placeholder="৳">
+      </div>
+      <div id="sv3_ExpSubWrap" style="display:none;margin-bottom:16px;"></div>
 
       <h4 style="margin:16px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('নগদ ও ব্যাংক হিসাব','Cash & Bank Account')}</h4>
       <div class="field">
@@ -4959,11 +4967,14 @@ async function openSalesVoucherForm(defaultType, existingId) {
         const itemsTotal = lineData.reduce(function (s, l) { return s + (Number(l.Amount) || 0); }, 0);
         const cashExpenseAmount = (window.__sv3CashExpense && window.__sv3CashExpense.amount) || 0;
         const totalAmount = itemsTotal + cashExpenseAmount;
+        const cashExpenseBreakdown = Object.keys((window.__sv3CashExpense && window.__sv3CashExpense.subAmounts) || {})
+          .map(function (catId) { const cat = window.__sv3ExpenseCategories.find(function (c) { return c.ExpCatID === catId; }); const amt = window.__sv3CashExpense.subAmounts[catId]; return (cat && amt > 0) ? (cat.ExpCatName + ': ৳' + amt) : null; })
+          .filter(Boolean).join(', ');
         const headerData = Object.assign({}, common, {
           InvoiceDate: val('sv3_Date'), WarehouseID: warehouseId, TotalAmount: totalAmount,
           CashExpenseAmount: cashExpenseAmount || null,
-          CashExpenseCategory: (window.__sv3CashExpense && window.__sv3CashExpense.category) || null,
-          CashExpenseNote: (window.__sv3CashExpense && window.__sv3CashExpense.note) || null,
+          CashExpenseCategory: null,
+          CashExpenseNote: cashExpenseBreakdown || null,
           ManualVoucherDate: document.getElementById('sv3_ManualDateCheck').checked ? (val('sv3_ManualVoucherDate') || null) : null,
           ManualVoucherNo: document.getElementById('sv3_ManualNoCheck').checked ? (val('sv3_ManualVoucherNo') || null) : null,
           WalkInPartyName: isCash ? (val('sv3_CashName') || null) : null,
@@ -5051,111 +5062,105 @@ async function openSalesVoucherForm(defaultType, existingId) {
   });
   document.getElementById('sv3_ZoneFilter').addEventListener('change', refreshSv3CustomerOptions);
 
-  function updateSv3CashExpenseBtnLabel() {
-    const lbl = document.getElementById('sv3_CashExpenseBtnLabel');
-    if (!lbl) return;
-    const exp = window.__sv3CashExpense;
-    lbl.textContent = (exp && exp.amount > 0)
-      ? t('নগদ খরচ যোগঃ ', 'Cash Expense Added: ') + exp.amount.toFixed(2)
-      : t('নগদ খরচ যোগ','Add Cash Expense');
+  // "খরচ(+)ঃ" — চেকবক্স টিক না থাকলেও এই ঘরে সরাসরি একটামাত্র (লাম্প-সাম) পরিমাণ
+  // লেখা যাবে; টিক দিলে নিচে খাত-ভিত্তিক ভাঙন দেখা যাবে এবং প্রতিটা খাতের
+  // পরিমাণ যোগ হয়ে এই উপরের ঘরেই স্বয়ংক্রিয়ভাবে বসে যাবে
+  function sv3RecalcExpenseTotal() {
+    if (!document.getElementById('sv3_ExpCheck').checked) return; // ম্যানুয়াল মোডে থাকলে হাত দেওয়া হবে না
+    const rows = document.querySelectorAll('#sv3_ExpSubWrap [data-exp-amount]');
+    let sum = 0;
+    rows.forEach(function (inp) { sum += Number(inp.value) || 0; });
+    document.getElementById('sv3_ExpTotalAmount').value = sum || '';
   }
-  updateSv3CashExpenseBtnLabel();
 
-  function openSv3CashExpensePopup() {
-    const overlay = document.createElement('div');
-    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
-    const exp = window.__sv3CashExpense || { amount: 0, category: '', note: '' };
-    function catOptsHtml(selected) {
-      return window.__sv3ExpenseCategories.map(function (c) { return `<option value="${attr(c.ExpCatName)}" ${selected===c.ExpCatName?'selected':''}>${escapeHtml(c.ExpCatName)}</option>`; }).join('');
-    }
-    overlay.innerHTML = `
-      <div style="background:var(--surface);border-radius:12px;max-width:380px;width:100%;padding:20px;max-height:90vh;overflow-y:auto;">
-        <h3 style="margin:0 0 14px;font-size:15px;">${t('নগদ খরচ যোগ','Add Cash Expense')}</h3>
-        <div class="field"><label>${t('পরিবহন/লেবার/অন্যান্য খরচের পরিমাণ','Transport/Labor/other expense amount')}</label><input id="sv3_ExpAmount" type="number" step="any" value="${exp.amount || ''}" placeholder="৳"></div>
-        <div class="field" style="display:flex;align-items:center;gap:6px;">
-          <input type="checkbox" id="sv3_ExpCatCheck" style="width:auto;" ${exp.category ? 'checked' : ''}>
-          <label style="margin:0;">${t('খরচের খাত থেকে বাছাই করবো','Pick from an expense category')}</label>
-        </div>
-        <div id="sv3_ExpCatBlock" style="display:${exp.category ? '' : 'none'};">
-          <div class="field"><label>${t('খরচের খাতঃ','Expense Category:')}</label>
-            <div style="display:flex;gap:6px;">
-              <select id="sv3_ExpCatSelect" style="flex:1;">${catOptsHtml(exp.category)}</select>
-              <button type="button" id="sv3_ExpCatAdd" class="btn btn-outline" style="width:auto;padding:6px 10px;" title="${t('নতুন খাত যোগ','Add category')}">➕</button>
-              <button type="button" id="sv3_ExpCatEdit" class="btn btn-outline" style="width:auto;padding:6px 10px;" title="${t('খাতের নাম সম্পাদনা','Edit category name')}">✏️</button>
-              <button type="button" id="sv3_ExpCatDel" class="btn btn-outline" style="width:auto;padding:6px 10px;" title="${t('খাত মুছুন','Delete category')}">🗑️</button>
-            </div>
-          </div>
-        </div>
-        <div id="sv3_ExpNoteBlock" class="field" style="display:${exp.category ? 'none' : ''};">
-          <label>${t('বিবরণঃ','Description:')}</label>
-          <input id="sv3_ExpNote" value="${attr(exp.note)}" placeholder="${t('যেমন: ডেলিভারি ভ্যান ভাড়া','e.g. Delivery van fare')}">
-        </div>
-        <div style="display:flex;gap:8px;margin-top:16px;">
-          <button type="button" id="sv3_ExpCancel" class="btn" style="flex:1;">${t('বাতিল','Cancel')}</button>
-          <button type="button" id="sv3_ExpConfirm" class="btn btn-primary" style="flex:1;">${t('নিশ্চিত করুন','Confirm')}</button>
-        </div>
+  function sv3RenderExpSubRows() {
+    const wrap = document.getElementById('sv3_ExpSubWrap');
+    const amounts = window.__sv3CashExpense.subAmounts || {};
+    wrap.innerHTML = `
+      <div style="border:1px solid var(--border);border-radius:8px;padding:10px;">
+        <div id="sv3_ExpSubRows"></div>
+        <button type="button" id="sv3_ExpAddCatBtn" class="btn btn-outline" style="width:100%;margin-top:6px;padding:6px;font-size:12px;">➕ ${t('নতুন সাবখাত','New Sub-category')}</button>
       </div>`;
-    document.body.appendChild(overlay);
+    const rowsWrap = document.getElementById('sv3_ExpSubRows');
+    function renderRows() {
+      rowsWrap.innerHTML = window.__sv3ExpenseCategories.map(function (c) {
+        const amt = amounts[c.ExpCatID] || '';
+        return `<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;" data-cat-id="${attr(c.ExpCatID)}">
+          <input data-exp-name value="${attr(c.ExpCatName)}" style="flex:1.4;">
+          <input data-exp-amount type="number" step="any" value="${amt}" placeholder="৳" style="flex:1;">
+          <button type="button" data-exp-save class="btn btn-outline" style="width:auto;padding:5px 8px;" title="${t('নাম সেভ করুন','Save name')}">💾</button>
+          <button type="button" data-exp-del class="btn btn-outline" style="width:auto;padding:5px 8px;" title="${t('মুছুন','Delete')}">🗑️</button>
+        </div>`;
+      }).join('') || `<div style="color:var(--text-muted);font-size:12px;padding:4px 0;">${t('কোনো সাবখাত নেই — নিচে থেকে যোগ করুন।','No sub-categories yet — add one below.')}</div>`;
 
-    document.getElementById('sv3_ExpCatCheck').addEventListener('change', function () {
-      document.getElementById('sv3_ExpCatBlock').style.display = this.checked ? '' : 'none';
-      document.getElementById('sv3_ExpNoteBlock').style.display = this.checked ? 'none' : '';
-    });
-    document.getElementById('sv3_ExpCatAdd').addEventListener('click', async function () {
-      const name = prompt(t('নতুন খরচের খাতের নাম লিখুন:','Enter new expense category name:'));
+      rowsWrap.querySelectorAll('[data-exp-amount]').forEach(function (inp) {
+        inp.addEventListener('input', function () {
+          const catId = this.closest('[data-cat-id]').getAttribute('data-cat-id');
+          window.__sv3CashExpense.subAmounts[catId] = Number(this.value) || 0;
+          sv3RecalcExpenseTotal();
+        });
+      });
+      rowsWrap.querySelectorAll('[data-exp-save]').forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          const row = this.closest('[data-cat-id]');
+          const catId = row.getAttribute('data-cat-id');
+          const nameInput = row.querySelector('[data-exp-name]');
+          const newName = nameInput.value.trim();
+          if (!newName) { showToast(t('খাতের নাম দিন।','Enter a category name.'), 'error'); return; }
+          try {
+            await api('update', { sheet:'ExpenseCategories', idField:'ExpCatID', idValue: catId, data:{ ExpCatName: newName } });
+            const cat = window.__sv3ExpenseCategories.find(function (c) { return c.ExpCatID === catId; });
+            if (cat) cat.ExpCatName = newName;
+            showToast(t('সেভ হয়েছে ✅','Saved ✅'), 'success');
+          } catch (err) { showToast(err.message, 'error'); }
+        });
+      });
+      rowsWrap.querySelectorAll('[data-exp-del]').forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          const row = this.closest('[data-cat-id]');
+          const catId = row.getAttribute('data-cat-id');
+          if (!confirm(t('এই সাবখাতটা মুছে ফেলতে চান?','Delete this sub-category?'))) return;
+          try {
+            await api('delete', { sheet:'ExpenseCategories', idField:'ExpCatID', idValue: catId });
+            window.__sv3ExpenseCategories = window.__sv3ExpenseCategories.filter(function (c) { return c.ExpCatID !== catId; });
+            delete window.__sv3CashExpense.subAmounts[catId];
+            renderRows();
+            sv3RecalcExpenseTotal();
+            showToast(t('মুছে ফেলা হয়েছে ✅','Deleted ✅'), 'success');
+          } catch (err) { showToast(err.message, 'error'); }
+        });
+      });
+    }
+    renderRows();
+
+    document.getElementById('sv3_ExpAddCatBtn').addEventListener('click', async function () {
+      const name = prompt(t('নতুন সাবখাতের নাম লিখুন:','Enter new sub-category name:'));
       if (!name || !name.trim()) return;
       try {
         const rec2 = await api('create', { sheet:'ExpenseCategories', idField:'ExpCatID', idPrefix:'EXPCAT', requiredFields:['ExpCatName'], data:{ ExpCatName: name.trim() } });
         window.__sv3ExpenseCategories.push(rec2);
-        const sel = document.getElementById('sv3_ExpCatSelect');
-        const opt = document.createElement('option'); opt.value = rec2.ExpCatName; opt.textContent = rec2.ExpCatName; opt.selected = true;
-        sel.appendChild(opt);
-        showToast(t('খাত যোগ হয়েছে ✅','Category added ✅'), 'success');
+        renderRows();
+        showToast(t('সাবখাত যোগ হয়েছে ✅','Sub-category added ✅'), 'success');
       } catch (err) { showToast(err.message, 'error'); }
-    });
-    document.getElementById('sv3_ExpCatEdit').addEventListener('click', async function () {
-      const sel = document.getElementById('sv3_ExpCatSelect');
-      const current = window.__sv3ExpenseCategories.find(function (c) { return c.ExpCatName === sel.value; });
-      if (!current) { showToast(t('আগে একটা খাত বাছাই করুন।','Select a category first.'), 'error'); return; }
-      const name = prompt(t('নতুন নাম লিখুন:','Enter new name:'), current.ExpCatName);
-      if (!name || !name.trim() || name.trim() === current.ExpCatName) return;
-      try {
-        await api('update', { sheet:'ExpenseCategories', idField:'ExpCatID', idValue: current.ExpCatID, data:{ ExpCatName: name.trim() } });
-        current.ExpCatName = name.trim();
-        sel.options[sel.selectedIndex].value = name.trim();
-        sel.options[sel.selectedIndex].textContent = name.trim();
-        showToast(t('আপডেট হয়েছে ✅','Updated ✅'), 'success');
-      } catch (err) { showToast(err.message, 'error'); }
-    });
-    document.getElementById('sv3_ExpCatDel').addEventListener('click', async function () {
-      const sel = document.getElementById('sv3_ExpCatSelect');
-      const current = window.__sv3ExpenseCategories.find(function (c) { return c.ExpCatName === sel.value; });
-      if (!current) { showToast(t('আগে একটা খাত বাছাই করুন।','Select a category first.'), 'error'); return; }
-      if (!confirm(t('এই খাতটা মুছে ফেলতে চান?','Delete this category?'))) return;
-      try {
-        await api('delete', { sheet:'ExpenseCategories', idField:'ExpCatID', idValue: current.ExpCatID });
-        window.__sv3ExpenseCategories = window.__sv3ExpenseCategories.filter(function (c) { return c.ExpCatID !== current.ExpCatID; });
-        sel.remove(sel.selectedIndex);
-        showToast(t('মুছে ফেলা হয়েছে ✅','Deleted ✅'), 'success');
-      } catch (err) { showToast(err.message, 'error'); }
-    });
-
-    document.getElementById('sv3_ExpCancel').addEventListener('click', function () { overlay.remove(); });
-    document.getElementById('sv3_ExpConfirm').addEventListener('click', function () {
-      const amount = Number(val('sv3_ExpAmount')) || 0;
-      const useCat = document.getElementById('sv3_ExpCatCheck').checked;
-      if (amount <= 0) { showToast(t('খরচের পরিমাণ দিন।','Enter the expense amount.'), 'error'); return; }
-      const category = useCat ? val('sv3_ExpCatSelect') : '';
-      const note = useCat ? '' : (document.getElementById('sv3_ExpNote').value.trim());
-      if (!useCat && !note) { showToast(t('বিবরণ লিখুন অথবা খাত থেকে বাছাই করুন।','Write a description or pick a category.'), 'error'); return; }
-      window.__sv3CashExpense = { amount: amount, category: category, note: note };
-      updateSv3CashExpenseBtnLabel();
-      renderFullPreview();
-      overlay.remove();
-      showToast(t('নগদ খরচ যোগ হয়েছে ✅','Cash expense added ✅'), 'success');
     });
   }
-  document.getElementById('sv3_CashExpenseBtn').addEventListener('click', openSv3CashExpensePopup);
+
+  document.getElementById('sv3_ExpCheck').addEventListener('change', function () {
+    const wrap = document.getElementById('sv3_ExpSubWrap');
+    wrap.style.display = this.checked ? '' : 'none';
+    if (this.checked) {
+      if (!window.__sv3CashExpense.subAmounts) window.__sv3CashExpense.subAmounts = {};
+      sv3RenderExpSubRows();
+      sv3RecalcExpenseTotal();
+    }
+  });
+  document.getElementById('sv3_ExpTotalAmount').addEventListener('input', function () {
+    window.__sv3CashExpense.amount = Number(this.value) || 0;
+  });
+  // এডিট মোডে আগে থেকে টাকার অংক থাকলে সেটা ঘরে বসিয়ে দেওয়া
+  if (window.__sv3CashExpense && window.__sv3CashExpense.amount) {
+    document.getElementById('sv3_ExpTotalAmount').value = window.__sv3CashExpense.amount;
+  }
 
   document.getElementById('sv3_TabEntryBtn').addEventListener('click', function () { showTab('entry'); });
   document.getElementById('sv3_TabPreviewBtn').addEventListener('click', function () { showTab('preview'); });
