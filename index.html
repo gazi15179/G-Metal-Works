@@ -3981,10 +3981,9 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
         <button type="button" id="pv3_AddReturnLineBtn" class="btn" style="width:100%;background:var(--ink-900);color:var(--amber);padding:8px 10px;font-size:12px;">+ ${t('ক্রয় ফেরত লাইন যোগ','Add Purchase Return Line')}</button>
       </div>
 
-      <div class="field" style="display:flex;align-items:center;gap:6px;">
-        <input type="checkbox" id="pv3_ExpCheck" style="width:auto;">
-        <label style="margin:0;flex-shrink:0;">${t('খরচ(+)ঃ','Expense(+):')}</label>
-        <input id="pv3_ExpTotalAmount" type="number" step="any" style="flex:1;" placeholder="৳">
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pv3_ExpCheck" style="width:auto;"> ${t('খরচ(+)ঃ','Expense(+):')}</label>
+        <input id="pv3_ExpTotalAmount" type="number" step="any" placeholder="৳">
       </div>
       <div id="pv3_ExpSubWrap" style="display:none;margin-bottom:16px;"></div>
 
@@ -4904,10 +4903,9 @@ async function openSalesVoucherForm(defaultType, existingId) {
         <button type="button" id="sv3_AddReturnLineBtn" class="btn" style="width:100%;background:var(--ink-900);color:var(--amber);padding:8px 10px;font-size:12px;">+ ${t('বিক্রয় ফেরত লাইন যোগ','Add Sale Return Line')}</button>
       </div>
 
-      <div class="field" style="display:flex;align-items:center;gap:6px;">
-        <input type="checkbox" id="sv3_ExpCheck" style="width:auto;">
-        <label style="margin:0;flex-shrink:0;">${t('খরচ(+)ঃ','Expense(+):')}</label>
-        <input id="sv3_ExpTotalAmount" type="number" step="any" style="flex:1;" placeholder="৳">
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="sv3_ExpCheck" style="width:auto;"> ${t('খরচ(+)ঃ','Expense(+):')}</label>
+        <input id="sv3_ExpTotalAmount" type="number" step="any" placeholder="৳">
       </div>
       <div id="sv3_ExpSubWrap" style="display:none;margin-bottom:16px;"></div>
 
