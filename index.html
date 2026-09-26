@@ -3762,6 +3762,7 @@ async function openPrintableVoucherView(docType, docId) {
     <tfoot><tr><td>${L('মোট','Total')}</td><td>${bn(totalQty)}</td><td></td><td>${bn(totalValue.toFixed(2))}</td>${hasComm ? `<td></td><td>${bn(totalComm.toFixed(2))}</td><td>${bn(totalNet.toFixed(2))}</td>` : ''}</tr></tfoot>
   </table>
   ${(header.CashExpenseAmount && Number(header.CashExpenseAmount) > 0) ? `<div style="text-align:right;font-weight:700;margin:6px 0;">${L('নগদ খরচ যোগঃ','Cash Expense Added:')} ৳ ${bn(Number(header.CashExpenseAmount).toFixed(2))}${header.CashExpenseCategory ? ' (' + escapeHtml(header.CashExpenseCategory) + ')' : (header.CashExpenseNote ? ' (' + escapeHtml(header.CashExpenseNote) + ')' : '')}</div>` : ''}
+  ${(header.DiscountAmount && Number(header.DiscountAmount) > 0) ? `<div style="text-align:right;font-weight:700;margin:6px 0;">${L('ডিসকাউন্টঃ','Discount:')} − ৳ ${bn(Number(header.DiscountAmount).toFixed(2))}</div>` : ''}
   <div class="sign-row">
     <div class="sign-block">
       <div class="sign-line"></div>
@@ -3987,6 +3988,11 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       </div>
       <div id="pv3_ExpSubWrap" style="display:none;margin-bottom:16px;"></div>
 
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pv3_DiscCheck" style="width:auto;" ${rec.DiscountAmount?'checked':''}> ${t('ডিসকাউন্ট(-)ঃ','Discount(-):')}</label>
+        <input id="pv3_DiscAmount" type="number" step="any" placeholder="৳" value="${attr(rec.DiscountAmount)}">
+      </div>
+
       <h4 style="margin:16px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('নগদ ও ব্যাংক হিসাব','Cash & Bank Account')}</h4>
       <div class="field">
         <select id="pv3_PayTypeSelect">
@@ -4045,7 +4051,8 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
         const lineData = window.__pv3PurchaseLines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, Rate: l.rate, Amount: l.amount, CommissionRate: l.commRate || 0, CommissionAmount: l.commAmount || 0, NetAmount: l.netAmount !== undefined ? l.netAmount : l.amount }; });
         const itemsTotal = lineData.reduce(function (s, l) { return s + (Number(l.Amount) || 0); }, 0);
         const cashExpenseAmount = (window.__pv3CashExpense && window.__pv3CashExpense.amount) || 0;
-        const totalAmount = itemsTotal + cashExpenseAmount;
+        const discountAmount = Number(val('pv3_DiscAmount')) || 0;
+        const totalAmount = itemsTotal + cashExpenseAmount - discountAmount;
         const cashExpenseBreakdown = Object.keys((window.__pv3CashExpense && window.__pv3CashExpense.subAmounts) || {})
           .map(function (catId) { const cat = window.__pv3ExpenseCategories.find(function (c) { return c.ExpCatID === catId; }); const amt = window.__pv3CashExpense.subAmounts[catId]; return (cat && amt > 0) ? (cat.ExpCatName + ': ৳' + amt) : null; })
           .filter(Boolean).join(', ');
@@ -4054,6 +4061,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
           CashExpenseAmount: cashExpenseAmount || null,
           CashExpenseCategory: null,
           CashExpenseNote: cashExpenseBreakdown || null,
+          DiscountAmount: discountAmount || null,
           WalkInPartyName: isCash ? (val('pv3_CashName') || null) : null,
           WalkInPartyAddress: isCash ? (val('pv3_CashAddress') || null) : null,
           WalkInPartyMobile: isCash ? (val('pv3_CashMobile') || null) : null
@@ -4579,6 +4587,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     const purchaseTotal = window.__pv3PurchaseLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
     const returnTotal = window.__pv3ReturnLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
     const cashExpenseAmt = (window.__pv3CashExpense && window.__pv3CashExpense.amount) || 0;
+    const discountAmt = Number(val('pv3_DiscAmount')) || 0;
 
     function linesTableHtml(lines) {
       const hasComm = lines.some(function (l) { return (l.commAmount || 0) > 0; });
@@ -4606,9 +4615,9 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
 </style></head><body>
   <h1>${escapeHtml(company.CompanyName || 'জি মেটাল ওয়ার্কস')}</h1>
   <div class="sub">ক্রয় ভাউচার (খসড়া — এখনো সেভ হয়নি) — তারিখ: ${escapeHtml(formatShortDate(val('pv3_Date')))} — সাপ্লায়ার: ${escapeHtml(supplierName)}</div>
-  ${window.__pv3PurchaseLines.length > 0 ? `<h3>ক্রয়কৃত পণ্য</h3>${linesTableHtml(window.__pv3PurchaseLines)}<div class="totalline">মোট ক্রয়: ৳ ${purchaseTotal.toFixed(2)}</div>${cashExpenseAmt > 0 ? `<div class="totalline">নগদ খরচ যোগঃ ৳ ${cashExpenseAmt.toFixed(2)}</div>` : ''}` : ''}
+  ${window.__pv3PurchaseLines.length > 0 ? `<h3>ক্রয়কৃত পণ্য</h3>${linesTableHtml(window.__pv3PurchaseLines)}<div class="totalline">মোট ক্রয়: ৳ ${purchaseTotal.toFixed(2)}</div>${cashExpenseAmt > 0 ? `<div class="totalline">নগদ খরচ যোগঃ ৳ ${cashExpenseAmt.toFixed(2)}</div>` : ''}${discountAmt > 0 ? `<div class="totalline">ডিসকাউন্টঃ − ৳ ${discountAmt.toFixed(2)}</div>` : ''}` : ''}
   ${window.__pv3ReturnLines.length > 0 ? `<h3>ক্রয় ফেরত পণ্য</h3>${linesTableHtml(window.__pv3ReturnLines)}<div class="totalline">মোট ক্রয় ফেরত: ৳ ${returnTotal.toFixed(2)}</div>` : ''}
-  <div class="totalline" style="font-size:15px;border-top:2px solid #1a2029;padding-top:8px;">নিট মোট: ৳ ${(purchaseTotal + cashExpenseAmt - returnTotal).toFixed(2)}</div>
+  <div class="totalline" style="font-size:15px;border-top:2px solid #1a2029;padding-top:8px;">নিট মোট: ৳ ${(purchaseTotal + cashExpenseAmt - discountAmt - returnTotal).toFixed(2)}</div>
   <div class="sign-row"><div>বিক্রেতার স্বাঃ</div><div>অথরাইজেশন স্বাঃ<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div><div>ক্রয়কারী স্বাঃ<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div></div>
 </body></html>`;
   }
@@ -4638,7 +4647,8 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     const purchaseTotal = window.__pv3PurchaseLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
     const returnTotal = window.__pv3ReturnLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
     const cashExpenseAmt = (window.__pv3CashExpense && window.__pv3CashExpense.amount) || 0;
-    const text = 'ক্রয় ভাউচার — নিট মোট: ৳ ' + (purchaseTotal + cashExpenseAmt - returnTotal).toFixed(2);
+    const discountAmt = Number(val('pv3_DiscAmount')) || 0;
+    const text = 'ক্রয় ভাউচার — নিট মোট: ৳ ' + (purchaseTotal + cashExpenseAmt - discountAmt - returnTotal).toFixed(2);
     if (navigator.share) {
       try { await navigator.share({ title: 'ক্রয় ভাউচার', text: text }); } catch (e) {}
     } else if (navigator.clipboard) {
@@ -4909,6 +4919,11 @@ async function openSalesVoucherForm(defaultType, existingId) {
       </div>
       <div id="sv3_ExpSubWrap" style="display:none;margin-bottom:16px;"></div>
 
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="sv3_DiscCheck" style="width:auto;" ${rec.DiscountAmount?'checked':''}> ${t('ডিসকাউন্ট(-)ঃ','Discount(-):')}</label>
+        <input id="sv3_DiscAmount" type="number" step="any" placeholder="৳" value="${attr(rec.DiscountAmount)}">
+      </div>
+
       <h4 style="margin:16px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('নগদ ও ব্যাংক হিসাব','Cash & Bank Account')}</h4>
       <div class="field">
         <select id="sv3_RecTypeSelect">
@@ -4964,7 +4979,8 @@ async function openSalesVoucherForm(defaultType, existingId) {
         const lineData = window.__sv3SaleLines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, Rate: l.rate, Amount: l.amount, CommissionRate: l.commRate || 0, CommissionAmount: l.commAmount || 0, NetAmount: l.netAmount !== undefined ? l.netAmount : l.amount }; });
         const itemsTotal = lineData.reduce(function (s, l) { return s + (Number(l.Amount) || 0); }, 0);
         const cashExpenseAmount = (window.__sv3CashExpense && window.__sv3CashExpense.amount) || 0;
-        const totalAmount = itemsTotal + cashExpenseAmount;
+        const discountAmount = Number(val('sv3_DiscAmount')) || 0;
+        const totalAmount = itemsTotal + cashExpenseAmount - discountAmount;
         const cashExpenseBreakdown = Object.keys((window.__sv3CashExpense && window.__sv3CashExpense.subAmounts) || {})
           .map(function (catId) { const cat = window.__sv3ExpenseCategories.find(function (c) { return c.ExpCatID === catId; }); const amt = window.__sv3CashExpense.subAmounts[catId]; return (cat && amt > 0) ? (cat.ExpCatName + ': ৳' + amt) : null; })
           .filter(Boolean).join(', ');
@@ -4973,6 +4989,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
           CashExpenseAmount: cashExpenseAmount || null,
           CashExpenseCategory: null,
           CashExpenseNote: cashExpenseBreakdown || null,
+          DiscountAmount: discountAmount || null,
           ManualVoucherDate: document.getElementById('sv3_ManualDateCheck').checked ? (val('sv3_ManualVoucherDate') || null) : null,
           ManualVoucherNo: document.getElementById('sv3_ManualNoCheck').checked ? (val('sv3_ManualVoucherNo') || null) : null,
           WalkInPartyName: isCash ? (val('sv3_CashName') || null) : null,
@@ -5468,6 +5485,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
     const saleTotal = window.__sv3SaleLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
     const returnTotal = window.__sv3ReturnLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
     const cashExpenseAmt = (window.__sv3CashExpense && window.__sv3CashExpense.amount) || 0;
+    const discountAmt = Number(val('sv3_DiscAmount')) || 0;
 
     function linesTableHtml(lines) {
       const hasComm = lines.some(function (l) { return (l.commAmount || 0) > 0; });
@@ -5495,9 +5513,9 @@ async function openSalesVoucherForm(defaultType, existingId) {
 </style></head><body>
   <h1>${escapeHtml(company.CompanyName || 'জি মেটাল ওয়ার্কস')}</h1>
   <div class="sub">বিক্রয় ভাউচার (খসড়া — এখনো সেভ হয়নি) — তারিখ: ${escapeHtml(formatShortDate(val('sv3_Date')))} — গ্রাহক: ${escapeHtml(custName)}</div>
-  ${window.__sv3SaleLines.length > 0 ? `<h3>বিক্রীত পণ্য</h3>${linesTableHtml(window.__sv3SaleLines)}<div class="totalline">মোট বিক্রয়: ৳ ${saleTotal.toFixed(2)}</div>${cashExpenseAmt > 0 ? `<div class="totalline">নগদ খরচ যোগঃ ৳ ${cashExpenseAmt.toFixed(2)}</div>` : ''}` : ''}
+  ${window.__sv3SaleLines.length > 0 ? `<h3>বিক্রীত পণ্য</h3>${linesTableHtml(window.__sv3SaleLines)}<div class="totalline">মোট বিক্রয়: ৳ ${saleTotal.toFixed(2)}</div>${cashExpenseAmt > 0 ? `<div class="totalline">নগদ খরচ যোগঃ ৳ ${cashExpenseAmt.toFixed(2)}</div>` : ''}${discountAmt > 0 ? `<div class="totalline">ডিসকাউন্টঃ − ৳ ${discountAmt.toFixed(2)}</div>` : ''}` : ''}
   ${window.__sv3ReturnLines.length > 0 ? `<h3>ফেরত পণ্য</h3>${linesTableHtml(window.__sv3ReturnLines)}<div class="totalline">মোট ফেরত: ৳ ${returnTotal.toFixed(2)}</div>` : ''}
-  <div class="totalline" style="font-size:15px;border-top:2px solid #1a2029;padding-top:8px;">নিট মোট: ৳ ${(saleTotal + cashExpenseAmt - returnTotal).toFixed(2)}</div>
+  <div class="totalline" style="font-size:15px;border-top:2px solid #1a2029;padding-top:8px;">নিট মোট: ৳ ${(saleTotal + cashExpenseAmt - discountAmt - returnTotal).toFixed(2)}</div>
   <div class="sign-row"><div>ক্রেতার স্বাঃ</div><div>অথরাইজেশন স্বাঃ<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div><div>বিক্রয়কারী স্বাঃ<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div></div>
 </body></html>`;
   }
@@ -5527,7 +5545,8 @@ async function openSalesVoucherForm(defaultType, existingId) {
     const saleTotal = window.__sv3SaleLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
     const returnTotal = window.__sv3ReturnLines.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
     const cashExpenseAmt = (window.__sv3CashExpense && window.__sv3CashExpense.amount) || 0;
-    const text = 'বিক্রয় ভাউচার — নিট মোট: ৳ ' + (saleTotal + cashExpenseAmt - returnTotal).toFixed(2);
+    const discountAmt = Number(val('sv3_DiscAmount')) || 0;
+    const text = 'বিক্রয় ভাউচার — নিট মোট: ৳ ' + (saleTotal + cashExpenseAmt - discountAmt - returnTotal).toFixed(2);
     if (navigator.share) {
       try { await navigator.share({ title: 'বিক্রয় ভাউচার', text: text }); } catch (e) {}
     } else if (navigator.clipboard) {
