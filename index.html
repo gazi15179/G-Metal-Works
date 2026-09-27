@@ -221,6 +221,13 @@ table.data-table{width:100%;border-collapse:collapse;font-size:13px;}
 .modal-toolbar #modalClock{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:var(--text-muted);white-space:nowrap;}
 .modal-tool-btn{width:26px;height:26px;flex-shrink:0;border-radius:6px;border:1px solid var(--border);background:var(--bg);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text);}
 .modal-tool-btn:hover{background:var(--border);}
+.modal-actions{display:none;align-items:center;gap:4px;padding-right:6px;margin-right:2px;border-right:1px solid var(--border);}
+.modal-act-btn{height:26px;padding:0 7px;border-radius:6px;border:1px solid var(--border);background:var(--bg);display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--text);font-family:inherit;font-size:11.5px;font-weight:600;white-space:nowrap;}
+.modal-act-btn svg{width:13px;height:13px;flex-shrink:0;}
+.modal-act-btn:hover:not(:disabled){background:var(--border);}
+.modal-act-btn:disabled{opacity:.4;cursor:not-allowed;}
+.modal-act-btn.danger{color:var(--danger);}
+@media (max-width:900px){ .modal-act-btn span{display:none;} .modal-act-btn{width:28px;padding:0;justify-content:center;} }
 .modal-tool-btn svg{width:13px;height:13px;}
 .modal-lang-switch{display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;flex-shrink:0;}
 .modal-lang-switch button{font-family:'Oswald',sans-serif;font-size:10px;font-weight:600;padding:5px 8px;border:none;cursor:pointer;background:var(--bg);color:var(--text-muted);}
@@ -308,6 +315,7 @@ table.data-table{width:100%;border-collapse:collapse;font-size:13px;}
     <div class="modal-head">
       <h3 id="modalTitle">শিরোনাম</h3>
       <div class="modal-toolbar">
+        <div class="modal-actions" id="modalHeaderActions"></div>
         <span id="modalClock">--:--:--</span>
         <button type="button" class="modal-tool-btn" id="modalRefreshBtn" title="Refresh">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg>
@@ -3226,7 +3234,7 @@ async function renderProcessingPage(content) {
         <td>${escapeHtml(itemMap[r.FinishedGoodsItemID] || r.FinishedGoodsItemID)}</td>
         <td>${escapeHtml(r.NetWeight)}</td><td>${escapeHtml(r.NetValue)}</td>
         <td>${r.Status === 'Posted' ? `<span class="badge active">${t('পোস্ট করা','Posted')}</span>` : `<span class="badge draft">${t('খসড়া','Draft')}</span>`}</td>
-        <td class="row-actions">${postBtn}</td>
+        <td class="row-actions"><button class="btn" style="width:auto;padding:6px 12px;font-size:12px;" onclick='openProcessingForm(${JSON.stringify(r.ProcessingID)})'>${t('খুলুন','Open')}</button>${postBtn}</td>
       </tr>`;
     }).join('');
     wrap.innerHTML = `<table class="data-table"><thead><tr>${headCells}<th></th></tr></thead><tbody>${bodyRows}</tbody></table>`;
@@ -3248,40 +3256,68 @@ async function postProcessingRecord(processingId) {
   }
 }
 
-async function openProcessingForm() {
+async function openProcessingForm(existingId) {
   const [items, warehouses] = await Promise.all([cachedList('Items'), cachedList('Warehouses')]);
   window.__procItems = items.filter(function (i) { return i.Status !== 'Deleted'; });
   window.__procItemMap = {}; items.forEach(function (i) { window.__procItemMap[i.ItemID] = i; });
+  window.__procWhMap = {}; warehouses.forEach(function (w) { window.__procWhMap[w.WarehouseID] = w.WarehouseName; });
   window.__procByProductRows = []; // { name, itemId, qty, rate }
+
+  // পুরনো ভাউচার খুললে ডেটা আনা হচ্ছে
+  let existing = null;
+  if (existingId) {
+    try { existing = await api('getDocument', { headerSheet:'ProcessingVoucher', idField:'ProcessingID', idValue: existingId, linesSheet:'ProcessingByProduct_Lines', lineIdField:'ProcessingID' }); }
+    catch (err) { showToast(err.message, 'error'); return; }
+    window.__procByProductRows = (existing.lines || []).map(function (l) { return { name: l.ByProductName || '', itemId: l.ItemID || '', qty: l.Quantity, rate: l.Rate }; });
+  }
+  const isPosted = !!(existing && existing.header.Status === 'Posted');
+  const state = { id: existingId || null, editing: !existingId };
 
   function opts(list, idF, labelF) {
     return list.map(function (r) { return `<option value="${attr(r[idF])}">${escapeHtml(r[labelF])}</option>`; }).join('');
   }
 
   const bodyHtml = `
-    <h4 style="margin:0 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;">${t('কাঁচামাল ও গড় দর','Raw Material & Average Rate')}</h4>
+    <style>
+      .pv-compact .field{margin:0;min-width:0;}
+      .pv-compact .field label{font-size:11.5px;margin-bottom:3px;}
+      .pv-compact input:not([type=checkbox]),.pv-compact select{height:32px;padding:4px 8px;font-size:13px;width:100%;min-width:0;box-sizing:border-box;}
+      .pv-compact .btn{height:32px;padding:4px 12px;font-size:12.5px;width:auto;margin:0;}
+      .pv-compact .pv-g2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 10px;}
+      .pv-compact .pv-g3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 10px;}
+      .pv-compact .pv-row2{display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,1fr);gap:8px 10px;margin-top:8px;align-items:end;}
+      .pv-compact .pv-fetch{grid-column:1 / 3;align-self:end;}
+      .pv-compact .pv-vdate{grid-column:3;}
+      .pv-compact .pv-hint{font-size:11px;color:var(--text-muted);margin-top:3px;}
+      .pv-compact .pv-chk{display:flex;align-items:center;gap:6px;cursor:pointer;margin:0;height:32px;white-space:nowrap;font-size:12.5px;}
+      .pv-compact .pv-chk input{width:16px;height:16px;margin:0;}
+      .pv-compact #pv_ByProductWrap{overflow-x:auto;}
+      .pv-compact #pv_ByProductWrap td,.pv-compact #pv_ByProductWrap th{padding:4px;}
+      .pv-compact #pv_ByProductWrap input,.pv-compact #pv_ByProductWrap select{width:auto;min-width:70px;}
+      @media (max-width:600px){
+        .pv-compact .pv-g3{grid-template-columns:repeat(2,minmax(0,1fr));}
+        .pv-compact input[type=date]{font-size:12px;padding:4px 4px;}
+      }
+    </style>
+    <div class="pv-compact">
+    <h4 style="margin:0 0 8px;font-size:12px;color:var(--text-muted);text-transform:uppercase;">${t('কাঁচামাল ও গড় দর','Raw Material & Average Rate')}</h4>
     <!-- লাইন ১: বামে কাঁচামাল আইটেম, ডানে গুদাম -->
-    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;">
+    <div class="pv-g2">
       <div class="field"><label>${t('কাঁচামাল আইটেম','Raw Material Item')}</label><select id="pv_RawMaterialItemID"><option value="">—</option>${opts(window.__procItems, 'ItemID', 'ItemName')}</select></div>
       <div class="field"><label>${t('গুদাম','Warehouse')}</label><select id="pv_WarehouseID"><option value="">—</option>${opts(warehouses.filter(function(w){return w.Status!=='Deleted';}), 'WarehouseID', 'WarehouseName')}</select></div>
     </div>
-    <!-- লাইন ২: গড় দর চেকবক্স → তারিখ হইতে → তারিখ পর্যন্ত -->
-    <div style="display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,1fr);gap:14px;margin-top:14px;align-items:end;">
-      <div class="field"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0;padding:10px 0;white-space:nowrap;"><input type="checkbox" id="pv_UseAvgRate" style="width:18px;height:18px;margin:0;"> <span>${t('গড় দর','Avg Rate')}</span></label></div>
+    <!-- লাইন ২ ও ৩ একই গ্রিডে, যাতে ভাউচার তারিখ ঠিক "তারিখ পর্যন্ত"-এর নিচে থাকে -->
+    <div class="pv-row2">
+      <div class="field"><label class="pv-chk"><input type="checkbox" id="pv_UseAvgRate"> <span>${t('গড় দর','Avg Rate')}</span></label></div>
       <div class="field"><label>${t('তারিখ হইতে','Date From')}</label><input type="date" id="pv_DateFrom" disabled></div>
       <div class="field"><label>${t('তারিখ পর্যন্ত','Date To')}</label><input type="date" id="pv_DateTo" disabled></div>
-    </div>
-    <!-- লাইন ৩: গড় দর আনুন -->
-    <div style="margin-top:12px;"><button type="button" class="btn" style="width:auto;" id="pv_FetchRateBtn" disabled>${t('↻ গড় দর আনুন','↻ Fetch Average Rate')}</button> <span id="pv_RateHint" style="font-size:11.5px;color:var(--text-muted);margin-left:8px;"></span></div>
-    <!-- লাইন ৪: ভাউচার তারিখ — "তারিখ পর্যন্ত" ঘরের ঠিক নিচে -->
-    <div style="display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,1fr);gap:14px;margin-top:14px;">
-      <div style="visibility:hidden;white-space:nowrap;padding-left:26px;">${t('গড় দর','Avg Rate')}</div>
-      <div></div>
-      <div class="field"><label>${t('ভাউচার তারিখ','Voucher Date')}</label><input type="date" id="pv_Date" value="${new Date().toISOString().slice(0,10)}"></div>
+      <!-- লাইন ৩: বামে 'গড় দর আনুন', ডানে ভাউচার তারিখ ("তারিখ পর্যন্ত"-এর ঠিক নিচে) -->
+      <div class="pv-fetch"><button type="button" class="btn" id="pv_FetchRateBtn" disabled>${t('↻ গড় দর আনুন','↻ Fetch Avg Rate')}</button><div id="pv_RateHint" class="pv-hint"></div></div>
+      <div class="field pv-vdate"><label>${t('ভাউচার তারিখ','Voucher Date')}</label><input type="date" id="pv_Date" value="${new Date().toISOString().slice(0,10)}"></div>
     </div>
 
-    <h4 style="margin:20px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('কাঁচামাল ও উৎপাদন খরচ','Raw Material & Processing Cost')}</h4>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;">
+    <h4 style="margin:14px 0 8px;font-size:12px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:10px;">${t('কাঁচামাল ও উৎপাদন খরচ','Raw Material & Processing Cost')}</h4>
+    <div class="pv-g3">
       <div class="field"><label>${t('পরিমাণ (কেজি)','Quantity (kg)')}</label><input id="pv_Qty" type="number" step="any" oninput="recalcProcessing()"></div>
       <div class="field"><label>${t('কাঁচামালের দর/কেজি','RM Rate/kg')}</label><input id="pv_RMRate" type="number" step="any" oninput="recalcProcessing()"></div>
       <div class="field"><label>${t('কাঁচামাল মূল্য','RM Value')}</label><input id="pv_RMValue" readonly style="background:var(--bg);"></div>
@@ -3290,12 +3326,12 @@ async function openProcessingForm() {
       <div class="field"><label>${t('মোট','Total')}</label><input id="pv_Total" readonly style="background:var(--bg);font-weight:600;"></div>
     </div>
 
-    <h4 style="margin:20px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('বাই-প্রডাক্ট (ভাঙারি/কাটিং/অপচয়)','By-Products (scrap/cutting/wastage)')}</h4>
+    <h4 style="margin:14px 0 8px;font-size:12px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:10px;">${t('বাই-প্রডাক্ট (ভাঙারি/কাটিং/অপচয়)','By-Products (scrap/cutting/wastage)')}</h4>
     <div id="pv_ByProductWrap"></div>
     <button type="button" class="btn" style="width:auto;margin-top:8px;" id="pv_AddByProductBtn">${t('+ বাই-প্রডাক্ট যোগ করুন','+ Add By-Product')}</button>
 
-    <h4 style="margin:20px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('ফলাফল — নেট ফিনিশড গুডস','Result — Net Finished Goods')}</h4>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+    <h4 style="margin:14px 0 8px;font-size:12px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:10px;">${t('ফলাফল — নেট ফিনিশড গুডস','Result — Net Finished Goods')}</h4>
+    <div class="pv-g2">
       <div class="field"><label>${t('নেট ওজন','Net Weight')}</label><input id="pv_NetWeight" readonly style="background:var(--bg);font-weight:600;"></div>
       <div class="field"><label>${t('নেট মূল্য','Net Value')}</label><input id="pv_NetValue" readonly style="background:var(--bg);font-weight:600;"></div>
       <div class="field"><label>${t('প্রস্তুত পণ্য আইটেম','Finished Goods Item')}</label><select id="pv_FinishedGoodsItemID"><option value="">—</option>${opts(window.__procItems, 'ItemID', 'ItemName')}</select></div>
@@ -3305,61 +3341,89 @@ async function openProcessingForm() {
       <div class="field"><label>${t('প্রতি কেজি বিক্রয় দর','Sale rate per kg')}</label><input id="pv_SaleRatePerKg" type="number" step="any" oninput="recalcProcessing()"></div>
       <div class="field"><label>${t('প্রতি পিস বিক্রয় দর','Sale rate per piece')}</label><input id="pv_SaleRatePerPiece" type="number" step="any" oninput="recalcProcessing()"></div>
       <div class="field"><label>${t('লাভ','Profit')}</label><input id="pv_Profit" readonly style="background:var(--bg);font-weight:700;"><div id="pv_ProfitHint" style="font-size:11.5px;color:var(--text-muted);margin-top:4px;"></div></div>
+    </div>
     </div>`;
 
+
+  const ic = {
+    preview: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+    print: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>',
+    edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+    del: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>',
+    share: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>'
+  };
+  const needSave = t('ভাউচার সেভ করার পর চালু হবে','Available after the voucher is saved');
+  const headerActionsHtml = `
+    <button type="button" class="modal-act-btn" id="pv_act_preview" title="${t('প্রিন্ট প্রিভিউ','Print Preview')}">${ic.preview}<span>${t('প্রিভিউ','Preview')}</span></button>
+    <button type="button" class="modal-act-btn" id="pv_act_print" title="${t('প্রিন্ট','Print')}">${ic.print}<span>${t('প্রিন্ট','Print')}</span></button>
+    <button type="button" class="modal-act-btn" id="pv_act_edit" title="${existingId ? (isPosted ? t('পোস্ট করা ভাউচার এডিট করা যায় না','Posted vouchers cannot be edited') : t('এডিট','Edit')) : needSave}" ${existingId && !isPosted ? '' : 'disabled'}>${ic.edit}<span>${t('এডিট','Edit')}</span></button>
+    <button type="button" class="modal-act-btn danger" id="pv_act_delete" title="${existingId ? t('ডিলিট','Delete') : needSave}" ${existingId ? '' : 'disabled'}>${ic.del}<span>${t('ডিলিট','Delete')}</span></button>
+    <button type="button" class="modal-act-btn" id="pv_act_share" title="${t('শেয়ার','Share')}">${ic.share}<span>${t('শেয়ার','Share')}</span></button>`;
+
+  const titleText = existingId
+    ? t('প্রসেসিং ভাউচার','Processing Voucher') + ' — ' + existingId + (isPosted ? t(' (পোস্ট করা)',' (Posted)') : '')
+    : t('নতুন — প্রসেসিং ভাউচার','New — Processing Voucher');
+
   openModal({
-    title: t('নতুন — প্রসেসিং ভাউচার','New — Processing Voucher'),
+    title: titleText,
     bodyHtml: bodyHtml,
     wide: true,
+    headerActionsHtml: headerActionsHtml,
+    hideSave: !!existingId, // পুরনো ভাউচার আগে শুধু দেখার জন্য খোলে, এডিট চাপলে সেভ বাটন আসে
     onSave: async function () {
-      const qty = Number(val('pv_Qty')) || 0;
-      const rawMaterialItemId = val('pv_RawMaterialItemID');
-      const warehouseId = val('pv_WarehouseID');
-      const fgItemId = val('pv_FinishedGoodsItemID');
-      if (!rawMaterialItemId) throw new Error(t('কাঁচামাল আইটেম বাছাই করা আবশ্যক।','Raw material item is required.'));
-      if (!warehouseId) throw new Error(t('গুদাম বাছাই করা আবশ্যক।','Warehouse is required.'));
-      if (!fgItemId) throw new Error(t('প্রস্তুত পণ্য আইটেম বাছাই করা আবশ্যক।','Finished goods item is required.'));
-      if (qty <= 0) throw new Error(t('পরিমাণ আবশ্যক।','Quantity is required.'));
+      const d = collectProcessingForm();
+      if (!d.header.RawMaterialItemID) throw new Error(t('কাঁচামাল আইটেম বাছাই করা আবশ্যক।','Raw material item is required.'));
+      if (!d.header.WarehouseID) throw new Error(t('গুদাম বাছাই করা আবশ্যক।','Warehouse is required.'));
+      if (!d.header.FinishedGoodsItemID) throw new Error(t('প্রস্তুত পণ্য আইটেম বাছাই করা আবশ্যক।','Finished goods item is required.'));
+      if (d.header.RawMaterialQty <= 0) throw new Error(t('পরিমাণ আবশ্যক।','Quantity is required.'));
 
-      const byProductLines = window.__procByProductRows
-        .map(function (_, idx) {
-          return {
-            ByProductName: val('pv_bp_' + idx + '_name'),
-            ItemID: val('pv_bp_' + idx + '_item'),
-            Quantity: Number(val('pv_bp_' + idx + '_qty')) || 0,
-            Rate: Number(val('pv_bp_' + idx + '_rate')) || 0,
-            Value: (Number(val('pv_bp_' + idx + '_qty')) || 0) * (Number(val('pv_bp_' + idx + '_rate')) || 0)
-          };
-        })
-        .filter(function (l) { return l.Quantity > 0; });
-
-      const headerData = {
-        Date: val('pv_Date'), RawMaterialItemID: rawMaterialItemId,
-        DateFrom: document.getElementById('pv_UseAvgRate').checked ? val('pv_DateFrom') : '',
-        DateTo: document.getElementById('pv_UseAvgRate').checked ? val('pv_DateTo') : '',
-        WarehouseID: warehouseId,
-        RawMaterialQty: qty, RawMaterialRate: Number(val('pv_RMRate')) || 0, RawMaterialValue: Number(val('pv_RMValue')) || 0,
-        ProcessingRate: Number(val('pv_ProcRate')) || 0, ProcessingValue: Number(val('pv_ProcValue')) || 0,
-        TotalValue: Number(val('pv_Total')) || 0,
-        ByProductQty: byProductLines.reduce(function (s, l) { return s + l.Quantity; }, 0),
-        ByProductValue: byProductLines.reduce(function (s, l) { return s + l.Value; }, 0),
-        NetWeight: Number(val('pv_NetWeight')) || 0, NetValue: Number(val('pv_NetValue')) || 0,
-        FinishedGoodsItemID: fgItemId, Pieces: Number(val('pv_Pieces')) || 0,
-        RatePerKg: Number(val('pv_RatePerKg')) || 0, RatePerPiece: Number(val('pv_RatePerPiece')) || 0,
-        SaleRatePerKg: Number(val('pv_SaleRatePerKg')) || 0, SaleRatePerPiece: Number(val('pv_SaleRatePerPiece')) || 0,
-        Profit: Number(val('pv_Profit')) || 0
-      };
-
-      await api('createDocument', {
-        headerSheet: 'ProcessingVoucher', idField: 'ProcessingID', idPrefix: 'PROC',
-        requiredFields: ['RawMaterialItemID','WarehouseID','FinishedGoodsItemID'],
-        linesSheet: 'ProcessingByProduct_Lines', lineIdField: 'ProcessingID',
-        headerData: headerData, lines: byProductLines
-      });
-
+      if (state.id) {
+        await api('updateDocument', {
+          headerSheet: 'ProcessingVoucher', idField: 'ProcessingID', idValue: state.id,
+          linesSheet: 'ProcessingByProduct_Lines', lineIdField: 'ProcessingID',
+          headerData: d.header, lines: d.lines
+        });
+      } else {
+        await api('createDocument', {
+          headerSheet: 'ProcessingVoucher', idField: 'ProcessingID', idPrefix: 'PROC',
+          requiredFields: ['RawMaterialItemID','WarehouseID','FinishedGoodsItemID'],
+          linesSheet: 'ProcessingByProduct_Lines', lineIdField: 'ProcessingID',
+          headerData: d.header, lines: d.lines
+        });
+      }
       showToast(t('সেভ হয়েছে ✅','Saved ✅'), 'success');
       if (window.__refreshProcessingList) await window.__refreshProcessingList();
     }
+  });
+
+  // ---- হেডার অ্যাকশন ----
+  document.getElementById('pv_act_preview').addEventListener('click', function () { openProcessingPrintView(state.id, false); });
+  document.getElementById('pv_act_print').addEventListener('click', function () { openProcessingPrintView(state.id, true); });
+  document.getElementById('pv_act_share').addEventListener('click', function () { shareProcessingVoucher(state.id); });
+  document.getElementById('pv_act_edit').addEventListener('click', function () {
+    if (!state.id || isPosted) return;
+    state.editing = true;
+    setProcessingFormLocked(false);
+    document.getElementById('modalSaveBtn').style.display = '';
+    this.disabled = true;
+    showToast(t('এডিট মোড চালু — পরিবর্তন করে সেভ করুন।','Edit mode on — make changes and save.'), 'success');
+  });
+  document.getElementById('pv_act_delete').addEventListener('click', async function () {
+    if (!state.id) return;
+    const refresh = window.__refreshProcessingList;
+    if (isPosted) {
+      await deletePostedVoucherWithAdminAuth('ProcessingVoucher', state.id, 'ProcessingVoucher', 'ProcessingID', 'ProcessingByProduct_Lines', 'ProcessingID', async function () { closeModal(); if (refresh) await refresh(); });
+      return;
+    }
+    if (!confirm(t('এই খসড়া প্রসেসিং ভাউচারটা ডিলিট করতে চান? এটা ফেরানো যাবে না।','Delete this draft processing voucher? This cannot be undone.'))) return;
+    try {
+      await supabaseClient.from('ProcessingByProduct_Lines').delete().eq('ProcessingID', state.id);
+      const { error } = await supabaseClient.from('ProcessingVoucher').delete().eq('ProcessingID', state.id);
+      if (error) throw new Error(error.message);
+      showToast(t('ডিলিট হয়েছে ✅','Deleted ✅'), 'success');
+      closeModal();
+      if (refresh) await refresh();
+    } catch (err) { showToast(err.message, 'error'); }
   });
 
   // "গড় দর" চেকবক্স: টিক দিলে তারিখ ও 'গড় দর আনুন' চালু হবে, না দিলে বন্ধ থাকবে (দর হাতে লিখবেন)
@@ -3390,9 +3454,18 @@ async function openProcessingForm() {
   });
 
   document.getElementById('pv_AddByProductBtn').addEventListener('click', function () {
+    syncProcByProductRows();
     window.__procByProductRows.push({});
     renderProcByProductRows();
+    recalcProcessing();
   });
+
+  // রো যোগ/বাদ দেওয়ার আগে ইতিমধ্যে লেখা মান ধরে রাখা হচ্ছে, যাতে মুছে না যায়
+  function syncProcByProductRows() {
+    window.__procByProductRows = window.__procByProductRows.map(function (_, idx) {
+      return { name: val('pv_bp_' + idx + '_name'), itemId: val('pv_bp_' + idx + '_item'), qty: val('pv_bp_' + idx + '_qty'), rate: val('pv_bp_' + idx + '_rate') };
+    });
+  }
 
   function renderProcByProductRows() {
     const wrap = document.getElementById('pv_ByProductWrap');
@@ -3406,21 +3479,194 @@ async function openProcessingForm() {
       return `<tr>
         <td><input id="pv_bp_${idx}_name" value="${attr(row.name)}" style="width:100px;"></td>
         <td><select id="pv_bp_${idx}_item"><option value="">—</option>${opts(window.__procItems, 'ItemID', 'ItemName')}</select></td>
-        <td><input id="pv_bp_${idx}_qty" type="number" step="any" value="${row.qty||''}" oninput="recalcProcessing()" style="width:80px;"></td>
-        <td><input id="pv_bp_${idx}_rate" type="number" step="any" value="${row.rate||''}" oninput="recalcProcessing()" style="width:80px;"></td>
+        <td><input id="pv_bp_${idx}_qty" type="number" step="any" value="${attr(row.qty)}" oninput="recalcProcessing()" style="width:80px;"></td>
+        <td><input id="pv_bp_${idx}_rate" type="number" step="any" value="${attr(row.rate)}" oninput="recalcProcessing()" style="width:80px;"></td>
         <td><span id="pv_bp_${idx}_val">0.00</span></td>
-        <td><button type="button" onclick="window.__removeProcByProduct(${idx})">✕</button></td>
+        <td><button type="button" class="pv-bp-del" onclick="window.__removeProcByProduct(${idx})">✕</button></td>
       </tr>`;
     }).join('');
     wrap.innerHTML = `<table class="data-table"><thead><tr>${headCells}</tr></thead><tbody>${rows}</tbody></table>`;
+    window.__procByProductRows.forEach(function (row, idx) {
+      const sel = document.getElementById('pv_bp_' + idx + '_item');
+      if (sel && row.itemId) sel.value = row.itemId;
+    });
   }
   window.__renderProcByProductRows = renderProcByProductRows;
   window.__removeProcByProduct = function (idx) {
+    syncProcByProductRows();
     window.__procByProductRows.splice(idx, 1);
     renderProcByProductRows();
     recalcProcessing();
   };
   renderProcByProductRows();
+
+  // পুরনো ভাউচারের মান ফর্মে বসানো
+  if (existing) {
+    const h = existing.header;
+    const setV = function (id, v) { const el = document.getElementById(id); if (el && v !== undefined && v !== null) el.value = v; };
+    setV('pv_RawMaterialItemID', h.RawMaterialItemID); setV('pv_WarehouseID', h.WarehouseID);
+    setV('pv_Date', h.Date); setV('pv_DateFrom', h.DateFrom); setV('pv_DateTo', h.DateTo);
+    if (h.DateFrom || h.DateTo) document.getElementById('pv_UseAvgRate').checked = true;
+    setV('pv_Qty', h.RawMaterialQty); setV('pv_RMRate', h.RawMaterialRate); setV('pv_ProcRate', h.ProcessingRate);
+    setV('pv_FinishedGoodsItemID', h.FinishedGoodsItemID); setV('pv_Pieces', h.Pieces);
+    setV('pv_SaleRatePerKg', h.SaleRatePerKg || ''); setV('pv_SaleRatePerPiece', h.SaleRatePerPiece || '');
+    recalcProcessing();
+    setProcessingFormLocked(true);
+  }
+}
+
+/** প্রসেসিং ফর্মের সব ইনপুট লক/আনলক — পুরনো ভাউচার শুধু দেখার সময় লক থাকে */
+function setProcessingFormLocked(locked) {
+  const root = document.querySelector('#modalBody .pv-compact');
+  if (!root) return;
+  root.querySelectorAll('input, select, button').forEach(function (el) { el.disabled = locked; });
+  if (!locked) {
+    const on = document.getElementById('pv_UseAvgRate').checked;
+    ['pv_DateFrom','pv_DateTo','pv_FetchRateBtn'].forEach(function (id) { document.getElementById(id).disabled = !on; });
+    // হিসাব করা ঘরগুলো সবসময় readonly থাকে (disabled নয়)
+  }
+}
+
+/** ফর্মের বর্তমান মান থেকে হেডার ও বাই-প্রডাক্ট লাইন — সেভ, প্রিন্ট ও শেয়ার তিন জায়গাতেই ব্যবহার হয় */
+function collectProcessingForm() {
+  const useAvg = document.getElementById('pv_UseAvgRate').checked;
+  const lines = (window.__procByProductRows || [])
+    .map(function (_, idx) {
+      const q = Number(val('pv_bp_' + idx + '_qty')) || 0, r = Number(val('pv_bp_' + idx + '_rate')) || 0;
+      return { ByProductName: val('pv_bp_' + idx + '_name'), ItemID: val('pv_bp_' + idx + '_item'), Quantity: q, Rate: r, Value: q * r };
+    })
+    .filter(function (l) { return l.Quantity > 0; });
+  const header = {
+    Date: val('pv_Date'), RawMaterialItemID: val('pv_RawMaterialItemID'),
+    DateFrom: useAvg ? val('pv_DateFrom') : '', DateTo: useAvg ? val('pv_DateTo') : '',
+    WarehouseID: val('pv_WarehouseID'),
+    RawMaterialQty: Number(val('pv_Qty')) || 0, RawMaterialRate: Number(val('pv_RMRate')) || 0, RawMaterialValue: Number(val('pv_RMValue')) || 0,
+    ProcessingRate: Number(val('pv_ProcRate')) || 0, ProcessingValue: Number(val('pv_ProcValue')) || 0,
+    TotalValue: Number(val('pv_Total')) || 0,
+    ByProductQty: lines.reduce(function (s, l) { return s + l.Quantity; }, 0),
+    ByProductValue: lines.reduce(function (s, l) { return s + l.Value; }, 0),
+    NetWeight: Number(val('pv_NetWeight')) || 0, NetValue: Number(val('pv_NetValue')) || 0,
+    FinishedGoodsItemID: val('pv_FinishedGoodsItemID'), Pieces: Number(val('pv_Pieces')) || 0,
+    RatePerKg: Number(val('pv_RatePerKg')) || 0, RatePerPiece: Number(val('pv_RatePerPiece')) || 0,
+    SaleRatePerKg: Number(val('pv_SaleRatePerKg')) || 0, SaleRatePerPiece: Number(val('pv_SaleRatePerPiece')) || 0,
+    Profit: Number(val('pv_Profit')) || 0
+  };
+  return { header: header, lines: lines };
+}
+
+/** প্রসেসিং ভাউচারের A5 প্রিন্ট — ক্রয়/বিক্রয় ভাউচারের একই হেডার ডিজাইন।
+ *  autoPrint=true হলে খোলার সাথে সাথে প্রিন্ট ডায়ালগ আসে। লাভ শুধু স্ক্রিনে, প্রিন্টে আসে না। */
+async function openProcessingPrintView(docId, autoPrint) {
+  const d = collectProcessingForm();
+  const h = d.header;
+  // পপ-আপ ব্লক এড়াতে ক্লিকের সাথে সাথেই উইন্ডো খোলা হচ্ছে
+  const win = window.open('', '_blank');
+  if (!win) { showToast(t('পপ-আপ ব্লক হয়েছে — এই সাইটের জন্য পপ-আপ অনুমতি দিন।','Pop-up was blocked — please allow pop-ups for this site.'), 'error'); return; }
+  let co = {};
+  try { co = await api('getSingleton', { sheet: 'CompanyProfile' }); } catch (e) { co = {}; }
+  const itemMap = window.__procItemMap || {};
+  const whMap = window.__procWhMap || {};
+  const B = function (v) { return escapeHtml(bnDigits(v)); };
+  const M = function (n) { return B(Number(n || 0).toFixed(2)); };
+  const nm = function (id) { return escapeHtml((itemMap[id] && itemMap[id].ItemName) || id || '—'); };
+  const coName = co.CompanyNameBn || 'জি মেটাল ওয়ার্কস';
+  const coAddr = co.AddressBn || 'আলামপুর ব্রীজঘাট বাজার, কোটচাঁদপুর রোড, মহেশপুর, ঝিনাইদহ।';
+  const isDraft = !docId;
+
+  const bpRows = d.lines.map(function (l, i) {
+    return `<tr><td>${B(i + 1)}</td><td class="l">${escapeHtml(l.ByProductName || '')}${l.ItemID ? ' (' + nm(l.ItemID) + ')' : ''}</td><td>${B(l.Quantity)}</td><td class="r">${M(l.Rate)}</td><td class="r">${M(l.Value)}</td></tr>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>প্রসেসিং ভাউচার${docId ? ' — ' + escapeHtml(docId) : ' (খসড়া)'}</title>
+<link href="https://fonts.googleapis.com/css2?family=Anek+Bangla:wght@400;500;600;700&family=Oswald:wght@600;700&display=swap" rel="stylesheet">
+<style>${VOUCHER_TABLE_CSS}
+  .pv-sec td.k{text-align:left;width:45%;} .pv-sec td.v{text-align:right;font-weight:600;}
+</style></head><body>
+  <div class="toolbar">
+    <button class="primary" onclick="window.print()">🖨️ প্রিন্ট</button>
+    <button onclick="window.print()">📄 পেজ সেটাপ</button>
+  </div>
+  <div class="v-co">
+    <div class="v-logo">${co.LogoURL ? `<img src="${attr(co.LogoURL)}" alt="">` : '<span>লোগো</span>'}</div>
+    <div class="v-co-info">
+      <div class="v-co-name">${escapeHtml(coName)}</div>
+      <div class="v-co-addr">${escapeHtml(coAddr)}</div>
+      ${co.Phone ? `<div class="v-co-mob">মোবাইলঃ <span class="en">${escapeHtml(co.Phone)}</span></div>` : ''}
+      <div class="v-type">প্রসেসিং ভাউচার</div>
+    </div>
+    <div class="v-meta">
+      <div class="v-print">প্রিন্টঃ <span class="en">${escapeHtml(formatPrintDate())}</span></div>
+      <div class="v-meta-row"><span>ভাউচার নংঃ</span><b class="en">${escapeHtml(docId || '—')}</b></div>
+      <div class="v-meta-row"><span>তারিখঃ</span><b class="en">${escapeHtml(formatShortDate(h.Date))}</b></div>
+      ${isDraft ? '<div class="v-draft">খসড়া — এখনো সেভ হয়নি</div>' : ''}
+    </div>
+  </div>
+
+  <div class="v-party">
+    <div class="v-party-name"><span class="lbl">কাঁচামালঃ</span> ${nm(h.RawMaterialItemID)}</div>
+    <div class="v-party-sub">
+      <span>গুদামঃ ${escapeHtml(whMap[h.WarehouseID] || h.WarehouseID || '—')}</span>
+      ${h.DateFrom || h.DateTo ? `<span>গড় দরের সময়ঃ ${B(formatShortDate(h.DateFrom))} হইতে ${B(formatShortDate(h.DateTo))} পর্যন্ত</span>` : ''}
+    </div>
+  </div>
+
+  <table class="items-table pv-sec"><tbody>
+    <tr class="section-head"><td colspan="2">কাঁচামাল ও উৎপাদন খরচ</td></tr>
+    <tr><td class="k">পরিমাণ (কেজি)</td><td class="v">${B(h.RawMaterialQty)}</td></tr>
+    <tr><td class="k">কাঁচামালের দর/কেজি</td><td class="v">${M(h.RawMaterialRate)}</td></tr>
+    <tr><td class="k">কাঁচামাল মূল্য</td><td class="v">${M(h.RawMaterialValue)}</td></tr>
+    <tr><td class="k">উৎপাদন খরচ/কেজি</td><td class="v">${M(h.ProcessingRate)}</td></tr>
+    <tr><td class="k">উৎপাদন খরচ মূল্য</td><td class="v">${M(h.ProcessingValue)}</td></tr>
+    <tr class="total-row"><td class="k">মোটঃ</td><td class="v">${M(h.TotalValue)}</td></tr>
+  </tbody></table>
+
+  ${d.lines.length ? `<table class="items-table">
+    <colgroup><col style="width:8%"><col style="width:44%"><col style="width:14%"><col style="width:16%"><col style="width:18%"></colgroup>
+    <thead><tr class="section-head"><td colspan="5">বাই-প্রডাক্ট (ভাঙারি/কাটিং/অপচয়)</td></tr>
+    <tr><th>ক্রঃ</th><th>নাম</th><th>পরিমাণ</th><th class="r">দর</th><th class="r">মূল্য</th></tr></thead>
+    <tbody>${bpRows}
+      <tr class="total-row"><td colspan="2">মোটঃ বাই-প্রডাক্টঃ</td><td>${B(h.ByProductQty)}</td><td></td><td class="r">${M(h.ByProductValue)}</td></tr>
+    </tbody></table>` : ''}
+
+  <table class="items-table pv-sec"><tbody>
+    <tr class="section-head"><td colspan="2">ফলাফল — নেট ফিনিশড গুডসঃ ${nm(h.FinishedGoodsItemID)}</td></tr>
+    <tr><td class="k">নেট ওজন (কেজি)</td><td class="v">${B(Number(h.NetWeight).toFixed(3))}</td></tr>
+    <tr><td class="k">পিস</td><td class="v">${B(h.Pieces)}</td></tr>
+    <tr><td class="k">প্রতি কেজি দর</td><td class="v">${M(h.RatePerKg)}</td></tr>
+    <tr><td class="k">প্রতি পিস দর</td><td class="v">${M(h.RatePerPiece)}</td></tr>
+    ${h.SaleRatePerKg ? `<tr><td class="k">প্রতি কেজি বিক্রয় দর</td><td class="v">${M(h.SaleRatePerKg)}</td></tr>` : ''}
+    ${h.SaleRatePerPiece ? `<tr><td class="k">প্রতি পিস বিক্রয় দর</td><td class="v">${M(h.SaleRatePerPiece)}</td></tr>` : ''}
+    <tr class="grand-all"><td class="k">নেট মূল্যঃ</td><td class="v">${M(h.NetValue)}</td></tr>
+  </tbody></table>
+
+  ${(h.SaleRatePerKg || h.SaleRatePerPiece) ? `<div class="v-profit"><h5>📈 লাভঃ ${h.Profit < 0 ? '−' : ''}${M(Math.abs(h.Profit))} (প্রিন্টে আসবে না)</h5></div>` : ''}
+
+  <div class="sign-row"><div>প্রস্তুতকারীর স্বাঃ</div><div>হিসাবরক্ষকের স্বাঃ</div><div>অনুমোদনকারীর স্বাঃ</div></div>
+  ${autoPrint ? '<script>window.addEventListener("load",function(){setTimeout(function(){window.print();},400);});<\/script>' : ''}
+</body></html>`;
+
+  win.document.write(html);
+  win.document.close();
+}
+
+/** প্রসেসিং ভাউচারের সারাংশ শেয়ার — মোবাইলে শেয়ার শিট, ডেস্কটপে ক্লিপবোর্ডে কপি */
+async function shareProcessingVoucher(docId) {
+  const h = collectProcessingForm().header;
+  const itemMap = window.__procItemMap || {};
+  const nm = function (id) { return (itemMap[id] && itemMap[id].ItemName) || id || '—'; };
+  const text = 'প্রসেসিং ভাউচার' + (docId ? ' ' + docId : ' (খসড়া)') + '\n' +
+    'তারিখ: ' + formatShortDate(h.Date) + '\n' +
+    'কাঁচামাল: ' + nm(h.RawMaterialItemID) + ' — ' + h.RawMaterialQty + ' কেজি @ ' + h.RawMaterialRate.toFixed(2) + '\n' +
+    'প্রস্তুত পণ্য: ' + nm(h.FinishedGoodsItemID) + ' — ' + h.NetWeight.toFixed(3) + ' কেজি, ' + h.Pieces + ' পিস\n' +
+    'প্রতি কেজি দর: ' + h.RatePerKg.toFixed(2) + ', প্রতি পিস দর: ' + h.RatePerPiece.toFixed(2) + '\n' +
+    'নেট মূল্য: ' + h.NetValue.toFixed(2);
+  if (navigator.share) {
+    try { await navigator.share({ title: 'প্রসেসিং ভাউচার', text: text }); } catch (e) {}
+  } else if (navigator.clipboard) {
+    await navigator.clipboard.writeText(text);
+    showToast(t('তথ্য ক্লিপবোর্ডে কপি হয়েছে — যেকোনো জায়গায় পেস্ট করুন।','Copied to clipboard — paste it anywhere.'), 'success');
+  }
 }
 
 window.recalcProcessing = function () {
@@ -6486,12 +6732,20 @@ function openModal(opts) {
   document.getElementById('modalUserName').textContent = currentUser ? (currentUser.FullName || currentUser.Email) : '';
   document.getElementById('modalUserName').title = currentUser ? (currentUser.FullName || currentUser.Email) : '';
   modalOnSaveHandler = opts.onSave;
+  // শিরোনামের পাশে ঐচ্ছিক অ্যাকশন বাটন (প্রিন্ট প্রিভিউ/প্রিন্ট/এডিট/ডিলিট/শেয়ার)
+  const actWrap = document.getElementById('modalHeaderActions');
+  actWrap.innerHTML = opts.headerActionsHtml || '';
+  actWrap.style.display = opts.headerActionsHtml ? 'flex' : 'none';
+  document.getElementById('modalSaveBtn').style.display = opts.hideSave ? 'none' : '';
   updateModalLangButtons();
 }
 
 function closeModal() {
   document.getElementById('modalOverlay').classList.remove('show');
   document.getElementById('modalBody').innerHTML = '';
+  const actWrap = document.getElementById('modalHeaderActions');
+  if (actWrap) { actWrap.innerHTML = ''; actWrap.style.display = 'none'; }
+  document.getElementById('modalSaveBtn').style.display = '';
   modalOnSaveHandler = null;
 }
 
