@@ -3038,6 +3038,71 @@ function hrDatesBetween(from, to) { const out = []; let d = from; while (d <= to
 function hrMoney(n) { return (Number(n) || 0).toFixed(2); }
 function hrNum(n) { const v = Math.round((Number(n) || 0) * 1000) / 1000; return String(v); }
 
+
+/** "নাম খুঁজুন" ঘরের অটো ড্রপডাউন — লেখা শুরু করলে (বা ঘরে চাপ দিলে) মিলে যাওয়া নামের তালিকা নিচে ভেসে ওঠে।
+ *  ↑ ↓ দিয়ে বাছাই, Enter চাপলে বা আঙুল/মাউসে চাপলে নেওয়া হয়। opts.list() → [{id, name, sub}], opts.onPick(item) */
+function hrNameSuggest(input, opts) {
+  if (!input || input.__sug) return;
+  input.__sug = true;
+  input.setAttribute('autocomplete', 'off');
+  if (!document.getElementById('hrSugCss')) {
+    const st = document.createElement('style'); st.id = 'hrSugCss';
+    st.textContent = '.hr-sug{position:fixed;z-index:99999;background:var(--surface,#fff);border:1px solid var(--border,#ddd);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);max-height:260px;overflow-y:auto;font-size:13.5px;}'
+      + '.hr-sug div{padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--border,#eee);display:flex;justify-content:space-between;gap:10px;}'
+      + '.hr-sug div:last-child{border-bottom:0;} .hr-sug div.on,.hr-sug div:hover{background:var(--bg,#f3f4f6);}'
+      + '.hr-sug span{color:var(--text-muted,#888);font-size:11.5px;white-space:nowrap;} .hr-sug b{font-weight:600;} .hr-sug .none{color:var(--text-muted,#888);cursor:default;}';
+    document.head.appendChild(st);
+  }
+  let box = null, items = [], idx = -1;
+  function close() { if (box) { box.remove(); box = null; } idx = -1; }
+  function place() {
+    if (!box) return;
+    const r = input.getBoundingClientRect();
+    box.style.left = r.left + 'px'; box.style.width = Math.max(r.width, 220) + 'px';
+    const below = window.innerHeight - r.bottom;
+    if (below < 200 && r.top > below) { box.style.top = ''; box.style.bottom = (window.innerHeight - r.top + 4) + 'px'; }
+    else { box.style.bottom = ''; box.style.top = (r.bottom + 4) + 'px'; }
+  }
+  function open() {
+    if (window.__hrSugActive && window.__hrSugActive !== api) window.__hrSugActive.close();
+    window.__hrSugActive = api;
+    const q = input.value.trim().toLowerCase();
+    items = (opts.list() || []).filter(function (x) { return !q || String(x.name || '').toLowerCase().indexOf(q) !== -1; }).slice(0, 40);
+    if (!box) { box = document.createElement('div'); box.className = 'hr-sug'; document.body.appendChild(box); }
+    idx = items.length ? 0 : -1;
+    box.innerHTML = items.length ? items.map(function (x, i) { return `<div data-i="${i}" class="${i === idx ? 'on' : ''}"><b>${escapeHtml(x.name)}</b><span>${escapeHtml(x.sub || '')}</span></div>`; }).join('')
+      : `<div class="none">${t('কোনো নাম মেলেনি','No match')}</div>`;
+    place();
+  }
+  function mark() { if (!box) return; box.querySelectorAll('[data-i]').forEach(function (el) { el.classList.toggle('on', Number(el.dataset.i) === idx); }); const on = box.querySelector('.on'); if (on) on.scrollIntoView({ block: 'nearest' }); }
+  function pick(i) { const it = items[i]; close(); if (it) opts.onPick(it); }
+  input.addEventListener('focus', open);
+  input.addEventListener('input', open);
+  input.addEventListener('keydown', function (ev) {
+    if (!box) { if (ev.key === 'ArrowDown') open(); return; }
+    if (ev.key === 'ArrowDown') { idx = Math.min(items.length - 1, idx + 1); mark(); ev.preventDefault(); }
+    else if (ev.key === 'ArrowUp') { idx = Math.max(0, idx - 1); mark(); ev.preventDefault(); }
+    else if (ev.key === 'Enter') { if (idx >= 0) { pick(idx); ev.preventDefault(); } }
+    else if (ev.key === 'Escape') close();
+  });
+  input.addEventListener('blur', function () { setTimeout(function () { if (window.__hrSugActive === api) close(); }, 180); });
+  const api = { close: close, place: place, pick: pick, owns: function (el) { return box && box.contains(el); }, input: input };
+  // পুরো পেজে একটাই লিসেনার — যতবারই ঘর নতুন করে আঁকা হোক, লিসেনার জমে না
+  if (!window.__hrSugGlobal) {
+    window.__hrSugGlobal = true;
+    document.addEventListener('mousedown', function (ev) {
+      const a = window.__hrSugActive; if (!a) return;
+      if (a.owns(ev.target)) { ev.preventDefault(); const el = ev.target.closest('[data-i]'); if (el) a.pick(Number(el.dataset.i)); }
+      else if (ev.target !== a.input) a.close();
+    });
+    window.addEventListener('resize', function () { if (window.__hrSugActive) window.__hrSugActive.place(); });
+    document.addEventListener('scroll', function () { if (window.__hrSugActive) window.__hrSugActive.place(); }, true);
+  }
+}
+function hrEmpSuggestList(base, emps) {
+  return (emps || base.emps).map(function (e) { return { id: e.EmployeeID, name: e.Name || e.EmployeeID, sub: base.catMap[e.CategoryID] || '' }; });
+}
+
 async function hrDivisor() {
   try { const s = await api('getSystemSettings', {}); const v = Number(s.PayrollDivisor); return v > 0 ? v : 30; }
   catch (e) { return 30; }
@@ -3202,6 +3267,10 @@ async function renderAttendancePage(content) {
   document.getElementById('hrAttMonth').addEventListener('change', function () { if (this.value) { st.month = this.value; refresh(); } });
   document.getElementById('hrAttCat').addEventListener('change', function () { st.cat = this.value; redraw(); });
   document.getElementById('hrAttQ').addEventListener('input', function () { st.q = this.value; redraw(); });
+  hrNameSuggest(document.getElementById('hrAttQ'), {
+    list: function () { return hrEmpSuggestList(base, base.emps.filter(function (e) { return !st.cat || e.CategoryID === st.cat; })); },
+    onPick: function (it) { const el = document.getElementById('hrAttQ'); el.value = it.name; st.q = it.name; redraw(); }
+  });
 
   let busy = false;
   document.getElementById('hrAttBody').addEventListener('click', async function (ev) {
@@ -3409,6 +3478,10 @@ async function renderDailyProductionPage(content) {
   document.getElementById('tpHoliday').addEventListener('change', function () { st.holiday = this.checked; renderTargetHint(); renderMembers(); renderSum(); });
   document.getElementById('tpCat').addEventListener('change', function () { st.cat = this.value; renderMembers(); });
   document.getElementById('tpQ').addEventListener('input', function () { st.q = this.value; renderMembers(); });
+  hrNameSuggest(document.getElementById('tpQ'), {
+    list: function () { return hrEmpSuggestList(base, base.emps.filter(function (e) { return (!st.cat || e.CategoryID === st.cat) && !st.members[e.EmployeeID]; })).map(function (x) { if (st.present[x.id]) x.sub = 'P · ' + x.sub; return x; }); },
+    onPick: function (it) { st.members[it.id] = true; st.q = ''; document.getElementById('tpQ').value = ''; renderMembers(); renderSum(); showToast(it.name + t(' দলে যোগ হয়েছে',' added to team'), 'success'); }
+  });
   document.getElementById('tpSizes').addEventListener('input', function (ev) {
     const el = ev.target; if (!el.dataset.item) return;
     st.qty[el.dataset.item] = el.value; renderSum();
@@ -3578,6 +3651,10 @@ async function openWeeklyBillForm() {
   document.getElementById('wbNext').addEventListener('click', function () { st.week = hrWeekOf(hrAddDays(st.week.from, 7)); load(); });
   document.getElementById('wbCat').addEventListener('change', function () { st.cat = this.value; render(); });
   document.getElementById('wbQ').addEventListener('input', function () { st.q = this.value; render(); });
+  hrNameSuggest(document.getElementById('wbQ'), {
+    list: function () { return hrEmpSuggestList(base, Object.keys(st.data).map(function (id) { return base.empMap[id] || { EmployeeID: id, Name: id }; }).filter(function (e) { return !st.cat || e.CategoryID === st.cat; })); },
+    onPick: function (it) { const el = document.getElementById('wbQ'); el.value = it.name; st.q = it.name; render(); }
+  });
   const cards = document.getElementById('wbCards');
   function onField(ev) {
     const el = ev.target; if (!el.dataset || !el.dataset.emp || !el.dataset.f) return;
@@ -3822,6 +3899,10 @@ async function openMonthlyBillForm() {
   document.getElementById('mbLeave').addEventListener('change', function () { st.leavePaid = this.checked; render(); });
   document.getElementById('mbCat').addEventListener('change', function () { st.cat = this.value; render(); });
   document.getElementById('mbQ').addEventListener('input', function () { st.q = this.value; render(); });
+  hrNameSuggest(document.getElementById('mbQ'), {
+    list: function () { return hrEmpSuggestList(base, base.emps.filter(function (e) { return !st.cat || e.CategoryID === st.cat; })); },
+    onPick: function (it) { const el = document.getElementById('mbQ'); el.value = it.name; st.q = it.name; render(); }
+  });
   const cards = document.getElementById('mbCards');
   function onField(ev) {
     const el = ev.target; if (!el.dataset || !el.dataset.emp || !el.dataset.f) return;
@@ -4410,12 +4491,10 @@ async function initProcTeam(existing, formState) {
     else if (!tgRow) hint = `<span style="color:#d97706;">⚠ ${escapeHtml(gp.groupMap[g] || g)} — ${t('এই ধরনের দলের লক্ষ্য ঠিক করা নেই ("দলের লক্ষ্য" পেজে যোগ করুন)।','no team target set (add it in "Team Targets").')}</span>`;
     else hint = escapeHtml(gp.groupMap[g] || g) + ' — ' + t('দলের একদিনের লক্ষ্যঃ ','team daily target: ') + '<b>' + hrNum(tgRow.TargetKg) + ' ' + t('কেজি','kg') + '</b>';
 
-    const q = tm.q.trim().toLowerCase();
     const list = base.emps.filter(function (e) {
       if (tm.members[e.EmployeeID]) return true;
       if (locked()) return false; // শুধু দেখার সময় কেবল দলের সদস্যরা
       if (tm.cat && e.CategoryID !== tm.cat) return false;
-      if (q && String(e.Name || '').toLowerCase().indexOf(q) === -1) return false;
       return true;
     }).sort(function (a, b) { return (tm.members[b.EmployeeID] ? 2 : 0) + (tm.present[b.EmployeeID] ? 1 : 0) - (tm.members[a.EmployeeID] ? 2 : 0) - (tm.present[a.EmployeeID] ? 1 : 0); });
 
@@ -4430,7 +4509,7 @@ async function initProcTeam(existing, formState) {
       <div class="pvt-sum"><div>${t('কাঁচামাল','Raw kg')}<b>${hrNum(rawKg())}</b></div><div>${t('লক্ষ্য','Target')}<b>${tg === null ? '—' : hrNum(tg)}</b></div><div>${t('বাড়তি কেজি','Extra kg')}<b>${hrNum(ex)}</b></div></div>
       ${locked() ? '' : `<div class="pv-g2" style="margin-bottom:4px;">
         <div class="field"><label>${t('কর্মচারীর ধরন','Employee type')}</label><select data-t="cat"><option value="">${t('সব ধরন','All types')}</option>${base.cats.map(function (c) { return `<option value="${attr(c.CategoryID)}" ${tm.cat === c.CategoryID ? 'selected' : ''}>${escapeHtml(c.CategoryName)}</option>`; }).join('')}</select></div>
-        <div class="field"><label>${t('নাম খুঁজুন','Search name')}</label><input data-t="q" value="${attr(tm.q)}" placeholder="${t('নাম লিখুন…','Type a name…')}"></div></div>`}
+        <div class="field"><label>${t('নাম খুঁজুন','Search name')}</label><input data-t="q" placeholder="${t('নাম লিখুন — তালিকা থেকে বাছাই করুন','Type a name — pick from the list')}"></div></div>`}
       ${list.map(function (e) {
         const id = e.EmployeeID, on = !!tm.members[id];
         return `<div class="pvt-mem"><input type="checkbox" data-mem="${attr(id)}" ${on ? 'checked' : ''} ${dis}>
@@ -4440,6 +4519,10 @@ async function initProcTeam(existing, formState) {
       }).join('') || `<div class="pvt-hint">${locked() ? t('এই ভাউচারে দলের কোনো সদস্য নেই।','No team members on this voucher.') : t('কোনো কর্মচারী নেই।','No employees.')}</div>`}
       ${warns.map(function (w) { return `<div class="pvt-warn">⚠ ${w}</div>`; }).join('')}
       ${sel.length ? `<div style="text-align:right;font-size:13px;margin-top:6px;">${t('দলের মোট ওভার ডিউটিঃ ','Team over-duty: ')}<b>${hrMoney(sel.reduce(function (s, id) { return s + ex * rateOf(id); }, 0))}</b></div>` : ''}`;
+    hrNameSuggest(box.querySelector('[data-t="q"]'), {
+      list: function () { return hrEmpSuggestList(base, base.emps.filter(function (e) { return (!tm.cat || e.CategoryID === tm.cat) && !tm.members[e.EmployeeID]; })).map(function (x) { if (tm.present[x.id]) x.sub = 'P · ' + x.sub; return x; }); },
+      onPick: function (it) { tm.members[it.id] = true; render(); showToast(it.name + t(' দলে যোগ হয়েছে',' added to team'), 'success'); }
+    });
   }
   function updateAmounts() {
     const ex = extra();
@@ -4454,8 +4537,7 @@ async function initProcTeam(existing, formState) {
   });
   box.addEventListener('input', function (ev) {
     const el = ev.target;
-    if (el.dataset.t === 'q') { tm.q = el.value; render(); const qi = box.querySelector('[data-t="q"]'); if (qi) { qi.focus(); qi.setSelectionRange(qi.value.length, qi.value.length); } }
-    else if (el.dataset.rate) { tm.rates[el.dataset.rate] = el.value; updateAmounts(); }
+    if (el.dataset.rate) { tm.rates[el.dataset.rate] = el.value; updateAmounts(); }
   });
   document.getElementById('pv_Date').addEventListener('change', loadPresent);
   document.getElementById('pv_FinishedGoodsItemID').addEventListener('change', render);
