@@ -3573,6 +3573,7 @@ async function openProcessingPrintView(docId, autoPrint) {
   const coAddr = co.AddressBn || 'আলামপুর ব্রীজঘাট বাজার, কোটচাঁদপুর রোড, মহেশপুর, ঝিনাইদহ।';
   const isDraft = !docId;
 
+  const PV_COLS = '<colgroup><col style="width:8%"><col style="width:40%"><col style="width:17%"><col style="width:17%"><col style="width:18%"></colgroup>';
   const bpRows = d.lines.map(function (l, i) {
     return `<tr><td>${B(i + 1)}</td><td class="l">${escapeHtml(l.ByProductName || '')}${l.ItemID ? ' (' + nm(l.ItemID) + ')' : ''}</td><td>${B(l.Quantity)}</td><td class="r">${M(l.Rate)}</td><td class="r">${M(l.Value)}</td></tr>`;
   }).join('');
@@ -3581,7 +3582,7 @@ async function openProcessingPrintView(docId, autoPrint) {
 <title>প্রসেসিং ভাউচার${docId ? ' — ' + escapeHtml(docId) : ' (খসড়া)'}</title>
 <link href="https://fonts.googleapis.com/css2?family=Anek+Bangla:wght@400;500;600;700&family=Oswald:wght@600;700&display=swap" rel="stylesheet">
 <style>${VOUCHER_TABLE_CSS}
-  .pv-sec td.k{text-align:left;width:45%;} .pv-sec td.v{text-align:right;font-weight:600;}
+  .items-table .section-head td{font-size:11px;}
 </style></head><body>
   <div class="toolbar">
     <button class="primary" onclick="window.print()">🖨️ প্রিন্ট</button>
@@ -3611,34 +3612,50 @@ async function openProcessingPrintView(docId, autoPrint) {
     </div>
   </div>
 
-  <table class="items-table pv-sec"><tbody>
-    <tr class="section-head"><td colspan="2">কাঁচামাল ও উৎপাদন খরচ</td></tr>
-    <tr><td class="k">পরিমাণ (কেজি)</td><td class="v">${B(h.RawMaterialQty)}</td></tr>
-    <tr><td class="k">কাঁচামালের দর/কেজি</td><td class="v">${M(h.RawMaterialRate)}</td></tr>
-    <tr><td class="k">কাঁচামাল মূল্য</td><td class="v">${M(h.RawMaterialValue)}</td></tr>
-    <tr><td class="k">উৎপাদন খরচ/কেজি</td><td class="v">${M(h.ProcessingRate)}</td></tr>
-    <tr><td class="k">উৎপাদন খরচ মূল্য</td><td class="v">${M(h.ProcessingValue)}</td></tr>
-    <tr class="total-row"><td class="k">মোটঃ</td><td class="v">${M(h.TotalValue)}</td></tr>
-  </tbody></table>
+  <!-- ১) কাঁচামাল -->
+  <table class="items-table">
+    ${PV_COLS}
+    <thead><tr class="section-head"><td colspan="5">কাঁচামাল</td></tr>
+    <tr><th>ক্রঃ</th><th>নাম</th><th>পরিমাণ</th><th class="r">দর</th><th class="r">মূল্য</th></tr></thead>
+    <tbody>
+      <tr><td>${B(1)}</td><td class="l">${nm(h.RawMaterialItemID)}</td><td>${B(h.RawMaterialQty)}</td><td class="r">${M(h.RawMaterialRate)}</td><td class="r">${M(h.RawMaterialValue)}</td></tr>
+      <tr class="total-row"><td colspan="2">মোটঃ কাঁচামালঃ</td><td>${B(h.RawMaterialQty)}</td><td></td><td class="r">${M(h.RawMaterialValue)}</td></tr>
+    </tbody></table>
 
+  <!-- ২) উৎপাদন খরচ -->
+  <table class="items-table">
+    ${PV_COLS}
+    <thead><tr class="section-head"><td colspan="5">উৎপাদন খরচ</td></tr>
+    <tr><th>ক্রঃ</th><th>নাম</th><th>পরিমাণ</th><th class="r">দর</th><th class="r">মূল্য</th></tr></thead>
+    <tbody>
+      <tr><td>${B(1)}</td><td class="l">উৎপাদন খরচ — ${nm(h.RawMaterialItemID)}</td><td>${B(h.RawMaterialQty)}</td><td class="r">${M(h.ProcessingRate)}</td><td class="r">${M(h.ProcessingValue)}</td></tr>
+      <tr class="total-row"><td colspan="2">মোটঃ উৎপাদন খরচঃ</td><td>${B(h.RawMaterialQty)}</td><td></td><td class="r">${M(h.ProcessingValue)}</td></tr>
+      <tr class="grand"><td colspan="4">সর্বমোট (কাঁচামাল + উৎপাদন খরচ)ঃ</td><td class="r">${M(h.TotalValue)}</td></tr>
+    </tbody></table>
+
+  <!-- ৩) বাই-প্রডাক্ট -->
   ${d.lines.length ? `<table class="items-table">
-    <colgroup><col style="width:8%"><col style="width:44%"><col style="width:14%"><col style="width:16%"><col style="width:18%"></colgroup>
+    ${PV_COLS}
     <thead><tr class="section-head"><td colspan="5">বাই-প্রডাক্ট (ভাঙারি/কাটিং/অপচয়)</td></tr>
     <tr><th>ক্রঃ</th><th>নাম</th><th>পরিমাণ</th><th class="r">দর</th><th class="r">মূল্য</th></tr></thead>
     <tbody>${bpRows}
       <tr class="total-row"><td colspan="2">মোটঃ বাই-প্রডাক্টঃ</td><td>${B(h.ByProductQty)}</td><td></td><td class="r">${M(h.ByProductValue)}</td></tr>
     </tbody></table>` : ''}
 
-  <table class="items-table pv-sec"><tbody>
-    <tr class="section-head"><td colspan="2">ফলাফল — নেট ফিনিশড গুডসঃ ${nm(h.FinishedGoodsItemID)}</td></tr>
-    <tr><td class="k">নেট ওজন (কেজি)</td><td class="v">${B(Number(h.NetWeight).toFixed(3))}</td></tr>
-    <tr><td class="k">পিস</td><td class="v">${B(h.Pieces)}</td></tr>
-    <tr><td class="k">প্রতি কেজি দর</td><td class="v">${M(h.RatePerKg)}</td></tr>
-    <tr><td class="k">প্রতি পিস দর</td><td class="v">${M(h.RatePerPiece)}</td></tr>
-    ${h.SaleRatePerKg ? `<tr><td class="k">প্রতি কেজি বিক্রয় দর</td><td class="v">${M(h.SaleRatePerKg)}</td></tr>` : ''}
-    ${h.SaleRatePerPiece ? `<tr><td class="k">প্রতি পিস বিক্রয় দর</td><td class="v">${M(h.SaleRatePerPiece)}</td></tr>` : ''}
-    <tr class="grand-all"><td class="k">নেট মূল্যঃ</td><td class="v">${M(h.NetValue)}</td></tr>
-  </tbody></table>
+  <!-- ৪) ফিনিশড গুডস -->
+  <table class="items-table">
+    ${PV_COLS}
+    <thead><tr class="section-head"><td colspan="5">ফিনিশড গুডস</td></tr>
+    <tr><th>ক্রঃ</th><th>নাম</th><th>পরিমাণ</th><th class="r">দর</th><th class="r">মূল্য</th></tr></thead>
+    <tbody>
+      <tr><td>${B(1)}</td><td class="l">${nm(h.FinishedGoodsItemID)}</td>
+        <td>${B(Number(h.NetWeight).toFixed(3))} কেজি${h.Pieces ? '<br>' + B(h.Pieces) + ' পিস' : ''}</td>
+        <td class="r">${M(h.RatePerKg)}/কেজি${h.Pieces ? '<br>' + M(h.RatePerPiece) + '/পিস' : ''}</td>
+        <td class="r">${M(h.NetValue)}</td></tr>
+      <tr class="total-row"><td colspan="2">মোটঃ ফিনিশড গুডসঃ</td><td>${B(Number(h.NetWeight).toFixed(3))}</td><td></td><td class="r">${M(h.NetValue)}</td></tr>
+      ${(h.SaleRatePerKg || h.SaleRatePerPiece) ? `<tr class="vat-row"><td></td><td class="l">বিক্রয় দর</td><td></td>
+        <td class="r">${h.SaleRatePerKg ? M(h.SaleRatePerKg) + '/কেজি' : ''}${h.SaleRatePerKg && h.SaleRatePerPiece ? '<br>' : ''}${h.SaleRatePerPiece ? M(h.SaleRatePerPiece) + '/পিস' : ''}</td><td></td></tr>` : ''}
+    </tbody></table>
 
   ${(h.SaleRatePerKg || h.SaleRatePerPiece) ? `<div class="v-profit"><h5>📈 লাভঃ ${h.Profit < 0 ? '−' : ''}${M(Math.abs(h.Profit))} (প্রিন্টে আসবে না)</h5></div>` : ''}
 
