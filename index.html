@@ -442,7 +442,7 @@ const MODULES = [
   ]},
   {key:'hr', bn:'এইচআর ও পে-রোল', en:'HR & Payroll', sub:[
     {key:'empCategories', bn:'কর্মচারীর ধরন', en:'Employee Types'},{key:'empInfo', bn:'কর্মচারী তথ্য', en:'Employee Info'},
-    {key:'teamTargets', bn:'দলের লক্ষ্য', en:'Team Targets'},{key:'attendance', bn:'হাজিরা', en:'Attendance'},
+    {key:'sizeTargets', bn:'সাইজভিত্তিক লক্ষ্য', en:'Size Targets'},{key:'attendance', bn:'হাজিরা', en:'Attendance'},
     {key:'dailyProduction', bn:'দৈনিক উৎপাদন (দল)', en:'Daily Team Production'},{key:'leave', bn:'ছুটি ব্যবস্থাপনা', en:'Leave Management'},
     {key:'payroll', bn:'বেতন বিল (পে-রোল)', en:'Payroll Bills'},{key:'payHeads', bn:'বোনাস ও কর্তনের খাত', en:'Bonus & Deduction Heads'},
   ]},
@@ -465,7 +465,7 @@ const READY_PAGES = ['dashboard','companyProfile','userManagement','roles','acti
   'so','dc','si','sr','custLedger',
   'bom','processing','pOrder','pmi','fgr',
   'coa','bankCash','jv','cv','pv','rv','bankBook','trialBalance',
-  'empCategories','empInfo','teamTargets','attendance','dailyProduction','leave','payroll','payslip','payHeads',
+  'empCategories','empInfo','teamTargets','sizeTargets','attendance','dailyProduction','leave','payroll','payslip','payHeads',
   'invReport','salesReport','purReport','prodReport','finReport',
   'general','langSettings','companySettings','backup'];
 
@@ -1234,6 +1234,7 @@ async function navigateTo(pageKey, moduleLabel, pageLabel) {
     else if (pageKey === 'payroll') await renderPayrollPage(content);
     else if (pageKey === 'payslip') await renderPayrollPage(content);
     else if (pageKey === 'dailyProduction') await renderDailyProductionPage(content);
+    else if (pageKey === 'sizeTargets') await renderSizeTargetsPage(content);
     else if (pageKey === 'invReport') await renderInventoryReport(content);
     else if (pageKey === 'salesReport') await renderSalesReport(content);
     else if (pageKey === 'purReport') await renderPurchaseReport(content);
@@ -3307,13 +3308,95 @@ async function renderAttendancePage(content) {
    পায় বাড়তি কেজি × তার নিজের ওভার ডিউটি দর (অভিজ্ঞতা/সিনিয়রিটি অনুযায়ী)।
    ============================================================ */
 async function hrLoadGroups() {
-  const m = await cachedListMultiple(['ItemGroups', 'TeamTargets']);
+  const m = await cachedListMultiple(['ItemGroups', 'SizeTargets']);
   const groups = (m.ItemGroups || []).filter(function (g) { return g.Status !== 'Deleted'; })
     .sort(function (a, b) { return String(a.GroupName || '').localeCompare(String(b.GroupName || '')); });
   const groupMap = {}; (m.ItemGroups || []).forEach(function (g) { groupMap[g.GroupID] = g.GroupName; });
-  const targets = (m.TeamTargets || []).filter(function (x) { return x.Status !== 'Deleted' && (x.IsActive === undefined || x.IsActive === null || isTrue(x.IsActive)); });
-  const targetOf = function (groupId) { return targets.find(function (x) { return x.GroupID === groupId; }) || null; };
-  return { groups: groups, groupMap: groupMap, targetOf: targetOf };
+  const sizeTarget = {}; (m.SizeTargets || []).forEach(function (x) { if (Number(x.TargetKg) > 0) sizeTarget[x.ItemID] = Number(x.TargetKg); });
+  let settings = {};
+  try { settings = await api('getSystemSettings', {}); } catch (e) { settings = {}; }
+  const baseWage = Number(settings.TargetBaseWage) > 0 ? Number(settings.TargetBaseWage) : 500;
+  const divisor = Number(settings.PayrollDivisor) > 0 ? Number(settings.PayrollDivisor) : 30;
+  return { groups: groups, groupMap: groupMap, sizeTarget: sizeTarget, baseWage: baseWage, divisor: divisor };
+}
+function hrIsKarigar(base, empId) {
+  return /কারিগর|মিস্ত্রি|karigar|mistri/i.test(base.catMap[(base.empMap[empId] || {}).CategoryID] || '');
+}
+/** সাইজভিত্তিক লক্ষ্যের হিসাব।
+ *  লক্ষ্য একজন কারিগরের, "ভিত্তি হাজিরা" (যেমন ৫০০ টাকা) অনুযায়ী। কারিগরের হাজিরা বেশি হলে লক্ষ্যও সেই অনুপাতে বেশি।
+ *  দলের ক্ষমতা = দলের কারিগরদের (দৈনিক হাজিরা ÷ ভিত্তি হাজিরা) যোগফল। হেল্পার লক্ষ্যে যোগ হয় না, তবে ওভার ডিউটি পায়।
+ *  কয়েক সাইজ হলে প্রতিটার লক্ষ্যের শতাংশ যোগ হয়; ১০০%-এর বেশি অংশটুকু কেজিতে = ওভার ডিউটি কেজি। */
+function hrSizeCalc(gp, base, qtyByItem, memberIds, holiday) {
+  const karigars = memberIds.filter(function (id) { return hrIsKarigar(base, id); });
+  const units = karigars.reduce(function (s, id) { return s + ((Number((base.empMap[id] || {}).BasicSalary) || 0) / gp.divisor) / gp.baseWage; }, 0);
+  const ids = Object.keys(qtyByItem).filter(function (k) { return (Number(qtyByItem[k]) || 0) > 0; });
+  const total = ids.reduce(function (s, k) { return s + Number(qtyByItem[k]); }, 0);
+  const missing = ids.filter(function (k) { return !gp.sizeTarget[k]; });
+  if (holiday) return { units: units, karigars: karigars, total: total, pct: null, targetKg: 0, extraKg: total, missing: [], ok: true };
+  if (missing.length || units <= 0) return { units: units, karigars: karigars, total: total, pct: null, targetKg: null, extraKg: 0, missing: missing, ok: false };
+  const f = ids.reduce(function (s, k) { return s + Number(qtyByItem[k]) / (gp.sizeTarget[k] * units); }, 0);
+  const extraKg = f > 1 ? total * (f - 1) / f : 0;
+  return { units: units, karigars: karigars, total: total, pct: f * 100, targetKg: f > 0 ? total / f : 0, extraKg: extraKg, missing: [], ok: true };
+}
+function hrSizeCalcMsg(gp, base, c, itemMap) {
+  if (c.missing.length) return t('এই সাইজের লক্ষ্য ঠিক করা নেইঃ ','No target set for size: ') + c.missing.map(function (k) { return (itemMap[k] || k); }).join(', ') + t(' — "সাইজভিত্তিক লক্ষ্য" পেজে যোগ করুন।',' — add it in "Size Targets".');
+  if (c.units <= 0) return t('দলে কোনো কারিগর নেই (বা কারিগরের মাসিক বেতন দেওয়া নেই) — লক্ষ্য হিসাব করা যাচ্ছে না।','No karigar in the team (or salary missing) — cannot compute the target.');
+  return '';
+}
+
+/* ---------- সাইজভিত্তিক লক্ষ্য পেজ ---------- */
+async function renderSizeTargetsPage(content) {
+  const gp = await hrLoadGroups();
+  const items = (await cachedList('Items')).filter(function (i) { return i.Status !== 'Deleted'; });
+  const st = { group: '', edits: {} };
+  content.innerHTML = `
+    <style>
+      .stg .field{margin:0;min-width:0;} .stg .field label{font-size:11.5px;margin-bottom:3px;}
+      .stg input,.stg select{height:34px;padding:4px 8px;font-size:13px;width:100%;min-width:0;box-sizing:border-box;}
+      .stg-g2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 10px;}
+      .stg-row{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:8px;align-items:center;padding:6px 2px;border-bottom:1px solid var(--border);font-size:13.5px;}
+      .stg-hint{font-size:12px;color:var(--text-muted);margin:6px 0;}
+    </style>
+    <div class="page-head"><div>
+      <h1>${t('সাইজভিত্তিক লক্ষ্য','Size Targets')}</h1>
+      <p>${t('একজন কারিগর ভিত্তি হাজিরায় (যেমন ৫০০ টাকা) একদিনে কোন সাইজ কত কেজি বানাবে','Kg one karigar makes per day of base wage (e.g. 500 tk), per size')}</p>
+    </div></div>
+    <div class="panel stg">
+      <div class="stg-g2">
+        <div class="field"><label>${t('লক্ষ্যের ভিত্তি হাজিরা (টাকা)','Base daily wage (tk)')}</label><input type="number" id="stgBase" value="${gp.baseWage}"></div>
+        <div class="field"><label>${t('পণ্যের ধরন','Product type')}</label><select id="stgGroup"><option value="">— ${t('বাছাই করুন','Select')} —</option>${gp.groups.map(function (g) { return `<option value="${attr(g.GroupID)}">${escapeHtml(g.GroupName)}</option>`; }).join('')}</select></div>
+      </div>
+      <div class="stg-hint">${t('যে কারিগরের হাজিরা ভিত্তির চেয়ে বেশি, তার লক্ষ্যও সেই অনুপাতে বেশি ধরা হবে। যেমন ভিত্তি ৫০০, হাজিরা ৬০০ হলে লক্ষ্য ১.২ গুণ।','A karigar with higher wage gets a proportionally higher target (e.g. base 500, wage 600 → 1.2×).')}</div>
+      <div id="stgRows"><div class="stg-hint">${t('পণ্যের ধরন বাছাই করুন।','Select a product type.')}</div></div>
+      <button class="btn btn-primary" id="stgSave" style="margin-top:10px;">${t('💾 সেভ করুন','💾 Save')}</button>
+    </div>`;
+  function render() {
+    const list = items.filter(function (i) { return i.GroupID === st.group; });
+    document.getElementById('stgRows').innerHTML = !st.group ? `<div class="stg-hint">${t('পণ্যের ধরন বাছাই করুন।','Select a product type.')}</div>` :
+      list.length ? `<div class="stg-row" style="font-size:11.5px;color:var(--text-muted);font-weight:600;"><span>${t('সাইজ','Size')}</span><span>${t('লক্ষ্য (কেজি/দিন)','Target (kg/day)')}</span></div>` + list.map(function (i) {
+        const v = st.edits[i.ItemID] !== undefined ? st.edits[i.ItemID] : (gp.sizeTarget[i.ItemID] || '');
+        return `<div class="stg-row"><span>${escapeHtml(i.ItemName)}</span><input type="number" step="any" min="0" data-item="${attr(i.ItemID)}" value="${attr(v)}"></div>`;
+      }).join('') : `<div class="stg-hint">${t('এই ধরনে কোনো আইটেম নেই — আইটেম মাস্টারে গ্রুপ ঠিক করুন।','No items in this type — set the group in Item Master.')}</div>`;
+  }
+  document.getElementById('stgGroup').addEventListener('change', function () { st.group = this.value; render(); });
+  document.getElementById('stgRows').addEventListener('input', function (ev) { if (ev.target.dataset.item) st.edits[ev.target.dataset.item] = ev.target.value; });
+  document.getElementById('stgSave').addEventListener('click', async function () {
+    const bw = Number(val('stgBase'));
+    if (!(bw > 0)) { showToast(t('ভিত্তি হাজিরা ০-এর বেশি দিন।','Base wage must be above 0.'), 'error'); return; }
+    this.disabled = true;
+    try {
+      const up = [], del = [];
+      Object.keys(st.edits).forEach(function (k) { const v = Number(st.edits[k]); if (v > 0) up.push({ ItemID: k, TargetKg: v }); else del.push(k); });
+      if (up.length) { const { error } = await supabaseClient.from('SizeTargets').upsert(up, { onConflict: 'ItemID' }); if (error) throw new Error(error.message); }
+      if (del.length) { const { error } = await supabaseClient.from('SizeTargets').delete().in('ItemID', del); if (error) throw new Error(error.message); }
+      await api('saveSystemSetting', { key: 'TargetBaseWage', value: String(bw) });
+      up.forEach(function (r) { gp.sizeTarget[r.ItemID] = r.TargetKg; }); del.forEach(function (k) { delete gp.sizeTarget[k]; });
+      gp.baseWage = bw; st.edits = {}; listCache = {};
+      showToast(t('সেভ হয়েছে ✅','Saved ✅'), 'success');
+      render();
+    } catch (err) { showToast(err.message, 'error'); }
+    this.disabled = false;
+  });
 }
 
 async function renderDailyProductionPage(content) {
@@ -3377,29 +3460,27 @@ async function renderDailyProductionPage(content) {
     </div>`;
 
   function groupItems() { return allItems.filter(function (i) { return i.GroupID === st.group; }); }
-  function target() { if (st.holiday) return 0; const tg = gp.targetOf(st.group); return tg ? (Number(tg.TargetKg) || 0) : null; }
-  function totalKg() { return groupItems().reduce(function (s, i) { return s + (Number(st.qty[i.ItemID]) || 0); }, 0); }
-  function extraKg() { const tg = target(); return tg === null ? 0 : Math.max(0, totalKg() - tg); }
+  function qtyMap() { const m = {}; groupItems().forEach(function (i) { if ((Number(st.qty[i.ItemID]) || 0) > 0) m[i.ItemID] = Number(st.qty[i.ItemID]); }); return m; }
+  function calc() { return hrSizeCalc(gp, base, qtyMap(), selected(), st.holiday); }
+  function totalKg() { return calc().total; }
+  function extraKg() { return calc().extraKg; }
   function rateOf(id) { return st.rates[id] !== undefined ? Number(st.rates[id]) || 0 : Number((base.empMap[id] || {}).OverDutyRate) || 0; }
   function selected() { return Object.keys(st.members).filter(function (id) { return st.members[id]; }); }
 
   function renderTargetHint() {
     const el = document.getElementById('tpTargetHint');
     if (!st.group) { el.textContent = ''; return; }
-    const tg = gp.targetOf(st.group);
-    if (st.holiday) { el.innerHTML = t('ছুটির দিন — লক্ষ্য ০','Holiday — target 0'); return; }
-    if (!tg) { el.innerHTML = `<span style="color:#d97706;">⚠ ${t('এই পণ্যের দলের লক্ষ্য ঠিক করা নেই — "দলের লক্ষ্য" পেজে যোগ করুন।','No team target for this product — add it in "Team Targets".')}</span>`; return; }
-    const crew = [];
-    if (Number(tg.KarigarCount)) crew.push(t('কারিগর ','Karigar ') + tg.KarigarCount);
-    if (Number(tg.HelperCount)) crew.push(t('হেল্পার ','Helper ') + tg.HelperCount);
-    el.innerHTML = t('দলের একদিনের লক্ষ্যঃ ','Team daily target: ') + '<b>' + hrNum(tg.TargetKg) + ' ' + t('কেজি','kg') + '</b>' + (crew.length ? ' · ' + t('নিয়মিত দলঃ ','Standard crew: ') + crew.join(' + ') : '');
+    if (st.holiday) { el.innerHTML = t('ছুটির দিন — লক্ষ্য ০, পুরো উৎপাদনই ওভার ডিউটি','Holiday — target 0, all production is over-duty'); return; }
+    const c = calc();
+    el.innerHTML = t('লক্ষ্য সাইজ অনুযায়ী, প্রতি কারিগর ','Target per size, per karigar at ') + gp.baseWage + t(' টাকা হাজিরায়। দলের কারিগর-হাজিরাঃ ',' tk wage. Team karigar-wage units: ') + '<b>' + hrNum(Math.round(c.units * 100) / 100) + '</b>';
   }
   function renderSizes() {
     const wrap = document.getElementById('tpSizes');
     const items = groupItems();
     if (!st.group) { wrap.innerHTML = `<div class="tp-hint">${t('আগে পণ্যের ধরন বাছাই করুন।','Select a product type first.')}</div>`; return; }
     wrap.innerHTML = items.length ? items.map(function (i) {
-      return `<div class="field"><label title="${attr(i.ItemName)}">${escapeHtml(i.ItemName)}</label><input type="number" step="any" min="0" data-item="${attr(i.ItemID)}" value="${attr(st.qty[i.ItemID] || '')}"></div>`;
+      const tg = gp.sizeTarget[i.ItemID];
+      return `<div class="field"><label title="${attr(i.ItemName)}">${escapeHtml(i.ItemName)} <span style="color:${tg ? 'var(--text-muted)' : '#d97706'};">(${tg ? t('লক্ষ্য ','target ') + hrNum(tg) : t('লক্ষ্য নেই','no target')})</span></label><input type="number" step="any" min="0" data-item="${attr(i.ItemID)}" value="${attr(st.qty[i.ItemID] || '')}"></div>`;
     }).join('') : `<div class="tp-hint">${t('এই ধরনে কোনো আইটেম নেই — আইটেম মাস্টারে আইটেমের গ্রুপ ঠিক করুন।','No items in this type — set the item group in Item Master.')}</div>`;
   }
   function renderMembers() {
@@ -3420,23 +3501,19 @@ async function renderDailyProductionPage(content) {
     }).join('') || `<div class="tp-hint">${t('কোনো কর্মচারী নেই।','No employees.')}</div>`;
   }
   function renderSum() {
-    const tg = target(), ex = extraKg(), sel = selected();
+    const c = calc(), ex = c.extraKg, sel = selected();
     const money = sel.reduce(function (s, id) { return s + ex * rateOf(id); }, 0);
     document.getElementById('tpSum').innerHTML = `
-      <div>${t('মোট উৎপাদন','Total made')}<b>${hrNum(totalKg())}</b></div>
-      <div>${t('লক্ষ্য','Target')}<b>${tg === null ? '—' : hrNum(tg)}</b></div>
-      <div>${t('বাড়তি কেজি','Extra kg')}<b>${hrNum(ex)}</b></div>`;
+      <div>${t('মোট উৎপাদন','Total made')}<b>${hrNum(c.total)}</b></div>
+      <div>${t('লক্ষ্য পূরণ','Target met')}<b>${st.holiday ? '—' : c.pct === null ? '—' : Math.round(c.pct) + '%'}</b></div>
+      <div>${t('বাড়তি কেজি','Extra kg')}<b>${hrNum(Math.round(ex * 1000) / 1000)}</b></div>`;
     sel.forEach(function (id) { const el = document.getElementById('tp_amt_' + id); if (el) el.textContent = hrMoney(ex * rateOf(id)); });
+    renderTargetHint();
     const w = [];
+    const msg = (st.group && Object.keys(qtyMap()).length && !st.holiday) ? hrSizeCalcMsg(gp, base, c, base.itemMap) : '';
+    if (msg && (c.missing.length || sel.length)) w.push(msg);
     if (sel.some(function (id) { return !st.present[id]; }) && !st.holiday) w.push(t('দলের কিছু সদস্যের আজ হাজিরায় P নেই।','Some members are not marked P today.'));
     if (sel.some(function (id) { return !rateOf(id); })) w.push(t('কিছু সদস্যের ওভার ডিউটি দর ০ — কর্মচারী তথ্যে দর দিন।','Some members have rate 0 — set it in Employee Info.'));
-    const tgRow = gp.targetOf(st.group);
-    if (tgRow && sel.length) {
-      const k = sel.filter(function (id) { return /কারিগর|karigar/i.test(base.catMap[(base.empMap[id] || {}).CategoryID] || ''); }).length;
-      const h = sel.filter(function (id) { return /হেল্পার|helper/i.test(base.catMap[(base.empMap[id] || {}).CategoryID] || ''); }).length;
-      if ((Number(tgRow.KarigarCount) && k !== Number(tgRow.KarigarCount)) || (Number(tgRow.HelperCount) && h !== Number(tgRow.HelperCount)))
-        w.push(t('দলের গঠন নিয়মিত দলের সাথে মিলছে না (কারিগর ' + k + ', হেল্পার ' + h + ')।','Crew differs from standard (karigar ' + k + ', helper ' + h + ').'));
-    }
     document.getElementById('tpWarn').innerHTML = w.map(function (x) { return `<div class="tp-warn">⚠ ${x}</div>`; }).join('') +
       (sel.length ? `<div style="text-align:right;font-size:13px;margin:6px 0;">${t('দলের মোট ওভার ডিউটিঃ ','Team over-duty: ')}<b>${hrMoney(money)}</b></div>` : '');
   }
@@ -3488,7 +3565,7 @@ async function renderDailyProductionPage(content) {
   });
   document.getElementById('tpMembers').addEventListener('change', function (ev) {
     const el = ev.target; if (!el.dataset.mem) return;
-    st.members[el.dataset.mem] = el.checked; renderMembers(); renderSum();
+    st.members[el.dataset.mem] = el.checked; renderMembers(); renderSum(); // কারিগর যোগ/বাদে লক্ষ্যও বদলায়
   });
   document.getElementById('tpMembers').addEventListener('input', function (ev) {
     const el = ev.target; if (!el.dataset.rate) return;
@@ -3496,13 +3573,14 @@ async function renderDailyProductionPage(content) {
   });
 
   document.getElementById('tpSave').addEventListener('click', async function () {
-    const tg = target(), sel = selected(), items = groupItems().filter(function (i) { return (Number(st.qty[i.ItemID]) || 0) > 0; });
+    const sel = selected(), items = groupItems().filter(function (i) { return (Number(st.qty[i.ItemID]) || 0) > 0; });
     if (!st.group) { showToast(t('পণ্যের ধরন বাছাই করুন।','Select a product type.'), 'error'); return; }
-    if (tg === null) { showToast(t('এই পণ্যের দলের লক্ষ্য ঠিক করা নেই — আগে "দলের লক্ষ্য" পেজে যোগ করুন।','No team target — add it in "Team Targets" first.'), 'error'); return; }
     if (!items.length) { showToast(t('অন্তত একটা সাইজের পরিমাণ লিখুন।','Enter the quantity for at least one size.'), 'error'); return; }
     if (!sel.length) { showToast(t('দলের সদস্য বাছাই করুন।','Select the team members.'), 'error'); return; }
+    const c = calc();
+    if (!c.ok) { showToast(hrSizeCalcMsg(gp, base, c, base.itemMap), 'error'); return; }
     this.disabled = true;
-    const ex = extraKg();
+    const ex = c.extraKg, tg = c.targetKg;
     try {
       const { data: hd, error: e1 } = await supabaseClient.from('TeamProduction').insert({ WorkDate: st.date, GroupID: st.group, TotalKg: totalKg(), TargetKg: tg, ExtraKg: ex, IsHoliday: st.holiday }).select();
       if (e1) throw new Error(e1.message);
@@ -4464,8 +4542,10 @@ async function initProcTeam(existing, formState) {
 
   function group() { const it = (window.__procItemMap || {})[val('pv_FinishedGoodsItemID')]; return it ? it.GroupID : ''; }
   function rawKg() { return Number(val('pv_Qty')) || 0; }
-  function target() { if (tm.holiday) return 0; const tg = gp.targetOf(group()); return tg ? (Number(tg.TargetKg) || 0) : null; }
-  function extra() { const tg = target(); return tg === null ? 0 : Math.max(0, rawKg() - tg); }
+  function fgItem() { return val('pv_FinishedGoodsItemID'); }
+  function calc() { const m = {}; if (fgItem() && rawKg() > 0) m[fgItem()] = rawKg(); return hrSizeCalc(gp, base, m, selected(), tm.holiday); }
+  function target() { const c = calc(); return c.ok ? c.targetKg : null; }
+  function extra() { return calc().extraKg; }
   function rateOf(id) { return tm.rates[id] !== undefined ? Number(tm.rates[id]) || 0 : Number((base.empMap[id] || {}).OverDutyRate) || 0; }
   function selected() { return Object.keys(tm.members).filter(function (id) { return tm.members[id]; }); }
   function locked() { return !formState.editing || !!tm.billedIn; }
@@ -4484,12 +4564,13 @@ async function initProcTeam(existing, formState) {
 
   function render() {
     const dis = locked() ? 'disabled' : '';
-    const g = group(), tgRow = g ? gp.targetOf(g) : null, tg = target(), ex = extra(), sel = selected();
+    const fg = fgItem(), c = calc(), tg = c.ok ? c.targetKg : null, ex = c.extraKg, sel = selected();
+    const sizeTg = gp.sizeTarget[fg];
     let hint;
-    if (!g) hint = t('ফিনিশড গুডস আইটেম বাছাই করলে তার ধরনের দলের লক্ষ্য আসবে।','Pick the finished goods item to load its team target.');
+    if (!fg) hint = t('ফিনিশড গুডস আইটেম (সাইজ) বাছাই করলে তার লক্ষ্য আসবে।','Pick the finished goods item (size) to load its target.');
     else if (tm.holiday) hint = t('ছুটির দিনের কাজ — লক্ষ্য ০, পুরো কাঁচামালই ওভার ডিউটি।','Holiday work — target 0, all raw kg is over-duty.');
-    else if (!tgRow) hint = `<span style="color:#d97706;">⚠ ${escapeHtml(gp.groupMap[g] || g)} — ${t('এই ধরনের দলের লক্ষ্য ঠিক করা নেই ("দলের লক্ষ্য" পেজে যোগ করুন)।','no team target set (add it in "Team Targets").')}</span>`;
-    else hint = escapeHtml(gp.groupMap[g] || g) + ' — ' + t('দলের একদিনের লক্ষ্যঃ ','team daily target: ') + '<b>' + hrNum(tgRow.TargetKg) + ' ' + t('কেজি','kg') + '</b>';
+    else if (!sizeTg) hint = `<span style="color:#d97706;">⚠ ${escapeHtml(((window.__procItemMap || {})[fg] || {}).ItemName || fg)} — ${t('এই সাইজের লক্ষ্য ঠিক করা নেই ("সাইজভিত্তিক লক্ষ্য" পেজে যোগ করুন)।','no size target (add it in "Size Targets").')}</span>`;
+    else hint = escapeHtml(((window.__procItemMap || {})[fg] || {}).ItemName || fg) + ' — ' + t('প্রতি কারিগর ','per karigar ') + gp.baseWage + t(' টাকা হাজিরায় ',' tk wage: ') + '<b>' + hrNum(sizeTg) + ' ' + t('কেজি','kg') + '</b>' + (sel.length ? ' · ' + t('এই দলের লক্ষ্যঃ ','this team: ') + (c.units > 0 ? '<b>' + hrNum(Math.round(c.targetKg * 100) / 100) + ' ' + t('কেজি','kg') + '</b>' : '<span style="color:#d97706;">' + t('দলে কারিগর নেই','no karigar in team') + '</span>') : '');
 
     const list = base.emps.filter(function (e) {
       if (tm.members[e.EmployeeID]) return true;
@@ -4545,8 +4626,9 @@ async function initProcTeam(existing, formState) {
   window.__pvTeamRefresh = function () { if (document.getElementById('pvt_Box')) render(); };
   window.__pvTeamValidate = function () {
     if (tm.billedIn || !selected().length) return '';
-    if (!group()) return t('দলের সদস্য দিলে ফিনিশড গুডস আইটেমের ধরন (গ্রুপ) ঠিক থাকতে হবে।','Team members need a finished goods item with a group.');
-    if (target() === null) return t('এই পণ্যের ধরনের দলের লক্ষ্য ঠিক করা নেই — "দলের লক্ষ্য" পেজে যোগ করুন, অথবা দলের সদস্য বাদ দিন।','No team target for this product type — add it in "Team Targets" or clear the team.');
+    if (!fgItem()) return t('দলের সদস্য দিলে ফিনিশড গুডস আইটেম বাছাই করা আবশ্যক।','Team members need a finished goods item.');
+    const c = calc();
+    if (!c.ok) return hrSizeCalcMsg(gp, base, c, Object.fromEntries(Object.entries(window.__procItemMap || {}).map(function (e) { return [e[0], e[1].ItemName]; })));
     return '';
   };
   window.__pvTeamSync = async function (processingId, header) {
@@ -7665,7 +7747,7 @@ const ALL_DATA_SHEETS = [
   'BOM','BOM_Lines','ProductionOrder','ProductionMaterialIssue','PMI_Lines','FinishedGoodsReceive','FGR_Lines',
   'ProcessingVoucher','ProcessingByProduct_Lines',
   'ChartOfAccounts','BankCashAccounts','JournalVoucher','JV_Lines','ContraVoucher','PaymentVoucher','ReceiptVoucher','BankCashBook','PartyLedger',
-  'Attendance','LeaveRequests','Payroll','Payroll_Lines','Payroll_Details','PayHeads','EmployeeCategories','TeamTargets','TeamProduction','TeamProduction_Items','TeamProduction_Members',
+  'Attendance','LeaveRequests','Payroll','Payroll_Lines','Payroll_Details','PayHeads','EmployeeCategories','TeamTargets','SizeTargets','TeamProduction','TeamProduction_Items','TeamProduction_Members',
   'SystemSettings'
 ];
 
