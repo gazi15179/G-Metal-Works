@@ -3260,16 +3260,23 @@ async function openProcessingForm() {
 
   const bodyHtml = `
     <h4 style="margin:0 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;">${t('কাঁচামাল ও গড় দর','Raw Material & Average Rate')}</h4>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;">
+    <!-- লাইন ১: বামে কাঁচামাল আইটেম, ডানে গুদাম -->
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;">
       <div class="field"><label>${t('কাঁচামাল আইটেম','Raw Material Item')}</label><select id="pv_RawMaterialItemID"><option value="">—</option>${opts(window.__procItems, 'ItemID', 'ItemName')}</select></div>
-      <div class="field"><label>${t('তারিখ থেকে','Date From')}</label><input type="date" id="pv_DateFrom"></div>
-      <div class="field"><label>${t('তারিখ পর্যন্ত','Date To')}</label><input type="date" id="pv_DateTo"></div>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px;">
       <div class="field"><label>${t('গুদাম','Warehouse')}</label><select id="pv_WarehouseID"><option value="">—</option>${opts(warehouses.filter(function(w){return w.Status!=='Deleted';}), 'WarehouseID', 'WarehouseName')}</select></div>
-      <div class="field"><label>${t('তারিখ (ভাউচার)','Date (Voucher)')}</label><input type="date" id="pv_Date" value="${new Date().toISOString().slice(0,10)}"></div>
     </div>
-    <div style="margin-top:10px;"><button type="button" class="btn" style="width:auto;" id="pv_FetchRateBtn">${t('↻ গড় দর আনুন','↻ Fetch Average Rate')}</button> <span id="pv_RateHint" style="font-size:11.5px;color:var(--text-muted);margin-left:8px;"></span></div>
+    <!-- লাইন ২: গড় দর চেকবক্স → তারিখ হইতে → তারিখ পর্যন্ত -->
+    <div style="display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,1fr);gap:14px;margin-top:14px;align-items:end;">
+      <div class="field"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0;padding:10px 0;white-space:nowrap;"><input type="checkbox" id="pv_UseAvgRate" style="width:18px;height:18px;margin:0;"> <span>${t('গড় দর','Avg Rate')}</span></label></div>
+      <div class="field"><label>${t('তারিখ হইতে','Date From')}</label><input type="date" id="pv_DateFrom" disabled></div>
+      <div class="field"><label>${t('তারিখ পর্যন্ত','Date To')}</label><input type="date" id="pv_DateTo" disabled></div>
+    </div>
+    <!-- লাইন ৩: গড় দর আনুন -->
+    <div style="margin-top:12px;"><button type="button" class="btn" style="width:auto;" id="pv_FetchRateBtn" disabled>${t('↻ গড় দর আনুন','↻ Fetch Average Rate')}</button> <span id="pv_RateHint" style="font-size:11.5px;color:var(--text-muted);margin-left:8px;"></span></div>
+    <!-- লাইন ৪: ভাউচার তারিখ (যেদিন ভাউচার কাটা হচ্ছে) -->
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:14px;">
+      <div class="field"><label>${t('ভাউচার তারিখ','Voucher Date')}</label><input type="date" id="pv_Date" value="${new Date().toISOString().slice(0,10)}"></div>
+    </div>
 
     <h4 style="margin:20px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('কাঁচামাল ও উৎপাদন খরচ','Raw Material & Processing Cost')}</h4>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;">
@@ -3323,7 +3330,9 @@ async function openProcessingForm() {
 
       const headerData = {
         Date: val('pv_Date'), RawMaterialItemID: rawMaterialItemId,
-        DateFrom: val('pv_DateFrom'), DateTo: val('pv_DateTo'), WarehouseID: warehouseId,
+        DateFrom: document.getElementById('pv_UseAvgRate').checked ? val('pv_DateFrom') : '',
+        DateTo: document.getElementById('pv_UseAvgRate').checked ? val('pv_DateTo') : '',
+        WarehouseID: warehouseId,
         RawMaterialQty: qty, RawMaterialRate: Number(val('pv_RMRate')) || 0, RawMaterialValue: Number(val('pv_RMValue')) || 0,
         ProcessingRate: Number(val('pv_ProcRate')) || 0, ProcessingValue: Number(val('pv_ProcValue')) || 0,
         TotalValue: Number(val('pv_Total')) || 0,
@@ -3346,10 +3355,20 @@ async function openProcessingForm() {
     }
   });
 
+  // "গড় দর" চেকবক্স: টিক দিলে তারিখ ও 'গড় দর আনুন' চালু হবে, না দিলে বন্ধ থাকবে (দর হাতে লিখবেন)
+  document.getElementById('pv_UseAvgRate').addEventListener('change', function () {
+    const on = this.checked;
+    ['pv_DateFrom','pv_DateTo','pv_FetchRateBtn'].forEach(function (id) { document.getElementById(id).disabled = !on; });
+    if (on && !val('pv_DateTo')) document.getElementById('pv_DateTo').value = val('pv_Date');
+    if (!on) document.getElementById('pv_RateHint').textContent = '';
+  });
+
   document.getElementById('pv_FetchRateBtn').addEventListener('click', async function () {
     const itemId = val('pv_RawMaterialItemID');
     const dateFrom = val('pv_DateFrom'), dateTo = val('pv_DateTo');
     if (!itemId) { showToast(t('আগে কাঁচামাল আইটেম বাছাই করুন।','Select the raw material item first.'), 'error'); return; }
+    if (!dateFrom || !dateTo) { showToast(t('তারিখ হইতে ও তারিখ পর্যন্ত — দুটোই দিন।','Enter both Date From and Date To.'), 'error'); return; }
+    if (dateFrom > dateTo) { showToast(t('"তারিখ হইতে" অবশ্যই "তারিখ পর্যন্ত"-এর আগে হতে হবে।','Date From must be before Date To.'), 'error'); return; }
     try {
       const result = await api('getAverageRate', { itemId: itemId, dateFrom: dateFrom, dateTo: dateTo });
       document.getElementById('pv_RMRate').value = result.averageRate.toFixed(2);
