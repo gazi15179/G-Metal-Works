@@ -3672,7 +3672,7 @@ async function openPrintableVoucherView(docType, docId) {
     titleBn: titleBn, company: company,
     voucherDate: voucherDate, voucherNo: docId,
     manualDate: header.SupplierInvoiceDate || '', manualNo: header.SupplierInvoiceNo || '',
-    partyLabelBn: partyLabelBn + ':', partyName: partyName, partyZone: partyZone, partyAddress: partyAddress, partyPhone: partyPhone,
+    partyLabelBn: partyLabelBn + ' নামঃ', partyName: partyName, partyZone: partyZone, partyAddress: partyAddress, partyPhone: partyPhone,
     mainLines: isReturn ? [] : shapedLines, mainLabel: titleBn, mainTotalLabel: 'মোটঃ ' + (isSales ? 'বিক্রয়ঃ' : 'ক্রয়ঃ'),
     returnLines: isReturn ? shapedLines : [], returnLabel: titleBn, returnTotalLabel: 'মোটঃ ফেরতঃ',
     itemMap: itemMap, cashExpenseAmt: Number(header.CashExpenseAmount) || 0, discountAmt: Number(header.DiscountAmount) || 0,
@@ -3691,7 +3691,7 @@ async function openPrintableVoucherView(docType, docId) {
     <button id="shareBtn">🔗 শেয়ার</button>
   </div>
   ${voucherTableBody}
-  <p style="margin-top:10px;font-size:9.5px;color:#888;text-align:center;">তৈরি হয়েছে: ${escapeHtml(formatPrintDate())}${person ? ' — ' + escapeHtml(person.Email || '') : ''}</p>
+  <p style="margin-top:10px;font-size:9.5px;color:#888;text-align:center;">তৈরি হয়েছেঃ ${escapeHtml(bnDigits(formatPrintDate()))}${person ? ' — ' + escapeHtml(person.Email || '') : ''}</p>
   <script>
     document.getElementById('shareBtn').addEventListener('click', async function () {
       const text = ${JSON.stringify(titleBn)} + ' ' + ${JSON.stringify(docId)} + '\\n' +
@@ -6438,42 +6438,76 @@ function formatShortDate(isoDate) {
  *  খসড়া প্রিভিউ ও সেভ করা ভাউচার প্রিন্ট — দুই জায়গাতেই এই একই বডি ব্যবহার হয়,
  *  শুধু বাইরের টুলবার আলাদা (buildVoucherTableHtml বনাম openPrintableVoucherView)। */
 const VOUCHER_TABLE_CSS = `
+  *,*::before,*::after{box-sizing:border-box;}
   html,body{max-width:100%;overflow-x:hidden;}
-  body{font-family:'Anek Bangla',sans-serif;color:#111;width:800px;max-width:100%;box-sizing:border-box;margin:16px auto;padding:0 10px;font-size:11.5px;position:relative;}
-  table{width:100%;border-collapse:collapse;}
-  td,th{border:1px solid #000;padding:3px 6px;font-size:11px;text-align:center;}
-  .head-table td{border:1px solid #000;}
-  .co-name{font-family:'Oswald',sans-serif;font-size:17px;font-weight:700;text-align:center;}
-  .co-addr{font-size:10px;text-align:center;color:#222;}
-  .voucher-title{font-weight:700;text-align:center;font-size:13px;}
-  .items-table th{background:#eee;}
-  .section-head{background:#f5f5f5;font-weight:700;text-align:left;}
-  .total-row td{font-weight:700;}
+  body{font-family:'Anek Bangla',sans-serif;color:#111;width:800px;max-width:100%;margin:16px auto;padding:0 10px;font-size:11px;position:relative;}
+  .en{font-family:Arial,Helvetica,sans-serif;letter-spacing:.2px;}
+  /* ১ম অংশ — প্রতিষ্ঠান (বামে লোগো+নাম+ঠিকানা+মোবাইল, ডানে ভাউচার তথ্য) */
+  .v-co{display:flex;align-items:stretch;gap:8px;border:1.5px solid #000;border-radius:6px;padding:6px;position:relative;z-index:1;}
+  .v-logo{flex:0 0 66px;height:66px;border:1px solid #000;border-radius:5px;display:flex;align-items:center;justify-content:center;padding:3px;overflow:hidden;background:#fff;}
+  .v-logo img{max-width:100%;max-height:100%;object-fit:contain;display:block;}
+  .v-logo span{font-size:9px;color:#777;}
+  .v-co-info{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;justify-content:center;text-align:center;}
+  .v-co-name{font-size:18px;font-weight:700;line-height:1.15;}
+  .v-co-addr{font-size:9.5px;color:#222;margin-top:2px;line-height:1.3;}
+  .v-co-mob{font-size:10px;margin-top:2px;}
+  .v-meta{flex:0 0 150px;border:1px solid #000;border-radius:5px;overflow:hidden;display:flex;flex-direction:column;}
+  .v-type{background:#111;color:#fff;font-weight:700;font-size:12.5px;text-align:center;padding:4px 2px;}
+  .v-meta-row{display:flex;justify-content:space-between;gap:4px;padding:2px 6px;font-size:10px;border-top:.5px solid #999;}
+  .v-meta-row:first-of-type{border-top:none;}
+  .v-draft{font-size:9px;color:#b45309;text-align:center;padding:1px;border-top:.5px solid #999;}
+  /* ২য় অংশ — পার্টি */
+  .v-party{border:1.5px solid #000;border-radius:6px;padding:5px 8px;margin-top:6px;position:relative;z-index:1;}
+  .v-party-name{font-size:14px;font-weight:700;}
+  .v-party-name .lbl{font-size:11px;font-weight:600;}
+  .v-party-sub{display:flex;flex-wrap:wrap;gap:2px 14px;font-size:9.5px;margin-top:2px;color:#222;}
+  /* ৩য় অংশ — আইটেম টেবিল (চিকন বর্ডার, কম্প্যাক্ট সারি) */
+  table{width:100%;border-collapse:collapse;table-layout:fixed;}
+  .items-table{margin-top:6px;position:relative;z-index:1;}
+  .items-table td,.items-table th{border:.5px solid #444;padding:1.5px 4px;font-size:10px;line-height:1.25;text-align:center;overflow-wrap:anywhere;}
+  .items-table th{background:#efefef;font-weight:700;}
+  .items-table td.l{text-align:left;}
+  .items-table td.r,.items-table th.r{text-align:right;}
+  .items-table .total-row td{font-weight:700;background:#fafafa;}
+  .items-table .section-head td{background:#f5f5f5;font-weight:700;text-align:left;}
+  .items-table .grand td{font-weight:700;font-size:11.5px;border-top:1.2px solid #000;}
   .toolbar{display:flex;gap:10px;margin-bottom:14px;align-items:center;flex-wrap:wrap;}
   .toolbar button{font-family:inherit;font-size:13px;font-weight:600;padding:9px 16px;border-radius:8px;border:1px solid #d1d5db;background:#f5f6f8;cursor:pointer;}
   .toolbar button.primary{background:#1a2029;color:#f2a33c;border-color:#1a2029;}
-  .sign-row{display:flex;justify-content:space-between;margin-top:40px;text-align:center;font-size:11px;}
-  .sign-row div{width:31%;border-top:1px solid #333;padding-top:5px;}
-  .voucher-watermark{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-30deg);font-family:'Oswald',sans-serif;font-size:70px;font-weight:700;color:rgba(18,22,29,.06);letter-spacing:.05em;z-index:0;pointer-events:none;white-space:nowrap;width:100vw;max-width:100vw;overflow:hidden;text-align:center;}
+  .sign-row{display:flex;justify-content:space-between;margin-top:38px;text-align:center;font-size:10.5px;}
+  .sign-row div{width:31%;border-top:1px solid #333;padding-top:4px;}
+  .voucher-watermark{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-30deg);font-family:'Oswald',sans-serif;font-size:70px;font-weight:700;color:rgba(18,22,29,.06);letter-spacing:.05em;z-index:0;pointer-events:none;white-space:nowrap;}
   @page { size: A5; margin: 8mm; }
-  @media print { .toolbar{display:none;} }
+  @media print {
+    .toolbar{display:none;}
+    html,body{width:100% !important;max-width:100% !important;margin:0 !important;padding:0 !important;overflow:visible !important;}
+    .v-co,.v-party,.v-meta,.v-logo,.items-table th,.items-table .total-row td,.v-type{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+  }
 `;
+
+/** প্রিন্টে সংখ্যাকে বাংলা অঙ্কে (০-৯) দেখায় — শুধু ভাউচার নম্বর/তারিখ ও মোবাইল ইংরেজিতে থাকে */
+function bnDigits(v) {
+  const map = { '0':'০','1':'১','2':'২','3':'৩','4':'৪','5':'৫','6':'৬','7':'৭','8':'৮','9':'৯' };
+  return String(v === undefined || v === null ? '' : v).replace(/[0-9]/g, function (d) { return map[d]; });
+}
 
 function buildVoucherTableBody(opts) {
   const hasComm = opts.mainLines.some(function (l) { return (l.commAmount || 0) > 0; }) ||
                    opts.returnLines.some(function (l) { return (l.commAmount || 0) > 0; });
+  const B = function (v) { return escapeHtml(bnDigits(v)); };
+  const M = function (n) { return B(Number(n || 0).toFixed(2)); };
 
   function itemRows(lines, startIdx) {
     return lines.map(function (l, i) {
       const item = opts.itemMap[l.itemId] || {};
       const net = l.netAmount !== undefined ? l.netAmount : l.amount;
       return `<tr>
-        <td>${startIdx + i + 1}</td>
-        <td style="text-align:left;">${escapeHtml(item.ItemName || l.itemId)}</td>
-        <td>${l.qty}</td>
-        <td>${Number(l.rate).toFixed(2)}</td>
-        <td>${Number(l.amount).toFixed(2)}</td>
-        ${hasComm ? `<td>${l.commRate || 0}</td><td>${Number(l.commAmount || 0).toFixed(2)}</td><td>${Number(net).toFixed(2)}</td>` : ''}
+        <td>${B(startIdx + i + 1)}</td>
+        <td class="l">${escapeHtml(item.ItemName || l.itemId)}</td>
+        <td>${B(l.qty)}</td>
+        <td class="r">${M(l.rate)}</td>
+        <td class="r">${M(l.amount)}</td>
+        ${hasComm ? `<td>${B(l.commRate || 0)}</td><td class="r">${M(l.commAmount)}</td><td class="r">${M(net)}</td>` : ''}
       </tr>`;
     }).join('');
   }
@@ -6483,50 +6517,71 @@ function buildVoucherTableBody(opts) {
   const mainQty = sumField(opts.mainLines, 'qty'), mainAmt = sumField(opts.mainLines, 'amount'), mainComm = sumField(opts.mainLines, 'commAmount'), mainNet = sumNet(opts.mainLines);
   const retQty = sumField(opts.returnLines, 'qty'), retAmt = sumField(opts.returnLines, 'amount'), retComm = sumField(opts.returnLines, 'commAmount'), retNet = sumNet(opts.returnLines);
   const netGrandTotal = mainNet + (opts.cashExpenseAmt || 0) - (opts.discountAmt || 0) - retNet;
-  const headCells = `<th style="width:26px;">ক্রঃ</th><th>আইটেম(পণ্য)</th><th>পরিমাণ</th><th>দর</th><th>মূল্য</th>${hasComm ? '<th>কমিঃ</th><th>(-)কমিঃ</th><th>নিট মূল্য</th>' : ''}`;
   const colCount = hasComm ? 8 : 5;
+  const colgroup = hasComm
+    ? '<colgroup><col style="width:6%"><col style="width:24%"><col style="width:11%"><col style="width:10%"><col style="width:13%"><col style="width:8%"><col style="width:12%"><col style="width:16%"></colgroup>'
+    : '<colgroup><col style="width:7%"><col style="width:38%"><col style="width:15%"><col style="width:15%"><col style="width:25%"></colgroup>';
+  const headCells = `<th>ক্রঃ</th><th>আইটেম (পণ্য)</th><th>পরিমাণ</th><th class="r">দর</th><th class="r">মূল্য</th>${hasComm ? '<th>কমিঃ %</th><th class="r">(-) কমিঃ</th><th class="r">নিট মূল্য</th>' : ''}`;
+  const totalRow = function (label, q, a, c, n) {
+    return `<tr class="total-row"><td colspan="2">${escapeHtml(label)}</td><td>${B(q)}</td><td></td><td class="r">${M(a)}</td>${hasComm ? `<td></td><td class="r">${M(c)}</td><td class="r">${M(n)}</td>` : ''}</tr>`;
+  };
+  const labelRow = function (label, valueHtml) {
+    return `<tr><td colspan="${colCount-1}" class="r">${escapeHtml(label)}</td><td class="r">${valueHtml}</td></tr>`;
+  };
+
+  const co = opts.company || {};
+  // প্রিন্ট সম্পূর্ণ বাংলায় — কোম্পানি প্রোফাইলে CompanyNameBn/AddressBn থাকলে সেটাই, না থাকলে বাংলা ডিফল্ট
+  const coName = co.CompanyNameBn || 'জি মেটাল ওয়ার্কস';
+  const coAddr = co.AddressBn || 'আলামপুর ব্রীজঘাট বাজার, কোটচাঁদপুর রোড, মহেশপুর, ঝিনাইদহ।';
 
   return `
   <div class="voucher-watermark">gmetal</div>
-  <table class="head-table">
-    <tr>
-      <td rowspan="5" style="width:80px;text-align:center;">${opts.company.LogoURL ? `<img src="${attr(opts.company.LogoURL)}" style="max-width:100%;max-height:70px;">` : 'লোগো'}</td>
-      <td colspan="2" class="co-name">${escapeHtml(opts.company.CompanyName || 'জি মেটাল ওয়ার্কস')}</td>
-    </tr>
-    <tr><td colspan="2" class="co-addr">${escapeHtml(opts.company.Address || 'আলামপুর ব্রীজঘাট বাজার, কোটচাঁদপুর রোড, মহেশপুর, ঝিনাইদহ।')}${opts.company.Phone ? ' — মোবাঃ ' + escapeHtml(opts.company.Phone) : ''}</td></tr>
-    <tr><td class="voucher-title">${escapeHtml(opts.titleBn)}</td><td>ভাউচার তারিখঃ ${escapeHtml(formatShortDate(opts.voucherDate))}</td></tr>
-    <tr><td>${opts.isDraft ? 'খসড়া — এখনো সেভ হয়নি' : ''}</td><td>ভাউচার নম্বরঃ ${escapeHtml(opts.voucherNo)}</td></tr>
-    <tr><td>${opts.manualDate ? 'নিঃ ভাউঃ তারিখঃ ' + escapeHtml(formatShortDate(opts.manualDate)) : ''}</td><td>${opts.manualNo ? 'নিঃ ভাউঃ নম্বরঃ ' + escapeHtml(opts.manualNo) : ''}</td></tr>
-  </table>
-  <table style="margin-top:-1px;">
-    <tr><td colspan="3" style="text-align:left;">${escapeHtml(opts.partyLabelBn)} ${escapeHtml(opts.partyName)}</td></tr>
-    <tr>
-      <td style="text-align:left;">${escapeHtml(opts.partyAddress || '—')}</td>
-      <td style="text-align:left;">মোবাইলঃ ${escapeHtml(opts.partyPhone || '—')}</td>
-      <td style="text-align:left;">${opts.partyZone ? 'জোনঃ ' + escapeHtml(opts.partyZone) : ''}</td>
-    </tr>
-  </table>
-  ${opts.mainLines.length > 0 ? `
-  <table class="items-table" style="margin-top:-1px;">
+
+  <div class="v-co">
+    <div class="v-logo">${co.LogoURL ? `<img src="${attr(co.LogoURL)}" alt="">` : '<span>লোগো</span>'}</div>
+    <div class="v-co-info">
+      <div class="v-co-name">${escapeHtml(coName)}</div>
+      <div class="v-co-addr">${escapeHtml(coAddr)}</div>
+      ${co.Phone ? `<div class="v-co-mob">মোবাইলঃ <span class="en">${escapeHtml(co.Phone)}</span></div>` : ''}
+    </div>
+    <div class="v-meta">
+      <div class="v-type">${escapeHtml(opts.titleBn)}</div>
+      <div class="v-meta-row"><span>ভাউচার নংঃ</span><b class="en">${escapeHtml(opts.voucherNo)}</b></div>
+      <div class="v-meta-row"><span>তারিখঃ</span><b class="en">${escapeHtml(formatShortDate(opts.voucherDate))}</b></div>
+      ${opts.manualNo ? `<div class="v-meta-row"><span>নিঃ ভাউঃ নংঃ</span><span class="en">${escapeHtml(opts.manualNo)}</span></div>` : ''}
+      ${opts.manualDate ? `<div class="v-meta-row"><span>নিঃ ভাউঃ তারিখঃ</span><span class="en">${escapeHtml(formatShortDate(opts.manualDate))}</span></div>` : ''}
+      ${opts.isDraft ? '<div class="v-draft">খসড়া — এখনো সেভ হয়নি</div>' : ''}
+    </div>
+  </div>
+
+  <div class="v-party">
+    <div class="v-party-name"><span class="lbl">${escapeHtml(opts.partyLabelBn)}</span> ${escapeHtml(opts.partyName)}</div>
+    <div class="v-party-sub">
+      <span>ঠিকানাঃ ${escapeHtml(opts.partyAddress || '—')}</span>
+      <span>মোবাইলঃ <span class="en">${escapeHtml(opts.partyPhone || '—')}</span></span>
+      ${opts.partyZone ? `<span>জোনঃ ${escapeHtml(opts.partyZone)}</span>` : ''}
+    </div>
+  </div>
+
+  <table class="items-table">
+    ${colgroup}
     <thead><tr>${headCells}</tr></thead>
+    ${opts.mainLines.length > 0 ? `
     <tbody>${itemRows(opts.mainLines, 0)}</tbody>
+    <tbody>${totalRow(opts.mainTotalLabel, mainQty, mainAmt, mainComm, mainNet)}</tbody>` : ''}
+    ${opts.returnLines.length > 0 ? `
     <tbody>
-      <tr class="total-row"><td colspan="2">${escapeHtml(opts.mainTotalLabel)}</td><td>${mainQty}</td><td></td><td>${mainAmt.toFixed(2)}</td>${hasComm ? `<td></td><td>${mainComm.toFixed(2)}</td><td>${mainNet.toFixed(2)}</td>` : ''}</tr>
-      ${opts.cashExpenseAmt > 0 ? `<tr><td colspan="${colCount-1}" style="text-align:right;">নগদ খরচ যোগঃ</td><td>${opts.cashExpenseAmt.toFixed(2)}</td></tr>` : ''}
-      ${opts.discountAmt > 0 ? `<tr><td colspan="${colCount-1}" style="text-align:right;">ডিসকাউন্টঃ</td><td>− ${opts.discountAmt.toFixed(2)}</td></tr>` : ''}
+      <tr class="section-head"><td colspan="${colCount}">${escapeHtml(opts.returnLabel)}</td></tr>
+      ${itemRows(opts.returnLines, 0)}
+      ${totalRow(opts.returnTotalLabel, retQty, retAmt, retComm, retNet)}
+    </tbody>` : ''}
+    <tbody>
+      ${opts.cashExpenseAmt > 0 ? labelRow('নগদ খরচ যোগঃ', M(opts.cashExpenseAmt)) : ''}
+      ${opts.discountAmt > 0 ? labelRow('ডিসকাউন্টঃ', '− ' + M(opts.discountAmt)) : ''}
+      <tr class="grand"><td colspan="${colCount-1}" class="r">নিট মোটঃ</td><td class="r">${M(netGrandTotal)}</td></tr>
     </tbody>
-  </table>` : ''}
-  ${opts.returnLines.length > 0 ? `
-  <table style="margin-top:-1px;">
-    <tr><td class="section-head" colspan="${colCount}">${escapeHtml(opts.returnLabel)}</td></tr>
   </table>
-  <table class="items-table" style="margin-top:-1px;">
-    <tbody>${itemRows(opts.returnLines, 0)}</tbody>
-    <tbody><tr class="total-row"><td colspan="2">${escapeHtml(opts.returnTotalLabel)}</td><td>${retQty}</td><td></td><td>${retAmt.toFixed(2)}</td>${hasComm ? `<td></td><td>${retComm.toFixed(2)}</td><td>${retNet.toFixed(2)}</td>` : ''}</tr></tbody>
-  </table>` : ''}
-  <table style="margin-top:-1px;">
-    <tr class="total-row"><td style="text-align:right;">নিট মোটঃ</td><td>${netGrandTotal.toFixed(2)}</td></tr>
-  </table>
+
   <div class="sign-row"><div>${escapeHtml(opts.sign1)}</div><div>অথরাইজেশন স্বাঃ<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div><div>${escapeHtml(opts.sign3Label)}<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div></div>`;
 }
 
