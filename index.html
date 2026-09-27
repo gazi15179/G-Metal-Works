@@ -443,7 +443,7 @@ const MODULES = [
   {key:'hr', bn:'এইচআর ও পে-রোল', en:'HR & Payroll', sub:[
     {key:'empInfo', bn:'কর্মচারী তথ্য', en:'Employee Info'},{key:'attendance', bn:'হাজিরা', en:'Attendance'},
     {key:'leave', bn:'ছুটি ব্যবস্থাপনা', en:'Leave Management'},{key:'payroll', bn:'বেতন (পে-রোল)', en:'Payroll'},
-    {key:'payslip', bn:'বেতন স্লিপ', en:'Payslip'},
+    {key:'payslip', bn:'বেতন স্লিপ', en:'Payslip'},{key:'payHeads', bn:'বেতনের খাত', en:'Pay Heads'},
   ]},
   {key:'reports', bn:'রিপোর্ট', en:'Reports', sub:[
     {key:'invReport', bn:'ইনভেন্টরি প্রতিবেদন', en:'Inventory Reports'},{key:'salesReport', bn:'বিক্রয় প্রতিবেদন', en:'Sales Reports'},
@@ -464,7 +464,7 @@ const READY_PAGES = ['dashboard','companyProfile','userManagement','roles','acti
   'so','dc','si','sr','custLedger',
   'bom','processing','pOrder','pmi','fgr',
   'coa','bankCash','jv','cv','pv','rv','bankBook','trialBalance',
-  'empInfo','attendance','leave','payroll','payslip',
+  'empInfo','attendance','leave','payroll','payslip','payHeads',
   'invReport','salesReport','purReport','prodReport','finReport',
   'general','langSettings','companySettings','backup'];
 
@@ -1500,6 +1500,8 @@ function openRoleModal() {
  * field.type: 'text' | 'number' | 'select-enum' | 'select-fk' | 'boolean'
  * select-fk হলে fkSheet + fkLabel (যেই কলাম ড্রপডাউনে দেখাবে) লাগবে।
  */
+const SALARY_TYPE_LABELS = { Monthly:'মাসিক', Weekly:'সাপ্তাহিক', Daily:'দৈনিক (হেল্পার)', PieceRate:'উৎপাদন ভিত্তিক (মিস্ত্রি)' };
+const RUN_TYPE_LABELS = { Daily:'দৈনিক', Weekly:'সাপ্তাহিক', Monthly:'মাসিক' };
 const MASTER_CONFIGS = {
   customers: {
     sheet: 'Customers', idField: 'CustomerID', idPrefix: 'CUS',
@@ -1607,7 +1609,7 @@ const MASTER_CONFIGS = {
   employees: {
     sheet: 'Employees', idField: 'EmployeeID', idPrefix: 'EMP',
     titleBn: 'কর্মচারী মাস্টার', titleEn: 'Employee Master', subBn: 'সব কর্মচারীর তথ্য', subEn: 'All employee information',
-    columns: [{key:'EmployeeID',label:'আইডি'},{key:'Name',label:'নাম'},{key:'Designation',label:'পদবি'},{key:'Department',label:'বিভাগ'}],
+    columns: [{key:'EmployeeID',label:'আইডি'},{key:'Name',label:'নাম'},{key:'Designation',label:'পদবি'},{key:'Department',label:'বিভাগ'},{key:'SalaryType',label:'বেতনের ধরন',labels:SALARY_TYPE_LABELS},{key:'BasicSalary',label:'বেতন/মজুরি'}],
     fields: [
       {key:'Name', label:'নাম', type:'text', required:true},
       {key:'Designation', label:'পদবি', type:'text'},
@@ -1615,8 +1617,21 @@ const MASTER_CONFIGS = {
       {key:'JoiningDate', label:'যোগদানের তারিখ', type:'date'},
       {key:'Phone', label:'ফোন', type:'text'},
       {key:'Address', label:'ঠিকানা', type:'text'},
-      {key:'SalaryType', label:'বেতনের ধরন', type:'select-enum', options:['Monthly','Daily']},
-      {key:'BasicSalary', label:'মূল বেতন', type:'number'},
+      {key:'SalaryType', label:'বেতনের ধরন', type:'select-enum', options:[['Monthly','মাসিক'],['Weekly','সাপ্তাহিক'],['Daily','দৈনিক (হেল্পার)'],['PieceRate','উৎপাদন ভিত্তিক (মিস্ত্রি)']]},
+      {key:'BasicSalary', label:'বেতন / মজুরি (মাসিক → মাসের, সাপ্তাহিক → সপ্তাহের, দৈনিক → প্রতিদিনের; উৎপাদন ভিত্তিক → ০)', type:'number'},
+      {key:'IdleDayWage', label:'বসা দিনের মজুরি — প্রতিদিন (দৈনিক ও মিস্ত্রির জন্য)', type:'number'},
+      {key:'MinDailyWage', label:'দৈনিক ন্যূনতম মজুরি (শুধু মিস্ত্রি — উৎপাদন কম হলে এই পর্যন্ত পূরণ হবে)', type:'number'},
+      {key:'IsActive', label:'অবস্থা', type:'boolean'}
+    ]
+  },
+
+  payHeads: {
+    sheet: 'PayHeads', idField: 'HeadID', idPrefix: 'PH',
+    titleBn: 'বেতনের খাত', titleEn: 'Pay Heads', subBn: 'অতিরিক্ত বেতন (যোগ) ও কর্তনের খাত', subEn: 'Extra pay (earning) and deduction heads',
+    columns: [{key:'HeadID',label:'আইডি'},{key:'HeadName',label:'খাতের নাম'},{key:'HeadType',label:'ধরন',labels:{Earning:'যোগ (অতিরিক্ত বেতন)',Deduction:'কর্তন'}},{key:'IsActive',label:'অবস্থা'}],
+    fields: [
+      {key:'HeadName', label:'খাতের নাম (যেমনঃ ওভারটাইম, বোনাস, অগ্রিম কর্তন)', type:'text', required:true},
+      {key:'HeadType', label:'ধরন', type:'select-enum', options:[['Earning','যোগ (অতিরিক্ত বেতন)'],['Deduction','কর্তন']], required:true},
       {key:'IsActive', label:'অবস্থা', type:'boolean'}
     ]
   },
@@ -1677,6 +1692,7 @@ async function renderMasterCrudPage(content, config) {
         let v = r[c.key];
         if (c.key === 'IsActive') v = isTrue(v) ? `<span class="badge active i18n" data-bn="সক্রিয়" data-en="Active">${t('সক্রিয়','Active')}</span>` : `<span class="badge inactive i18n" data-bn="নিষ্ক্রিয়" data-en="Inactive">${t('নিষ্ক্রিয়','Inactive')}</span>`;
         else if (c.key === 'OpeningBalance' || c.key === 'CreditLimit') v = formatAmountDrCr(v);
+        else if (c.labels) v = escapeHtml(c.labels[v] || v || '');
         else v = escapeHtml(v);
         return '<td>' + v + '</td>';
       }).join('');
@@ -1717,7 +1733,7 @@ async function openMasterModal(sheetName, record) {
     const inputId = 'mf_' + f.key;
 
     if (f.type === 'select-enum') {
-      const opts = f.options.map(function (o) { return `<option value="${o}" ${currentVal===o?'selected':''}>${o}</option>`; }).join('');
+      const opts = f.options.map(function (o) { const ov = Array.isArray(o) ? o[0] : o, ol = Array.isArray(o) ? o[1] : o; return `<option value="${ov}" ${currentVal===ov?'selected':''}>${ol}</option>`; }).join('');
       return `<div class="field"><label>${f.label}</label><select id="${inputId}"><option value="">— বাছাই করুন —</option>${opts}</select></div>`;
     }
     if (f.type === 'select-fk') {
@@ -2745,7 +2761,7 @@ async function openSimpleVoucherForm(existing) {
         return `<div class="field"><label>${label}</label><select id="${id}" ${disabledAttr}><option value="">—</option>${opts}</select></div>`;
       }
       if (f.type === 'select-enum') {
-        const opts = f.options.map(function (o) { return `<option value="${o}" ${currentVal===o?'selected':''}>${o}</option>`; }).join('');
+        const opts = f.options.map(function (o) { const ov = Array.isArray(o) ? o[0] : o, ol = Array.isArray(o) ? o[1] : o; return `<option value="${ov}" ${currentVal===ov?'selected':''}>${ol}</option>`; }).join('');
         return `<div class="field"><label>${label}</label><select id="${id}" ${disabledAttr}><option value="">—</option>${opts}</select></div>`;
       }
       if (f.type === 'date') return `<div class="field"><label>${label}</label><input type="date" id="${id}" value="${attr(currentVal)}" ${disabledAttr}></div>`;
@@ -2980,7 +2996,7 @@ async function renderAttendancePage(content) {
       wrap.innerHTML = `<div class="empty-state i18n" data-bn="এখনো কোনো হাজিরা এন্ট্রি নেই।" data-en="No attendance entries yet.">${t('এখনো কোনো হাজিরা এন্ট্রি নেই।','No attendance entries yet.')}</div>`;
       return;
     }
-    const statusLabel = { Present:['উপস্থিত','Present'], Absent:['অনুপস্থিত','Absent'], Leave:['ছুটি','Leave'], Holiday:['ছুটির দিন','Holiday'] };
+    const statusLabel = { Present:['উপস্থিত','Present'], Idle:['বসা (কাজ নেই)','Idle (no work)'], Absent:['অনুপস্থিত','Absent'], Leave:['ছুটি','Leave'], Holiday:['ছুটির দিন','Holiday'] };
     const headers = [['কর্মচারী','Employee'],['তারিখ','Date'],['ইন টাইম','In Time'],['আউট টাইম','Out Time'],['অবস্থা','Status']];
     const headCells = headers.map(function (h) { return `<th class="i18n" data-bn="${h[0]}" data-en="${h[1]}">${t(h[0], h[1])}</th>`; }).join('');
     const bodyRows = records.slice().reverse().map(function (r) {
@@ -3005,7 +3021,8 @@ async function openAttendanceForm(existing) {
   const rec = existing || {};
   const empOptions = employees.filter(function (e) { return e.Status !== 'Deleted'; })
     .map(function (e) { return `<option value="${attr(e.EmployeeID)}" ${rec.EmployeeID===e.EmployeeID?'selected':''}>${escapeHtml(e.Name)}</option>`; }).join('');
-  const statusOpts = ['Present','Absent','Leave','Holiday'].map(function (s) { return `<option value="${s}" ${(rec.Status||'Present')===s?'selected':''}>${s}</option>`; }).join('');
+  const attLabels = { Present: t('উপস্থিত','Present'), Idle: t('বসা (কাজ নেই)','Idle (no work)'), Absent: t('অনুপস্থিত','Absent'), Leave: t('ছুটি','Leave'), Holiday: t('ছুটির দিন','Holiday') };
+  const statusOpts = ['Present','Idle','Absent','Leave','Holiday'].map(function (s) { return `<option value="${s}" ${(rec.Status||'Present')===s?'selected':''}>${attLabels[s]}</option>`; }).join('');
 
   openModal({
     title: (isEdit ? t('সম্পাদনা — ','Edit — ') : t('নতুন — ','New — ')) + t('হাজিরা','Attendance'),
@@ -3109,9 +3126,9 @@ async function renderPayrollPage(content) {
   content.innerHTML = `
     <div class="page-head"><div>
         <h1 class="i18n" data-bn="পে-রোল" data-en="Payroll">${t('পে-রোল','Payroll')}</h1>
-        <p class="i18n" data-bn="মাসিক বেতন রান তৈরি ও তালিকা" data-en="Create and list monthly payroll runs">${t('মাসিক বেতন রান তৈরি ও তালিকা','Create and list monthly payroll runs')}</p>
+        <p class="i18n" data-bn="দৈনিক, সাপ্তাহিক ও মাসিক বেতন রান" data-en="Daily, weekly and monthly payroll runs">${t('দৈনিক, সাপ্তাহিক ও মাসিক বেতন রান','Daily, weekly and monthly payroll runs')}</p>
       </div>
-      <button class="btn btn-primary i18n" style="width:auto;" id="payrollAddBtn" data-bn="+ নতুন পে-রোল" data-en="+ New Payroll">${t('+ নতুন পে-রোল','+ New Payroll')}</button></div>
+      <button class="btn btn-primary i18n" style="width:auto;" id="payrollAddBtn" data-bn="+ নতুন বেতন রান" data-en="+ New Payroll Run">${t('+ নতুন বেতন রান','+ New Payroll Run')}</button></div>
     <div class="panel"><div id="payrollTableWrap"></div></div>`;
 
   async function loadList() {
@@ -3120,16 +3137,20 @@ async function renderPayrollPage(content) {
     if (!wrap) return; // ব্যবহারকারী এই ফাঁকে অন্য পেজ/ট্যাবে চলে গেলে এই এলিমেন্ট আর DOM-এ থাকবে না
     const active = records.filter(function (r) { return r.Status !== 'Deleted'; });
     if (active.length === 0) {
-      wrap.innerHTML = `<div class="empty-state i18n" data-bn="এখনো কোনো পে-রোল রান তৈরি হয়নি।" data-en="No payroll runs created yet.">${t('এখনো কোনো পে-রোল রান তৈরি হয়নি।','No payroll runs created yet.')}</div>`;
+      wrap.innerHTML = `<div class="empty-state">${t('এখনো কোনো বেতন রান তৈরি হয়নি।','No payroll runs created yet.')}</div>`;
       return;
     }
-    const headers = [['আইডি','ID'],['মাস','Month'],['বছর','Year'],['অবস্থা','Status']];
-    const headCells = headers.map(function (h) { return `<th class="i18n" data-bn="${h[0]}" data-en="${h[1]}">${t(h[0], h[1])}</th>`; }).join('');
+    const headers = [['আইডি','ID'],['ধরন','Type'],['সময়কাল','Period'],['মোট বেতন','Total Pay'],['অবস্থা','Status']];
+    const headCells = headers.map(function (h) { return `<th>${t(h[0], h[1])}</th>`; }).join('');
     const bodyRows = active.slice().reverse().map(function (r) {
-      return `<tr><td>${escapeHtml(r.PayrollID)}</td><td>${escapeHtml(r.Month)}</td><td>${escapeHtml(r.Year)}</td>
-        <td><span class="badge active i18n" data-bn="সম্পন্ন" data-en="Done">${t('সম্পন্ন','Done')}</span></td></tr>`;
+      return `<tr><td>${escapeHtml(r.PayrollID)}</td>
+        <td>${escapeHtml(RUN_TYPE_LABELS[r.RunType] || RUN_TYPE_LABELS.Monthly)}</td>
+        <td>${escapeHtml(payrollPeriodLabel(r))}</td>
+        <td>${r.TotalNetPay !== undefined && r.TotalNetPay !== null ? Number(r.TotalNetPay).toFixed(2) : '—'}</td>
+        <td><span class="badge active">${t('সম্পন্ন','Done')}</span></td>
+        <td class="row-actions"><button class="btn" style="width:auto;padding:6px 12px;font-size:12px;" onclick='openPayslipForRun(${JSON.stringify(r.PayrollID)})'>${t('স্লিপ','Slip')}</button></td></tr>`;
     }).join('');
-    wrap.innerHTML = `<table class="data-table"><thead><tr>${headCells}</tr></thead><tbody>${bodyRows}</tbody></table>`;
+    wrap.innerHTML = `<table class="data-table"><thead><tr>${headCells}<th></th></tr></thead><tbody>${bodyRows}</tbody></table>`;
   }
 
   await loadList();
@@ -3137,63 +3158,402 @@ async function renderPayrollPage(content) {
   document.getElementById('payrollAddBtn').addEventListener('click', function () { openPayrollForm(); });
 }
 
+/** পুরনো (মাস/বছর) ও নতুন (তারিখ হইতে-পর্যন্ত) — দুই ধরনের রানের সময়কাল দেখানো */
+function payrollPeriodLabel(r) {
+  if (r.DateFrom && r.DateTo) {
+    return r.DateFrom === r.DateTo ? formatShortDate(r.DateFrom) : formatShortDate(r.DateFrom) + ' — ' + formatShortDate(r.DateTo);
+  }
+  return (r.Month || '') + ' ' + (r.Year || '');
+}
+
+function openPayslipForRun(payrollId) {
+  window.__payslipPreselect = payrollId;
+  navigateTo('payslip', t('এইচআর ও পে-রোল','HR & Payroll'), t('বেতন স্লিপ','Payslip'));
+}
+
+/** রানের ধরন অনুযায়ী তারিখ হইতে-পর্যন্ত: দৈনিক = আজ, সাপ্তাহিক = শেষ ৭ দিন, মাসিক = এই মাস */
+function payrollDefaultPeriod(runType) {
+  const iso = function (d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+  const now = new Date();
+  if (runType === 'Daily') return { from: iso(now), to: iso(now) };
+  if (runType === 'Weekly') { const f = new Date(now); f.setDate(now.getDate() - 6); return { from: iso(f), to: iso(now) }; }
+  return { from: iso(new Date(now.getFullYear(), now.getMonth(), 1)), to: iso(new Date(now.getFullYear(), now.getMonth() + 1, 0)) };
+}
+
+/** কোন রানে কোন ধরনের কর্মচারী ডিফল্টভাবে থাকবে (চেকবক্স দিয়ে বদলানো যায়) */
+const PAYROLL_DEFAULT_TYPES = {
+  Daily: ['Daily'],
+  Weekly: ['Weekly', 'Daily', 'PieceRate'],
+  Monthly: ['Monthly', 'PieceRate']
+};
+
 async function openPayrollForm() {
-  const employees = (await cachedList('Employees')).filter(function (e) { return e.Status !== 'Deleted' && isTrue(e.IsActive); });
-  if (employees.length === 0) { showToast(t('কোনো সক্রিয় কর্মচারী পাওয়া যায়নি — আগে Employee Master-এ যোগ করুন।','No active employees found — add some in Employee Master first.'), 'error'); return; }
+  const [employeesAll, items, headsAll] = await Promise.all([cachedList('Employees'), cachedList('Items'), cachedList('PayHeads').catch(function () { return []; })]);
+  const employees = employeesAll.filter(function (e) { return e.Status !== 'Deleted' && isTrue(e.IsActive); });
+  if (employees.length === 0) { showToast(t('কোনো সক্রিয় কর্মচারী পাওয়া যায়নি — আগে কর্মচারী তথ্যে যোগ করুন।','No active employees found — add some in Employee Info first.'), 'error'); return; }
+  const heads = headsAll.filter(function (h) { return h.Status !== 'Deleted' && (h.IsActive === undefined || h.IsActive === null || isTrue(h.IsActive)); });
+  const activeItems = items.filter(function (i) { return i.Status !== 'Deleted'; });
 
-  const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  const monthOpts = monthNames.map(function (m, i) { return `<option value="${m}" ${new Date().getMonth()===i?'selected':''}>${m}</option>`; }).join('');
+  // প্রতিটা কর্মচারীর বেতনের হিসাব এই state-এ থাকে; ইনপুট বদলালে state আপডেট হয়
+  const st = {
+    runType: 'Monthly',
+    types: PAYROLL_DEFAULT_TYPES.Monthly.slice(),
+    emps: employees.map(function (e) {
+      const type = e.SalaryType || 'Monthly';
+      return {
+        id: e.EmployeeID, name: e.Name, type: type, include: true,
+        base: Number(e.BasicSalary) || 0,   // মাসিক/সাপ্তাহিক বেতন অথবা দৈনিক মজুরি
+        days: 0,                             // কাজের দিন — দৈনিক কর্মচারী ও মিস্ত্রির জন্য
+        idleDays: 0, idleRate: Number(e.IdleDayWage) || 0,   // বসা দিন ও প্রতিজনের নিজের বসা মজুরি
+        minRate: Number(e.MinDailyWage) || 0,                  // মিস্ত্রির দৈনিক ন্যূনতম মজুরি
+        adj: '', adjNote: '',                                  // চূড়ান্ত সমন্বয় (+/−) ও কারণ
+        prod: [],                            // উৎপাদন ভিত্তিকঃ { itemId, qty, rate }
+        extra: []                            // অতিরিক্ত খাতঃ { headId, note, amount }
+      };
+    })
+  };
+  const headMap = {}; heads.forEach(function (h) { headMap[h.HeadID] = h; });
+  const itemOpts = activeItems.map(function (i) { return `<option value="${attr(i.ItemID)}">${escapeHtml(i.ItemName)}</option>`; }).join('');
+  const headOpts = heads.map(function (h) { return `<option value="${attr(h.HeadID)}">${escapeHtml(h.HeadName)} ${h.HeadType === 'Deduction' ? '(−)' : '(+)'}</option>`; }).join('');
 
-  const rowsHtml = employees.map(function (e, idx) {
-    const basic = Number(e.BasicSalary) || 0;
-    return `<tr>
-      <td>${escapeHtml(e.Name)}</td>
-      <td><input type="number" step="any" id="pr_${idx}_basic" value="${basic}" oninput="updatePayrollNet(${idx})" style="width:100px;"></td>
-      <td><input type="number" step="any" id="pr_${idx}_allow" value="0" oninput="updatePayrollNet(${idx})" style="width:90px;"></td>
-      <td><input type="number" step="any" id="pr_${idx}_deduct" value="0" oninput="updatePayrollNet(${idx})" style="width:90px;"></td>
-      <td><b id="pr_${idx}_net">${basic.toFixed(2)}</b></td>
-    </tr>`;
+  function calc(e) {
+    let baseAmt = 0;
+    if (e.type === 'Daily') baseAmt = (Number(e.days) || 0) * (Number(e.base) || 0);
+    else if (e.type === 'Monthly' || e.type === 'Weekly') baseAmt = Number(e.base) || 0;
+    const prodAmt = e.prod.reduce(function (s, l) { return s + (Number(l.qty) || 0) * (Number(l.rate) || 0); }, 0);
+    // মিস্ত্রিঃ উৎপাদন মজুরি (কাজের দিন × ন্যূনতম)-এর কম হলে বাকিটা পূরণ; বসা দিন এতে ধরা হয় না
+    const minTotal = e.type === 'PieceRate' ? (Number(e.days) || 0) * (Number(e.minRate) || 0) : 0;
+    const topUp = e.type === 'PieceRate' ? Math.max(0, minTotal - prodAmt) : 0;
+    const hasIdle = e.type === 'Daily' || e.type === 'PieceRate';
+    const idleAmt = hasIdle ? (Number(e.idleDays) || 0) * (Number(e.idleRate) || 0) : 0;
+    let earn = 0, ded = 0;
+    e.extra.forEach(function (x) {
+      const amt = Number(x.amount) || 0;
+      if (headMap[x.headId] && headMap[x.headId].HeadType === 'Deduction') ded += amt; else earn += amt;
+    });
+    const calcPay = baseAmt + prodAmt + topUp + idleAmt + earn - ded;
+    const adj = Number(e.adj) || 0;
+    return { baseAmt: baseAmt, prodAmt: prodAmt, minTotal: minTotal, topUp: topUp, idleAmt: idleAmt, earn: earn, ded: ded, calcPay: calcPay, adj: adj, net: calcPay + adj };
+  }
+
+  function visibleEmps() { return st.emps.filter(function (e) { return st.types.indexOf(e.type) !== -1; }); }
+
+  function cardHtml(e) {
+    const i = st.emps.indexOf(e);
+    const c = calc(e);
+    let baseHtml = '';
+    if (e.type === 'Daily') {
+      baseHtml = `<div class="pr-g3">
+        <div class="field"><label>${t('কাজের দিন','Days Worked')}</label><input type="number" step="any" value="${attr(e.days)}" data-i="${i}" data-f="days"></div>
+        <div class="field"><label>${t('দৈনিক মজুরি','Daily Wage')}</label><input type="number" step="any" value="${attr(e.base)}" data-i="${i}" data-f="base"></div>
+        <div class="field"><label>${t('মজুরি মোট','Wage Total')}</label><input readonly class="pr-ro" id="pr_base_${i}" value="${c.baseAmt.toFixed(2)}"></div>
+      </div>`;
+    } else if (e.type === 'PieceRate') {
+      baseHtml = `<div class="pr-g3">
+        <div class="field"><label>${t('কাজের দিন','Days Worked')}</label><input type="number" step="any" value="${attr(e.days)}" data-i="${i}" data-f="days"></div>
+        <div class="field"><label>${t('দৈনিক ন্যূনতম মজুরি','Min Daily Wage')}</label><input type="number" step="any" value="${attr(e.minRate)}" data-i="${i}" data-f="minRate"></div>
+        <div class="field"><label>${t('ন্যূনতম মোট','Minimum Total')}</label><input readonly class="pr-ro" id="pr_min_${i}" value="${c.minTotal.toFixed(2)}"></div>
+      </div>`;
+    } else if (e.type === 'Monthly' || e.type === 'Weekly') {
+      baseHtml = `<div class="pr-g3">
+        <div class="field"><label>${e.type === 'Monthly' ? t('মাসিক বেতন','Monthly Salary') : t('সাপ্তাহিক বেতন','Weekly Salary')}</label><input type="number" step="any" value="${attr(e.base)}" data-i="${i}" data-f="base"></div>
+      </div>`;
+    }
+    const prodHtml = e.type === 'PieceRate' ? `
+      <div class="pr-sub">${t('উৎপাদন (মালের উপর ভিত্তি করে)','Production (piece-rate)')}</div>
+      <div class="pr-tbl-wrap"><table class="pr-tbl"><thead><tr><th>${t('পণ্য','Product')}</th><th>${t('পরিমাণ','Qty')}</th><th>${t('দর','Rate')}</th><th>${t('মূল্য','Value')}</th><th></th></tr></thead><tbody>
+        ${e.prod.map(function (l, j) { return `<tr>
+          <td><select data-i="${i}" data-p="${j}" data-f="itemId"><option value="">—</option>${itemOpts}</select></td>
+          <td><input type="number" step="any" value="${attr(l.qty)}" data-i="${i}" data-p="${j}" data-f="qty"></td>
+          <td><input type="number" step="any" value="${attr(l.rate)}" data-i="${i}" data-p="${j}" data-f="rate"></td>
+          <td class="pr-num" id="pr_pv_${i}_${j}">${((Number(l.qty) || 0) * (Number(l.rate) || 0)).toFixed(2)}</td>
+          <td><button type="button" class="pr-x" data-act="delProd" data-i="${i}" data-p="${j}">✕</button></td></tr>`; }).join('')}
+        <tr class="pr-tot"><td colspan="3">${t('মোট উৎপাদন মজুরি','Production Total')}</td><td class="pr-num" id="pr_prod_${i}">${c.prodAmt.toFixed(2)}</td><td></td></tr>
+        <tr><td colspan="3">${t('ন্যূনতম মজুরি পূরণ','Minimum wage top-up')}</td><td class="pr-num" id="pr_topup_${i}">${c.topUp.toFixed(2)}</td><td></td></tr>
+      </tbody></table></div>
+      <button type="button" class="btn btn-outline pr-add" data-act="addProd" data-i="${i}">+ ${t('পণ্য লাইন','Product line')}</button>` : '';
+    const idleHtml = (e.type === 'Daily' || e.type === 'PieceRate') ? `
+      <div class="pr-sub">${t('বসা দিন (কাজ দেওয়া যায়নি)','Idle days (no work given)')}</div>
+      <div class="pr-g3">
+        <div class="field"><label>${t('বসা দিন','Idle Days')}</label><input type="number" step="any" value="${attr(e.idleDays)}" data-i="${i}" data-f="idleDays"></div>
+        <div class="field"><label>${t('বসা দিনের মজুরি','Idle Day Wage')}</label><input type="number" step="any" value="${attr(e.idleRate)}" data-i="${i}" data-f="idleRate"></div>
+        <div class="field"><label>${t('বসা মজুরি মোট','Idle Total')}</label><input readonly class="pr-ro" id="pr_idle_${i}" value="${c.idleAmt.toFixed(2)}"></div>
+      </div>` : '';
+    const adjHtml = `
+      <div class="pr-sub">${t('চূড়ান্ত সমন্বয় (হিসাবের চেয়ে বেশি হলে +, কম হলে −)','Final adjustment (+ more / − less than calculated)')}</div>
+      <div class="pr-adj">
+        <div class="field"><label>${t('হিসাব অনুযায়ী','Calculated')}</label><input readonly class="pr-ro" id="pr_calc_${i}" value="${c.calcPay.toFixed(2)}"></div>
+        <div class="field"><label>${t('সমন্বয় (+/−)','Adjustment (+/−)')}</label><input type="number" step="any" value="${attr(e.adj)}" data-i="${i}" data-f="adj"></div>
+        <div class="field pr-adj-note"><label>${t('কারণ (সমন্বয় দিলে আবশ্যক)','Reason (required with adjustment)')}</label><input value="${attr(e.adjNote)}" data-i="${i}" data-f="adjNote"></div>
+      </div>`;
+    const extraHtml = `
+      <div class="pr-sub">${t('অতিরিক্ত বেতন / কর্তন (খাত)','Extra pay / deductions (heads)')}</div>
+      ${e.extra.length ? `<div class="pr-tbl-wrap"><table class="pr-tbl"><thead><tr><th>${t('খাত','Head')}</th><th>${t('বিবরণ','Note')}</th><th>${t('টাকা','Amount')}</th><th></th></tr></thead><tbody>
+        ${e.extra.map(function (x, j) { return `<tr>
+          <td><select data-i="${i}" data-x="${j}" data-f="headId"><option value="">—</option>${headOpts}</select></td>
+          <td><input value="${attr(x.note)}" data-i="${i}" data-x="${j}" data-f="note"></td>
+          <td><input type="number" step="any" value="${attr(x.amount)}" data-i="${i}" data-x="${j}" data-f="amount"></td>
+          <td><button type="button" class="pr-x" data-act="delExtra" data-i="${i}" data-x="${j}">✕</button></td></tr>`; }).join('')}
+      </tbody></table></div>` : ''}
+      <button type="button" class="btn btn-outline pr-add" data-act="addExtra" data-i="${i}">+ ${t('খাত যোগ করুন','Add head')}</button>`;
+    return `<div class="pr-card ${e.include ? '' : 'pr-off'}" id="pr_card_${i}">
+      <div class="pr-card-head">
+        <label class="pr-inc"><input type="checkbox" ${e.include ? 'checked' : ''} data-i="${i}" data-f="include"> <b>${escapeHtml(e.name)}</b></label>
+        <span class="badge draft">${escapeHtml(SALARY_TYPE_LABELS[e.type] || e.type)}</span>
+      </div>
+      <div class="pr-card-body">${baseHtml}${prodHtml}${idleHtml}${extraHtml}${adjHtml}</div>
+      <div class="pr-card-foot" id="pr_foot_${i}">${footHtml(c)}</div>
+    </div>`;
+  }
+
+  function footHtml(c) {
+    const parts = [];
+    if (c.baseAmt) parts.push(t('মূল ','Base ') + c.baseAmt.toFixed(2));
+    if (c.prodAmt) parts.push(t('উৎপাদন ','Prod ') + c.prodAmt.toFixed(2));
+    if (c.topUp) parts.push(t('পূরণ ','Top-up ') + c.topUp.toFixed(2));
+    if (c.idleAmt) parts.push(t('বসা ','Idle ') + c.idleAmt.toFixed(2));
+    if (c.earn) parts.push('+' + c.earn.toFixed(2));
+    if (c.ded) parts.push('−' + c.ded.toFixed(2));
+    if (c.adj) parts.push(t('সমন্বয় ','Adj ') + (c.adj > 0 ? '+' : '−') + Math.abs(c.adj).toFixed(2));
+    return `<span class="pr-break">${parts.join(' · ')}</span><span>${t('নিট বেতনঃ','Net Pay: ')} <b>${c.net.toFixed(2)}</b></span>`;
+  }
+
+  function renderCards() {
+    const wrap = document.getElementById('pr_Cards');
+    const list = visibleEmps();
+    wrap.innerHTML = list.length ? list.map(cardHtml).join('') :
+      `<div class="empty-state" style="padding:20px;">${t('উপরে বাছাই করা ধরনের কোনো কর্মচারী নেই।','No employees of the selected types.')}</div>`;
+    // সিলেক্টগুলোর মান বসানো
+    list.forEach(function (e) {
+      const i = st.emps.indexOf(e);
+      e.prod.forEach(function (l, j) { const el = wrap.querySelector(`select[data-i="${i}"][data-p="${j}"]`); if (el) el.value = l.itemId || ''; });
+      e.extra.forEach(function (x, j) { const el = wrap.querySelector(`select[data-i="${i}"][data-x="${j}"]`); if (el) el.value = x.headId || ''; });
+    });
+    updateTotals();
+  }
+  function rerenderCard(i) {
+    const old = document.getElementById('pr_card_' + i);
+    if (!old) return;
+    const tmp = document.createElement('div');
+    tmp.innerHTML = cardHtml(st.emps[i]);
+    const fresh = tmp.firstElementChild;
+    old.replaceWith(fresh);
+    const e = st.emps[i];
+    e.prod.forEach(function (l, j) { const el = fresh.querySelector(`select[data-p="${j}"]`); if (el) el.value = l.itemId || ''; });
+    e.extra.forEach(function (x, j) { const el = fresh.querySelector(`select[data-x="${j}"]`); if (el) el.value = x.headId || ''; });
+    updateTotals();
+  }
+  function updateCard(i) {
+    const e = st.emps[i], c = calc(e);
+    const b = document.getElementById('pr_base_' + i); if (b) b.value = c.baseAmt.toFixed(2);
+    const pr = document.getElementById('pr_prod_' + i); if (pr) pr.textContent = c.prodAmt.toFixed(2);
+    const mn = document.getElementById('pr_min_' + i); if (mn) mn.value = c.minTotal.toFixed(2);
+    const tu = document.getElementById('pr_topup_' + i); if (tu) tu.textContent = c.topUp.toFixed(2);
+    const idl = document.getElementById('pr_idle_' + i); if (idl) idl.value = c.idleAmt.toFixed(2);
+    const cp = document.getElementById('pr_calc_' + i); if (cp) cp.value = c.calcPay.toFixed(2);
+    e.prod.forEach(function (l, j) { const el = document.getElementById('pr_pv_' + i + '_' + j); if (el) el.textContent = ((Number(l.qty) || 0) * (Number(l.rate) || 0)).toFixed(2); });
+    const f = document.getElementById('pr_foot_' + i); if (f) f.innerHTML = footHtml(c);
+    updateTotals();
+  }
+  function updateTotals() {
+    const inc = visibleEmps().filter(function (e) { return e.include; });
+    const total = inc.reduce(function (s, e) { return s + calc(e).net; }, 0);
+    const el = document.getElementById('pr_Totals');
+    if (el) el.innerHTML = `${t('কর্মচারীঃ','Employees: ')} <b>${inc.length}</b> &nbsp;·&nbsp; ${t('মোট বেতনঃ','Total pay: ')} <b>${total.toFixed(2)}</b>`;
+  }
+
+  const typeChecks = Object.keys(SALARY_TYPE_LABELS).map(function (k) {
+    return `<label class="pr-chk"><input type="checkbox" value="${k}" class="pr-type-chk"> ${escapeHtml(SALARY_TYPE_LABELS[k])}</label>`;
   }).join('');
-
-  const headers = [['কর্মচারী','Employee'],['মূল বেতন','Basic'],['ভাতা','Allowance'],['কর্তন','Deduction'],['নিট বেতন','Net Pay']];
-  const headCells = headers.map(function (h) { return `<th>${t(h[0], h[1])}</th>`; }).join('');
+  const per = payrollDefaultPeriod('Monthly');
 
   openModal({
-    title: t('নতুন পে-রোল রান','New Payroll Run'),
+    title: t('নতুন — বেতন রান','New — Payroll Run'),
+    wide: true,
     bodyHtml: `
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;">
-        <div class="field"><label>${t('মাস','Month')}</label><select id="pr_Month">${monthOpts}</select></div>
-        <div class="field"><label>${t('বছর','Year')}</label><input type="number" id="pr_Year" value="${new Date().getFullYear()}"></div>
+    <style>
+      .pr-wrap .field{margin:0;min-width:0;}
+      .pr-wrap .field label{font-size:11.5px;margin-bottom:3px;}
+      .pr-wrap input:not([type=checkbox]),.pr-wrap select{height:32px;padding:4px 8px;font-size:13px;width:100%;min-width:0;box-sizing:border-box;}
+      .pr-wrap .pr-ro{background:var(--bg);font-weight:600;}
+      .pr-g3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 10px;}
+      .pr-types{display:flex;flex-wrap:wrap;gap:6px 14px;margin:10px 0 4px;}
+      .pr-chk{display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer;margin:0;}
+      .pr-chk input,.pr-inc input{width:16px;height:16px;margin:0;}
+      .pr-bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin:10px 0;padding:8px 10px;background:var(--bg);border-radius:8px;font-size:13px;}
+      .pr-bar .btn{width:auto;height:30px;padding:4px 12px;font-size:12.5px;margin:0;}
+      .pr-card{border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden;}
+      .pr-card.pr-off{opacity:.5;}
+      .pr-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;background:var(--bg);}
+      .pr-inc{display:flex;align-items:center;gap:8px;cursor:pointer;margin:0;font-size:13.5px;min-width:0;}
+      .pr-card-body{padding:8px 10px;}
+      .pr-sub{font-size:11.5px;font-weight:600;color:var(--text-muted);margin:10px 0 4px;}
+      .pr-tbl-wrap{overflow-x:auto;}
+      .pr-tbl{width:100%;border-collapse:collapse;font-size:12.5px;}
+      .pr-tbl th{font-size:11px;font-weight:600;color:var(--text-muted);text-align:left;padding:3px 4px;}
+      .pr-tbl td{padding:3px 4px;}
+      .pr-wrap .pr-tbl td input,.pr-wrap .pr-tbl td select{min-width:64px;}
+      .pr-wrap .pr-tbl td:first-child select{min-width:110px;}
+      .pr-num{text-align:right;white-space:nowrap;font-weight:600;}
+      .pr-tot td{border-top:1px solid var(--border);font-weight:700;}
+      .pr-x{width:26px;height:26px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;color:var(--danger);}
+      .pr-add{width:auto !important;height:28px;padding:2px 10px;font-size:12px;margin-top:6px;}
+      .pr-card-foot{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 10px;padding:7px 10px;border-top:1px solid var(--border);font-size:13px;}
+      .pr-break{color:var(--text-muted);font-size:12px;}
+      .pr-adj{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,2fr);gap:8px 10px;}
+      @media (max-width:600px){ .pr-adj{grid-template-columns:repeat(2,minmax(0,1fr));} .pr-adj-note{grid-column:1 / -1;} }
+      @media (max-width:600px){ .pr-g3{grid-template-columns:repeat(2,minmax(0,1fr));} }
+    </style>
+    <div class="pr-wrap">
+      <div class="pr-g3">
+        <div class="field"><label>${t('বেতন রানের ধরন','Run Type')}</label><select id="pr_RunType">
+          <option value="Daily">${t('দৈনিক','Daily')}</option><option value="Weekly">${t('সাপ্তাহিক','Weekly')}</option><option value="Monthly" selected>${t('মাসিক','Monthly')}</option></select></div>
+        <div class="field"><label>${t('তারিখ হইতে','Date From')}</label><input type="date" id="pr_DateFrom" value="${per.from}"></div>
+        <div class="field"><label>${t('তারিখ পর্যন্ত','Date To')}</label><input type="date" id="pr_DateTo" value="${per.to}"></div>
       </div>
-      <div style="max-height:320px;overflow-y:auto;"><table class="data-table"><thead><tr>${headCells}</tr></thead><tbody>${rowsHtml}</tbody></table></div>`,
+      <div class="pr-types">${typeChecks}</div>
+      <div class="pr-bar">
+        <span id="pr_Totals"></span>
+        <button type="button" class="btn btn-outline" id="pr_FetchDays">${t('↻ হাজিরা থেকে দিন আনুন','↻ Days from attendance')}</button>
+      </div>
+      ${heads.length ? '' : `<div class="pr-break" style="margin-bottom:8px;">${t('অতিরিক্ত বেতন/কর্তনের খাত বানাতে এইচআর → "বেতনের খাত" পেজে যান।','Create extra pay/deduction heads in HR → Pay Heads.')}</div>`}
+      <div id="pr_Cards"></div>
+    </div>`,
     onSave: async function () {
-      const month = val('pr_Month'), year = val('pr_Year');
-      if (!year) throw new Error(t('বছর আবশ্যক।','Year is required.'));
+      const dateFrom = val('pr_DateFrom'), dateTo = val('pr_DateTo');
+      if (!dateFrom || !dateTo) throw new Error(t('তারিখ হইতে ও তারিখ পর্যন্ত আবশ্যক।','Date From and Date To are required.'));
+      if (dateFrom > dateTo) throw new Error(t('"তারিখ হইতে" অবশ্যই "তারিখ পর্যন্ত"-এর আগে হতে হবে।','Date From must be before Date To.'));
+      const inc = visibleEmps().filter(function (e) { return e.include; });
+      if (!inc.length) throw new Error(t('অন্তত একজন কর্মচারী বাছাই করুন।','Select at least one employee.'));
+      for (const e of inc) {
+        if (e.extra.some(function (x) { return (Number(x.amount) || 0) !== 0 && !x.headId; })) throw new Error(e.name + t(' — টাকা দেওয়া প্রতিটা লাইনে খাত বাছাই করুন।',' — pick a head for every amount line.'));
+        if (e.prod.some(function (l) { return (Number(l.qty) || 0) > 0 && !l.itemId; })) throw new Error(e.name + t(' — পরিমাণ দেওয়া প্রতিটা লাইনে পণ্য বাছাই করুন।',' — pick a product for every quantity line.'));
+        if ((Number(e.adj) || 0) !== 0 && !String(e.adjNote || '').trim()) throw new Error(e.name + t(' — সমন্বয় দিলে কারণ লেখা আবশ্যক।',' — a reason is required for the adjustment.'));
+        if (calc(e).net < 0) throw new Error(e.name + t(' — নিট বেতন ঋণাত্মক হতে পারে না।',' — net pay cannot be negative.'));
+      }
 
-      const lines = employees.map(function (e, idx) {
-        const basic = Number(val('pr_' + idx + '_basic')) || 0;
-        const allow = Number(val('pr_' + idx + '_allow')) || 0;
-        const deduct = Number(val('pr_' + idx + '_deduct')) || 0;
-        return { EmployeeID: e.EmployeeID, BasicSalary: basic, Allowance: allow, Deduction: deduct, NetPay: basic + allow - deduct };
+      const lines = inc.map(function (e) {
+        const c = calc(e);
+        return {
+          EmployeeID: e.id, SalaryType: e.type,
+          DaysWorked: (e.type === 'Daily' || e.type === 'PieceRate') ? (Number(e.days) || 0) : 0,
+          RatePerUnit: e.type === 'PieceRate' ? 0 : (Number(e.base) || 0),
+          BasicSalary: c.baseAmt, ProductionAmount: c.prodAmt,
+          MinDailyWage: e.type === 'PieceRate' ? (Number(e.minRate) || 0) : 0, MinWageTopUp: c.topUp,
+          IdleDays: (e.type === 'Daily' || e.type === 'PieceRate') ? (Number(e.idleDays) || 0) : 0, IdleDayWage: Number(e.idleRate) || 0, IdleAmount: c.idleAmt,
+          Allowance: c.earn, Deduction: c.ded, CalculatedPay: c.calcPay,
+          Adjustment: c.adj, AdjustmentNote: c.adj ? String(e.adjNote || '').trim() : '',
+          NetPay: c.net
+        };
       });
+      const total = lines.reduce(function (s, l) { return s + l.NetPay; }, 0);
+      const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+      const dTo = new Date(dateTo + 'T00:00:00');
 
-      await api('createDocument', {
-        headerSheet: 'Payroll', idField: 'PayrollID', idPrefix: 'PRL', requiredFields: ['Month','Year'],
+      const header = await api('createDocument', {
+        headerSheet: 'Payroll', idField: 'PayrollID', idPrefix: 'PRL', requiredFields: [],
         linesSheet: 'Payroll_Lines', lineIdField: 'PayrollID',
-        headerData: { Month: month, Year: year, Status: 'Active' },
+        headerData: { RunType: st.runType, DateFrom: dateFrom, DateTo: dateTo, Month: monthNames[dTo.getMonth()], Year: String(dTo.getFullYear()), TotalNetPay: total, Status: 'Active' },
         lines: lines
       });
-      showToast(t('পে-রোল তৈরি হয়েছে ✅','Payroll created ✅'), 'success');
+
+      // উৎপাদন লাইন ও অতিরিক্ত খাত আলাদা টেবিলে; ব্যর্থ হলে পুরো রান মুছে ফেলা হয় যাতে অর্ধেক ডেটা না থাকে
+      const details = [];
+      inc.forEach(function (e) {
+        e.prod.forEach(function (l) {
+          const q = Number(l.qty) || 0, r = Number(l.rate) || 0;
+          if (q > 0) details.push({ PayrollID: header.PayrollID, EmployeeID: e.id, DetailType: 'Production', ItemID: l.itemId, Qty: q, Rate: r, Amount: q * r });
+        });
+        e.extra.forEach(function (x) {
+          const amt = Number(x.amount) || 0;
+          if (amt !== 0 && x.headId) details.push({ PayrollID: header.PayrollID, EmployeeID: e.id, DetailType: (headMap[x.headId] && headMap[x.headId].HeadType === 'Deduction') ? 'Deduction' : 'Earning', HeadID: x.headId, Description: x.note || '', Amount: amt });
+        });
+      });
+      if (details.length) {
+        const { error } = await supabaseClient.from('Payroll_Details').insert(details);
+        if (error) {
+          await supabaseClient.from('Payroll_Lines').delete().eq('PayrollID', header.PayrollID);
+          await supabaseClient.from('Payroll').delete().eq('PayrollID', header.PayrollID);
+          throw new Error(t('উৎপাদন/খাতের লাইন সেভ হয়নি — রানটা বাতিল করা হয়েছে। ','Production/head lines failed — run cancelled. ') + error.message);
+        }
+      }
+      showToast(t('বেতন রান তৈরি হয়েছে ✅','Payroll run created ✅'), 'success');
       if (window.__refreshPayrollList) await window.__refreshPayrollList();
     }
   });
+
+  // ---- ইভেন্ট ----
+  const body = document.getElementById('modalBody');
+  function syncTypeChecks() {
+    body.querySelectorAll('.pr-type-chk').forEach(function (c) { c.checked = st.types.indexOf(c.value) !== -1; });
+  }
+  syncTypeChecks();
+  renderCards();
+
+  document.getElementById('pr_RunType').addEventListener('change', function () {
+    st.runType = this.value;
+    const p2 = payrollDefaultPeriod(st.runType);
+    document.getElementById('pr_DateFrom').value = p2.from;
+    document.getElementById('pr_DateTo').value = p2.to;
+    st.types = PAYROLL_DEFAULT_TYPES[st.runType].slice();
+    syncTypeChecks();
+    renderCards();
+  });
+  body.querySelectorAll('.pr-type-chk').forEach(function (c) {
+    c.addEventListener('change', function () {
+      st.types = Array.prototype.filter.call(body.querySelectorAll('.pr-type-chk'), function (x) { return x.checked; }).map(function (x) { return x.value; });
+      renderCards();
+    });
+  });
+
+  document.getElementById('pr_FetchDays').addEventListener('click', async function () {
+    const from = val('pr_DateFrom'), to = val('pr_DateTo');
+    if (!from || !to) { showToast(t('আগে তারিখ দিন।','Enter the dates first.'), 'error'); return; }
+    try {
+      const att = await api('list', { sheet:'Attendance' });
+      const work = {}, idle = {};
+      att.forEach(function (a) {
+        if (!a.Date || (a.Status !== 'Present' && a.Status !== 'Idle')) return;
+        const d = String(a.Date).slice(0, 10);
+        if (d < from || d > to) return;
+        const bucket = a.Status === 'Idle' ? idle : work;
+        bucket[a.EmployeeID] = (bucket[a.EmployeeID] || 0) + 1;
+      });
+      let n = 0;
+      st.emps.forEach(function (e) {
+        if (e.type === 'Daily' || e.type === 'PieceRate') { e.days = work[e.id] || 0; e.idleDays = idle[e.id] || 0; n++; }
+      });
+      renderCards();
+      showToast(t(n + ' জনের কাজের দিন ও বসা দিন হাজিরা থেকে বসানো হয়েছে।', 'Work and idle days filled from attendance for ' + n + ' worker(s).'), 'success');
+    } catch (err) { showToast(err.message, 'error'); }
+  });
+
+  // কার্ডের ভেতরের সব ইনপুট — একটা লিসেনারেই
+  const cards = document.getElementById('pr_Cards');
+  function onField(ev) {
+    const el = ev.target;
+    if (!el.dataset || el.dataset.i === undefined || !el.dataset.f) return;
+    const i = Number(el.dataset.i), e = st.emps[i], f = el.dataset.f;
+    const v = el.type === 'checkbox' ? el.checked : el.value;
+    if (el.dataset.p !== undefined) e.prod[Number(el.dataset.p)][f] = v;
+    else if (el.dataset.x !== undefined) e.extra[Number(el.dataset.x)][f] = v;
+    else e[f] = v;
+    if (f === 'include') { document.getElementById('pr_card_' + i).classList.toggle('pr-off', !v); updateTotals(); return; }
+    updateCard(i);
+  }
+  cards.addEventListener('input', onField);
+  cards.addEventListener('change', onField);
+  cards.addEventListener('click', function (ev) {
+    const btn = ev.target.closest('[data-act]');
+    if (!btn) return;
+    const i = Number(btn.dataset.i), e = st.emps[i];
+    if (btn.dataset.act === 'addProd') e.prod.push({ itemId: '', qty: '', rate: '' });
+    else if (btn.dataset.act === 'delProd') e.prod.splice(Number(btn.dataset.p), 1);
+    else if (btn.dataset.act === 'addExtra') e.extra.push({ headId: '', note: '', amount: '' });
+    else if (btn.dataset.act === 'delExtra') e.extra.splice(Number(btn.dataset.x), 1);
+    rerenderCard(i);
+  });
 }
-window.updatePayrollNet = function (idx) {
-  const basic = Number(document.getElementById('pr_' + idx + '_basic').value) || 0;
-  const allow = Number(document.getElementById('pr_' + idx + '_allow').value) || 0;
-  const deduct = Number(document.getElementById('pr_' + idx + '_deduct').value) || 0;
-  document.getElementById('pr_' + idx + '_net').textContent = (basic + allow - deduct).toFixed(2);
-};
 
 /* ============================================================
    ১২.৯৫) প্রসেসিং ভাউচার (Processing Voucher) — Production মডিউল
@@ -3736,40 +4096,74 @@ window.recalcProcessing = function () {
 
 /** পে-স্লিপ — একটা পে-রোল রান বাছাই করলে সেই মাসের প্রতিটা কর্মচারীর স্লিপ দেখাবে */
 async function renderPayslipPage(content) {
-  const [payrolls, employees] = await Promise.all([api('list', { sheet:'Payroll' }), cachedList('Employees')]);
+  const [payrolls, employees, items, heads] = await Promise.all([
+    api('list', { sheet:'Payroll' }), cachedList('Employees'), cachedList('Items'),
+    cachedList('PayHeads').catch(function () { return []; })
+  ]);
   const empMap = {}; employees.forEach(function (e) { empMap[e.EmployeeID] = e.Name; });
+  const itemMap = {}; items.forEach(function (i) { itemMap[i.ItemID] = i.ItemName; });
+  const headMap = {}; heads.forEach(function (h) { headMap[h.HeadID] = h.HeadName; });
   const active = payrolls.filter(function (p) { return p.Status !== 'Deleted'; });
 
   content.innerHTML = `
     <div class="page-head"><div>
         <h1 class="i18n" data-bn="বেতন স্লিপ" data-en="Payslip">${t('বেতন স্লিপ','Payslip')}</h1>
-        <p class="i18n" data-bn="একটা পে-রোল রান বাছাই করে প্রতিটা কর্মচারীর স্লিপ দেখুন" data-en="Select a payroll run to see each employee's slip">${t('একটা পে-রোল রান বাছাই করে প্রতিটা কর্মচারীর স্লিপ দেখুন',"Select a payroll run to see each employee's slip")}</p>
+        <p>${t('একটা বেতন রান বাছাই করে প্রতিটা কর্মচারীর স্লিপ দেখুন',"Select a payroll run to see each employee's slip")}</p>
       </div>
       <select id="payslipRunSelect" style="width:auto;min-width:220px;">
         <option value="">${t('— বাছাই করুন —','— Select —')}</option>
-        ${active.slice().reverse().map(function (p) { return `<option value="${attr(p.PayrollID)}">${escapeHtml(p.Month)} ${escapeHtml(p.Year)}</option>`; }).join('')}
+        ${active.slice().reverse().map(function (p) { return `<option value="${attr(p.PayrollID)}">${escapeHtml(p.PayrollID)} · ${escapeHtml(RUN_TYPE_LABELS[p.RunType] || RUN_TYPE_LABELS.Monthly)} · ${escapeHtml(payrollPeriodLabel(p))}</option>`; }).join('')}
       </select>
     </div>
-    <div class="panel"><div id="payslipWrap"><div class="empty-state">${t('উপরে একটা পে-রোল রান বাছাই করুন।','Select a payroll run above.')}</div></div></div>`;
+    <div class="panel"><div id="payslipWrap"><div class="empty-state">${t('উপরে একটা বেতন রান বাছাই করুন।','Select a payroll run above.')}</div></div></div>`;
 
-  document.getElementById('payslipRunSelect').addEventListener('change', async function (e) {
-    const payrollId = e.target.value;
+  async function show(payrollId) {
     const wrap = document.getElementById('payslipWrap');
     if (!wrap) return; // ব্যবহারকারী এই ফাঁকে অন্য পেজ/ট্যাবে চলে গেলে এই এলিমেন্ট আর DOM-এ থাকবে না
-    if (!payrollId) { wrap.innerHTML = `<div class="empty-state">${t('উপরে একটা পে-রোল রান বাছাই করুন।','Select a payroll run above.')}</div>`; return; }
+    if (!payrollId) { wrap.innerHTML = `<div class="empty-state">${t('উপরে একটা বেতন রান বাছাই করুন।','Select a payroll run above.')}</div>`; return; }
 
-    const lines = await api('list', { sheet:'Payroll_Lines' });
-    const rows = lines.filter(function (l) { return l.PayrollID === payrollId; });
-    if (rows.length === 0) { wrap.innerHTML = `<div class="empty-state">${t('কোনো লাইন পাওয়া যায়নি।','No lines found.')}</div>`; return; }
+    const { data: rows } = await supabaseClient.from('Payroll_Lines').select('*').eq('PayrollID', payrollId);
+    let details = [];
+    try { const r = await supabaseClient.from('Payroll_Details').select('*').eq('PayrollID', payrollId); details = r.data || []; } catch (e) { details = []; }
+    if (!rows || rows.length === 0) { wrap.innerHTML = `<div class="empty-state">${t('কোনো লাইন পাওয়া যায়নি।','No lines found.')}</div>`; return; }
 
-    const headers = [['কর্মচারী','Employee'],['মূল বেতন','Basic'],['ভাতা','Allowance'],['কর্তন','Deduction'],['নিট বেতন','Net Pay']];
+    const headers = [['কর্মচারী ও বিস্তারিত','Employee & details'],['ধরন','Type'],['হিসাব অনুযায়ী','Calculated'],['সমন্বয়','Adjustment'],['প্রদেয় (নিট)','Net Payable']];
     const headCells = headers.map(function (h) { return `<th>${t(h[0], h[1])}</th>`; }).join('');
+    const F = function (n) { return Number(n || 0).toFixed(2); };
+    let total = 0;
     const bodyRows = rows.map(function (l) {
-      return `<tr><td>${escapeHtml(empMap[l.EmployeeID] || l.EmployeeID)}</td><td>${Number(l.BasicSalary||0).toFixed(2)}</td>
-        <td>${Number(l.Allowance||0).toFixed(2)}</td><td>${Number(l.Deduction||0).toFixed(2)}</td><td><b>${Number(l.NetPay||0).toFixed(2)}</b></td></tr>`;
+      total += Number(l.NetPay) || 0;
+      const mine = details.filter(function (d) { return d.EmployeeID === l.EmployeeID; });
+      const lines = [];
+      if (l.SalaryType === 'Daily') lines.push(t('কাজের দিন ','Work days ') + Number(l.DaysWorked || 0) + ' × ' + F(l.RatePerUnit) + ' = ' + F(l.BasicSalary));
+      else if (Number(l.BasicSalary)) lines.push(t('মূল বেতনঃ ','Base: ') + F(l.BasicSalary));
+      mine.filter(function (d) { return d.DetailType === 'Production'; }).forEach(function (d) {
+        lines.push(escapeHtml(itemMap[d.ItemID] || d.ItemID) + ': ' + Number(d.Qty) + ' × ' + F(d.Rate) + ' = ' + F(d.Amount));
+      });
+      if (l.SalaryType === 'PieceRate') {
+        lines.push(t('মোট উৎপাদন মজুরিঃ ','Production total: ') + F(l.ProductionAmount));
+        if (Number(l.MinWageTopUp)) lines.push(t('ন্যূনতম মজুরি পূরণ (','Min wage top-up (') + Number(l.DaysWorked || 0) + ' × ' + F(l.MinDailyWage) + t(' পর্যন্ত): +',' floor): +') + F(l.MinWageTopUp));
+      }
+      if (Number(l.IdleAmount)) lines.push(t('বসা দিন ','Idle days ') + Number(l.IdleDays || 0) + ' × ' + F(l.IdleDayWage) + ' = +' + F(l.IdleAmount));
+      mine.filter(function (d) { return d.DetailType !== 'Production'; }).forEach(function (d) {
+        lines.push((d.DetailType === 'Deduction' ? '− ' : '+ ') + escapeHtml(headMap[d.HeadID] || d.HeadID) + (d.Description ? ' (' + escapeHtml(d.Description) + ')' : '') + ': ' + F(d.Amount));
+      });
+      const adj = Number(l.Adjustment) || 0;
+      if (adj) lines.push(t('সমন্বয়ের কারণঃ ','Adjustment reason: ') + escapeHtml(l.AdjustmentNote || '—'));
+      const calcPay = (l.CalculatedPay !== undefined && l.CalculatedPay !== null) ? Number(l.CalculatedPay) : Number(l.NetPay || 0) - adj;
+      return `<tr><td><b>${escapeHtml(empMap[l.EmployeeID] || l.EmployeeID)}</b>${lines.length ? `<div style="font-size:11.5px;color:var(--text-muted);margin-top:3px;line-height:1.5;">${lines.join('<br>')}</div>` : ''}</td>
+        <td>${escapeHtml(SALARY_TYPE_LABELS[l.SalaryType] || '—')}</td>
+        <td>${F(calcPay)}</td>
+        <td style="${adj < 0 ? 'color:var(--danger);' : ''}">${adj ? (adj > 0 ? '+' : '−') + F(Math.abs(adj)) : '—'}</td>
+        <td><b>${F(l.NetPay)}</b></td></tr>`;
     }).join('');
-    wrap.innerHTML = `<table class="data-table"><thead><tr>${headCells}</tr></thead><tbody>${bodyRows}</tbody></table>`;
-  });
+    wrap.innerHTML = `<div style="overflow-x:auto;"><table class="data-table"><thead><tr>${headCells}</tr></thead><tbody>${bodyRows}
+      <tr><td colspan="4" style="text-align:right;font-weight:700;">${t('মোট প্রদেয়ঃ','Total payable:')}</td><td><b>${total.toFixed(2)}</b></td></tr></tbody></table></div>`;
+  }
+
+  const sel = document.getElementById('payslipRunSelect');
+  sel.addEventListener('change', function (e) { show(e.target.value); });
+  if (window.__payslipPreselect) { sel.value = window.__payslipPreselect; window.__payslipPreselect = null; await show(sel.value); }
 }
 
 /* ============================================================
@@ -6641,7 +7035,7 @@ const ALL_DATA_SHEETS = [
   'BOM','BOM_Lines','ProductionOrder','ProductionMaterialIssue','PMI_Lines','FinishedGoodsReceive','FGR_Lines',
   'ProcessingVoucher','ProcessingByProduct_Lines',
   'ChartOfAccounts','BankCashAccounts','JournalVoucher','JV_Lines','ContraVoucher','PaymentVoucher','ReceiptVoucher','BankCashBook','PartyLedger',
-  'Attendance','LeaveRequests','Payroll','Payroll_Lines',
+  'Attendance','LeaveRequests','Payroll','Payroll_Lines','Payroll_Details','PayHeads',
   'SystemSettings'
 ];
 
