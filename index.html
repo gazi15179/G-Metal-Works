@@ -3273,8 +3273,10 @@ async function openProcessingForm() {
     </div>
     <!-- লাইন ৩: গড় দর আনুন -->
     <div style="margin-top:12px;"><button type="button" class="btn" style="width:auto;" id="pv_FetchRateBtn" disabled>${t('↻ গড় দর আনুন','↻ Fetch Average Rate')}</button> <span id="pv_RateHint" style="font-size:11.5px;color:var(--text-muted);margin-left:8px;"></span></div>
-    <!-- লাইন ৪: ভাউচার তারিখ (যেদিন ভাউচার কাটা হচ্ছে) -->
-    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:14px;">
+    <!-- লাইন ৪: ভাউচার তারিখ — "তারিখ পর্যন্ত" ঘরের ঠিক নিচে -->
+    <div style="display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,1fr);gap:14px;margin-top:14px;">
+      <div style="visibility:hidden;white-space:nowrap;padding-left:26px;">${t('গড় দর','Avg Rate')}</div>
+      <div></div>
       <div class="field"><label>${t('ভাউচার তারিখ','Voucher Date')}</label><input type="date" id="pv_Date" value="${new Date().toISOString().slice(0,10)}"></div>
     </div>
 
@@ -3300,6 +3302,9 @@ async function openProcessingForm() {
       <div class="field"><label>${t('পিস','Pieces')}</label><input id="pv_Pieces" type="number" step="any" oninput="recalcProcessing()"></div>
       <div class="field"><label>${t('প্রতি কেজি দর','Rate per kg')}</label><input id="pv_RatePerKg" readonly style="background:var(--bg);font-weight:600;"></div>
       <div class="field"><label>${t('প্রতি পিস দর','Rate per piece')}</label><input id="pv_RatePerPiece" readonly style="background:var(--bg);font-weight:600;"></div>
+      <div class="field"><label>${t('প্রতি কেজি বিক্রয় দর','Sale rate per kg')}</label><input id="pv_SaleRatePerKg" type="number" step="any" oninput="recalcProcessing()"></div>
+      <div class="field"><label>${t('প্রতি পিস বিক্রয় দর','Sale rate per piece')}</label><input id="pv_SaleRatePerPiece" type="number" step="any" oninput="recalcProcessing()"></div>
+      <div class="field"><label>${t('লাভ','Profit')}</label><input id="pv_Profit" readonly style="background:var(--bg);font-weight:700;"><div id="pv_ProfitHint" style="font-size:11.5px;color:var(--text-muted);margin-top:4px;"></div></div>
     </div>`;
 
   openModal({
@@ -3340,7 +3345,9 @@ async function openProcessingForm() {
         ByProductValue: byProductLines.reduce(function (s, l) { return s + l.Value; }, 0),
         NetWeight: Number(val('pv_NetWeight')) || 0, NetValue: Number(val('pv_NetValue')) || 0,
         FinishedGoodsItemID: fgItemId, Pieces: Number(val('pv_Pieces')) || 0,
-        RatePerKg: Number(val('pv_RatePerKg')) || 0, RatePerPiece: Number(val('pv_RatePerPiece')) || 0
+        RatePerKg: Number(val('pv_RatePerKg')) || 0, RatePerPiece: Number(val('pv_RatePerPiece')) || 0,
+        SaleRatePerKg: Number(val('pv_SaleRatePerKg')) || 0, SaleRatePerPiece: Number(val('pv_SaleRatePerPiece')) || 0,
+        Profit: Number(val('pv_Profit')) || 0
       };
 
       await api('createDocument', {
@@ -3448,6 +3455,20 @@ window.recalcProcessing = function () {
   const pieces = Number(val('pv_Pieces')) || 0;
   document.getElementById('pv_RatePerKg').value = netWeight > 0 ? (netValue / netWeight).toFixed(2) : '0.00';
   document.getElementById('pv_RatePerPiece').value = pieces > 0 ? (netValue / pieces).toFixed(2) : '0.00';
+
+  // লাভ = বিক্রয় মূল্য − নেট খরচ। কেজি বিক্রয় দর দিলে সেটা ধরে, না দিলে পিস বিক্রয় দর ধরে।
+  const saleKg = Number(val('pv_SaleRatePerKg')) || 0;
+  const salePc = Number(val('pv_SaleRatePerPiece')) || 0;
+  const profitEl = document.getElementById('pv_Profit');
+  const hintEl = document.getElementById('pv_ProfitHint');
+  let profit = 0, hint = '';
+  if (saleKg > 0) { profit = saleKg * netWeight - netValue; hint = t('কেজি বিক্রয় দর অনুযায়ী','Based on sale rate per kg'); }
+  else if (salePc > 0) { profit = salePc * pieces - netValue; hint = t('পিস বিক্রয় দর অনুযায়ী','Based on sale rate per piece'); }
+  if (profitEl) {
+    profitEl.value = profit.toFixed(2);
+    profitEl.style.color = profit < 0 ? 'var(--danger, #c0392b)' : '';
+  }
+  if (hintEl) hintEl.textContent = profit < 0 ? t('ক্ষতি — ', 'Loss — ') + hint : hint;
 };
 
 /** পে-স্লিপ — একটা পে-রোল রান বাছাই করলে সেই মাসের প্রতিটা কর্মচারীর স্লিপ দেখাবে */
