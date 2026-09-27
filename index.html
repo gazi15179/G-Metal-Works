@@ -3687,7 +3687,7 @@ async function openPrintableVoucherView(docType, docId) {
     isCashParty: isCashParty, prevDue: isSales ? prevBalance : -prevBalance,
     cashPaid: Number(isSales ? header.CashReceivedAmount : header.CashPaidAmount) || 0,
     bankPaid: Number(isSales ? header.BankReceivedAmount : header.BankPaidAmount) || 0,
-    payCashLabel: isSales ? 'নগদ গ্রহণঃ' : 'নগদ প্রদানঃ', payBankLabel: isSales ? 'ব্যাংকে গ্রহণঃ' : 'ব্যাংক প্রদানঃ',
+    payCashLabel: (isSales !== isReturn) ? 'নগদ গ্রহণঃ' : 'নগদ প্রদানঃ', payBankLabel: (isSales !== isReturn) ? 'ব্যাংকে গ্রহণঃ' : 'ব্যাংক প্রদানঃ',
     withProfit: isSales, showProfit: false,
     titleBn: titleBn, company: company,
     voucherDate: voucherDate, voucherNo: docId,
@@ -3712,7 +3712,7 @@ async function openPrintableVoucherView(docType, docId) {
     ${isSales ? `<label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;cursor:pointer;"><input type="checkbox" id="profitChk" onchange="document.querySelectorAll('.v-profit').forEach(function(e){e.style.display=this.checked?'':'none';}.bind(this))"> 📈 লাভ দেখান</label>` : ''}
   </div>
   ${voucherTableBody}
-  <p style="margin-top:10px;font-size:9.5px;color:#888;text-align:center;">তৈরি হয়েছেঃ ${escapeHtml(bnDigits(formatPrintDate()))}${person ? ' — ' + escapeHtml(person.Email || '') : ''}</p>
+  <p style="margin-top:10px;font-size:9.5px;color:#888;text-align:center;">${person ? escapeHtml(person.Email || '') : ''}</p>
   <script>
     document.getElementById('shareBtn').addEventListener('click', async function () {
       const text = ${JSON.stringify(titleBn)} + ' ' + ${JSON.stringify(docId)} + '\\n' +
@@ -6574,7 +6574,8 @@ const VOUCHER_TABLE_CSS = `
   .v-co-addr{font-size:9.5px;color:#222;margin-top:2px;line-height:1.3;}
   .v-co-mob{font-size:10px;margin-top:2px;}
   .v-meta{flex:0 0 150px;border:1px solid #000;border-radius:5px;overflow:hidden;display:flex;flex-direction:column;}
-  .v-type{background:#111;color:#fff;font-weight:700;font-size:12.5px;text-align:center;padding:4px 2px;}
+  .v-type{font-weight:700;font-size:13px;text-align:center;padding:3px 2px 2px;}
+  .v-print{background:#111;color:#fff;font-size:9.5px;text-align:center;padding:3px 2px;}
   .v-meta-row{display:flex;justify-content:space-between;gap:4px;padding:2px 6px;font-size:10px;border-top:.5px solid #999;}
   .v-meta-row:first-of-type{border-top:none;}
   .v-draft{font-size:9px;color:#b45309;text-align:center;padding:1px;border-top:.5px solid #999;}
@@ -6592,7 +6593,9 @@ const VOUCHER_TABLE_CSS = `
   .items-table td.r,.items-table th.r{text-align:right;}
   .items-table .total-row td{font-weight:700;background:#fafafa;}
   .items-table .section-head td{background:#f5f5f5;font-weight:700;text-align:left;}
-  .items-table .grand td{font-weight:700;font-size:11.5px;border-top:1.2px solid #000;}
+  .items-table .grand td{font-weight:700;font-size:11.5px;border-top:2px solid #000;}
+  .items-table .vat-row td{background:#f7f7f7;}
+  .items-table .grand-all td{font-weight:700;font-size:12px;border-top:2.5px solid #000;background:#f2f2f2;}
   /* ৪র্থ অংশ — ভ্যাট ও বকেয়া হিসাব (আলাদা বর্ডার) */
   .v-sum{margin-top:6px;border:1.5px solid #000;border-radius:6px;overflow:hidden;position:relative;z-index:1;}
   .v-sum table td{border:none;border-top:.5px solid #999;padding:2px 8px;font-size:10.5px;}
@@ -6618,7 +6621,7 @@ const VOUCHER_TABLE_CSS = `
     .toolbar{display:none;}
     .v-profit{display:none !important;}
     html,body{width:100% !important;max-width:100% !important;margin:0 !important;padding:0 !important;overflow:visible !important;}
-    .v-co,.v-party,.v-meta,.v-logo,.items-table th,.items-table .total-row td,.v-type{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+    .v-co,.v-party,.v-meta,.v-logo,.items-table th,.items-table .total-row td,.items-table .grand-all td,.v-print{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
   }
 `;
 
@@ -6655,6 +6658,13 @@ function buildVoucherTableBody(opts) {
   const retQty = sumField(opts.returnLines, 'qty'), retAmt = sumField(opts.returnLines, 'amount'), retComm = sumField(opts.returnLines, 'commAmount'), retNet = sumNet(opts.returnLines);
   const netGrandTotal = mainNet + (opts.cashExpenseAmt || 0) - (opts.discountAmt || 0) - retNet;
   const colCount = hasComm ? 8 : 5;
+  const vatAmt = Number(opts.vatAmount) || 0, vatRate = Number(opts.vatRate) || 0;
+  const voucherGrand = netGrandTotal + vatAmt;
+  // শুধু-ফেরত ভাউচার (ক্রয় ফেরত / বিক্রয় ফেরত) — যোগফল ঋণাত্মক হয়, তাই চিহ্ন ছাড়া (−) দিয়ে দেখানো হবে
+  const isReturnOnly = opts.mainLines.length === 0 && opts.returnLines.length > 0;
+  const SM = function (n) { return (n < 0 ? '(−) ' : '') + M(Math.abs(n)); };
+  const grandQty = Math.abs(mainQty - retQty);
+  const grandLabel = isReturnOnly ? 'সর্বমোট ফেরত (ভাউচার)ঃ' : 'সর্বমোট (ভাউচার)ঃ';
   const colgroup = hasComm
     ? '<colgroup><col style="width:6%"><col style="width:24%"><col style="width:11%"><col style="width:10%"><col style="width:13%"><col style="width:8%"><col style="width:12%"><col style="width:16%"></colgroup>'
     : '<colgroup><col style="width:7%"><col style="width:38%"><col style="width:15%"><col style="width:15%"><col style="width:25%"></colgroup>';
@@ -6665,6 +6675,12 @@ function buildVoucherTableBody(opts) {
   const labelRow = function (label, valueHtml) {
     return `<tr><td colspan="${colCount-1}" class="r">${escapeHtml(label)}</td><td class="r">${valueHtml}</td></tr>`;
   };
+
+  // প্রিন্টের তারিখ ও সময় — যখন প্রিভিউ/প্রিন্ট তৈরি হয় তখনকার সময়
+  const _now = new Date(), _p = function (n) { return String(n).padStart(2, '0'); };
+  const _h = _now.getHours() % 12 || 12;
+  const printStamp = _p(_now.getDate()) + '-' + _p(_now.getMonth() + 1) + '-' + _now.getFullYear() + ' ' +
+                     _p(_h) + ':' + _p(_now.getMinutes()) + (_now.getHours() < 12 ? ' AM' : ' PM');
 
   const co = opts.company || {};
   // প্রিন্ট সম্পূর্ণ বাংলায় — কোম্পানি প্রোফাইলে CompanyNameBn/AddressBn থাকলে সেটাই, না থাকলে বাংলা ডিফল্ট
@@ -6683,6 +6699,7 @@ function buildVoucherTableBody(opts) {
     </div>
     <div class="v-meta">
       <div class="v-type">${escapeHtml(opts.titleBn)}</div>
+      <div class="v-print">প্রিন্টঃ <span class="en">${escapeHtml(printStamp)}</span></div>
       <div class="v-meta-row"><span>ভাউচার নংঃ</span><b class="en">${escapeHtml(opts.voucherNo)}</b></div>
       <div class="v-meta-row"><span>তারিখঃ</span><b class="en">${escapeHtml(formatShortDate(opts.voucherDate))}</b></div>
       ${opts.manualNo ? `<div class="v-meta-row"><span>নিঃ ভাউঃ নংঃ</span><span class="en">${escapeHtml(opts.manualNo)}</span></div>` : ''}
@@ -6713,9 +6730,11 @@ function buildVoucherTableBody(opts) {
       ${totalRow(opts.returnTotalLabel, retQty, retAmt, retComm, retNet)}
     </tbody>` : ''}
     <tbody>
-      ${opts.cashExpenseAmt > 0 ? labelRow('নগদ খরচ যোগঃ', M(opts.cashExpenseAmt)) : ''}
+      ${opts.cashExpenseAmt > 0 ? labelRow('খরচ যোগঃ', M(opts.cashExpenseAmt)) : ''}
       ${opts.discountAmt > 0 ? labelRow('ডিসকাউন্টঃ', '− ' + M(opts.discountAmt)) : ''}
-      <tr class="grand"><td colspan="${colCount-1}" class="r">নিট মোটঃ</td><td class="r">${M(netGrandTotal)}</td></tr>
+      <tr class="grand"><td colspan="${colCount-1}" class="r">নিট মোটঃ</td><td class="r">${SM(netGrandTotal)}</td></tr>
+      ${vatAmt > 0 ? `<tr class="vat-row"><td colspan="${colCount-1}" class="r">ভ্যাটঃ ${vatRate ? '(' + B(vatRate) + ' %)' : ''}</td><td class="r">+ ${M(vatAmt)}</td></tr>` : ''}
+      <tr class="grand-all"><td colspan="2" class="r">${grandLabel}</td><td>${B(grandQty)}</td><td colspan="${colCount-4}"></td><td class="r">${SM(voucherGrand)}</td></tr>
     </tbody>
   </table>
 
@@ -6739,13 +6758,10 @@ function buildVoucherSummaryBox(opts, netGrandTotal, B, M) {
   const dueRow = function (posLabel, negLabel, amt, cls) {
     return row(amt < 0 ? negLabel : posLabel, M(Math.abs(amt)), cls);
   };
+  // ভ্যাট ও "সর্বমোট (ভাউচার)" এখন আইটেম টেবিলের ভেতরে — এই বক্স শুরু হয় বকেয়া হিসাব থেকে
   let rows = '';
-  if (vatAmt > 0) {
-    rows += `<tr class="vat"><td class="k" style="width:22%;">ভ্যাটঃ</td><td style="width:18%;text-align:center;">${vatRate ? B(vatRate) + ' %' : '—'}</td><td class="k" style="width:25%;">পরিমাণঃ</td><td class="v">+ ${M(vatAmt)}</td></tr>`;
-  }
-  rows += row('সর্বমোটঃ', M(grand), 'big' + (vatAmt > 0 ? ' thick' : ''));
   if (opts.isCashParty) {
-    rows += row(opts.payCashLabel || 'নগদঃ', '(−) ' + M(grand));
+    rows += row(opts.payCashLabel || 'নগদঃ', (grand < 0 ? '(+) ' : '(−) ') + M(Math.abs(grand)));
     rows += row('অবশিষ্ট বকেয়াঃ', M(0), 'big thick');
   } else {
     const prev = Number(opts.prevDue) || 0;
