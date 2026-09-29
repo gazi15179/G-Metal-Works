@@ -1647,17 +1647,27 @@ const MASTER_CONFIGS = {
   },
   employees: {
     sheet: 'Employees', idField: 'EmployeeID', idPrefix: 'EMP',
-    titleBn: 'কর্মচারী তথ্য', titleEn: 'Employee Info', subBn: 'সব কর্মচারীর তথ্য — মাসিক বেতন থেকে দৈনিক হাজিরা হিসাব হয়', subEn: 'All employees — daily wage comes from the monthly salary',
-    columns: [{key:'EmployeeID',label:'আইডি'},{key:'Name',label:'নাম'},{key:'CategoryID',label:'ধরন',fkSheet:'EmployeeCategories',fkIdField:'CategoryID',fkLabel:'CategoryName'},{key:'Phone',label:'ফোন'},{key:'SalaryType',label:'বেতনের ধরন',labels:{Monthly:'মাসিক',Weekly:'সাপ্তাহিক',Daily:'দৈনিক',PieceRate:'মাসিক'}},{key:'BasicSalary',label:'বেতন'},{key:'IsActive',label:'অবস্থা'}],
+    titleBn: 'কর্মচারী তথ্য', titleEn: 'Employee Info', subBn: 'সব কর্মচারীর তথ্য — মাসিক বা সাপ্তাহিক বেতন থেকে দৈনিক হাজিরা হিসাব হয়', subEn: 'All employees — daily wage comes from the monthly or weekly salary',
+    columns: [{key:'EmployeeID',label:'আইডি'},{key:'Name',label:'নাম'},{key:'CategoryID',label:'ধরন',fkSheet:'EmployeeCategories',fkIdField:'CategoryID',fkLabel:'CategoryName'},{key:'Phone',label:'মোবাইল'},{key:'SalaryType',label:'বেতনের ধরন',labels:{Monthly:'মাসিক',Weekly:'সাপ্তাহিক',Daily:'দৈনিক',PieceRate:'মাসিক'}},{key:'BasicSalary',label:'বেতন'},{key:'IsActive',label:'অবস্থা'}],
     fields: [
       {key:'Name', label:'নাম', type:'text', required:true},
-      {key:'CategoryID', label:'কর্মচারীর ধরন (ম্যানেজার/ফোরম্যান/কারিগর/হেল্পার/ড্রাইভার)', type:'select-fk', fkSheet:'EmployeeCategories', fkIdField:'CategoryID', fkLabel:'CategoryName', required:true},
+      {key:'CategoryID', label:'কর্মচারীর ধরন', type:'select-fk', fkSheet:'EmployeeCategories', fkIdField:'CategoryID', fkLabel:'CategoryName', required:true, manage:true, sortField:'SortOrder'},
       {key:'SalaryType', label:'বেতনের ধরন', type:'select-enum', options:[['Monthly','মাসিক'],['Weekly','সাপ্তাহিক']], required:true},
       {key:'BasicSalary', label:'বেতন (মাসিক হলে দৈনিক হাজিরা = বেতন ÷ ৩০; সাপ্তাহিক হলে = বেতন ÷ ৬, শনি–বৃহঃ)', type:'number', required:true},
-      {key:'Designation', label:'পদবি (ঐচ্ছিক)', type:'text'},
-      {key:'JoiningDate', label:'যোগদানের তারিখ', type:'date'},
-      {key:'Phone', label:'ফোন', type:'text'},
-      {key:'Address', label:'ঠিকানা', type:'text'},
+      {key:'Designation', label:'পদবি (ঐচ্ছিক)', type:'text', half:true},
+      {key:'JoiningDate', label:'যোগদানের তারিখ', type:'date', half:true},
+      {key:'Phone', label:'মোবাইল', type:'text'},
+      {type:'section', label:'ঠিকানা ও পরিচয়'},
+      {key:'FatherName', label:'পিতাঃ', type:'text', half:true},
+      {key:'MotherName', label:'মাতাঃ', type:'text', half:true},
+      {key:'Village', label:'গ্রামঃ', type:'text', half:true},
+      {key:'PostOffice', label:'পোঃ', type:'text', half:true},
+      {key:'Upazila', label:'উপজেলাঃ', type:'text', half:true},
+      {key:'District', label:'জেলাঃ', type:'text', half:true},
+      {key:'NID', label:'ভোটার আইডিঃ (ঐচ্ছিক)', type:'text', half:true},
+      {key:'BirthRegNo', label:'জন্ম নিবন্ধনঃ (ঐচ্ছিক — ভোটার আইডি না থাকলে)', type:'text', half:true},
+      {type:'section', label:'ডকুমেন্ট'},
+      {key:'Documents', label:'ডকুমেন্ট আপলোড — ভোটার আইডি/জন্ম নিবন্ধনের ছবি, কর্মচারীর ছবি, চুক্তিপত্র ইত্যাদি (ছবি বা PDF, প্রতিটা সর্বোচ্চ ১০ MB)', type:'files', bucket:'employee-docs'},
       {key:'IsActive', label:'অবস্থা', type:'boolean'}
     ]
   },
@@ -1665,9 +1675,10 @@ const MASTER_CONFIGS = {
   empCategories: {
     sheet: 'EmployeeCategories', idField: 'CategoryID', idPrefix: 'ECAT',
     titleBn: 'কর্মচারীর ধরন', titleEn: 'Employee Types', subBn: 'ম্যানেজার, ফোরম্যান, কারিগর, হেল্পার, ড্রাইভার — যোগ, এডিট ও ডিলিট করুন', subEn: 'Manager, Foreman, Karigar, Helper, Driver — add, edit, delete',
-    columns: [{key:'CategoryID',label:'আইডি'},{key:'CategoryName',label:'ধরনের নাম'},{key:'IsActive',label:'অবস্থা'}],
+    columns: [{key:'CategoryID',label:'আইডি'},{key:'CategoryName',label:'ধরনের নাম'},{key:'SortOrder',label:'ক্রম'},{key:'IsActive',label:'অবস্থা'}],
     fields: [
       {key:'CategoryName', label:'ধরনের নাম', type:'text', required:true},
+      {key:'SortOrder', label:'ক্রম', type:'number'},
       {key:'IsActive', label:'অবস্থা', type:'boolean'}
     ]
   },
@@ -1782,16 +1793,18 @@ async function openMasterModal(sheetName, record) {
   const fkLists = {};
   fkFieldsList.forEach(function (f) { fkLists[f.key] = fkSheetMap[f.fkSheet]; });
 
-  const bodyHtml = config.fields.map(function (f) {
+  const rawBody = config.fields.map(function (f) {
+    if (f.type === 'section') return `<div class="mf-sec">${escapeHtml(f.label)}</div>`;
     const currentVal = record ? record[f.key] : '';
     const inputId = 'mf_' + f.key;
+    if (f.type === 'files') return mfFilesHtml(f, currentVal);
 
     if (f.type === 'select-enum') {
       const opts = f.options.map(function (o) { const ov = Array.isArray(o) ? o[0] : o, ol = Array.isArray(o) ? o[1] : o; return `<option value="${ov}" ${currentVal===ov?'selected':''}>${ol}</option>`; }).join('');
       return `<div class="field"><label>${f.label}</label><select id="${inputId}"><option value="">— বাছাই করুন —</option>${opts}</select></div>`;
     }
     if (f.type === 'select-fk') {
-      const list = (fkLists[f.key] || []).filter(function (r) {
+      const list = (fkLists[f.key] || []).slice().sort(f.sortField ? hrBySortOrder(f.fkLabel) : function () { return 0; }).filter(function (r) {
         if (r.Status === 'Deleted') return false;
         // self-referencing FK (যেমন Category-র ParentCategoryID) হলে নিজেকে নিজের প্যারেন্ট বানানো যাবে না
         if (isEdit && f.fkSheet === config.sheet && r[config.idField] === record[config.idField]) return false;
@@ -1801,6 +1814,11 @@ async function openMasterModal(sheetName, record) {
         const idVal = r[f.fkIdField];
         return `<option value="${attr(idVal)}" ${currentVal===idVal?'selected':''}>${escapeHtml(r[f.fkLabel])}</option>`;
       }).join('');
+      if (f.manage) return `<div class="field"><label>${f.label}</label>
+        <div class="mf-manage"><select id="${inputId}"><option value="">— বাছাই করুন —</option>${opts}</select>
+          <button type="button" class="mf-ic" data-mf-add="${f.key}" title="নতুন">➕</button><button type="button" class="mf-ic" data-mf-edit="${f.key}" title="এডিট">✏️</button>
+          <button type="button" class="mf-ic" data-mf-del="${f.key}" title="ডিলিট">🗑</button><button type="button" class="mf-ic" data-mf-save="${f.key}" title="সেভ" disabled>💾</button></div>
+        <div class="mf-inline" id="mfi_${f.key}"><input id="mfin_${f.key}" placeholder="নাম লিখে 💾 চাপুন"></div></div>`;
       return `<div class="field"><label>${f.label}</label><select id="${inputId}"><option value="">— নেই —</option>${opts}</select></div>`;
     }
     if (f.type === 'boolean') {
@@ -1818,7 +1836,14 @@ async function openMasterModal(sheetName, record) {
       return `<div class="field"><label>${f.label}</label><input id="${inputId}" type="date" value="${attr(currentVal)}"></div>`;
     }
     return `<div class="field"><label>${f.label}</label><input id="${inputId}" value="${attr(currentVal)}"></div>`;
-  }).join('');
+  });
+  // পাশাপাশি দুই ঘর (half) জোড়া করে একটা সারিতে
+  let bodyHtml = '';
+  for (let i = 0; i < config.fields.length; i++) {
+    if (config.fields[i].half && config.fields[i + 1] && config.fields[i + 1].half) { bodyHtml += `<div class="mf-half">${rawBody[i]}${rawBody[i + 1]}</div>`; i++; }
+    else bodyHtml += rawBody[i];
+  }
+  bodyHtml = MF_EXTRA_CSS + bodyHtml;
 
   openModal({
     title: (isEdit ? 'সম্পাদনা — ' : 'নতুন — ') + config.titleBn,
@@ -1826,6 +1851,8 @@ async function openMasterModal(sheetName, record) {
     onSave: async function () {
       const data = {};
       config.fields.forEach(function (f) {
+        if (f.type === 'section') return;
+        if (f.type === 'files') { data[f.key] = (window.__mfFiles && window.__mfFiles[f.key]) || []; return; }
         let v = f.type === 'amount-drcr' ? readAmountDrCr('mf_' + f.key) : val('mf_' + f.key);
         // ঐচ্ছিক ড্রপডাউন (select-fk) খালি রাখলে "" এর বদলে null পাঠানো হচ্ছে —
         // কারণ ডেটাবেসের ফরেইন-কী কলাম "" মেনে নেয় না, শুধু আসল আইডি অথবা null মানে
@@ -1835,7 +1862,7 @@ async function openMasterModal(sheetName, record) {
         data[f.key] = v;
       });
 
-      const missing = config.fields.filter(function (f) { return f.required && !data[f.key]; });
+      const missing = config.fields.filter(function (f) { return f.required && f.key && !data[f.key]; });
       if (missing.length > 0) throw new Error(missing.map(function(f){return f.label;}).join(', ') + ' আবশ্যক।');
       if (config.validate) { const msg = config.validate(data); if (msg) throw new Error(msg); }
 
@@ -1849,7 +1876,124 @@ async function openMasterModal(sheetName, record) {
       await window.__refreshMasterTable();
     }
   });
+  mfSetupExtras(config);
 }
+
+/* ---------- মাস্টার ফর্মের বাড়তি অংশঃ ফাইল আপলোড ও ড্রপডাউনের পাশে যোগ/এডিট/ডিলিট ---------- */
+const MF_EXTRA_CSS = `<style>
+  .mf-sec{font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:10px;margin:14px 0 8px;}
+  .mf-half{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 10px;}
+  .mf-manage{display:flex;gap:4px;align-items:center;} .mf-manage select{flex:1;min-width:0;}
+  .mf-ic{width:34px;height:38px;border:1px solid var(--border);border-radius:8px;background:var(--surface);cursor:pointer;font-size:14px;flex-shrink:0;padding:0;}
+  .mf-ic:disabled{opacity:.35;cursor:not-allowed;}
+  .mf-inline{display:none;margin-top:6px;} .mf-inline.on{display:block;}
+  .mf-files{border:1px dashed var(--border);border-radius:10px;padding:8px;}
+  .mf-file{display:flex;align-items:center;gap:8px;padding:5px 2px;border-bottom:1px solid var(--border);font-size:12.5px;}
+  .mf-file span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .mf-file button{width:30px;height:28px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;padding:0;}
+  .mf-up{display:inline-flex;align-items:center;gap:6px;margin-top:6px;padding:6px 12px;border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:12.5px;background:var(--bg);}
+  .mf-up input{display:none;}
+  .mf-prog{font-size:11.5px;color:var(--text-muted);margin-top:4px;}
+  @media (max-width:600px){ .mf-half{grid-template-columns:minmax(0,1fr);} }
+</style>`;
+function mfParseFiles(v) {
+  if (!v) return [];
+  if (Array.isArray(v)) return v;
+  try { const x = JSON.parse(v); return Array.isArray(x) ? x : []; } catch (e) { return []; }
+}
+function mfFilesHtml(f, currentVal) {
+  window.__mfFiles = window.__mfFiles || {};
+  window.__mfFiles[f.key] = mfParseFiles(currentVal);
+  return `<div class="field"><label>${f.label}</label><div class="mf-files" id="mff_${f.key}"></div></div>`;
+}
+function mfRenderFiles(key) {
+  const box = document.getElementById('mff_' + key); if (!box) return;
+  const list = window.__mfFiles[key] || [];
+  box.innerHTML = (list.length ? list.map(function (d, i) {
+    return `<div class="mf-file">${/pdf/i.test(d.type || d.name) ? '📄' : '🖼'}<span title="${attr(d.name)}">${escapeHtml(d.name)}</span>
+      <button type="button" data-mf-view="${key}|${i}" title="দেখুন">👁</button><button type="button" data-mf-rm="${key}|${i}" title="সরান">✕</button></div>`;
+  }).join('') : '<div class="mf-prog">এখনো কোনো ডকুমেন্ট নেই।</div>') +
+  `<label class="mf-up">📎 ডকুমেন্ট যোগ করুন<input type="file" multiple accept="image/*,application/pdf" data-mf-upload="${key}"></label><div class="mf-prog" id="mfp_${key}"></div>`;
+}
+function mfSetupExtras(config) {
+  const body = document.getElementById('modalBody'); if (!body) return;
+  config.fields.forEach(function (f) { if (f.type === 'files') mfRenderFiles(f.key); });
+  const mode = {};
+  body.addEventListener('change', async function (ev) {
+    const el = ev.target;
+    if (!el.dataset || !el.dataset.mfUpload) return;
+    const key = el.dataset.mfUpload, f = config.fields.find(function (x) { return x.key === key; });
+    const files = Array.prototype.slice.call(el.files || []);
+    const prog = document.getElementById('mfp_' + key);
+    let ok = 0;
+    for (const file of files) {
+      if (file.size > 10 * 1024 * 1024) { showToast(file.name + ' — ১০ MB-এর বেশি বড় ফাইল নেওয়া যাবে না।', 'error'); continue; }
+      prog.textContent = file.name + ' আপলোড হচ্ছে…';
+      const path = config.sheet + '/' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '-' + file.name.replace(/[^A-Za-z0-9._-]/g, '_');
+      const { error } = await supabaseClient.storage.from(f.bucket).upload(path, file, { contentType: file.type, upsert: false });
+      if (error) { showToast('আপলোড হয়নি — ' + error.message, 'error'); continue; }
+      window.__mfFiles[key].push({ name: file.name, path: path, type: file.type, size: file.size, uploadedAt: new Date().toISOString() });
+      ok++;
+    }
+    mfRenderFiles(key);
+    if (ok) showToast(ok + ' টা ডকুমেন্ট আপলোড হয়েছে — ফর্মটা সেভ করতে ভুলবেন না।', 'success');
+  });
+  body.addEventListener('click', async function (ev) {
+    const b = ev.target.closest('button'); if (!b) return;
+    const d = b.dataset;
+    if (d.mfView) {
+      const p = d.mfView.split('|'), f = config.fields.find(function (x) { return x.key === p[0]; }), doc = window.__mfFiles[p[0]][Number(p[1])];
+      const win = window.open('', '_blank');
+      const { data, error } = await supabaseClient.storage.from(f.bucket).createSignedUrl(doc.path, 3600);
+      if (error) { if (win) win.close(); showToast(error.message, 'error'); return; }
+      if (win) win.location = data.signedUrl; else window.location = data.signedUrl;
+    } else if (d.mfRm) {
+      const p = d.mfRm.split('|'), f = config.fields.find(function (x) { return x.key === p[0]; });
+      if (!confirm('এই ডকুমেন্টটা সরাবেন?')) return;
+      const doc = window.__mfFiles[p[0]].splice(Number(p[1]), 1)[0];
+      if (doc) await supabaseClient.storage.from(f.bucket).remove([doc.path]);
+      mfRenderFiles(p[0]); showToast('সরানো হয়েছে — ফর্মটা সেভ করুন।', 'success');
+    } else if (d.mfAdd || d.mfEdit) {
+      const key = d.mfAdd || d.mfEdit, sel = document.getElementById('mf_' + key);
+      if (d.mfEdit && !sel.value) { showToast('এডিট করতে আগে একটা বাছাই করুন।', 'error'); return; }
+      mode[key] = d.mfAdd ? 'add' : 'edit';
+      document.getElementById('mfi_' + key).classList.add('on');
+      const inp = document.getElementById('mfin_' + key); inp.value = d.mfEdit ? sel.options[sel.selectedIndex].text : ''; inp.focus();
+      body.querySelector(`[data-mf-save="${key}"]`).disabled = false;
+    } else if (d.mfSave) {
+      const key = d.mfSave, f = config.fields.find(function (x) { return x.key === key; }), sel = document.getElementById('mf_' + key);
+      const name = val('mfin_' + key).trim(); if (!name) { showToast('নাম লিখুন।', 'error'); return; }
+      const row = {}; row[f.fkLabel] = name;
+      try {
+        if (mode[key] === 'add') {
+          const cur = await cachedList(f.fkSheet);
+          row.SortOrder = cur.reduce(function (m, r) { return Math.max(m, Number(r.SortOrder) || 0); }, 0) + 1;
+          const { data, error } = await supabaseClient.from(tableFor(f.fkSheet)).insert(row).select();
+          if (error) throw new Error(error.message);
+          const o = document.createElement('option'); o.value = data[0][f.fkIdField]; o.textContent = name; sel.appendChild(o); sel.value = o.value;
+        } else {
+          const { error } = await supabaseClient.from(tableFor(f.fkSheet)).update(row).eq(f.fkIdField, sel.value);
+          if (error) throw new Error(error.message);
+          sel.options[sel.selectedIndex].text = name;
+        }
+        listCache = {}; mode[key] = '';
+        document.getElementById('mfi_' + key).classList.remove('on'); b.disabled = true;
+        showToast('সেভ হয়েছে ✅', 'success');
+      } catch (err) { showToast(err.message, 'error'); }
+    } else if (d.mfDel) {
+      const key = d.mfDel, f = config.fields.find(function (x) { return x.key === key; }), sel = document.getElementById('mf_' + key);
+      if (!sel.value) { showToast('ডিলিট করতে আগে একটা বাছাই করুন।', 'error'); return; }
+      const used = (await api('list', { sheet: config.sheet })).filter(function (r) { return r.Status !== 'Deleted' && r[key] === sel.value; }).length;
+      if (used) { showToast(used + ' টা রেকর্ডে এটা ব্যবহার হচ্ছে — আগে সেগুলো বদলান।', 'error'); return; }
+      if (!confirm('"' + sel.options[sel.selectedIndex].text + '" ডিলিট করবেন?')) return;
+      const { error } = await supabaseClient.from(tableFor(f.fkSheet)).update({ Status: 'Deleted' }).eq(f.fkIdField, sel.value);
+      if (error) { showToast(error.message, 'error'); return; }
+      sel.remove(sel.selectedIndex); sel.value = ''; listCache = {};
+      showToast('ডিলিট হয়েছে ✅', 'success');
+    }
+  });
+}
+
 
 async function deleteMasterRecord(sheetName, idValue) {
   const config = window.__activeMasterConfig;
@@ -3135,13 +3279,21 @@ function hrDailyWage(emp, divisor) {
   if (type === 'Daily') return sal;
   return sal / (divisor || 30);
 }
+/** SortOrder অনুযায়ী সাজানো (না থাকলে শেষে, নাম অনুযায়ী) */
+function hrBySortOrder(nameKey) {
+  return function (a, b) {
+    const so = function (x) { return (x.SortOrder === null || x.SortOrder === undefined || x.SortOrder === '') ? 9999 : Number(x.SortOrder); };
+    return so(a) - so(b) || String(a[nameKey] || '').localeCompare(String(b[nameKey] || ''));
+  };
+}
 async function hrDivisor() {
   try { const s = await api('getSystemSettings', {}); const v = Number(s.PayrollDivisor); return v > 0 ? v : 30; }
   catch (e) { return 30; }
 }
 async function hrLoadBase() {
   const m = await cachedListMultiple(['Employees', 'EmployeeCategories', 'Items']);
-  const cats = (m.EmployeeCategories || []).filter(function (c) { return c.Status !== 'Deleted' && (c.IsActive === undefined || c.IsActive === null || isTrue(c.IsActive)); });
+  const cats = (m.EmployeeCategories || []).filter(function (c) { return c.Status !== 'Deleted' && (c.IsActive === undefined || c.IsActive === null || isTrue(c.IsActive)); })
+    .sort(hrBySortOrder('CategoryName'));
   const emps = (m.Employees || []).filter(function (e) { return e.Status !== 'Deleted' && isTrue(e.IsActive); })
     .sort(function (a, b) { return String(a.Name || '').localeCompare(String(b.Name || '')); });
   const items = (m.Items || []).filter(function (i) { return i.Status !== 'Deleted'; });
