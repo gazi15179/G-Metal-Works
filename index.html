@@ -1041,11 +1041,37 @@ async function runSupabaseAction(action, p) {
 
 /** Warehouse/Item/Supplier-এর মতো রেফারেন্স ড্রপডাউনের ডেটার জন্য — একই সেশনে একবার আনলে
  *  আবার নতুন করে আনার দরকার নেই (কোনো লেখা/পরিবর্তন হলেই ক্যাশ নিজে থেকে খালি হয়ে যায়)। */
+/** আইটেমের সিরিয়াল ক্রমঃ আগে ক্যাটাগরি অনুযায়ী এক জায়গায় (কলস, হাঁড়ি…), তারপর সাইজ নম্বর,
+ *  একই সাইজে কোড ক্রম R → T → D (যেমন R-4, T-4, D-4), তারপর অন্য কোড। K-09 ও K-9 একই নম্বর ধরা হয়। */
+const ITEM_CODE_ORDER = ['K', 'R', 'T', 'D'];
+function itemSerialKey(it) {
+  const m = String(it.ItemName || it.ItemCode || '').trim().match(/^([A-Za-z]+)\s*-?\s*(\d+)/);
+  if (!m) return { code: '', num: Infinity, rank: 999 };
+  const code = m[1].toUpperCase(), idx = ITEM_CODE_ORDER.indexOf(code);
+  return { code: code, num: Number(m[2]), rank: idx === -1 ? 100 + code.charCodeAt(0) : idx };
+}
+function sortItemsBySerial(list, catNameMap) {
+  const cn = catNameMap || {};
+  return list.slice().sort(function (a, b) {
+    const ca = cn[a.CategoryID] || '\uffff', cb = cn[b.CategoryID] || '\uffff';
+    if (ca !== cb) return ca.localeCompare(cb);
+    const ka = itemSerialKey(a), kb = itemSerialKey(b);
+    if (ka.num !== kb.num) return ka.num - kb.num;
+    if (ka.rank !== kb.rank) return ka.rank - kb.rank;
+    return String(a.ItemName || '').localeCompare(String(b.ItemName || ''));
+  });
+}
+
 async function cachedList(sheet) {
   if (listCache[sheet]) return listCache[sheet];
-  const data = await api('list', { sheet: sheet });
+  let data = await api('list', { sheet: sheet });
+  if (sheet === 'Items') data = sortItemsBySerial(data, await categoryNameMap());
   listCache[sheet] = data;
   return data;
+}
+async function categoryNameMap() {
+  if (!listCache.Categories) listCache.Categories = await api('list', { sheet: 'Categories' });
+  const m = {}; (listCache.Categories || []).forEach(function (c) { m[c.CategoryID] = c.CategoryName; }); return m;
 }
 
 /** একাধিক Sheet-এর রেফারেন্স ডেটা একসাথে আনার জন্য — যেগুলো ক্যাশে নেই শুধু সেগুলোই
@@ -1056,6 +1082,7 @@ async function cachedListMultiple(sheetNames) {
   if (uncached.length > 0) {
     const result = await api('listMultiple', { sheets: uncached });
     uncached.forEach(function (s) { listCache[s] = result[s] || []; });
+    if (uncached.indexOf('Items') !== -1) listCache.Items = sortItemsBySerial(listCache.Items, await categoryNameMap());
   }
   const out = {};
   sheetNames.forEach(function (s) { out[s] = listCache[s]; });
@@ -1852,7 +1879,7 @@ async function renderItemMasterPage(content) {
 
     const wrap = document.getElementById('itemTableWrap');
     if (!wrap) return; // ব্যবহারকারী এই ফাঁকে অন্য পেজ/ট্যাবে চলে গেলে এই এলিমেন্ট আর DOM-এ থাকবে না
-    const active = items.filter(function (r) { return r.Status !== 'Deleted'; });
+    const active = sortItemsBySerial(items.filter(function (r) { return r.Status !== 'Deleted'; }), catMap); // ক্যাটাগরি অনুযায়ী এক জায়গায়, সিরিয়াল ক্রমে
     if (active.length === 0) {
       wrap.innerHTML = `<div class="empty-state i18n" data-bn="এখনো কোনো আইটেম যোগ করা হয়নি।" data-en="No items added yet.">${t('এখনো কোনো আইটেম যোগ করা হয়নি।','No items added yet.')}</div>`;
       return;
@@ -3406,41 +3433,64 @@ function hrSelectedIds(members) { return Object.keys(members).filter(function (i
 /* ---------- সাইজ × কাজের ধরন অনুযায়ী দর ---------- */
 async function renderSizeRatesPage(content) {
   const gp = await hrLoadGroups();
-  const items = (await cachedList('Items')).filter(function (i) { return i.Status !== 'Deleted'; });
-  const st = { group: '', edits: {} };
+  const m = await cachedListMultiple(['Items', 'Categories']);
+  const items = (m.Items || []).filter(function (i) { return i.Status !== 'Deleted'; });
+  const cats = (m.Categories || []).filter(function (c) { return c.Status !== 'Deleted'; });
+  const catName = {}; cats.forEach(function (c) { catName[c.CategoryID] = c.CategoryName; });
+  const st = { group: '', cat: '', edits: {} };
   content.innerHTML = `
     <style>
-      .srt select{height:34px;padding:4px 8px;font-size:13px;width:100%;box-sizing:border-box;}
-      .srt-scroll{max-height:65vh;overflow:auto;border:1px solid var(--border);border-radius:10px;}
-      .srt-tbl{border-collapse:separate;border-spacing:0;width:100%;font-size:13px;}
-      .srt-tbl th{position:sticky;top:0;z-index:2;background:var(--bg);font-size:12px;color:var(--text);font-weight:700;padding:8px 6px;text-align:center;white-space:nowrap;border-bottom:2px solid var(--border);}
-      .srt-tbl td{padding:4px 5px;border-bottom:1px solid var(--border);background:var(--surface);}
-      .srt-tbl th:first-child,.srt-tbl td:first-child{position:sticky;left:0;text-align:left;min-width:110px;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-right:1px solid var(--border);}
+      .srt{padding:10px 12px !important;}
+      .srt-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 0 8px;}
+      .srt-head h1{font-size:18px;margin:0;} .srt-head span{font-size:11.5px;color:var(--text-muted);}
+      .srt-bar{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:end;margin-bottom:8px;}
+      .srt-bar .field{margin:0;min-width:0;} .srt-bar label{font-size:11px;margin-bottom:2px;}
+      .srt-bar select{height:32px;padding:3px 8px;font-size:13px;width:100%;box-sizing:border-box;}
+      .srt-bar .btn{height:32px;width:auto;padding:0 14px;margin:0;font-size:13px;}
+      .srt-scroll{max-height:calc(100vh - 215px);min-height:180px;overflow:auto;border:1px solid var(--border);border-radius:8px;}
+      .srt-tbl{border-collapse:separate;border-spacing:0;width:100%;font-size:12.5px;}
+      .srt-tbl th{position:sticky;top:0;z-index:2;background:var(--bg);font-size:11.5px;color:var(--text);font-weight:700;padding:5px 4px;text-align:center;white-space:nowrap;border-bottom:2px solid var(--border);}
+      .srt-tbl td{padding:2px 3px;border-bottom:1px solid var(--border);background:var(--surface);}
+      .srt-tbl th:first-child,.srt-tbl td:first-child{position:sticky;left:0;text-align:left;min-width:120px;max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-right:1px solid var(--border);padding-left:6px;}
       .srt-tbl th:first-child{z-index:3;}
       .srt-tbl td:first-child{z-index:1;font-weight:600;}
-      .srt-tbl input{height:32px;width:100%;min-width:66px;box-sizing:border-box;padding:4px 6px;font-size:13px;text-align:right;}
+      .srt-tbl input{height:26px;width:100%;min-width:60px;box-sizing:border-box;padding:2px 5px;font-size:12.5px;text-align:right;-moz-appearance:textfield;}
+      .srt-tbl input::-webkit-outer-spin-button,.srt-tbl input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
       .srt-hint{font-size:12px;color:var(--text-muted);margin:6px 0;}
+      @media (max-width:600px){ .srt-bar{grid-template-columns:minmax(0,1fr) minmax(0,1fr);} .srt-bar .btn{grid-column:1 / -1;} .srt-scroll{max-height:calc(100vh - 250px);} }
     </style>
-    <div class="page-head"><div>
-      <h1>${t('সাইজ অনুযায়ী মজুরি দর','Size Wage Rates')}</h1>
-      <p>${t('প্রতিটা সাইজে প্রতিটা কাজের ধরনের দর — প্রতি কেজি, সবার জন্য এক','Rate per kg for each size and work type — same for everyone')}</p>
-    </div></div>
     <div class="panel srt">
-      <div style="max-width:320px;"><select id="srtGroup"><option value="">— ${t('পণ্যের ধরন বাছাই করুন','Select product type')} —</option>${gp.groups.map(function (g) { return `<option value="${attr(g.GroupID)}">${escapeHtml(g.GroupName)}</option>`; }).join('')}</select></div>
-      <div class="srt-hint">${gp.roles.length ? t('কাজের ধরন (শেপ, হাফ ফিনিশ, ফুল ফিনিশ, হেল্পার…) "কাজের ধরন" পেজে যোগ/বদল করা যায়।','Work types can be managed in the "Work Types" page.') : `<span style="color:#d97706;">⚠ ${t('আগে "কাজের ধরন" পেজে কাজের ধরন যোগ করুন।','Add work types first in "Work Types".')}</span>`}</div>
-      <div id="srtRows"></div>
-      <button class="btn btn-primary" id="srtSave" style="margin-top:10px;">${t('💾 সেভ করুন','💾 Save')}</button>
+      <div class="srt-head"><h1>${t('সাইজ অনুযায়ী মজুরি দর','Size Wage Rates')}</h1><span>${t('প্রতি কেজি, সবার জন্য এক — এন্ট্রির সময় হাতে বদলানো যায়','Per kg, same for everyone — editable per entry')}</span></div>
+      <div class="srt-bar">
+        <div class="field"><label>${t('গ্রুপ','Group')}</label><select id="srtGroup"><option value="">${t('সব গ্রুপ','All groups')}</option>${gp.groups.map(function (g) { return `<option value="${attr(g.GroupID)}">${escapeHtml(g.GroupName)}</option>`; }).join('')}</select></div>
+        <div class="field"><label>${t('ক্যাটাগরি','Category')}</label><select id="srtCat"></select></div>
+        <button class="btn btn-primary" id="srtSave">💾 ${t('সেভ','Save')}</button>
+      </div>
+      ${gp.roles.length ? '' : `<div class="srt-hint" style="color:#d97706;">⚠ ${t('আগে "কাজের ধরন" পেজে কাজের ধরন যোগ করুন।','Add work types first in "Work Types".')}</div>`}
+      <div id="srtRows"><div class="srt-hint">${t('গ্রুপ বা ক্যাটাগরি বাছাই করুন।','Select a group or category.')}</div></div>
     </div>`;
-  function render() {
-    const list = items.filter(function (i) { return i.GroupID === st.group; });
-    document.getElementById('srtRows').innerHTML = !st.group ? '' : list.length ?
-      `<div class="srt-scroll"><table class="srt-tbl"><thead><tr><th>${t('সাইজ','Size')}</th>${gp.roles.map(function (r) { return `<th>${escapeHtml(r.RoleName)}</th>`; }).join('')}</tr></thead><tbody>
-        ${list.map(function (i) { return `<tr><td>${escapeHtml(i.ItemName)}</td>${gp.roles.map(function (r) {
-          const k = i.ItemID + '|' + r.RoleID, v = st.edits[k] !== undefined ? st.edits[k] : (gp.rate[k] || '');
-          return `<td><input type="number" step="any" min="0" data-k="${attr(k)}" value="${attr(v)}"></td>`; }).join('')}</tr>`; }).join('')}
-      </tbody></table></div>` : `<div class="srt-hint">${t('এই ধরনে কোনো আইটেম নেই — আইটেম মাস্টারে গ্রুপ ঠিক করুন।','No items in this type — set the group in Item Master.')}</div>`;
+  function fillCats() {
+    const inGroup = items.filter(function (i) { return !st.group || i.GroupID === st.group; });
+    const used = {}; inGroup.forEach(function (i) { if (i.CategoryID) used[i.CategoryID] = true; });
+    const list = cats.filter(function (c) { return used[c.CategoryID]; }).sort(function (a, b) { return String(a.CategoryName).localeCompare(String(b.CategoryName)); });
+    const sel = document.getElementById('srtCat');
+    sel.innerHTML = `<option value="">${t('সব ক্যাটাগরি','All categories')}</option>` + list.map(function (c) { return `<option value="${attr(c.CategoryID)}">${escapeHtml(c.CategoryName)}</option>`; }).join('');
+    if (!used[st.cat]) st.cat = ''; sel.value = st.cat;
   }
-  document.getElementById('srtGroup').addEventListener('change', function () { st.group = this.value; render(); });
+  function render() {
+    const wrap = document.getElementById('srtRows');
+    if (!st.group && !st.cat) { wrap.innerHTML = `<div class="srt-hint">${t('গ্রুপ বা ক্যাটাগরি বাছাই করুন।','Select a group or category.')}</div>`; return; }
+    const list = sortItemsBySerial(items.filter(function (i) { return (!st.group || i.GroupID === st.group) && (!st.cat || i.CategoryID === st.cat); }), catName);
+    wrap.innerHTML = list.length ?
+      `<div class="srt-scroll"><table class="srt-tbl"><thead><tr><th>${t('আইটেম','Item')}</th>${gp.roles.map(function (r) { return `<th>${escapeHtml(r.RoleName)}</th>`; }).join('')}</tr></thead><tbody>
+        ${list.map(function (i) { return `<tr><td title="${attr(i.ItemName)}">${escapeHtml(i.ItemName)}</td>${gp.roles.map(function (r) {
+          const k = i.ItemID + '|' + r.RoleID, v = st.edits[k] !== undefined ? st.edits[k] : (gp.rate[k] || '');
+          return `<td><input type="number" step="any" min="0" inputmode="decimal" data-k="${attr(k)}" value="${attr(v)}"></td>`; }).join('')}</tr>`; }).join('')}
+      </tbody></table></div>` : `<div class="srt-hint">${t('এই গ্রুপ/ক্যাটাগরিতে কোনো আইটেম নেই।','No items in this group/category.')}</div>`;
+  }
+  document.getElementById('srtGroup').addEventListener('change', function () { st.group = this.value; fillCats(); render(); });
+  document.getElementById('srtCat').addEventListener('change', function () { st.cat = this.value; render(); });
+  fillCats();
   document.getElementById('srtRows').addEventListener('input', function (ev) { if (ev.target.dataset.k) st.edits[ev.target.dataset.k] = ev.target.value; });
   document.getElementById('srtSave').addEventListener('click', async function () {
     this.disabled = true;
