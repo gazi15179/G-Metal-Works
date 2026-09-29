@@ -443,7 +443,7 @@ const MODULES = [
   {key:'hr', bn:'এইচআর ও পে-রোল', en:'HR & Payroll', sub:[
     {key:'empCategories', bn:'কর্মচারীর ধরন', en:'Employee Types'},{key:'empInfo', bn:'কর্মচারী তথ্য', en:'Employee Info'},
     {key:'workRoles', bn:'দরের কলাম', en:'Rate Columns'},{key:'sizeRates', bn:'সাইজ অনুযায়ী মজুরি দর', en:'Size Wage Rates'},{key:'attendance', bn:'হাজিরা', en:'Attendance'},
-    {key:'dailyProduction', bn:'দৈনিক উৎপাদন (দল)', en:'Daily Team Production'},{key:'leave', bn:'ছুটি ব্যবস্থাপনা', en:'Leave Management'},
+    {key:'dailyProduction', bn:'দৈনিক উৎপাদন ও দল', en:'Daily Production & Team'},{key:'leave', bn:'ছুটি ব্যবস্থাপনা', en:'Leave Management'},
     {key:'payroll', bn:'বেতন রান', en:'Salary Run'},
   ]},
   {key:'reports', bn:'রিপোর্ট', en:'Reports', sub:[
@@ -3326,7 +3326,7 @@ async function hrLoadGroups() {
     .sort(function (a, b) { return String(a.GroupName || '').localeCompare(String(b.GroupName || '')); });
   const groupMap = {}; (m.ItemGroups || []).forEach(function (g) { groupMap[g.GroupID] = g.GroupName; });
   const roles = (m.WorkRoles || []).filter(function (r) { return r.Status !== 'Deleted' && (r.IsActive === undefined || r.IsActive === null || isTrue(r.IsActive)); })
-    .sort(function (a, b) { return (Number(a.SortOrder) || 999) - (Number(b.SortOrder) || 999) || String(a.RoleID).localeCompare(String(b.RoleID)); });
+    .sort(function (a, b) { const so = function (x) { return (x.SortOrder === null || x.SortOrder === undefined || x.SortOrder === '') ? 999 : Number(x.SortOrder); }; return so(a) - so(b) || String(a.RoleID).localeCompare(String(b.RoleID)); });
   const roleMap = {}; (m.WorkRoles || []).forEach(function (r) { roleMap[r.RoleID] = r.RoleName; });
   // Kind = 'Cost' হলে সেটা কর্মচারীর কাজ নয়, প্রতি কেজি উৎপাদন খরচ (বিদ্যুৎ, মেশিনারীজ, মেডিসিন, বিবিধ…)
   const laborRoles = roles.filter(function (r) { return r.Kind !== 'Cost'; });
@@ -3553,197 +3553,204 @@ async function renderSizeRatesPage(content) {
 async function renderDailyProductionPage(content) {
   const base = await hrLoadBase();
   const gp = await hrLoadGroups();
-  const allItems = (await cachedList('Items')).filter(function (i) { return i.Status !== 'Deleted'; });
-  const st = { date: hrToday(), group: '', qty: {}, members: {}, rates: {}, costOv: {}, cat: '', present: {} };
+  const m = await cachedListMultiple(['Items', 'Categories']);
+  const items = (m.Items || []).filter(function (i) { return i.Status !== 'Deleted'; });
+  const cats = (m.Categories || []).filter(function (c) { return c.Status !== 'Deleted'; });
+  const catName = {}; cats.forEach(function (c) { catName[c.CategoryID] = c.CategoryName; });
+  const roles = gp.laborRoles; // শেপ, হাঃফিনিস … ফোরম্যান
+  // rows: itemId → { tpId, qty, who:{roleId: empId}, locked, dirty }
+  const st = { date: hrToday(), group: '', cat: '', item: '', rows: {}, present: {} };
 
   content.innerHTML = `
-    <style>${HR_TEAM_CSS}
-      .tp .field{margin:0;min-width:0;} .tp .field label{font-size:11.5px;margin-bottom:3px;}
-      .tp input:not([type=checkbox]),.tp select{height:34px;padding:4px 8px;font-size:13px;width:100%;min-width:0;box-sizing:border-box;}
-      .tp-g2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 10px;}
-      .tp-sec{font-size:12px;font-weight:700;color:var(--text-muted);margin:14px 0 6px;text-transform:uppercase;}
-      .tp-sizes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 8px;}
-      .tp-sizes .field label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-      .tp-hint{font-size:12px;color:var(--text-muted);margin-top:4px;}
-      .tp-warn{color:#d97706;font-size:12px;margin:4px 0;}
-      .tp-cost{display:grid;grid-template-columns:minmax(0,1fr) 96px 90px;gap:8px;align-items:center;padding:4px 2px;border-bottom:1px solid var(--border);font-size:13px;}
-      .tp-cost input{height:30px !important;text-align:right;} .tp-cost input.ov{border-color:#d97706;background:rgba(217,119,6,.08);} .tp-cost b{text-align:right;}
-      .tp-tot{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-top:10px;}
-      .tp-tot div{background:var(--bg);border-radius:8px;padding:6px;text-align:center;font-size:11px;color:var(--text-muted);} .tp-tot b{display:block;font-size:14px;color:var(--text);}
-      @media (max-width:600px){ .tp-tot{grid-template-columns:repeat(2,minmax(0,1fr));} }
-      .tp-card{border:1px solid var(--border);border-radius:10px;margin-top:10px;padding:8px 10px;font-size:12.5px;}
-      .tp-card-h{display:flex;justify-content:space-between;gap:8px;font-weight:700;margin-bottom:4px;}
-      .tp-x{height:28px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--danger);cursor:pointer;padding:0 10px;font-family:inherit;}
-      @media (max-width:600px){ .tp-sizes{grid-template-columns:repeat(2,minmax(0,1fr));} }
+    <style>
+      .dpg{padding:10px 12px !important;}
+      .dpg-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 0 8px;}
+      .dpg-head h1{font-size:18px;margin:0;} .dpg-head span{font-size:11.5px;color:var(--text-muted);}
+      .dpg-bar{display:grid;grid-template-columns:140px minmax(0,1fr) minmax(0,1fr) minmax(0,1.2fr) auto;gap:8px;align-items:end;margin-bottom:8px;}
+      .dpg-bar .field{margin:0;min-width:0;} .dpg-bar label{font-size:11px;margin-bottom:2px;}
+      .dpg-bar input,.dpg-bar select{height:32px;padding:3px 8px;font-size:13px;width:100%;box-sizing:border-box;}
+      .dpg-bar .btn{height:32px;width:auto;padding:0 14px;margin:0;font-size:13px;}
+      .dpg-scroll{max-height:calc(100vh - 230px);min-height:180px;overflow:auto;border:1px solid var(--border);border-radius:8px;}
+      .dpg-tbl{border-collapse:separate;border-spacing:0;width:100%;font-size:12.5px;}
+      .dpg-tbl th{position:sticky;top:0;z-index:2;background:var(--bg);font-size:11.5px;font-weight:700;padding:5px 4px;text-align:center;white-space:nowrap;border-bottom:2px solid var(--border);}
+      .dpg-tbl td{padding:2px 3px;border-bottom:1px solid var(--border);background:var(--surface);vertical-align:middle;}
+      .dpg-tbl th:first-child,.dpg-tbl td:first-child{position:sticky;left:0;text-align:left;min-width:118px;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-right:1px solid var(--border);padding-left:6px;}
+      .dpg-tbl th:first-child{z-index:3;} .dpg-tbl td:first-child{z-index:1;font-weight:600;}
+      .dpg-tbl input{height:26px;width:70px;box-sizing:border-box;padding:2px 5px;font-size:12.5px;text-align:right;-moz-appearance:textfield;}
+      .dpg-tbl input::-webkit-outer-spin-button,.dpg-tbl input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+      .dpg-tbl select{height:26px;min-width:110px;max-width:150px;padding:1px 4px;font-size:12px;box-sizing:border-box;}
+      .dpg-tbl tr.has td{background:#f0fdf4;} .dpg-tbl tr.has td:first-child{box-shadow:inset 3px 0 0 #16a34a;}
+      .dpg-tbl tr.dirty td:first-child{box-shadow:inset 3px 0 0 #d97706;}
+      .dpg-tbl tr.locked td{opacity:.65;}
+      .dpg-tbl .amt{font-size:10.5px;color:var(--text-muted);text-align:right;}
+      .dpg-hint{font-size:12px;color:var(--text-muted);margin:6px 0;}
+      .dpg-sum{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;margin:8px 0 0;}
+      @media (max-width:760px){ .dpg-bar{grid-template-columns:minmax(0,1fr) minmax(0,1fr);} .dpg-bar .btn{grid-column:1 / -1;} .dpg-scroll{max-height:calc(100vh - 290px);} }
     </style>
-    <div class="page-head"><div>
-      <h1>${t('দৈনিক উৎপাদন (দল)','Daily Team Production')}</h1>
-      <p>${t('কে কোন দিন কোন সাইজ কত কেজি বানাল ও কী কাজ করল — এখান থেকেই উৎপাদন মজুরি ও ও.ডি হিসাব হয়','Who made which size, how many kg, and which work — the production wage and O.D come from here')}</p>
-    </div></div>
-    <div class="panel tp">
-      <div class="tp-g2">
-        <div class="field"><label>${t('তারিখ','Date')}</label><input type="date" id="tpDate" value="${st.date}"></div>
-        <div class="field"><label>${t('পণ্যের ধরন','Product type')}</label><select id="tpGroup"><option value="">— ${t('বাছাই করুন','Select')} —</option>${gp.groups.map(function (g) { return `<option value="${attr(g.GroupID)}">${escapeHtml(g.GroupName)}</option>`; }).join('')}</select></div>
+    <div class="panel dpg">
+      <div class="dpg-head"><h1>${t('দৈনিক উৎপাদন ও দল','Daily Production & Team')}</h1><span>${t('কোন আইটেম কত কেজি, কোন কাজ কে করল — এখান থেকেই মজুরি হিসাব হয়','Which item, how many kg, who did which job — wages come from here')}</span></div>
+      <div class="dpg-bar">
+        <div class="field"><label>${t('তারিখ','Date')}</label><input type="date" id="dpgDate" value="${st.date}"></div>
+        <div class="field"><label>${t('গ্রুপ','Group')}</label><select id="dpgGroup"><option value="">${t('সব গ্রুপ','All groups')}</option>${gp.groups.map(function (g) { return `<option value="${attr(g.GroupID)}">${escapeHtml(g.GroupName)}</option>`; }).join('')}</select></div>
+        <div class="field"><label>${t('ক্যাটাগরি','Category')}</label><select id="dpgCat"></select></div>
+        <div class="field"><label>${t('আইটেম','Item')}</label><select id="dpgItem"></select></div>
+        <button class="btn btn-primary" id="dpgSave">💾 ${t('সেভ','Save')}</button>
       </div>
-      <div class="tp-sec">${t('সাইজ অনুযায়ী উৎপাদন (কেজি)','Production by size (kg)')}</div>
-      <div id="tpSizes" class="tp-sizes"><div class="tp-hint">${t('আগে পণ্যের ধরন বাছাই করুন।','Select a product type first.')}</div></div>
-      <div class="tp-sec">${t('দলের সদস্য ও কাজের ধরন','Team members & work types')}</div>
-      <div class="tp-g2">
-        <div class="field"><label>${t('কর্মচারীর ধরন','Employee type')}</label><select id="tpCat"><option value="">${t('সব ধরন','All types')}</option>${base.cats.map(function (c) { return `<option value="${attr(c.CategoryID)}">${escapeHtml(c.CategoryName)}</option>`; }).join('')}</select></div>
-        <div class="field"><label>${t('নাম খুঁজুন','Search name')}</label><input id="tpQ" placeholder="${t('নাম লিখুন — তালিকা থেকে বাছাই করুন','Type a name — pick from the list')}"></div>
-      </div>
-      <div class="tp-hint">${t('সদস্যের নিচের বোতাম থেকে সে কী কী কাজ করেছে বাছাই করুন — একাধিক বাছাই করা যায়।','Pick the work types each member did below their name — several allowed.')}</div>
-      <div id="tpMembers"></div>
-      <div id="tpWarn"></div>
-      <div class="tp-sec">${t('উৎপাদন খরচ (প্রতি কেজি)','Production cost (per kg)')}</div>
-      <div id="tpCosts"></div>
-      <div id="tpTotals"></div>
-      <button class="btn btn-primary" id="tpSave" style="margin-top:8px;">${t('💾 সেভ করুন','💾 Save')}</button>
-      <div class="tp-sec">${t('এই দিনের এন্ট্রি','Entries for this day')}</div>
-      <div id="tpList"></div>
+      <div id="dpgGrid"></div>
+      <div class="dpg-sum" id="dpgSum"></div>
     </div>`;
 
-  function groupItems() { return allItems.filter(function (i) { return i.GroupID === st.group; }); }
-  function qtyMap() { const m = {}; groupItems().forEach(function (i) { if ((Number(st.qty[i.ItemID]) || 0) > 0) m[i.ItemID] = Number(st.qty[i.ItemID]); }); return m; }
-  function renderSizes() {
-    const wrap = document.getElementById('tpSizes'), items = groupItems();
-    if (!st.group) { wrap.innerHTML = `<div class="tp-hint">${t('আগে পণ্যের ধরন বাছাই করুন।','Select a product type first.')}</div>`; return; }
-    wrap.innerHTML = items.length ? items.map(function (i) {
-      return `<div class="field"><label title="${attr(i.ItemName)}">${escapeHtml(i.ItemName)}</label><input type="number" step="any" min="0" data-item="${attr(i.ItemID)}" value="${attr(st.qty[i.ItemID] || '')}"></div>`;
-    }).join('') : `<div class="tp-hint">${t('এই ধরনে কোনো আইটেম নেই — আইটেম মাস্টারে গ্রুপ ঠিক করুন।','No items in this type — set the group in Item Master.')}</div>`;
+  // ---------- ফিল্টার ----------
+  function filtered(ignoreItem) {
+    return sortItemsBySerial(items.filter(function (i) {
+      return (!st.group || i.GroupID === st.group) && (!st.cat || i.CategoryID === st.cat) && (ignoreItem || !st.item || i.ItemID === st.item);
+    }), catName);
   }
-  function costValue(roleId) { return hrRoleValue(gp, qtyMap(), roleId, st.costOv[roleId]); }
-  function renderCosts() {
-    const q = qtyMap(), items = Object.keys(q);
-    document.getElementById('tpCosts').innerHTML = gp.costRoles.length ? gp.costRoles.map(function (r) {
-      const def = items.length === 1 ? gp.rateOf(items[0], r.RoleID) : '';
-      const ov = st.costOv[r.RoleID], v = (ov !== undefined && ov !== '') ? ov : def;
-      const changed = ov !== undefined && ov !== '' && Number(ov) !== Number(def);
-      return `<div class="tp-cost"><span>${escapeHtml(r.RoleName)}</span>
-        <input type="number" step="any" min="0" data-cost="${attr(r.RoleID)}" value="${attr(v)}" placeholder="${items.length > 1 ? t('সাইজ অনুযায়ী','per size') : ''}" class="${changed ? 'ov' : ''}">
-        <b data-costamt="${attr(r.RoleID)}">${hrMoney(costValue(r.RoleID).value)}</b></div>`;
-    }).join('') : `<div class="tp-hint">${t('"দরের কলাম" পেজে উৎপাদন খরচের কলাম (বিদ্যুৎ, মেশিনারীজ…) যোগ করলে এখানে আসবে।','Add cost columns in "Rate Columns" to see them here.')}</div>`;
-    renderTotals();
+  function fillCats() {
+    const used = {}; items.forEach(function (i) { if ((!st.group || i.GroupID === st.group) && i.CategoryID) used[i.CategoryID] = true; });
+    const sel = document.getElementById('dpgCat');
+    sel.innerHTML = `<option value="">${t('সব ক্যাটাগরি','All categories')}</option>` + cats.filter(function (c) { return used[c.CategoryID]; })
+      .sort(function (a, b) { return String(a.CategoryName).localeCompare(String(b.CategoryName)); })
+      .map(function (c) { return `<option value="${attr(c.CategoryID)}">${escapeHtml(c.CategoryName)}</option>`; }).join('');
+    if (!used[st.cat]) st.cat = ''; sel.value = st.cat;
   }
-  function renderTotals() {
-    const q = qtyMap(), total = Object.keys(q).reduce(function (s, k) { return s + q[k]; }, 0);
-    const labor = hrMemberRows(gp, st.members, q, 0, st.rates).reduce(function (s, r) { return s + r.Amount; }, 0);
-    const cost = gp.costRoles.reduce(function (s, r) { return s + costValue(r.RoleID).value; }, 0);
-    gp.costRoles.forEach(function (r) { const el = document.querySelector(`[data-costamt="${r.RoleID}"]`); if (el) el.textContent = hrMoney(costValue(r.RoleID).value); });
-    document.getElementById('tpTotals').innerHTML = `<div class="tp-tot">
-      <div>${t('মোট কেজি','Total kg')}<b>${hrNum(total)}</b></div>
-      <div>${t('মজুরি','Wages')}<b>${hrMoney(labor)}</b></div>
-      <div>${t('উৎপাদন খরচ','Prod. cost')}<b>${hrMoney(cost)}</b></div>
-      <div>${t('মোট / কেজি','Total / kg')}<b>${total > 0 ? hrMoney((labor + cost) / total) : '—'}</b></div></div>`;
+  function fillItems() {
+    const list = filtered(true), sel = document.getElementById('dpgItem');
+    sel.innerHTML = `<option value="">${t('সব আইটেম','All items')} (${list.length})</option>` + list.map(function (i) { return `<option value="${attr(i.ItemID)}">${escapeHtml(i.ItemName)}</option>`; }).join('');
+    if (!list.some(function (i) { return i.ItemID === st.item; })) st.item = ''; sel.value = st.item;
   }
-  function renderMembers() {
-    const list = base.emps.filter(function (e) { return hrSelectedIds(st.members).indexOf(e.EmployeeID) !== -1 || !st.cat || e.CategoryID === st.cat; })
-      .sort(function (a, b) { const sa = hrSelectedIds(st.members).indexOf(a.EmployeeID) !== -1, sb = hrSelectedIds(st.members).indexOf(b.EmployeeID) !== -1; return (sb ? 2 : 0) + (st.present[b.EmployeeID] ? 1 : 0) - (sa ? 2 : 0) - (st.present[a.EmployeeID] ? 1 : 0); });
-    document.getElementById('tpMembers').innerHTML = hrTeamMembersHtml({ base: base, gp: gp, list: list, members: st.members, rates: st.rates, present: st.present, locked: false, qtyByItem: qtyMap() }) || `<div class="tp-hint">${t('কোনো কর্মচারী নেই।','No employees.')}</div>`;
-    const w = [];
-    const miss = hrMembersMissingRates(gp, st.members, qtyMap(), st.rates);
-    if (miss.length) w.push(t('এই সাইজ/কাজের দর ঠিক করা নেইঃ ','No rate set for: ') + miss.map(function (k) { const p = k.split('|'); return (base.itemMap[p[0]] || p[0]) + ' — ' + (gp.roleMap[p[1]] || p[1]); }).join(', '));
-    if (hrSelectedIds(st.members).some(function (id) { return !st.present[id]; })) w.push(t('দলের কিছু সদস্যের এই দিনে হাজিরায় P নেই।','Some members are not marked P on this day.'));
-    document.getElementById('tpWarn').innerHTML = w.map(function (x) { return `<div class="tp-warn">⚠ ${x}</div>`; }).join('');
-    if (document.getElementById('tpTotals')) renderTotals();
+
+  // ---------- কর্মচারীর ড্রপডাউন (সেদিন P থাকা কর্মচারীরা আগে) ----------
+  function empOptions(selected) {
+    const sorted = base.emps.slice().sort(function (a, b) { return (st.present[b.EmployeeID] ? 1 : 0) - (st.present[a.EmployeeID] ? 1 : 0) || String(a.Name).localeCompare(String(b.Name)); });
+    return `<option value="">—</option>` + sorted.map(function (e) {
+      return `<option value="${attr(e.EmployeeID)}" ${e.EmployeeID === selected ? 'selected' : ''}>${escapeHtml(e.Name)}${st.present[e.EmployeeID] ? ' ✓' : ''}</option>`;
+    }).join('');
   }
+  function row(itemId) { return st.rows[itemId] = st.rows[itemId] || { tpId: null, qty: '', who: {}, locked: false, dirty: false }; }
+  function rowAmount(itemId, roleId) { const r = row(itemId); return (Number(r.qty) || 0) * gp.rateOf(itemId, roleId); }
+
+  function renderGrid() {
+    const list = filtered(false), wrap = document.getElementById('dpgGrid');
+    if (!roles.length) { wrap.innerHTML = `<div class="dpg-hint" style="color:#d97706;">⚠ ${t('"দরের কলাম" পেজে কর্মচারীর কাজের কলাম যোগ করুন।','Add worker job columns in "Rate Columns".')}</div>`; return; }
+    if (!st.group && !st.cat && !st.item) { wrap.innerHTML = `<div class="dpg-hint">${t('গ্রুপ, ক্যাটাগরি বা আইটেম বাছাই করুন।','Select a group, category or item.')}</div>`; renderSum(); return; }
+    wrap.innerHTML = list.length ? `<div class="dpg-scroll"><table class="dpg-tbl"><thead><tr>
+        <th>${t('আইটেম','Item')}</th><th>${t('পরিমাণ (কেজি)','Qty (kg)')}</th>${roles.map(function (r) { return `<th>${escapeHtml(r.RoleName)}</th>`; }).join('')}</tr></thead><tbody>
+      ${list.map(function (i) {
+        const r = row(i.ItemID), dis = r.locked ? 'disabled' : '';
+        const has = (Number(r.qty) || 0) > 0 || Object.keys(r.who).some(function (k) { return r.who[k]; });
+        return `<tr class="${has ? 'has' : ''} ${r.dirty ? 'dirty' : ''} ${r.locked ? 'locked' : ''}" title="${r.locked ? t('এই উৎপাদনের মজুরি বেতন রানে উঠে গেছে — বদলানো যাবে না','Already paid in a salary run — locked') : ''}">
+          <td title="${attr(i.ItemName)}">${escapeHtml(i.ItemName)}${r.locked ? ' 🔒' : ''}</td>
+          <td><input type="number" step="any" min="0" inputmode="decimal" data-qty="${attr(i.ItemID)}" value="${attr(r.qty)}" ${dis}></td>
+          ${roles.map(function (ro) {
+            const rate = gp.rateOf(i.ItemID, ro.RoleID);
+            return `<td><select data-item="${attr(i.ItemID)}" data-role="${attr(ro.RoleID)}" ${dis} title="${t('দর ','Rate ')}${rate ? hrMoney(rate) : t('ঠিক করা নেই','not set')}">${empOptions(r.who[ro.RoleID])}</select>
+              ${r.who[ro.RoleID] && Number(r.qty) ? `<div class="amt" data-amt="${attr(i.ItemID + '|' + ro.RoleID)}">${rate ? hrMoney(rowAmount(i.ItemID, ro.RoleID)) : '<span style="color:#d97706;">' + t('দর নেই','no rate') + '</span>'}</div>` : ''}</td>`;
+          }).join('')}</tr>`;
+      }).join('')}</tbody></table></div>` : `<div class="dpg-hint">${t('এই বাছাইয়ে কোনো আইটেম নেই।','No items for this selection.')}</div>`;
+    renderSum();
+  }
+  function renderSum() {
+    let kg = 0, wage = 0, n = 0, dirty = 0;
+    Object.keys(st.rows).forEach(function (id) {
+      const r = st.rows[id], q = Number(r.qty) || 0;
+      if (r.dirty) dirty++;
+      if (q > 0) { kg += q; n++; roles.forEach(function (ro) { if (r.who[ro.RoleID]) wage += q * gp.rateOf(id, ro.RoleID); }); }
+    });
+    document.getElementById('dpgSum').innerHTML = `<span>${hrDayLabel(st.date)}</span><span>${t('আইটেম ','Items ')}<b>${n}</b></span><span>${t('মোট ','Total ')}<b>${hrNum(kg)}</b> ${t('কেজি','kg')}</span><span>${t('মজুরি ','Wages ')}<b>${hrMoney(wage)}</b></span>${dirty ? `<span style="color:#d97706;">● ${dirty} ${t('টা সারি সেভ হয়নি','row(s) unsaved')}</span>` : ''}
+      <span style="color:var(--text-muted);">✓ = ${t('আজ হাজিরায় P','present today')}</span>`;
+  }
+
+  // ---------- দিনের ডেটা ----------
   async function loadDay() {
-    const list = document.getElementById('tpList'); if (!list) return;
+    st.rows = {};
     try {
       const [att, heads] = await Promise.all([hrQueryRange('Attendance', 'Date', st.date, st.date), hrQueryRange('TeamProduction', 'WorkDate', st.date, st.date)]);
       st.present = {}; att.forEach(function (a) { if (HR_ATT_CODE[a.Status] === 'P') st.present[a.EmployeeID] = true; });
-      renderMembers();
-      if (!heads.length) { list.innerHTML = `<div class="tp-hint">${hrDayLabel(st.date)} — ${t('এখনো কোনো এন্ট্রি নেই।','no entries yet.')}</div>`; return; }
-      const ids = heads.map(function (h) { return h.TeamProdID; });
-      const [{ data: its }, { data: mems }] = await Promise.all([
-        supabaseClient.from('TeamProduction_Items').select('*').in('TeamProdID', ids),
-        supabaseClient.from('TeamProduction_Members').select('*').in('TeamProdID', ids)
-      ]);
-      list.innerHTML = heads.map(function (h) {
-        const myItems = (its || []).filter(function (x) { return String(x.TeamProdID) === String(h.TeamProdID); });
-        const myMems = (mems || []).filter(function (x) { return String(x.TeamProdID) === String(h.TeamProdID); });
-        const billed = myMems.some(function (m) { return m.BilledIn; });
-        return `<div class="tp-card"><div class="tp-card-h"><span>${escapeHtml(gp.groupMap[h.GroupID] || h.GroupID || '')} · ${hrNum(h.TotalKg)} ${t('কেজি','kg')}</span>
-          ${billed ? `<span class="tp-hint">${t('বেতনে উঠে গেছে','Paid in salary run')}</span>` : h.ProcessingID ? `<span class="tp-hint">${t('প্রসেসিং ভাউচার ','Processing voucher ')}${escapeHtml(h.ProcessingID)}</span>` : `<button class="tp-x" data-del="${attr(h.TeamProdID)}">${t('মুছুন','Delete')}</button>`}</div>
-          <div>${myItems.map(function (x) { return escapeHtml(base.itemMap[x.ItemID] || x.ItemID) + ' ' + hrNum(x.Qty); }).join(' · ')}</div>
-          <div style="margin-top:4px;">${myMems.map(function (m) { return escapeHtml((base.empMap[m.EmployeeID] || {}).Name || m.EmployeeID) + ' <span class="tp-hint">(' + escapeHtml(gp.roleMap[m.RoleID] || '') + ')</span> <b>' + hrMoney(m.Amount) + '</b>'; }).join(' · ')}</div></div>`;
-      }).join('');
-    } catch (err) { list.innerHTML = `<div class="tp-hint">${escapeHtml(err.message)}</div>`; }
+      const own = heads.filter(function (h) { return !h.ProcessingID; });
+      if (own.length) {
+        const ids = own.map(function (h) { return h.TeamProdID; });
+        const [{ data: its }, { data: mems }] = await Promise.all([
+          supabaseClient.from('TeamProduction_Items').select('*').in('TeamProdID', ids),
+          supabaseClient.from('TeamProduction_Members').select('*').in('TeamProdID', ids)
+        ]);
+        own.forEach(function (h) {
+          const it = (its || []).find(function (x) { return String(x.TeamProdID) === String(h.TeamProdID); }); if (!it) return;
+          const r = row(it.ItemID); r.tpId = h.TeamProdID; r.qty = Number(it.Qty) || Number(h.TotalKg) || '';
+          (mems || []).filter(function (x) { return String(x.TeamProdID) === String(h.TeamProdID); }).forEach(function (mm) { if (mm.RoleID) r.who[mm.RoleID] = mm.EmployeeID; if (mm.BilledIn) r.locked = true; });
+        });
+      }
+    } catch (err) { showToast(err.message, 'error'); }
+    renderGrid();
   }
 
-  document.getElementById('tpDate').addEventListener('change', function () { if (this.value) { st.date = this.value; loadDay(); } });
-  document.getElementById('tpGroup').addEventListener('change', function () { st.group = this.value; st.qty = {}; st.costOv = {}; renderSizes(); renderMembers(); renderCosts(); });
-  document.getElementById('tpCosts').addEventListener('input', function (ev) {
-    const el = ev.target; if (!el.dataset.cost) return;
-    st.costOv[el.dataset.cost] = el.value; el.classList.add('ov'); renderTotals();
+  // ---------- ইভেন্ট ----------
+  document.getElementById('dpgDate').addEventListener('change', function () {
+    if (!this.value) return;
+    if (Object.keys(st.rows).some(function (k) { return st.rows[k].dirty; }) && !confirm(t('সেভ না করা পরিবর্তন আছে — তারিখ বদলালে হারিয়ে যাবে। চালিয়ে যাবেন?','Unsaved changes will be lost. Continue?'))) { this.value = st.date; return; }
+    st.date = this.value; loadDay();
   });
-  document.getElementById('tpCat').addEventListener('change', function () { st.cat = this.value; renderMembers(); });
-  hrNameSuggest(document.getElementById('tpQ'), {
-    list: function () { return hrEmpSuggestList(base, base.emps.filter(function (e) { return (!st.cat || e.CategoryID === st.cat) && hrSelectedIds(st.members).indexOf(e.EmployeeID) === -1; })).map(function (x) { if (st.present[x.id]) x.sub = 'P · ' + x.sub; return x; }); },
-    onPick: function (it) { const r = hrDefaultRole(gp, base, it.id); st.members[it.id] = {}; if (r) st.members[it.id][r] = true; document.getElementById('tpQ').value = ''; renderMembers(); showToast(it.name + t(' দলে যোগ হয়েছে',' added to team'), 'success'); }
+  document.getElementById('dpgGroup').addEventListener('change', function () { st.group = this.value; fillCats(); fillItems(); renderGrid(); });
+  document.getElementById('dpgCat').addEventListener('change', function () { st.cat = this.value; fillItems(); renderGrid(); });
+  document.getElementById('dpgItem').addEventListener('change', function () { st.item = this.value; renderGrid(); });
+  const grid = document.getElementById('dpgGrid');
+  grid.addEventListener('input', function (ev) {
+    const el = ev.target; if (!el.dataset.qty) return;
+    const r = row(el.dataset.qty); r.qty = el.value; r.dirty = true;
+    const tr = el.closest('tr'); tr.classList.add('dirty'); tr.classList.toggle('has', Number(el.value) > 0 || Object.keys(r.who).some(function (k) { return r.who[k]; }));
+    roles.forEach(function (ro) { const a = grid.querySelector(`[data-amt="${el.dataset.qty}|${ro.RoleID}"]`); if (a && gp.rateOf(el.dataset.qty, ro.RoleID)) a.textContent = hrMoney(rowAmount(el.dataset.qty, ro.RoleID)); });
+    renderSum();
   });
-  document.getElementById('tpSizes').addEventListener('input', function (ev) { if (ev.target.dataset.item) { st.qty[ev.target.dataset.item] = ev.target.value; renderMembers(); renderCosts(); } });
-  document.getElementById('tpMembers').addEventListener('change', function (ev) {
-    const el = ev.target; if (!el.dataset.mem) return;
-    if (el.checked) { const r = hrDefaultRole(gp, base, el.dataset.mem); st.members[el.dataset.mem] = {}; if (r) st.members[el.dataset.mem][r] = true; } else delete st.members[el.dataset.mem];
-    renderMembers();
+  grid.addEventListener('change', function (ev) {
+    const el = ev.target; if (!el.dataset.role) return;
+    const r = row(el.dataset.item); r.who[el.dataset.role] = el.value; r.dirty = true;
+    // ক্রল পজিশন ঠিক রেখে শুধু টেবিল নতুন করে
+    const sc = grid.querySelector('.dpg-scroll'), top = sc ? sc.scrollTop : 0, left = sc ? sc.scrollLeft : 0;
+    renderGrid(); const sc2 = grid.querySelector('.dpg-scroll'); if (sc2) { sc2.scrollTop = top; sc2.scrollLeft = left; }
   });
-  document.getElementById('tpMembers').addEventListener('input', function (ev) {
-    const el = ev.target; if (!el.dataset.rate) return;
-    st.rates[el.dataset.rate] = el.value;
-    hrRefreshMemberAmounts(document.getElementById('tpMembers'), gp, st.members, qtyMap(), st.rates);
-    renderTotals();
-  });
-  document.getElementById('tpMembers').addEventListener('click', function (ev) {
-    const b = ev.target.closest('[data-role]'); if (!b) return;
-    const m = st.members[b.dataset.emp] = st.members[b.dataset.emp] || {};
-    m[b.dataset.role] = !m[b.dataset.role]; renderMembers();
-  });
-  document.getElementById('tpSave').addEventListener('click', async function () {
-    const q = qtyMap(), sel = hrSelectedIds(st.members);
-    if (!st.group) { showToast(t('পণ্যের ধরন বাছাই করুন।','Select a product type.'), 'error'); return; }
-    if (!Object.keys(q).length) { showToast(t('অন্তত একটা সাইজের পরিমাণ লিখুন।','Enter the quantity for at least one size.'), 'error'); return; }
-    if (!sel.length) { showToast(t('দলের সদস্য বাছাই করুন।','Select the team members.'), 'error'); return; }
-    const miss = hrMembersMissingRates(gp, st.members, q, st.rates);
-    if (miss.length) { showToast(t('কিছু সাইজ/কাজের দর ঠিক করা নেই — আগে "সাইজ অনুযায়ী মজুরি দর" পেজে দিন।','Some size/work rates are missing — set them in "Size Wage Rates" first.'), 'error'); return; }
+
+  document.getElementById('dpgSave').addEventListener('click', async function () {
+    const dirty = Object.keys(st.rows).filter(function (k) { return st.rows[k].dirty && !st.rows[k].locked; });
+    if (!dirty.length) { showToast(t('সেভ করার মতো কোনো পরিবর্তন নেই।','Nothing to save.'), 'error'); return; }
+    const itemName = {}; items.forEach(function (i) { itemName[i.ItemID] = i.ItemName; });
+    for (const id of dirty) {
+      const r = st.rows[id], q = Number(r.qty) || 0, who = Object.keys(r.who).filter(function (k) { return r.who[k]; });
+      if (q > 0 && !who.length) { showToast(itemName[id] + t(' — কে বানিয়েছে সেটা বাছাই করুন।',' — select who made it.'), 'error'); return; }
+      if (q <= 0 && who.length) { showToast(itemName[id] + t(' — পরিমাণ (কেজি) লিখুন।',' — enter the quantity (kg).'), 'error'); return; }
+      const noRate = who.filter(function (k) { return !gp.rateOf(id, k); });
+      if (q > 0 && noRate.length) { showToast(itemName[id] + ' — ' + noRate.map(function (k) { return gp.roleMap[k]; }).join(', ') + t(' এর দর ঠিক করা নেই ("সাইজ অনুযায়ী মজুরি দর" পেজে দিন)।',': rate not set (use "Size Wage Rates").'), 'error'); return; }
+    }
     this.disabled = true;
     try {
-      const total = Object.keys(q).reduce(function (s, k) { return s + q[k]; }, 0);
-      const { data: hd, error: e1 } = await supabaseClient.from('TeamProduction').insert({ WorkDate: st.date, GroupID: st.group, TotalKg: total, TargetKg: 0, ExtraKg: 0, IsHoliday: false }).select();
-      if (e1) throw new Error(e1.message);
-      const pid = hd[0].TeamProdID;
-      const r1 = await supabaseClient.from('TeamProduction_Items').insert(Object.keys(q).map(function (k) { return { TeamProdID: pid, ItemID: k, Qty: q[k] }; }));
-      const r2 = r1.error ? r1 : await supabaseClient.from('TeamProduction_Members').insert(hrMemberRows(gp, st.members, q, pid, st.rates));
-      const costRows = gp.costRoles.map(function (r) { const v = hrRoleValue(gp, q, r.RoleID, st.costOv[r.RoleID]); return { TeamProdID: pid, RoleID: r.RoleID, Rate: v.rate, Amount: v.value }; }).filter(function (x) { return x.Amount > 0; });
-      const r3 = (r1.error || r2.error || !costRows.length) ? { error: null } : await supabaseClient.from('TeamProduction_Costs').insert(costRows);
-      if (r3.error) {
-        await supabaseClient.from('TeamProduction_Members').delete().eq('TeamProdID', pid);
-        await supabaseClient.from('TeamProduction_Items').delete().eq('TeamProdID', pid);
-        await supabaseClient.from('TeamProduction').delete().eq('TeamProdID', pid);
-        throw new Error(r3.error.message);
-      }
-      if (r1.error || r2.error) {
-        await supabaseClient.from('TeamProduction_Items').delete().eq('TeamProdID', pid);
-        await supabaseClient.from('TeamProduction').delete().eq('TeamProdID', pid);
-        throw new Error((r1.error || r2.error).message);
+      for (const id of dirty) {
+        const r = st.rows[id], q = Number(r.qty) || 0;
+        if (r.tpId) {
+          await supabaseClient.from('TeamProduction_Members').delete().eq('TeamProdID', r.tpId);
+          await supabaseClient.from('TeamProduction_Costs').delete().eq('TeamProdID', r.tpId);
+          await supabaseClient.from('TeamProduction_Items').delete().eq('TeamProdID', r.tpId);
+          await supabaseClient.from('TeamProduction').delete().eq('TeamProdID', r.tpId);
+          r.tpId = null;
+        }
+        if (q > 0) {
+          const it = items.find(function (x) { return x.ItemID === id; }) || {};
+          const { data: hd, error } = await supabaseClient.from('TeamProduction').insert({ WorkDate: st.date, GroupID: it.GroupID || null, TotalKg: q, TargetKg: 0, ExtraKg: 0, IsHoliday: false }).select();
+          if (error) throw new Error(error.message);
+          const pid = hd[0].TeamProdID;
+          const e1 = (await supabaseClient.from('TeamProduction_Items').insert({ TeamProdID: pid, ItemID: id, Qty: q })).error;
+          const mems = Object.keys(r.who).filter(function (k) { return r.who[k]; }).map(function (k) { const rate = gp.rateOf(id, k); return { TeamProdID: pid, EmployeeID: r.who[k], RoleID: k, Rate: rate, Amount: q * rate }; });
+          const e2 = e1 || (await supabaseClient.from('TeamProduction_Members').insert(mems)).error;
+          if (e1 || e2) { await supabaseClient.from('TeamProduction_Items').delete().eq('TeamProdID', pid); await supabaseClient.from('TeamProduction').delete().eq('TeamProdID', pid); throw new Error((e1 || e2).message); }
+          r.tpId = pid;
+        }
+        r.dirty = false;
       }
       showToast(t('সেভ হয়েছে ✅','Saved ✅'), 'success');
-      st.qty = {}; st.members = {}; st.rates = {}; st.costOv = {}; renderSizes(); renderCosts(); await loadDay();
+      await loadDay();
     } catch (err) { showToast(err.message, 'error'); }
     this.disabled = false;
   });
-  document.getElementById('tpList').addEventListener('click', async function (ev) {
-    const b = ev.target.closest('[data-del]'); if (!b) return;
-    if (!confirm(t('এই এন্ট্রিটা মুছবেন?','Delete this entry?'))) return;
-    const id = b.dataset.del;
-    await supabaseClient.from('TeamProduction_Members').delete().eq('TeamProdID', id);
-    await supabaseClient.from('TeamProduction_Costs').delete().eq('TeamProdID', id);
-    await supabaseClient.from('TeamProduction_Items').delete().eq('TeamProdID', id);
-    const { error } = await supabaseClient.from('TeamProduction').delete().eq('TeamProdID', id);
-    if (error) showToast(error.message, 'error');
-    await loadDay();
-  });
-  renderSizes(); renderCosts();
+
+  fillCats(); fillItems();
   await loadDay();
 }
 
