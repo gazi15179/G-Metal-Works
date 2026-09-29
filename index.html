@@ -3582,7 +3582,7 @@ async function renderDailyProductionPage(content) {
       .dpg-tbl tr.has td{background:#f0fdf4;} .dpg-tbl tr.has td:first-child{box-shadow:inset 3px 0 0 #16a34a;}
       .dpg-tbl tr.dirty td:first-child{box-shadow:inset 3px 0 0 #d97706;}
       .dpg-tbl tr.locked td{opacity:.65;}
-      .dpg-tbl .amt{font-size:10.5px;color:var(--text-muted);text-align:right;}
+      .dpg-tbl .amt{font-size:10.5px;color:var(--text-muted);text-align:right;min-height:13px;opacity:.6;} .dpg-tbl .amt.on{opacity:1;color:var(--text);}
       .dpg-hint{font-size:12px;color:var(--text-muted);margin:6px 0;}
       .dpg-sum{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;margin:8px 0 0;}
       @media (max-width:760px){ .dpg-bar{grid-template-columns:minmax(0,1fr) minmax(0,1fr);} .dpg-bar .btn{grid-column:1 / -1;} .dpg-scroll{max-height:calc(100vh - 290px);} }
@@ -3629,6 +3629,12 @@ async function renderDailyProductionPage(content) {
   }
   function row(itemId) { return st.rows[itemId] = st.rows[itemId] || { tpId: null, qty: '', who: {}, locked: false, dirty: false }; }
   function rowAmount(itemId, roleId) { const r = row(itemId); return (Number(r.qty) || 0) * gp.rateOf(itemId, roleId); }
+  /** ঘরের নিচের লেখাঃ দর সবসময় (মজুরি দর পেজ থেকে), নাম ও কেজি থাকলে টাকাও */
+  function amtText(itemId, roleId) {
+    const rate = gp.rateOf(itemId, roleId), r = row(itemId);
+    if (!rate) return r.who[roleId] ? '<span style="color:#d97706;">' + t('দর নেই','no rate') + '</span>' : '';
+    return t('দর ','rate ') + hrMoney(rate) + (r.who[roleId] && Number(r.qty) ? ' = <b>' + hrMoney(rowAmount(itemId, roleId)) + '</b>' : '');
+  }
 
   function renderGrid() {
     const list = filtered(false), wrap = document.getElementById('dpgGrid');
@@ -3645,7 +3651,7 @@ async function renderDailyProductionPage(content) {
           ${roles.map(function (ro) {
             const rate = gp.rateOf(i.ItemID, ro.RoleID);
             return `<td><select data-item="${attr(i.ItemID)}" data-role="${attr(ro.RoleID)}" ${dis} title="${t('দর ','Rate ')}${rate ? hrMoney(rate) : t('ঠিক করা নেই','not set')}">${empOptions(r.who[ro.RoleID])}</select>
-              ${r.who[ro.RoleID] && Number(r.qty) ? `<div class="amt" data-amt="${attr(i.ItemID + '|' + ro.RoleID)}">${rate ? hrMoney(rowAmount(i.ItemID, ro.RoleID)) : '<span style="color:#d97706;">' + t('দর নেই','no rate') + '</span>'}</div>` : ''}</td>`;
+              <div class="amt ${r.who[ro.RoleID] ? 'on' : ''}" data-amt="${attr(i.ItemID + '|' + ro.RoleID)}">${amtText(i.ItemID, ro.RoleID)}</div></td>`;
           }).join('')}</tr>`;
       }).join('')}</tbody></table></div>` : `<div class="dpg-hint">${t('এই বাছাইয়ে কোনো আইটেম নেই।','No items for this selection.')}</div>`;
     renderSum();
@@ -3662,8 +3668,17 @@ async function renderDailyProductionPage(content) {
   }
 
   // ---------- দিনের ডেটা ----------
+  async function loadRates() {
+    try {
+      const { data, error } = await supabaseClient.from('SizeRates').select('*');
+      if (error) return;
+      Object.keys(gp.rate).forEach(function (k) { delete gp.rate[k]; });
+      (data || []).forEach(function (x) { if (Number(x.Rate) > 0) gp.rate[x.ItemID + '|' + x.RoleID] = Number(x.Rate); });
+    } catch (e) {}
+  }
   async function loadDay() {
     st.rows = {};
+    await loadRates();
     try {
       const [att, heads] = await Promise.all([hrQueryRange('Attendance', 'Date', st.date, st.date), hrQueryRange('TeamProduction', 'WorkDate', st.date, st.date)]);
       st.present = {}; att.forEach(function (a) { if (HR_ATT_CODE[a.Status] === 'P') st.present[a.EmployeeID] = true; });
@@ -3698,7 +3713,7 @@ async function renderDailyProductionPage(content) {
     const el = ev.target; if (!el.dataset.qty) return;
     const r = row(el.dataset.qty); r.qty = el.value; r.dirty = true;
     const tr = el.closest('tr'); tr.classList.add('dirty'); tr.classList.toggle('has', Number(el.value) > 0 || Object.keys(r.who).some(function (k) { return r.who[k]; }));
-    roles.forEach(function (ro) { const a = grid.querySelector(`[data-amt="${el.dataset.qty}|${ro.RoleID}"]`); if (a && gp.rateOf(el.dataset.qty, ro.RoleID)) a.textContent = hrMoney(rowAmount(el.dataset.qty, ro.RoleID)); });
+    roles.forEach(function (ro) { const a = grid.querySelector(`[data-amt="${el.dataset.qty}|${ro.RoleID}"]`); if (a) a.innerHTML = amtText(el.dataset.qty, ro.RoleID); });
     renderSum();
   });
   grid.addEventListener('change', function (ev) {
