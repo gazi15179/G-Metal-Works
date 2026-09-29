@@ -1637,9 +1637,10 @@ const MASTER_CONFIGS = {
   workRoles: {
     sheet: 'WorkRoles', idField: 'RoleID', idPrefix: 'WR',
     titleBn: 'কাজের ধরন', titleEn: 'Work Types', subBn: 'শেপ কারিগর, হাফ ফিনিশ, ফুল ফিনিশ, হেল্পার ইত্যাদি — প্রতিটার দর সাইজ অনুযায়ী আলাদা', subEn: 'Shape, half finish, full finish, helper… — rates set per size',
-    columns: [{key:'RoleID',label:'আইডি'},{key:'RoleName',label:'কাজের ধরন'},{key:'IsActive',label:'অবস্থা'}],
+    columns: [{key:'RoleID',label:'আইডি'},{key:'RoleName',label:'কাজের ধরন'},{key:'SortOrder',label:'ক্রম'},{key:'IsActive',label:'অবস্থা'}],
     fields: [
       {key:'RoleName', label:'কাজের ধরনের নাম', type:'text', required:true},
+      {key:'SortOrder', label:'ক্রম (দরের টেবিলে কত নম্বর কলাম)', type:'number'},
       {key:'IsActive', label:'অবস্থা', type:'boolean'}
     ]
   },
@@ -3297,7 +3298,7 @@ async function hrLoadGroups() {
     .sort(function (a, b) { return String(a.GroupName || '').localeCompare(String(b.GroupName || '')); });
   const groupMap = {}; (m.ItemGroups || []).forEach(function (g) { groupMap[g.GroupID] = g.GroupName; });
   const roles = (m.WorkRoles || []).filter(function (r) { return r.Status !== 'Deleted' && (r.IsActive === undefined || r.IsActive === null || isTrue(r.IsActive)); })
-    .sort(function (a, b) { return String(a.RoleID).localeCompare(String(b.RoleID)); });
+    .sort(function (a, b) { return (Number(a.SortOrder) || 999) - (Number(b.SortOrder) || 999) || String(a.RoleID).localeCompare(String(b.RoleID)); });
   const roleMap = {}; (m.WorkRoles || []).forEach(function (r) { roleMap[r.RoleID] = r.RoleName; });
   const rate = {}; (m.SizeRates || []).forEach(function (x) { if (Number(x.Rate) > 0) rate[x.ItemID + '|' + x.RoleID] = Number(x.Rate); });
   let settings = {};
@@ -3410,10 +3411,14 @@ async function renderSizeRatesPage(content) {
   content.innerHTML = `
     <style>
       .srt select{height:34px;padding:4px 8px;font-size:13px;width:100%;box-sizing:border-box;}
-      .srt-tbl{border-collapse:collapse;width:100%;font-size:13px;}
-      .srt-tbl th{font-size:11.5px;color:var(--text-muted);font-weight:600;padding:5px;text-align:left;white-space:nowrap;}
-      .srt-tbl td{padding:4px 5px;border-top:1px solid var(--border);}
-      .srt-tbl input{height:32px;width:100%;min-width:70px;box-sizing:border-box;padding:4px 6px;font-size:13px;}
+      .srt-scroll{max-height:65vh;overflow:auto;border:1px solid var(--border);border-radius:10px;}
+      .srt-tbl{border-collapse:separate;border-spacing:0;width:100%;font-size:13px;}
+      .srt-tbl th{position:sticky;top:0;z-index:2;background:var(--bg);font-size:12px;color:var(--text);font-weight:700;padding:8px 6px;text-align:center;white-space:nowrap;border-bottom:2px solid var(--border);}
+      .srt-tbl td{padding:4px 5px;border-bottom:1px solid var(--border);background:var(--surface);}
+      .srt-tbl th:first-child,.srt-tbl td:first-child{position:sticky;left:0;text-align:left;min-width:110px;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-right:1px solid var(--border);}
+      .srt-tbl th:first-child{z-index:3;}
+      .srt-tbl td:first-child{z-index:1;font-weight:600;}
+      .srt-tbl input{height:32px;width:100%;min-width:66px;box-sizing:border-box;padding:4px 6px;font-size:13px;text-align:right;}
       .srt-hint{font-size:12px;color:var(--text-muted);margin:6px 0;}
     </style>
     <div class="page-head"><div>
@@ -3423,17 +3428,17 @@ async function renderSizeRatesPage(content) {
     <div class="panel srt">
       <div style="max-width:320px;"><select id="srtGroup"><option value="">— ${t('পণ্যের ধরন বাছাই করুন','Select product type')} —</option>${gp.groups.map(function (g) { return `<option value="${attr(g.GroupID)}">${escapeHtml(g.GroupName)}</option>`; }).join('')}</select></div>
       <div class="srt-hint">${gp.roles.length ? t('কাজের ধরন (শেপ, হাফ ফিনিশ, ফুল ফিনিশ, হেল্পার…) "কাজের ধরন" পেজে যোগ/বদল করা যায়।','Work types can be managed in the "Work Types" page.') : `<span style="color:#d97706;">⚠ ${t('আগে "কাজের ধরন" পেজে কাজের ধরন যোগ করুন।','Add work types first in "Work Types".')}</span>`}</div>
-      <div id="srtRows" style="overflow-x:auto;"></div>
+      <div id="srtRows"></div>
       <button class="btn btn-primary" id="srtSave" style="margin-top:10px;">${t('💾 সেভ করুন','💾 Save')}</button>
     </div>`;
   function render() {
     const list = items.filter(function (i) { return i.GroupID === st.group; });
     document.getElementById('srtRows').innerHTML = !st.group ? '' : list.length ?
-      `<table class="srt-tbl"><thead><tr><th>${t('সাইজ','Size')}</th>${gp.roles.map(function (r) { return `<th>${escapeHtml(r.RoleName)}</th>`; }).join('')}</tr></thead><tbody>
+      `<div class="srt-scroll"><table class="srt-tbl"><thead><tr><th>${t('সাইজ','Size')}</th>${gp.roles.map(function (r) { return `<th>${escapeHtml(r.RoleName)}</th>`; }).join('')}</tr></thead><tbody>
         ${list.map(function (i) { return `<tr><td>${escapeHtml(i.ItemName)}</td>${gp.roles.map(function (r) {
           const k = i.ItemID + '|' + r.RoleID, v = st.edits[k] !== undefined ? st.edits[k] : (gp.rate[k] || '');
           return `<td><input type="number" step="any" min="0" data-k="${attr(k)}" value="${attr(v)}"></td>`; }).join('')}</tr>`; }).join('')}
-      </tbody></table>` : `<div class="srt-hint">${t('এই ধরনে কোনো আইটেম নেই — আইটেম মাস্টারে গ্রুপ ঠিক করুন।','No items in this type — set the group in Item Master.')}</div>`;
+      </tbody></table></div>` : `<div class="srt-hint">${t('এই ধরনে কোনো আইটেম নেই — আইটেম মাস্টারে গ্রুপ ঠিক করুন।','No items in this type — set the group in Item Master.')}</div>`;
   }
   document.getElementById('srtGroup').addEventListener('change', function () { st.group = this.value; render(); });
   document.getElementById('srtRows').addEventListener('input', function (ev) { if (ev.target.dataset.k) st.edits[ev.target.dataset.k] = ev.target.value; });
