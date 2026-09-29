@@ -1041,8 +1041,8 @@ async function runSupabaseAction(action, p) {
 
 /** Warehouse/Item/Supplier-এর মতো রেফারেন্স ড্রপডাউনের ডেটার জন্য — একই সেশনে একবার আনলে
  *  আবার নতুন করে আনার দরকার নেই (কোনো লেখা/পরিবর্তন হলেই ক্যাশ নিজে থেকে খালি হয়ে যায়)। */
-/** আইটেমের সিরিয়াল ক্রমঃ আগে ক্যাটাগরি অনুযায়ী এক জায়গায় (কলস, হাঁড়ি…), তারপর সাইজ নম্বর,
- *  একই সাইজে কোড ক্রম R → T → D (যেমন R-4, T-4, D-4), তারপর অন্য কোড। K-09 ও K-9 একই নম্বর ধরা হয়। */
+/** আইটেমের সিরিয়াল ক্রমঃ আগে ক্যাটাগরি অনুযায়ী এক জায়গায় (কলস, হাঁড়ি…), তারপর কোড অনুযায়ী
+ *  (K, তারপর সব R, সব T, সব D, তারপর অন্য কোড), প্রতিটা কোডের ভেতরে সাইজ নম্বর ছোট থেকে বড়। K-09 ও K-9 একই নম্বর। */
 const ITEM_CODE_ORDER = ['K', 'R', 'T', 'D'];
 function itemSerialKey(it) {
   const m = String(it.ItemName || it.ItemCode || '').trim().match(/^([A-Za-z]+)\s*-?\s*(\d+)/);
@@ -1056,8 +1056,8 @@ function sortItemsBySerial(list, catNameMap) {
     const ca = cn[a.CategoryID] || '\uffff', cb = cn[b.CategoryID] || '\uffff';
     if (ca !== cb) return ca.localeCompare(cb);
     const ka = itemSerialKey(a), kb = itemSerialKey(b);
-    if (ka.num !== kb.num) return ka.num - kb.num;
-    if (ka.rank !== kb.rank) return ka.rank - kb.rank;
+    if (ka.rank !== kb.rank) return ka.rank - kb.rank; // আগে কোড অনুযায়ী এক জায়গায় (সব R, তারপর সব T, তারপর সব D)
+    if (ka.num !== kb.num) return ka.num - kb.num;      // তারপর সাইজ নম্বর ছোট থেকে বড়
     return String(a.ItemName || '').localeCompare(String(b.ItemName || ''));
   });
 }
