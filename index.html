@@ -484,6 +484,19 @@ let currentLang = 'bn';
 let rolesCache = [];
 let openTabs = [];      // [{key, moduleLabel, pageLabel}, ...] — উপরে যেই পেজগুলো ট্যাব হিসেবে খোলা আছে
 let activeTabKey = null;
+/** Supabase একবারে সর্বোচ্চ ১০০০ সারি দেয় — তাই ১০০০ করে পাতায় পাতায় সব সারি আনা হয়,
+ *  যাতে আইটেম/দর/হাজিরা বেড়ে গেলেও কোনো সারি বাদ না পড়ে */
+async function selectAllRows(table) {
+  const size = 1000; let from = 0, all = [];
+  for (let guard = 0; guard < 200; guard++) {
+    const { data, error } = await supabaseClient.from(table).select('*').range(from, from + size - 1);
+    if (error) throw new Error(error.message);
+    all = all.concat(data || []);
+    if (!data || data.length < size) break;
+    from += size;
+  }
+  return all;
+}
 let listCache = {};     // ড্রপডাউনের রেফারেন্স ডেটা (Warehouse/Item/Supplier ইত্যাদি) ক্যাশ — বারবার ফর্ম খুললে
                          // প্রতিবার নতুন করে আনতে হবে না, যেটাই ধীরগতির প্রধান কারণ ছিল
 const READ_ONLY_API_ACTIONS = ['list', 'login', 'logout', 'get', 'getSingleton', 'listMultiple', 'getDocument', 'getSystemSettings', 'getAverageRate'];
@@ -896,17 +909,13 @@ async function runSupabaseAction(action, p) {
     }
 
     case 'list': {
-      const { data, error } = await supabaseClient.from(tableFor(p.sheet)).select('*');
-      if (error) throw new Error(error.message);
-      return data;
+      return await selectAllRows(tableFor(p.sheet));
     }
 
     case 'listMultiple': {
       const out = {};
       for (const sheet of p.sheets) {
-        const { data, error } = await supabaseClient.from(tableFor(sheet)).select('*');
-        if (error) throw new Error(error.message);
-        out[sheet] = data;
+        out[sheet] = await selectAllRows(tableFor(sheet));
       }
       return out;
     }
@@ -1639,11 +1648,12 @@ const MASTER_CONFIGS = {
   employees: {
     sheet: 'Employees', idField: 'EmployeeID', idPrefix: 'EMP',
     titleBn: 'কর্মচারী তথ্য', titleEn: 'Employee Info', subBn: 'সব কর্মচারীর তথ্য — মাসিক বেতন থেকে দৈনিক হাজিরা হিসাব হয়', subEn: 'All employees — daily wage comes from the monthly salary',
-    columns: [{key:'EmployeeID',label:'আইডি'},{key:'Name',label:'নাম'},{key:'CategoryID',label:'ধরন',fkSheet:'EmployeeCategories',fkIdField:'CategoryID',fkLabel:'CategoryName'},{key:'Phone',label:'ফোন'},{key:'BasicSalary',label:'মাসিক বেতন'},{key:'IsActive',label:'অবস্থা'}],
+    columns: [{key:'EmployeeID',label:'আইডি'},{key:'Name',label:'নাম'},{key:'CategoryID',label:'ধরন',fkSheet:'EmployeeCategories',fkIdField:'CategoryID',fkLabel:'CategoryName'},{key:'Phone',label:'ফোন'},{key:'SalaryType',label:'বেতনের ধরন',labels:{Monthly:'মাসিক',Weekly:'সাপ্তাহিক',Daily:'দৈনিক',PieceRate:'মাসিক'}},{key:'BasicSalary',label:'বেতন'},{key:'IsActive',label:'অবস্থা'}],
     fields: [
       {key:'Name', label:'নাম', type:'text', required:true},
       {key:'CategoryID', label:'কর্মচারীর ধরন (ম্যানেজার/ফোরম্যান/কারিগর/হেল্পার/ড্রাইভার)', type:'select-fk', fkSheet:'EmployeeCategories', fkIdField:'CategoryID', fkLabel:'CategoryName', required:true},
-      {key:'BasicSalary', label:'মাসিক বেতন (দৈনিক হাজিরা = মাসিক বেতন ÷ ৩০)', type:'number', required:true},
+      {key:'SalaryType', label:'বেতনের ধরন', type:'select-enum', options:[['Monthly','মাসিক'],['Weekly','সাপ্তাহিক']], required:true},
+      {key:'BasicSalary', label:'বেতন (মাসিক হলে দৈনিক হাজিরা = বেতন ÷ ৩০; সাপ্তাহিক হলে = বেতন ÷ ৬, শনি–বৃহঃ)', type:'number', required:true},
       {key:'Designation', label:'পদবি (ঐচ্ছিক)', type:'text'},
       {key:'JoiningDate', label:'যোগদানের তারিখ', type:'date'},
       {key:'Phone', label:'ফোন', type:'text'},
@@ -3116,6 +3126,15 @@ function hrEmpSuggestList(base, emps) {
   return (emps || base.emps).map(function (e) { return { id: e.EmployeeID, name: e.Name || e.EmployeeID, sub: base.catMap[e.CategoryID] || '' }; });
 }
 
+/** দৈনিক হাজিরাঃ মাসিক বেতন ÷ ৩০ (সেটিংস অনুযায়ী), সাপ্তাহিক বেতন ÷ ৬ (শনি–বৃহঃ)।
+ *  পুরনো রেকর্ডে "দৈনিক" থাকলে বেতনটাই দৈনিক হাজিরা; ধরন না থাকলে মাসিক ধরা হয়। */
+const HR_WEEK_DAYS = 6;
+function hrDailyWage(emp, divisor) {
+  const sal = Number((emp || {}).BasicSalary) || 0, type = (emp || {}).SalaryType;
+  if (type === 'Weekly') return sal / HR_WEEK_DAYS;
+  if (type === 'Daily') return sal;
+  return sal / (divisor || 30);
+}
 async function hrDivisor() {
   try { const s = await api('getSystemSettings', {}); const v = Number(s.PayrollDivisor); return v > 0 ? v : 30; }
   catch (e) { return 30; }
@@ -3195,7 +3214,7 @@ async function renderAttendancePage(content) {
       return true;
     });
   }
-  function wage(e) { return (Number(e.BasicSalary) || 0) / divisor; }
+  function wage(e) { return hrDailyWage(e, divisor); }
   function key(empId, date) { return empId + '|' + date; }
 
   async function loadRange(from, to) {
@@ -3582,6 +3601,7 @@ async function renderDailyProductionPage(content) {
       .dpg-tbl tr.has td{background:#f0fdf4;} .dpg-tbl tr.has td:first-child{box-shadow:inset 3px 0 0 #16a34a;}
       .dpg-tbl tr.dirty td:first-child{box-shadow:inset 3px 0 0 #d97706;}
       .dpg-tbl tr.locked td{opacity:.65;}
+      .dpg-tbl .setrate{border:1px solid #d97706;background:rgba(217,119,6,.08);color:#b45309;border-radius:5px;font-size:10.5px;padding:1px 6px;cursor:pointer;font-family:inherit;}
       .dpg-tbl .amt{font-size:10.5px;color:var(--text-muted);text-align:right;min-height:13px;opacity:.6;} .dpg-tbl .amt.on{opacity:1;color:var(--text);}
       .dpg-hint{font-size:12px;color:var(--text-muted);margin:6px 0;}
       .dpg-sum{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;margin:8px 0 0;}
@@ -3632,7 +3652,7 @@ async function renderDailyProductionPage(content) {
   /** ঘরের নিচের লেখাঃ দর সবসময় (মজুরি দর পেজ থেকে), নাম ও কেজি থাকলে টাকাও */
   function amtText(itemId, roleId) {
     const rate = gp.rateOf(itemId, roleId), r = row(itemId);
-    if (!rate) return r.who[roleId] ? '<span style="color:#d97706;">' + t('দর নেই','no rate') + '</span>' : '';
+    if (!rate) return r.who[roleId] ? `<button type="button" class="setrate" data-setrate="${attr(itemId + '|' + roleId)}">${t('দর নেই — দিন','No rate — set')}</button>` : '';
     return t('দর ','rate ') + hrMoney(rate) + (r.who[roleId] && Number(r.qty) ? ' = <b>' + hrMoney(rowAmount(itemId, roleId)) + '</b>' : '');
   }
 
@@ -3670,8 +3690,7 @@ async function renderDailyProductionPage(content) {
   // ---------- দিনের ডেটা ----------
   async function loadRates() {
     try {
-      const { data, error } = await supabaseClient.from('SizeRates').select('*');
-      if (error) return;
+      const data = await selectAllRows('SizeRates');
       Object.keys(gp.rate).forEach(function (k) { delete gp.rate[k]; });
       (data || []).forEach(function (x) { if (Number(x.Rate) > 0) gp.rate[x.ItemID + '|' + x.RoleID] = Number(x.Rate); });
     } catch (e) {}
@@ -3715,6 +3734,20 @@ async function renderDailyProductionPage(content) {
     const tr = el.closest('tr'); tr.classList.add('dirty'); tr.classList.toggle('has', Number(el.value) > 0 || Object.keys(r.who).some(function (k) { return r.who[k]; }));
     roles.forEach(function (ro) { const a = grid.querySelector(`[data-amt="${el.dataset.qty}|${ro.RoleID}"]`); if (a) a.innerHTML = amtText(el.dataset.qty, ro.RoleID); });
     renderSum();
+  });
+  grid.addEventListener('click', async function (ev) {
+    const b = ev.target.closest('[data-setrate]'); if (!b) return;
+    const p = b.dataset.setrate.split('|'), it = items.find(function (x) { return x.ItemID === p[0]; }) || {};
+    const v = prompt((it.ItemName || '') + ' — ' + (gp.roleMap[p[1]] || '') + t(' এর দর (প্রতি কেজি):',' rate (per kg):'), '');
+    if (v === null) return;
+    const rate = Number(String(v).replace(/[০-৯]/g, function (d) { return '০১২৩৪৫৬৭৮৯'.indexOf(d); }));
+    if (!(rate > 0)) { showToast(t('সঠিক দর লিখুন।','Enter a valid rate.'), 'error'); return; }
+    const { error } = await supabaseClient.from('SizeRates').upsert({ ItemID: p[0], RoleID: p[1], Rate: rate }, { onConflict: 'ItemID,RoleID' });
+    if (error) { showToast(error.message, 'error'); return; }
+    gp.rate[p[0] + '|' + p[1]] = rate; listCache = {};
+    showToast(t('দর সেভ হয়েছে — মজুরি দর পেজেও বসে গেছে ✅','Rate saved — also in the rate page ✅'), 'success');
+    const sc = grid.querySelector('.dpg-scroll'), top = sc ? sc.scrollTop : 0, left = sc ? sc.scrollLeft : 0;
+    renderGrid(); const sc2 = grid.querySelector('.dpg-scroll'); if (sc2) { sc2.scrollTop = top; sc2.scrollLeft = left; }
   });
   grid.addEventListener('change', function (ev) {
     const el = ev.target; if (!el.dataset.role) return;
@@ -3947,7 +3980,7 @@ async function renderPayrollPage(content) {
   // ---------- পপআপ ----------
   async function openRunPopup(ctx) {
     const emp = base.empMap[ctx.empId]; if (!emp) return;
-    const wage = (Number(emp.BasicSalary) || 0) / gp.divisor;
+    const wage = hrDailyWage(emp, gp.divisor);
     // একই ধরনের মিলে যাওয়া রানে আগেই বেতন হয়েছে কিনা
     const heads = (await api('list', { sheet: 'Payroll' })).filter(function (h) { return h.Status !== 'Deleted' && h.RunType === ctx.type && h.DateFrom && h.DateTo && !(h.DateTo < ctx.from || h.DateFrom > ctx.to); });
     let existingLine = null, existingHead = null;
@@ -4049,7 +4082,7 @@ async function renderPayrollPage(content) {
       }).join('');
       const sal = tt.sal;
       return `
-        <div class="rp-head"><b>${escapeHtml(emp.Name)}</b> · ${escapeHtml(base.catMap[emp.CategoryID] || '')} · ${t('দৈনিক হাজিরা ','daily wage ')}${hrMoney(wage)}
+        <div class="rp-head"><b>${escapeHtml(emp.Name)}</b> · ${escapeHtml(base.catMap[emp.CategoryID] || '')} · ${emp.SalaryType === 'Weekly' ? t('সাপ্তাহিক বেতন ','weekly ') + hrMoney(emp.BasicSalary) : t('মাসিক বেতন ','monthly ') + hrMoney(emp.BasicSalary)} · ${t('দৈনিক হাজিরা ','daily wage ')}${hrMoney(wage)}
           <div class="rp-sub">${t(HR_RUN_TYPES[ctx.type][0], HR_RUN_TYPES[ctx.type][1])} · ${hrDayLabel(ctx.from)}${ctx.from !== ctx.to ? ' — ' + hrDayLabel(ctx.to) : ''}${payrollId ? ' · ' + escapeHtml(payrollId) : ''}</div></div>
         <div class="rp-wrap"><table class="rp-tbl"><thead><tr><th>☑</th><th>${t('তারিখ','Date')}</th><th style="text-align:left;">${t('আইটেম · ভাউচার নং','Item · voucher')}</th><th>${t('পরিমাণ','Qty')}</th><th>${t('দর','Rate')}</th><th>${t('বোনাস','Bonus')}</th><th>${t('মূল্য','Value')}</th><th>${t('হাজিরা সমন্বয়','Wage adj.')}</th><th>${t('ও.ডি','O.D')}</th></tr></thead>
           <tbody>${rows}${tt.idleAdj ? `<tr><td colspan="8">${t('কাজ না দেওয়া দিনের সমন্বয়','No-work day adjustment')}</td><td>−${hrMoney(tt.idleAdj)}</td></tr>` : ''}<tr class="tot"><td colspan="8">${t('মোট ও.ডি','Total O.D')}</td><td>${hrMoney(tt.od)}</td></tr></tbody></table></div>
