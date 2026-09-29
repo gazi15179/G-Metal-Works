@@ -1647,6 +1647,7 @@ const MASTER_CONFIGS = {
   },
   employees: {
     sheet: 'Employees', idField: 'EmployeeID', idPrefix: 'EMP',
+    photo: { key: 'Photo', bucket: 'employee-docs', beside: 3, label: 'কর্মচারীর ছবি' },
     titleBn: 'কর্মচারী তথ্য', titleEn: 'Employee Info', subBn: 'সব কর্মচারীর তথ্য — মাসিক বা সাপ্তাহিক বেতন থেকে দৈনিক হাজিরা হিসাব হয়', subEn: 'All employees — daily wage comes from the monthly or weekly salary',
     columns: [{key:'EmployeeID',label:'আইডি'},{key:'Name',label:'নাম'},{key:'CategoryID',label:'ধরন',fkSheet:'EmployeeCategories',fkIdField:'CategoryID',fkLabel:'CategoryName'},{key:'Phone',label:'মোবাইল'},{key:'SalaryType',label:'বেতনের ধরন',labels:{Monthly:'মাসিক',Weekly:'সাপ্তাহিক',Daily:'দৈনিক',PieceRate:'মাসিক'}},{key:'BasicSalary',label:'বেতন'},{key:'IsActive',label:'অবস্থা'}],
     fields: [
@@ -1665,9 +1666,9 @@ const MASTER_CONFIGS = {
       {key:'Upazila', label:'উপজেলাঃ', type:'text', half:true},
       {key:'District', label:'জেলাঃ', type:'text', half:true},
       {key:'NID', label:'ভোটার আইডিঃ (ঐচ্ছিক)', type:'text', half:true},
-      {key:'BirthRegNo', label:'জন্ম নিবন্ধনঃ (ঐচ্ছিক — ভোটার আইডি না থাকলে)', type:'text', half:true},
+      {key:'BirthRegNo', label:'জন্ম নিবন্ধনঃ (ঐচ্ছিক)', type:'text', half:true},
       {type:'section', label:'ডকুমেন্ট'},
-      {key:'Documents', label:'ডকুমেন্ট আপলোড — ভোটার আইডি/জন্ম নিবন্ধনের ছবি, কর্মচারীর ছবি, চুক্তিপত্র ইত্যাদি (ছবি বা PDF, প্রতিটা সর্বোচ্চ ১০ MB)', type:'files', bucket:'employee-docs'},
+      {key:'Documents', label:'ডকুমেন্ট আপলোড — ভোটার আইডি/জন্ম নিবন্ধনের ছবি, চুক্তিপত্র ইত্যাদি (ছবি বা PDF, প্রতিটা সর্বোচ্চ ১০ MB)', type:'files', bucket:'employee-docs'},
       {key:'IsActive', label:'অবস্থা', type:'boolean'}
     ]
   },
@@ -1838,11 +1839,21 @@ async function openMasterModal(sheetName, record) {
     return `<div class="field"><label>${f.label}</label><input id="${inputId}" value="${attr(currentVal)}"></div>`;
   });
   // পাশাপাশি দুই ঘর (half) জোড়া করে একটা সারিতে
-  let bodyHtml = '';
+  const parts = [];
   for (let i = 0; i < config.fields.length; i++) {
-    if (config.fields[i].half && config.fields[i + 1] && config.fields[i + 1].half) { bodyHtml += `<div class="mf-half">${rawBody[i]}${rawBody[i + 1]}</div>`; i++; }
-    else bodyHtml += rawBody[i];
+    if (config.fields[i].half && config.fields[i + 1] && config.fields[i + 1].half) { parts.push(`<div class="mf-half">${rawBody[i]}${rawBody[i + 1]}</div>`); i++; }
+    else parts.push(rawBody[i]);
   }
+  let bodyHtml;
+  if (config.photo) {
+    // ফর্মের ডান পাশে উপরে ছবির ঘর
+    window.__mfPhoto = record ? (record[config.photo.key] || '') : '';
+    const n = config.photo.beside || 2;
+    bodyHtml = `<div class="mf-top"><div class="mf-top-left">${parts.slice(0, n).join('')}</div>
+      <div class="mf-photo-wrap"><div class="mf-ph-title">${escapeHtml(config.photo.label || 'ছবি')}</div>
+        <label class="mf-photo" id="mfPhotoBox" title="ছবি বাছাই করুন"><span id="mfPhotoInner">📷<small>ছবি দিন</small></span><input type="file" accept="image/*" id="mfPhotoInput"></label>
+        <button type="button" class="mf-photo-rm" id="mfPhotoRm" style="display:none;">✕ সরান</button></div></div>` + parts.slice(n).join('');
+  } else bodyHtml = parts.join('');
   bodyHtml = MF_EXTRA_CSS + bodyHtml;
 
   openModal({
@@ -1853,6 +1864,7 @@ async function openMasterModal(sheetName, record) {
       config.fields.forEach(function (f) {
         if (f.type === 'section') return;
         if (f.type === 'files') { data[f.key] = (window.__mfFiles && window.__mfFiles[f.key]) || []; return; }
+        if (f.type === 'section') return;
         let v = f.type === 'amount-drcr' ? readAmountDrCr('mf_' + f.key) : val('mf_' + f.key);
         // ঐচ্ছিক ড্রপডাউন (select-fk) খালি রাখলে "" এর বদলে null পাঠানো হচ্ছে —
         // কারণ ডেটাবেসের ফরেইন-কী কলাম "" মেনে নেয় না, শুধু আসল আইডি অথবা null মানে
@@ -1864,6 +1876,7 @@ async function openMasterModal(sheetName, record) {
 
       const missing = config.fields.filter(function (f) { return f.required && f.key && !data[f.key]; });
       if (missing.length > 0) throw new Error(missing.map(function(f){return f.label;}).join(', ') + ' আবশ্যক।');
+      if (config.photo) data[config.photo.key] = window.__mfPhoto || null;
       if (config.validate) { const msg = config.validate(data); if (msg) throw new Error(msg); }
 
       if (isEdit) {
@@ -1877,6 +1890,38 @@ async function openMasterModal(sheetName, record) {
     }
   });
   mfSetupExtras(config);
+}
+
+/* ---------- কর্মচারীর ছবি (ফর্মের ডান পাশে উপরে) ---------- */
+function mfShowPhoto(url) {
+  const inner = document.getElementById('mfPhotoInner'), rm = document.getElementById('mfPhotoRm');
+  if (!inner) return;
+  inner.innerHTML = url ? `<img src="${attr(url)}" alt="">` : '📷<small>ছবি দিন</small>';
+  if (url) inner.style.cssText = 'width:100%;height:100%;'; else inner.style.cssText = '';
+  rm.style.display = url ? '' : 'none';
+}
+async function mfSetupPhoto(ph) {
+  if (window.__mfPhoto) {
+    const { data } = await supabaseClient.storage.from(ph.bucket).createSignedUrl(window.__mfPhoto, 3600);
+    if (data && data.signedUrl) mfShowPhoto(data.signedUrl);
+  }
+  document.getElementById('mfPhotoInput').addEventListener('change', async function () {
+    const file = this.files && this.files[0]; if (!file) return;
+    if (!/^image\//.test(file.type)) { showToast('শুধু ছবি (JPG/PNG) দেওয়া যাবে।', 'error'); return; }
+    if (file.size > 5 * 1024 * 1024) { showToast('ছবি ৫ MB-এর বেশি বড় হতে পারবে না।', 'error'); return; }
+    mfShowPhoto(URL.createObjectURL(file));
+    const path = 'Employees/photos/' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '-' + file.name.replace(/[^A-Za-z0-9._-]/g, '_');
+    const { error } = await supabaseClient.storage.from(ph.bucket).upload(path, file, { contentType: file.type, upsert: false });
+    if (error) { showToast('ছবি আপলোড হয়নি — ' + error.message, 'error'); mfShowPhoto(''); return; }
+    const old = window.__mfPhoto; window.__mfPhoto = path;
+    if (old) supabaseClient.storage.from(ph.bucket).remove([old]);
+    showToast('ছবি আপলোড হয়েছে — ফর্মটা সেভ করুন।', 'success');
+  });
+  document.getElementById('mfPhotoRm').addEventListener('click', async function () {
+    if (!window.__mfPhoto || !confirm('ছবিটা সরাবেন?')) return;
+    await supabaseClient.storage.from(ph.bucket).remove([window.__mfPhoto]);
+    window.__mfPhoto = ''; mfShowPhoto(''); showToast('ছবি সরানো হয়েছে — ফর্মটা সেভ করুন।', 'success');
+  });
 }
 
 /* ---------- মাস্টার ফর্মের বাড়তি অংশঃ ফাইল আপলোড ও ড্রপডাউনের পাশে যোগ/এডিট/ডিলিট ---------- */
@@ -1894,7 +1939,14 @@ const MF_EXTRA_CSS = `<style>
   .mf-up{display:inline-flex;align-items:center;gap:6px;margin-top:6px;padding:6px 12px;border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:12.5px;background:var(--bg);}
   .mf-up input{display:none;}
   .mf-prog{font-size:11.5px;color:var(--text-muted);margin-top:4px;}
-  @media (max-width:600px){ .mf-half{grid-template-columns:minmax(0,1fr);} }
+  .mf-top{display:grid;grid-template-columns:minmax(0,1fr) 128px;gap:0 14px;align-items:start;}
+  .mf-photo-wrap{display:flex;flex-direction:column;align-items:center;}
+  .mf-ph-title{align-self:flex-start;font-size:13px;font-weight:600;margin-bottom:6px;color:var(--text);}
+  .mf-photo{width:128px;height:150px;border:2px dashed var(--border);border-radius:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;overflow:hidden;background:var(--bg);margin:0;}
+  .mf-photo input{display:none;} .mf-photo img{width:100%;height:100%;object-fit:cover;}
+  .mf-photo span{display:flex;flex-direction:column;align-items:center;font-size:26px;color:var(--text-muted);} .mf-photo small{font-size:11.5px;margin-top:4px;}
+  .mf-photo-rm{margin-top:6px;border:1px solid var(--border);background:var(--surface);border-radius:6px;font-size:11.5px;padding:3px 10px;cursor:pointer;color:var(--danger);font-family:inherit;}
+  @media (max-width:600px){ .mf-half{grid-template-columns:minmax(0,1fr);} .mf-top{grid-template-columns:minmax(0,1fr) 96px;gap:0 10px;} .mf-photo{width:96px;height:116px;} }
 </style>`;
 function mfParseFiles(v) {
   if (!v) return [];
@@ -1917,6 +1969,7 @@ function mfRenderFiles(key) {
 }
 function mfSetupExtras(config) {
   const body = document.getElementById('modalBody'); if (!body) return;
+  if (config.photo) mfSetupPhoto(config.photo);
   config.fields.forEach(function (f) { if (f.type === 'files') mfRenderFiles(f.key); });
   const mode = {};
   body.addEventListener('change', async function (ev) {
