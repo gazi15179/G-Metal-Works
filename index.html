@@ -3564,6 +3564,8 @@ async function hrLoadGroups() {
   return { groups: groups, groupMap: groupMap, roles: roles, laborRoles: laborRoles, costRoles: costRoles, roleMap: roleMap, rate: rate, divisor: divisor,
     rateOf: function (itemId, roleId) { return rate[itemId + '|' + roleId] || 0; } };
 }
+/** প্রতিটা আইটেমের "ডিউটি পরিমাণ" (কত কেজিতে এক দিনের হাজিরা) — SizeRates-এ এই বিশেষ RoleID দিয়ে রাখা হয় */
+const HR_DUTY_KEY = 'DUTY';
 function hrIsHelper(base, empId) { return /হেল্পার|হেলপার|helper/i.test(base.catMap[(base.empMap[empId] || {}).CategoryID] || ''); }
 /** নতুন সদস্য যোগ হলে ডিফল্ট কাজের ধরন — হেল্পার হলে "হেল্পার", নইলে প্রথম কারিগরের কাজ */
 function hrDefaultRole(gp, base, empId) {
@@ -3689,6 +3691,7 @@ async function renderSizeRatesPage(content) {
       .srt-tbl input::-webkit-outer-spin-button,.srt-tbl input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
       .srt-hint{font-size:12px;color:var(--text-muted);margin:6px 0;}
       .srt-tbl th.cost{background:#fff3e0;color:#9a5b00;} .srt-tbl td.cost{background:#fffaf2;}
+      .srt-tbl th.duty{background:#e0f2fe;color:#075985;} .srt-tbl td.duty{background:#f0f9ff;}
       .srt-tbl .addcol{width:36px;min-width:36px;text-align:center;padding:2px;}
       .srt-tbl th .colname{display:block;} .srt-tbl th .colact{display:flex;justify-content:center;gap:3px;margin-top:2px;}
       .srt-tbl th .colact button{width:22px;height:18px;border:1px solid var(--border);border-radius:4px;background:var(--surface);cursor:pointer;font-size:10.5px;line-height:1;padding:0;color:var(--text-muted);}
@@ -3730,8 +3733,10 @@ async function renderSizeRatesPage(content) {
     if (!st.group && !st.cat) { wrap.innerHTML = `<div class="srt-hint">${t('গ্রুপ বা ক্যাটাগরি বাছাই করুন।','Select a group or category.')}</div>`; return; }
     const list = sortItemsBySerial(items.filter(function (i) { return (!st.group || i.GroupID === st.group) && (!st.cat || i.CategoryID === st.cat); }), catName);
     wrap.innerHTML = list.length ?
-      `<div class="srt-scroll"><table class="srt-tbl"><thead><tr><th>${t('আইটেম','Item')}</th>${gp.roles.map(function (r) { return `<th class="${r.Kind === 'Cost' ? 'cost' : ''}" title="${r.Kind === 'Cost' ? t('উৎপাদন খরচ (প্রতি কেজি)','Production cost (per kg)') : t('কর্মচারীর কাজের মজুরি (প্রতি কেজি)','Worker wage (per kg)')}"><span class="colname">${escapeHtml(r.RoleName)}</span><span class="colact"><button type="button" data-colren="${attr(r.RoleID)}" title="${t('নাম বদলান','Rename')}">✎</button><button type="button" data-colhide="${attr(r.RoleID)}" title="${t('কলাম সরান','Remove column')}">✕</button></span></th>`; }).join('')}<th class="addcol"><button type="button" id="srtAddCol" title="${t('ডান পাশে নতুন কলাম','Add a column on the right')}">＋</button></th></tr></thead><tbody>
-        ${list.map(function (i) { return `<tr><td title="${attr(i.ItemName)}">${escapeHtml(i.ItemName)}</td>${gp.roles.map(function (r) {
+      `<div class="srt-scroll"><table class="srt-tbl"><thead><tr><th>${t('আইটেম','Item')}</th><th class="duty" title="${t('কত কেজি বানালে এক দিনের হাজিরা — প্রতিটা আইটেমের ডিউটি পরিমাণ','Kg that equals one day\'s work for this item')}">${t('ডিউটি পরিঃ','Duty qty')}<span class="colname" style="font-size:10px;font-weight:500;">(${t('কেজি','kg')})</span></th>${gp.roles.map(function (r) { return `<th class="${r.Kind === 'Cost' ? 'cost' : ''}" title="${r.Kind === 'Cost' ? t('উৎপাদন খরচ (প্রতি কেজি)','Production cost (per kg)') : t('কর্মচারীর কাজের মজুরি (প্রতি কেজি)','Worker wage (per kg)')}"><span class="colname">${escapeHtml(r.RoleName)}</span><span class="colact"><button type="button" data-colren="${attr(r.RoleID)}" title="${t('নাম বদলান','Rename')}">✎</button><button type="button" data-colhide="${attr(r.RoleID)}" title="${t('কলাম সরান','Remove column')}">✕</button></span></th>`; }).join('')}<th class="addcol"><button type="button" id="srtAddCol" title="${t('ডান পাশে নতুন কলাম','Add a column on the right')}">＋</button></th></tr></thead><tbody>
+        ${list.map(function (i) {
+          const dk = i.ItemID + '|' + HR_DUTY_KEY, dv = st.edits[dk] !== undefined ? st.edits[dk] : (gp.rate[dk] || '');
+          return `<tr><td title="${attr(i.ItemName)}">${escapeHtml(i.ItemName)}</td><td class="duty"><input type="number" step="any" min="0" inputmode="decimal" data-k="${attr(dk)}" value="${attr(dv)}"></td>${gp.roles.map(function (r) {
           const k = i.ItemID + '|' + r.RoleID, v = st.edits[k] !== undefined ? st.edits[k] : (gp.rate[k] || '');
           return `<td class="${r.Kind === 'Cost' ? 'cost' : ''}"><input type="number" step="any" min="0" inputmode="decimal" data-k="${attr(k)}" value="${attr(v)}"></td>`; }).join('')}<td class="addcol"></td></tr>`; }).join('')}
       </tbody></table></div>` : `<div class="srt-hint">${t('এই গ্রুপ/ক্যাটাগরিতে কোনো আইটেম নেই।','No items in this group/category.')}</div>`;
