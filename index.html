@@ -444,7 +444,7 @@ const MODULES = [
     {key:'empCategories', bn:'কর্মচারীর ধরন', en:'Employee Types'},{key:'empInfo', bn:'কর্মচারী তথ্য', en:'Employee Info'},
     {key:'workRoles', bn:'দরের কলাম', en:'Rate Columns'},{key:'sizeRates', bn:'সাইজ অনুযায়ী মজুরি দর', en:'Size Wage Rates'},{key:'attendance', bn:'হাজিরা', en:'Attendance'},
     {key:'dailyProduction', bn:'দৈনিক উৎপাদন ও দল', en:'Daily Production & Team'},{key:'leave', bn:'ছুটি ব্যবস্থাপনা', en:'Leave Management'},
-    {key:'payroll', bn:'বেতন রান', en:'Salary Run'},
+    {key:'payroll', bn:'মজুরি ভাউচার', en:'Wage Voucher'},
   ]},
   {key:'reports', bn:'রিপোর্ট', en:'Reports', sub:[
     {key:'invReport', bn:'ইনভেন্টরি প্রতিবেদন', en:'Inventory Reports'},{key:'salesReport', bn:'বিক্রয় প্রতিবেদন', en:'Sales Reports'},
@@ -1648,13 +1648,12 @@ const MASTER_CONFIGS = {
   employees: {
     sheet: 'Employees', idField: 'EmployeeID', idPrefix: 'EMP',
     photo: { key: 'Photo', bucket: 'employee-docs', beside: 3, label: 'কর্মচারীর ছবি' },
-    titleBn: 'কর্মচারী তথ্য', titleEn: 'Employee Info', subBn: 'সব কর্মচারীর তথ্য — মাসিক বা সাপ্তাহিক বেতন থেকে দৈনিক হাজিরা হিসাব হয়', subEn: 'All employees — daily wage comes from the monthly or weekly salary',
-    columns: [{key:'EmployeeID',label:'আইডি'},{key:'Name',label:'নাম'},{key:'CategoryID',label:'ধরন',fkSheet:'EmployeeCategories',fkIdField:'CategoryID',fkLabel:'CategoryName'},{key:'Phone',label:'মোবাইল'},{key:'SalaryType',label:'বেতনের ধরন',labels:{Monthly:'মাসিক',Weekly:'সাপ্তাহিক',Daily:'দৈনিক',PieceRate:'মাসিক'}},{key:'BasicSalary',label:'বেতন'},{key:'IsActive',label:'অবস্থা'}],
+    titleBn: 'কর্মচারী তথ্য', titleEn: 'Employee Info', subBn: 'সব কর্মচারীর তথ্য — মজুরি উৎপাদন অনুযায়ী, দরকারে দৈনিক হাজিরা পর্যন্ত মিলানো', subEn: 'All employees — daily wage comes from the monthly or weekly salary',
+    columns: [{key:'EmployeeID',label:'আইডি'},{key:'Name',label:'নাম'},{key:'CategoryID',label:'ধরন',fkSheet:'EmployeeCategories',fkIdField:'CategoryID',fkLabel:'CategoryName'},{key:'Phone',label:'মোবাইল'},{key:'DailyRate',label:'দৈনিক হাজিরা'},{key:'IsActive',label:'অবস্থা'}],
     fields: [
       {key:'Name', label:'নাম', type:'text', required:true},
       {key:'CategoryID', label:'কর্মচারীর ধরন', type:'select-fk', fkSheet:'EmployeeCategories', fkIdField:'CategoryID', fkLabel:'CategoryName', required:true, manage:true, sortField:'SortOrder'},
-      {key:'SalaryType', label:'বেতনের ধরন', type:'select-enum', options:[['Monthly','মাসিক'],['Weekly','সাপ্তাহিক']], required:true},
-      {key:'BasicSalary', label:'বেতন (মাসিক হলে দৈনিক হাজিরা = বেতন ÷ ৩০; সাপ্তাহিক হলে = বেতন ÷ ৬, শনি–বৃহঃ)', type:'number', required:true},
+      {key:'DailyRate', label:'দৈনিক হাজিরা (টাকা) — মজুরি ভাউচারে "হাজিরা মিলান" টিক দিলে সেদিন অন্তত এই টাকা পাবে', type:'number', required:true},
       {key:'Designation', label:'পদবি (ঐচ্ছিক)', type:'text', half:true},
       {key:'JoiningDate', label:'যোগদানের তারিখ', type:'date', half:true},
       {key:'Phone', label:'মোবাইল', type:'text'},
@@ -3327,7 +3326,10 @@ function hrEmpSuggestList(base, emps) {
  *  পুরনো রেকর্ডে "দৈনিক" থাকলে বেতনটাই দৈনিক হাজিরা; ধরন না থাকলে মাসিক ধরা হয়। */
 const HR_WEEK_DAYS = 6;
 function hrDailyWage(emp, divisor) {
-  const sal = Number((emp || {}).BasicSalary) || 0, type = (emp || {}).SalaryType;
+  emp = emp || {};
+  if (Number(emp.DailyRate) > 0) return Number(emp.DailyRate);
+  // পুরনো রেকর্ডঃ মাসিক ÷ ৩০, সাপ্তাহিক ÷ ৬, দৈনিক = বেতন
+  const sal = Number(emp.BasicSalary) || 0, type = emp.SalaryType;
   if (type === 'Weekly') return sal / HR_WEEK_DAYS;
   if (type === 'Daily') return sal;
   return sal / (divisor || 30);
@@ -3398,7 +3400,7 @@ async function renderAttendancePage(content) {
     </style>
     <div class="page-head"><div>
         <h1>${t('হাজিরা','Attendance')}</h1>
-        <p>${t('P = উপস্থিত, A = অনুপস্থিত, L = ছুটি। P দিলেই সেদিনের হাজিরার টাকা বেতনে জমা হয়।','P = Present, A = Absent, L = Leave. Each P adds that day\'s wage.')}</p>
+        <p>${t('P = উপস্থিত, A = অনুপস্থিত, L = ছুটি — কে কতদিন হাজির ছিল তার হিসাব','P = Present, A = Absent, L = Leave — days attended')}</p>
       </div></div>
     <div class="panel">
       <div class="hr-tabs"><button class="hr-tab on" data-mode="daily">${t('দৈনিক হাজিরা','Daily')}</button><button class="hr-tab" data-mode="monthly">${t('মাসিক খাতা','Monthly Register')}</button></div>
@@ -3451,7 +3453,7 @@ async function renderAttendancePage(content) {
     list.forEach(function (e) { const c = codeOf(e.EmployeeID, st.date); if (c === 'P') p++; else if (c === 'A') a++; else if (c === 'L') l++; else none++; });
     const rows = list.map(function (e) {
       const c = codeOf(e.EmployeeID, st.date);
-      return `<div class="hr-row"><div class="hr-name"><b>${escapeHtml(e.Name)}</b><span>${escapeHtml(base.catMap[e.CategoryID] || '—')} · ${t('হাজিরা','Wage')} ${hrMoney(wage(e))}</span></div>
+      return `<div class="hr-row"><div class="hr-name"><b>${escapeHtml(e.Name)}</b><span>${escapeHtml(base.catMap[e.CategoryID] || '—')}</span></div>
         <div class="hr-pal">${['P','A','L'].map(function (s) { return `<button class="${s} ${c === s ? 'on' : ''}" data-emp="${attr(e.EmployeeID)}" data-s="${s}">${s}</button>`; }).join('')}</div></div>`;
     }).join('');
     document.getElementById('hrAttBody').innerHTML = `
@@ -3465,7 +3467,7 @@ async function renderAttendancePage(content) {
     const r = hrMonthRange(st.month);
     const days = hrDatesBetween(r.from, r.to);
     const list = empList();
-    const head = `<tr><th class="nm">${t('নাম','Name')}</th>${days.map(function (d) { const dt = hrDate(d); return `<th class="${hrIsFriday(d) ? 'fri' : ''}">${dt.getDate()}<br>${HR_WEEKDAYS_BN[dt.getDay()].slice(0, 2)}</th>`; }).join('')}<th>P</th><th>A</th><th>L</th><th>${t('জমা','Earned')}</th></tr>`;
+    const head = `<tr><th class="nm">${t('নাম','Name')}</th>${days.map(function (d) { const dt = hrDate(d); return `<th class="${hrIsFriday(d) ? 'fri' : ''}">${dt.getDate()}<br>${HR_WEEKDAYS_BN[dt.getDay()].slice(0, 2)}</th>`; }).join('')}<th>P</th><th>A</th><th>L</th></tr>`;
     const body = list.map(function (e) {
       let p = 0, a = 0, l = 0;
       const cells = days.map(function (d) {
@@ -3473,7 +3475,7 @@ async function renderAttendancePage(content) {
         if (c === 'P') p++; else if (c === 'A') a++; else if (c === 'L') l++;
         return `<td class="c ${c} ${hrIsFriday(d) ? 'fri' : ''}" data-emp="${attr(e.EmployeeID)}" data-d="${d}">${c}</td>`;
       }).join('');
-      return `<tr><td class="nm" title="${attr(e.Name)}">${escapeHtml(e.Name)}</td>${cells}<td class="tot">${p}</td><td class="tot">${a}</td><td class="tot">${l}</td><td class="tot">${hrMoney(p * wage(e))}</td></tr>`;
+      return `<tr><td class="nm" title="${attr(e.Name)}">${escapeHtml(e.Name)}</td>${cells}<td class="tot">${p}</td><td class="tot">${a}</td><td class="tot">${l}</td></tr>`;
     }).join('');
     document.getElementById('hrAttBody').innerHTML = `
       <div class="hr-sum"><span>${HR_MONTHS_BN[r.month - 1]} ${r.year}</span><span style="color:var(--text-muted);font-size:12px;">${t('ঘরে চাপ দিলে P → A → L → খালি বদলাবে','Tap a cell: P → A → L → blank')}</span></div>
@@ -3783,7 +3785,7 @@ async function renderDailyProductionPage(content) {
   const catName = {}; cats.forEach(function (c) { catName[c.CategoryID] = c.CategoryName; });
   const roles = gp.laborRoles; // শেপ, হাঃফিনিস … ফোরম্যান
   // rows: itemId → { tpId, qty, who:{roleId: empId}, locked, dirty }
-  const st = { date: hrToday(), group: '', cat: '', item: '', rows: {}, present: {} };
+  const st = { date: hrToday(), group: '', cat: '', item: '', rows: {}, present: {}, bonus: [], bonusDirty: false };
 
   content.innerHTML = `
     <style>
@@ -3809,6 +3811,12 @@ async function renderDailyProductionPage(content) {
       .dpg-tbl .setrate{border:1px solid #d97706;background:rgba(217,119,6,.08);color:#b45309;border-radius:5px;font-size:10.5px;padding:1px 6px;cursor:pointer;font-family:inherit;}
       .dpg-tbl .amt{font-size:10.5px;color:var(--text-muted);text-align:right;min-height:13px;opacity:.6;} .dpg-tbl .amt.on{opacity:1;color:var(--text);}
       .dpg-hint{font-size:12px;color:var(--text-muted);margin:6px 0;}
+      .dpg-bon{margin-top:12px;border-top:1px solid var(--border);padding-top:8px;}
+      .dpg-bon-h{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;font-size:13px;} .dpg-bon-h span{font-size:11.5px;color:var(--text-muted);}
+      .dpg-brow{display:grid;grid-template-columns:minmax(0,1.3fr) 110px minmax(0,1.6fr) 34px;gap:6px;align-items:center;margin-top:6px;}
+      .dpg-brow select,.dpg-brow input{height:30px;padding:2px 6px;font-size:13px;width:100%;box-sizing:border-box;}
+      .dpg-brow button{height:30px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--danger);cursor:pointer;}
+      @media (max-width:600px){ .dpg-brow{grid-template-columns:minmax(0,1fr) 90px 34px;} .dpg-brow .note{grid-column:1 / -1;order:9;} }
       .dpg-sum{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;margin:8px 0 0;}
       @media (max-width:760px){ .dpg-bar{grid-template-columns:minmax(0,1fr) minmax(0,1fr);} .dpg-bar .btn{grid-column:1 / -1;} .dpg-scroll{max-height:calc(100vh - 290px);} }
     </style>
@@ -3823,6 +3831,11 @@ async function renderDailyProductionPage(content) {
       </div>
       <div id="dpgGrid"></div>
       <div class="dpg-sum" id="dpgSum"></div>
+      <div class="dpg-bon">
+        <div class="dpg-bon-h"><b>${t('বোনাস','Bonus')}</b><span>${t('এই দিনে কাউকে আলাদা টাকা দিলে এখানে লিখুন — সাপ্তাহিক বেতন শিটে যোগ হবে','Extra money for anyone on this day — added to the weekly sheet')}</span></div>
+        <div id="dpgBonus"></div>
+        <button type="button" class="btn btn-outline" id="dpgBonusAdd" style="width:auto;height:30px;padding:0 12px;font-size:12.5px;margin-top:6px;">+ ${t('বোনাস যোগ','Add bonus')}</button>
+      </div>
     </div>`;
 
   // ---------- ফিল্টার ----------
@@ -3881,6 +3894,16 @@ async function renderDailyProductionPage(content) {
       }).join('')}</tbody></table></div>` : `<div class="dpg-hint">${t('এই বাছাইয়ে কোনো আইটেম নেই।','No items for this selection.')}</div>`;
     renderSum();
   }
+  function renderBonus() {
+    const el = document.getElementById('dpgBonus');
+    el.innerHTML = st.bonus.length ? st.bonus.map(function (b, i) {
+      const dis = b.billed ? 'disabled' : '';
+      return `<div class="dpg-brow"><select data-bi="${i}" data-bf="emp" ${dis}>${empOptions(b.emp)}</select>
+        <input type="number" step="any" min="0" placeholder="${t('টাকা','Amount')}" data-bi="${i}" data-bf="amount" value="${attr(b.amount)}" ${dis}>
+        <input class="note" placeholder="${t('কারণ (যেমনঃ ভালো কাজ, ঈদ)','Reason')}" data-bi="${i}" data-bf="note" value="${attr(b.note)}" ${dis}>
+        ${b.billed ? `<span title="${t('বেতনে উঠে গেছে','Paid')}">🔒</span>` : `<button type="button" data-bdel="${i}">✕</button>`}</div>`;
+    }).join('') : `<div class="dpg-hint">${t('এই দিনে কোনো বোনাস নেই।','No bonus on this day.')}</div>`;
+  }
   function renderSum() {
     let kg = 0, wage = 0, n = 0, dirty = 0;
     Object.keys(st.rows).forEach(function (id) {
@@ -3888,6 +3911,7 @@ async function renderDailyProductionPage(content) {
       if (r.dirty) dirty++;
       if (q > 0) { kg += q; n++; roles.forEach(function (ro) { if (r.who[ro.RoleID]) wage += q * gp.rateOf(id, ro.RoleID); }); }
     });
+    if (st.bonusDirty) dirty++;
     document.getElementById('dpgSum').innerHTML = `<span>${hrDayLabel(st.date)}</span><span>${t('আইটেম ','Items ')}<b>${n}</b></span><span>${t('মোট ','Total ')}<b>${hrNum(kg)}</b> ${t('কেজি','kg')}</span><span>${t('মজুরি ','Wages ')}<b>${hrMoney(wage)}</b></span>${dirty ? `<span style="color:#d97706;">● ${dirty} ${t('টা সারি সেভ হয়নি','row(s) unsaved')}</span>` : ''}
       <span style="color:var(--text-muted);">✓ = ${t('আজ হাজিরায় P','present today')}</span>`;
   }
@@ -3901,8 +3925,12 @@ async function renderDailyProductionPage(content) {
     } catch (e) {}
   }
   async function loadDay() {
-    st.rows = {};
+    st.rows = {}; st.bonus = []; st.bonusDirty = false;
     await loadRates();
+    try {
+      const bon = await hrQueryRange('DailyBonus', 'WorkDate', st.date, st.date);
+      st.bonus = bon.map(function (b) { return { id: b.BonusID, emp: b.EmployeeID, amount: b.Amount, note: b.Note || '', billed: !!b.BilledIn }; });
+    } catch (e) { st.bonus = []; }
     try {
       const [att, heads] = await Promise.all([hrQueryRange('Attendance', 'Date', st.date, st.date), hrQueryRange('TeamProduction', 'WorkDate', st.date, st.date)]);
       st.present = {}; att.forEach(function (a) { if (HR_ATT_CODE[a.Status] === 'P') st.present[a.EmployeeID] = true; });
@@ -3920,19 +3948,24 @@ async function renderDailyProductionPage(content) {
         });
       }
     } catch (err) { showToast(err.message, 'error'); }
-    renderGrid();
+    renderGrid(); renderBonus();
   }
 
   // ---------- ইভেন্ট ----------
   document.getElementById('dpgDate').addEventListener('change', function () {
     if (!this.value) return;
-    if (Object.keys(st.rows).some(function (k) { return st.rows[k].dirty; }) && !confirm(t('সেভ না করা পরিবর্তন আছে — তারিখ বদলালে হারিয়ে যাবে। চালিয়ে যাবেন?','Unsaved changes will be lost. Continue?'))) { this.value = st.date; return; }
+    if ((st.bonusDirty || Object.keys(st.rows).some(function (k) { return st.rows[k].dirty; })) && !confirm(t('সেভ না করা পরিবর্তন আছে — তারিখ বদলালে হারিয়ে যাবে। চালিয়ে যাবেন?','Unsaved changes will be lost. Continue?'))) { this.value = st.date; return; }
     st.date = this.value; loadDay();
   });
   document.getElementById('dpgGroup').addEventListener('change', function () { st.group = this.value; fillCats(); fillItems(); renderGrid(); });
   document.getElementById('dpgCat').addEventListener('change', function () { st.cat = this.value; fillItems(); renderGrid(); });
   document.getElementById('dpgItem').addEventListener('change', function () { st.item = this.value; renderGrid(); });
   const grid = document.getElementById('dpgGrid');
+  document.getElementById('dpgBonusAdd').addEventListener('click', function () { st.bonus.push({ id: null, emp: '', amount: '', note: '', billed: false }); st.bonusDirty = true; renderBonus(); renderSum(); });
+  const bonEl = document.getElementById('dpgBonus');
+  function onBonus(ev) { const el = ev.target; if (el.dataset.bi === undefined) return; st.bonus[Number(el.dataset.bi)][el.dataset.bf] = el.value; if (!st.bonusDirty) { st.bonusDirty = true; renderSum(); } }
+  bonEl.addEventListener('input', onBonus); bonEl.addEventListener('change', onBonus);
+  bonEl.addEventListener('click', function (ev) { const b = ev.target.closest('[data-bdel]'); if (!b) return; st.bonus.splice(Number(b.dataset.bdel), 1); st.bonusDirty = true; renderBonus(); renderSum(); });
   grid.addEventListener('input', function (ev) {
     const el = ev.target; if (!el.dataset.qty) return;
     const r = row(el.dataset.qty); r.qty = el.value; r.dirty = true;
@@ -3964,7 +3997,12 @@ async function renderDailyProductionPage(content) {
 
   document.getElementById('dpgSave').addEventListener('click', async function () {
     const dirty = Object.keys(st.rows).filter(function (k) { return st.rows[k].dirty && !st.rows[k].locked; });
-    if (!dirty.length) { showToast(t('সেভ করার মতো কোনো পরিবর্তন নেই।','Nothing to save.'), 'error'); return; }
+    if (!dirty.length && !st.bonusDirty) { showToast(t('সেভ করার মতো কোনো পরিবর্তন নেই।','Nothing to save.'), 'error'); return; }
+    for (const b of st.bonus) {
+      if (b.billed) continue;
+      if ((Number(b.amount) || 0) > 0 && !b.emp) { showToast(t('বোনাস — কর্মচারী বাছাই করুন।','Bonus — select the employee.'), 'error'); return; }
+      if (b.emp && !((Number(b.amount) || 0) > 0)) { showToast(t('বোনাস — টাকার অঙ্ক লিখুন।','Bonus — enter the amount.'), 'error'); return; }
+    }
     const itemName = {}; items.forEach(function (i) { itemName[i.ItemID] = i.ItemName; });
     for (const id of dirty) {
       const r = st.rows[id], q = Number(r.qty) || 0, who = Object.keys(r.who).filter(function (k) { return r.who[k]; });
@@ -3997,6 +4035,14 @@ async function renderDailyProductionPage(content) {
         }
         r.dirty = false;
       }
+      if (st.bonusDirty) {
+        // বেতনে না ওঠা বোনাসগুলো নতুন করে লেখা
+        const { error: de } = await supabaseClient.from('DailyBonus').delete().eq('WorkDate', st.date).is('BilledIn', null);
+        if (de) throw new Error(de.message);
+        const rowsB = st.bonus.filter(function (b) { return !b.billed && b.emp && Number(b.amount) > 0; }).map(function (b) { return { WorkDate: st.date, EmployeeID: b.emp, Amount: Number(b.amount), Note: b.note || '' }; });
+        if (rowsB.length) { const { error } = await supabaseClient.from('DailyBonus').insert(rowsB); if (error) throw new Error(error.message); }
+        st.bonusDirty = false;
+      }
       showToast(t('সেভ হয়েছে ✅','Saved ✅'), 'success');
       await loadDay();
     } catch (err) { showToast(err.message, 'error'); }
@@ -4008,526 +4054,378 @@ async function renderDailyProductionPage(content) {
 }
 
 /* ============================================================
-   বেতন রান — দৈনিক / সাপ্তাহিক / মাসিক।
-   হাজিরার নিয়মঃ
-   • পরপর ২ কর্মদিবস A হলে ১ দিনের হাজিরা বাড়তি কর্তন (৪ দিন হলে ২ দিন)।
-   • ছুটি (L) বেতনসহ, কিন্তু ছুটির পরের কর্মদিবসে কাজে যোগ না দিলে (A) সেই ছুটির টাকা পাবে না।
-   • শুক্রবার সাপ্তাহিক ছুটি — কর্মদিবস গোনায় ধরা হয় না।
-   দৈনিক/সাপ্তাহিক রান = ও.ডি (উৎপাদন মূল্য + বোনাস − হাজিরা)।
-   মাসিক রান = হাজিরার বেতন (উপরের নিয়মে) + এখনো না পাওয়া ও.ডি।
+   মজুরি ভাউচার (শনি–বৃহঃ, তারিখ বদলানো যায়)
+   • সবাই (ফোরম্যান, কারীগর, হেলপার…) দৈনিক উৎপাদন অনুযায়ী মজুরি পায়।
+   • প্রতিদিনের "হাজিরা মিলান" টিকঃ টিক দিলে সেদিন অন্তত দৈনিক হাজিরা পাবে —
+     উৎপাদন মজুরি হাজিরার কম হলে বাকিটা মিলিয়ে দেওয়া হয় (মালিক পক্ষের কারণে কাজ কম হলে)।
+     উৎপাদন হাজিরার সমান বা বেশি হলে টিকের কোনো প্রভাব নেই। টিক ছাড়া শুধু কাজের টাকা।
+   • কম-বেশিঃ যেকোনো দিনে +/− টাকা, কারণসহ।
+   • বোনাস আসে দৈনিক উৎপাদন পেজ থেকে; অগ্রিম কর্তন এখানে।
    ============================================================ */
 function payrollPeriodLabel(r) {
-  if (r.RunType === 'Monthly' && r.DateFrom) { const d = hrDate(r.DateFrom); return HR_MONTHS_BN[d.getMonth()] + ' ' + d.getFullYear(); }
   if (r.DateFrom && r.DateTo) return r.DateFrom === r.DateTo ? formatShortDate(r.DateFrom) : formatShortDate(r.DateFrom) + ' — ' + formatShortDate(r.DateTo);
   return (r.Month || '') + ' ' + (r.Year || '');
-}
-const HR_RUN_TYPES = { Daily: ['দৈনিক','Daily'], Weekly: ['সাপ্তাহিক','Weekly'], Monthly: ['মাসিক','Monthly'] };
-
-/** হাজিরার নিয়মে বেতনের দিন — attByDate: {date: 'P'|'A'|'L'} (সময়ের পরের কয়েকদিনসহ, ছুটির নিয়মের জন্য) */
-function hrAttendanceSalary(from, to, attByDate, divisor, wage) {
-  const days = hrDatesBetween(from, to);
-  let p = 0, a = 0, l = 0, lPaid = 0, lLost = 0, penalty = 0;
-  days.forEach(function (d) { const c = attByDate[d] || ''; if (c === 'P') p++; else if (c === 'A') a++; else if (c === 'L') l++; });
-  // সপ্তাহের (শনি–বৃহঃ) মধ্যে প্রতি ২টা A-তে ১ দিনের হাজিরা কর্তন।
-  // মাসের শুরু/শেষে সপ্তাহ ভাগ হলে পুরো সপ্তাহের A গোনা হয়; কর্তন পড়ে সেই মাসে, যে মাসে ২য় (৪র্থ…) A-টা হয়েছে
-  const marked = days.filter(function (d) { return attByDate[d]; });
-  const weekA = {};
-  Object.keys(attByDate).sort().forEach(function (d) {
-    if (attByDate[d] !== 'A' || hrIsFriday(d)) return;
-    const wk = hrWeekOf(d).from;
-    weekA[wk] = (weekA[wk] || 0) + 1;
-    if (weekA[wk] % 2 === 0 && d >= from && d <= to) penalty++;
-  });
-  // ছুটির পরের এন্ট্রি A হলে সেই ছুটির টাকা বাদ (সময়ের পরের ৭ দিনও দেখা হয়)
-  const all = Object.keys(attByDate).sort();
-  let i = 0;
-  while (i < marked.length) {
-    if (attByDate[marked[i]] !== 'L') { i++; continue; }
-    let j = i; while (j < marked.length && attByDate[marked[j]] === 'L') j++;
-    const block = j - i;
-    const next = j < marked.length ? marked[j] : all.find(function (d) { return d > marked[j - 1] && attByDate[d] !== 'L'; });
-    if (next && attByDate[next] === 'A') lLost += block; else lPaid += block;
-    i = j;
-  }
-  const paidDays = Math.max(0, Math.min(p + lPaid - penalty, divisor));
-  return { p: p, a: a, l: l, lPaid: lPaid, lLost: lLost, penalty: penalty, paidDays: paidDays, salary: paidDays * wage };
 }
 
 async function renderPayrollPage(content) {
   const base = await hrLoadBase();
   const gp = await hrLoadGroups();
-  const st = { type: 'Weekly', from: '', to: '', month: hrToday().slice(0, 7), cat: '', drafts: [] };
-  function setDefaultRange() {
-    if (st.type === 'Daily') { st.from = st.to = hrToday(); }
-    else if (st.type === 'Weekly') { const w = hrWeekOf(hrToday()); st.from = w.from; st.to = w.to; }
-    else { const r = hrMonthRange(st.month); st.from = r.from; st.to = r.to; }
-  }
-  setDefaultRange();
+  const st = { from: hrWeekOf(hrToday()).from, to: '', cat: '', q: '', rows: {}, headId: null, dirty: false };
+  st.to = hrAddDays(st.from, 5);
 
   content.innerHTML = `
     <style>
-      .pr .field{margin:0;min-width:0;} .pr .field label{font-size:11.5px;margin-bottom:3px;}
-      .pr input:not([type=checkbox]),.pr select{height:34px;padding:4px 8px;font-size:13px;width:100%;min-width:0;box-sizing:border-box;}
-      .pr-top{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;}
-      .pr-top h3{margin:0;font-size:16px;} .pr-top select{width:auto;min-width:130px;}
-      .pr-g2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 10px;margin-bottom:8px;}
-      .pr-cat{display:flex;gap:4px;align-items:flex-end;}
-      .pr-cat .field{flex:1;}
-      .pr-ic{width:32px;height:34px;border:1px solid var(--border);border-radius:8px;background:var(--surface);cursor:pointer;font-size:14px;flex-shrink:0;padding:0;}
-      .pr-ic:disabled{opacity:.35;cursor:not-allowed;}
-      .pr-catedit{display:none;gap:6px;margin-top:6px;} .pr-catedit.on{display:flex;}
-      .pr-hint{font-size:12px;color:var(--text-muted);margin:4px 0;}
-      .pr-sec{font-size:12px;font-weight:700;color:var(--text-muted);margin:16px 0 6px;text-transform:uppercase;}
-      .pr-rec{border:1px solid var(--border);border-radius:10px;padding:8px 10px;margin-bottom:8px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center;}
-      .pr-rec .nm b{display:block;font-size:14px;} .pr-rec .nm span{font-size:11.5px;color:var(--text-muted);}
-      .pr-rec .acts{display:flex;gap:4px;}
-      .pr-rec .acts button{width:32px;height:32px;border:1px solid var(--border);border-radius:8px;background:var(--surface);cursor:pointer;font-size:14px;padding:0;}
-      .pr-rec .tot{grid-column:1 / -1;display:flex;justify-content:space-between;font-size:12.5px;border-top:1px dashed var(--border);padding-top:5px;}
-      .pr-draft{border-style:dashed;background:rgba(217,119,6,.05);}
-      @media (max-width:600px){ .pr-g2{grid-template-columns:minmax(0,1fr);} }
+      .ws{padding:10px 12px !important;}
+      .ws-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 0 8px;}
+      .ws-head h1{font-size:18px;margin:0;} .ws-head span{font-size:11.5px;color:var(--text-muted);}
+      .ws-bar{display:grid;grid-template-columns:auto 140px 140px minmax(0,1fr) minmax(0,1fr) auto auto auto;gap:8px;align-items:end;margin-bottom:8px;}
+      .ws-bar .field{margin:0;min-width:0;} .ws-bar label{font-size:11px;margin-bottom:2px;}
+      .ws-bar input,.ws-bar select{height:32px;padding:3px 8px;font-size:13px;width:100%;box-sizing:border-box;}
+      .ws-bar .btn{height:32px;width:auto;padding:0 12px;margin:0;font-size:13px;white-space:nowrap;}
+      .ws-nav{display:flex;gap:4px;} .ws-nav button{width:32px;height:32px;border:1px solid var(--border);border-radius:8px;background:var(--surface);cursor:pointer;font-size:15px;}
+      .ws-info{font-size:12px;margin:0 0 6px;color:var(--text-muted);} .ws-info b{color:var(--text);}
+      .ws-scroll{max-height:calc(100vh - 250px);min-height:160px;overflow:auto;border:1px solid var(--border);border-radius:8px;}
+      .ws-tbl{border-collapse:separate;border-spacing:0;width:100%;font-size:12.5px;}
+      .ws-tbl th{position:sticky;top:0;z-index:2;background:var(--bg);font-size:11.5px;font-weight:700;padding:6px 5px;text-align:right;white-space:nowrap;border-bottom:2px solid var(--border);}
+      .ws-tbl td{padding:4px 5px;border-bottom:1px solid var(--border);background:var(--surface);text-align:right;white-space:nowrap;}
+      .ws-tbl th:first-child,.ws-tbl td:first-child{position:sticky;left:0;text-align:left;z-index:1;border-right:1px solid var(--border);min-width:130px;}
+      .ws-tbl th:first-child{z-index:3;}
+      .ws-tbl td:first-child b{display:block;font-size:13px;} .ws-tbl td:first-child span{font-size:11px;color:var(--text-muted);}
+      .ws-tbl td.l{text-align:left;}
+      .ws-tbl input{height:26px;width:76px;padding:2px 5px;font-size:12.5px;text-align:right;box-sizing:border-box;}
+      .ws-tbl tr.short td{background:#fffbeb;}
+      .ws-tbl tr.tot td{font-weight:700;background:var(--bg);position:sticky;bottom:0;}
+      .ws-det{height:26px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;padding:0 8px;font-family:inherit;font-size:12px;}
+      .ws-flag{color:#b45309;font-size:11px;}
+      @media (max-width:900px){ .ws-bar{grid-template-columns:auto minmax(0,1fr) minmax(0,1fr);} .ws-bar .ws-grow{grid-column:1 / -1;} }
     </style>
-    <div class="panel pr">
-      <div class="pr-top"><h3>${t('বেতন রান','Salary Run')}</h3>
-        <select id="prType">${Object.keys(HR_RUN_TYPES).map(function (k) { return `<option value="${k}" ${st.type === k ? 'selected' : ''}>${t(HR_RUN_TYPES[k][0], HR_RUN_TYPES[k][1])}</option>`; }).join('')}</select></div>
-      <div id="prDates"></div>
-      <div class="pr-g2">
-        <div>
-          <div class="pr-cat">
-            <div class="field"><label>${t('ধরন / গ্রুপ','Type / group')}</label><select id="prCat"></select></div>
-            <button class="pr-ic" id="prCatAdd" title="${t('নতুন ধরন','Add')}">➕</button>
-            <button class="pr-ic" id="prCatEdit" title="${t('এডিট','Edit')}">✏️</button>
-            <button class="pr-ic" id="prCatDel" title="${t('ডিলিট','Delete')}">🗑</button>
-            <button class="pr-ic" id="prCatSave" title="${t('সেভ','Save')}" disabled>💾</button>
-          </div>
-          <div class="pr-catedit" id="prCatEditRow"><input id="prCatName" placeholder="${t('ধরনের নাম লিখে 💾 চাপুন','Type the name, then press 💾')}"></div>
-        </div>
-        <div class="field"><label>${t('নাম','Name')}</label><input id="prName" placeholder="${t('নাম লিখুন — তালিকা থেকে বাছাই করুন','Type a name — pick from the list')}"></div>
+    <div class="panel ws">
+      <div class="ws-head"><h1>${t('মজুরি ভাউচার','Wage Voucher')}</h1><span>${t('সবাই উৎপাদন অনুযায়ী মজুরি · দরকারে টিক দিয়ে হাজিরা মিলানো · কম-বেশি','Production wages · tick to make up to daily wage · adjustments')}</span></div>
+      <div class="ws-bar">
+        <div class="ws-nav"><button type="button" id="wsPrev" title="${t('আগের সপ্তাহ','Previous week')}">‹</button><button type="button" id="wsNext" title="${t('পরের সপ্তাহ','Next week')}">›</button></div>
+        <div class="field"><label>${t('তারিখ হইতে (শনি)','From (Sat)')}</label><input type="date" id="wsFrom" value="${st.from}"></div>
+        <div class="field"><label>${t('তারিখ পর্যন্ত (বৃহঃ)','To (Thu)')}</label><input type="date" id="wsTo" value="${st.to}"></div>
+        <div class="field ws-grow"><label>${t('কর্মচারীর ধরন','Employee type')}</label><select id="wsCat"><option value="">${t('সব ধরন','All types')}</option>${base.cats.map(function (c) { return `<option value="${attr(c.CategoryID)}">${escapeHtml(c.CategoryName)}</option>`; }).join('')}</select></div>
+        <div class="field ws-grow"><label>${t('নাম খুঁজুন','Search name')}</label><input id="wsQ" placeholder="${t('নাম লিখুন…','Type a name…')}"></div>
+        <button class="btn btn-primary" id="wsSave">💾 ${t('সেভ','Save')}</button>
+        <button class="btn btn-outline" id="wsPrint">🖨️ ${t('সারাংশ','Summary')}</button>
+        <button class="btn btn-outline" id="wsPrintAll">🖨️ ${t('সব ভাউচার','All vouchers')}</button>
       </div>
-      <div class="pr-hint" id="prNameHint"></div>
-      <div class="pr-sec">${t('সাম্প্রতিক রেকর্ড','Recent records')}</div>
-      <div id="prRecent"></div>
+      <div class="ws-info" id="wsInfo"></div>
+      <div id="wsTable"></div>
     </div>`;
 
-  // ---------- তারিখ ----------
-  function renderDates() {
-    const el = document.getElementById('prDates');
-    if (st.type === 'Daily') el.innerHTML = `<div class="pr-g2"><div class="field"><label>${t('তারিখ','Date')}</label><input type="date" id="prFrom" value="${st.from}"></div></div>`;
-    else if (st.type === 'Weekly') el.innerHTML = `<div class="pr-g2"><div class="field"><label>${t('তারিখ হইতে (শনি)','From (Sat)')}</label><input type="date" id="prFrom" value="${st.from}"></div><div class="field"><label>${t('তারিখ পর্যন্ত (বৃহঃ)','To (Thu)')}</label><input type="date" id="prTo" value="${st.to}"></div></div>`;
-    else el.innerHTML = `<div class="pr-g2"><div class="field"><label>${t('মাস','Month')} — <b id="prMonthName">${HR_MONTHS_BN[Number(st.month.slice(5, 7)) - 1]} ${st.month.slice(0, 4)}</b></label><input type="month" id="prMonth" value="${st.month}"></div>
-      <div class="pr-g2" style="margin:0;"><div class="field"><label>${t('হইতে','From')}</label><input type="date" id="prFrom" value="${st.from}"></div><div class="field"><label>${t('পর্যন্ত','To')}</label><input type="date" id="prTo" value="${st.to}"></div></div></div>`;
-    const f = document.getElementById('prFrom'), tt = document.getElementById('prTo'), mm = document.getElementById('prMonth');
-    f.addEventListener('change', function () { if (!this.value) return; st.from = this.value; if (st.type === 'Daily') st.to = this.value; else if (st.type === 'Weekly') { st.to = hrAddDays(st.from, 5); document.getElementById('prTo').value = st.to; } loadNames(); });
-    if (tt) tt.addEventListener('change', function () { if (this.value) { st.to = this.value; loadNames(); } });
-    if (mm) mm.addEventListener('change', function () { if (!this.value) return; st.month = this.value; setDefaultRange(); renderDates(); loadNames(); });
+  // ---------- হিসাব ----------
+  function rateOf(emp) { return hrDailyWage(emp, gp.divisor); }
+  /** একদিনের হিসাবঃ উৎপাদন মজুরি, হাজিরা মিলানো (টিক থাকলে), কম-বেশি */
+  function dayCalc(d, rate) {
+    const make = d.hajOn && d.att !== 'A' ? Math.max(0, rate - d.value) : 0;
+    const adj = Number(d.adj) || 0;
+    return { make: make, adj: adj, total: d.value + make + adj };
   }
-  document.getElementById('prType').addEventListener('change', function () { st.type = this.value; setDefaultRange(); renderDates(); loadNames(); });
-
-  // ---------- ধরন (সেখানেই যোগ/এডিট/ডিলিট) ----------
-  let catMode = '';
-  function renderCats() {
-    const sel = document.getElementById('prCat'), keep = st.cat;
-    sel.innerHTML = `<option value="">${t('সব ধরন','All types')}</option>` + base.cats.map(function (c) { return `<option value="${attr(c.CategoryID)}">${escapeHtml(c.CategoryName)}</option>`; }).join('');
-    sel.value = keep;
-  }
-  function catEditor(mode, text) {
-    catMode = mode;
-    document.getElementById('prCatEditRow').classList.toggle('on', !!mode);
-    document.getElementById('prCatSave').disabled = !mode;
-    const i = document.getElementById('prCatName'); i.value = text || ''; if (mode) i.focus();
-  }
-  document.getElementById('prCat').addEventListener('change', function () { st.cat = this.value; catEditor(''); });
-  document.getElementById('prCatAdd').addEventListener('click', function () { catEditor('add', ''); });
-  document.getElementById('prCatEdit').addEventListener('click', function () {
-    if (!st.cat) { showToast(t('এডিট করতে আগে একটা ধরন বাছাই করুন।','Select a type to edit.'), 'error'); return; }
-    catEditor('edit', base.catMap[st.cat] || '');
-  });
-  document.getElementById('prCatSave').addEventListener('click', async function () {
-    const name = val('prCatName').trim();
-    if (!name) { showToast(t('ধরনের নাম লিখুন।','Enter a name.'), 'error'); return; }
-    try {
-      if (catMode === 'add') {
-        const { data, error } = await supabaseClient.from('EmployeeCategories').insert({ CategoryName: name }).select();
-        if (error) throw new Error(error.message);
-        const c = data[0]; base.cats.push(c); base.catMap[c.CategoryID] = c.CategoryName; st.cat = c.CategoryID;
-      } else if (catMode === 'edit') {
-        const { error } = await supabaseClient.from('EmployeeCategories').update({ CategoryName: name }).eq('CategoryID', st.cat);
-        if (error) throw new Error(error.message);
-        base.catMap[st.cat] = name; base.cats.forEach(function (c) { if (c.CategoryID === st.cat) c.CategoryName = name; });
-      }
-      listCache = {}; catEditor(''); renderCats(); showToast(t('সেভ হয়েছে ✅','Saved ✅'), 'success');
-    } catch (err) { showToast(err.message, 'error'); }
-  });
-  document.getElementById('prCatDel').addEventListener('click', async function () {
-    if (!st.cat) { showToast(t('ডিলিট করতে আগে একটা ধরন বাছাই করুন।','Select a type to delete.'), 'error'); return; }
-    const used = base.emps.filter(function (e) { return e.CategoryID === st.cat; }).length;
-    if (used) { showToast(t(used + ' জন কর্মচারী এই ধরনে আছে — আগে তাদের ধরন বদলান।', used + ' employees use this type — change them first.'), 'error'); return; }
-    if (!confirm(t('"' + base.catMap[st.cat] + '" ধরনটা ডিলিট করবেন?','Delete this type?'))) return;
-    const { error } = await supabaseClient.from('EmployeeCategories').update({ Status: 'Deleted' }).eq('CategoryID', st.cat);
-    if (error) { showToast(error.message, 'error'); return; }
-    base.cats = base.cats.filter(function (c) { return c.CategoryID !== st.cat; }); st.cat = ''; listCache = {}; renderCats();
-  });
-
-  // ---------- নাম (হাজিরায় P/A/L থাকা কর্মচারী) ----------
-  let marked = {};
-  async function loadNames() {
-    try {
-      const att = await hrQueryRange('Attendance', 'Date', st.from, st.to);
-      marked = {}; att.forEach(function (a) { const c = HR_ATT_CODE[a.Status]; if (c) marked[a.EmployeeID] = true; });
-    } catch (e) { marked = {}; }
-    const n = base.emps.filter(function (e) { return marked[e.EmployeeID]; }).length;
-    document.getElementById('prNameHint').textContent = n ? t('এই সময়ে হাজিরায় থাকা ' + n + ' জনের নাম তালিকায় আসবে।', n + ' employees with attendance in this period.') : t('এই সময়ে কারো হাজিরা (P/A/L) দেওয়া নেই।','No attendance (P/A/L) in this period.');
-  }
-  hrNameSuggest(document.getElementById('prName'), {
-    list: function () { return hrEmpSuggestList(base, base.emps.filter(function (e) { return marked[e.EmployeeID] && (!st.cat || e.CategoryID === st.cat); })); },
-    onPick: function (it) { document.getElementById('prName').value = ''; openRunPopup({ empId: it.id, type: st.type, from: st.from, to: st.to }); }
-  });
-
-  // ---------- পপআপ ----------
-  async function openRunPopup(ctx) {
-    const emp = base.empMap[ctx.empId]; if (!emp) return;
-    const wage = hrDailyWage(emp, gp.divisor);
-    // একই ধরনের মিলে যাওয়া রানে আগেই বেতন হয়েছে কিনা
-    const heads = (await api('list', { sheet: 'Payroll' })).filter(function (h) { return h.Status !== 'Deleted' && h.RunType === ctx.type && h.DateFrom && h.DateTo && !(h.DateTo < ctx.from || h.DateFrom > ctx.to); });
-    let existingLine = null, existingHead = null;
-    for (const h of heads) {
-      const { data } = await supabaseClient.from('Payroll_Lines').select('*').eq('PayrollID', h.PayrollID).eq('EmployeeID', ctx.empId);
-      if (data && data.length) { existingLine = data[0]; existingHead = h; break; }
-    }
-    if (existingHead && !(existingHead.DateFrom === ctx.from && existingHead.DateTo === ctx.to) && existingHead.PayrollID !== ctx.payrollId) {
-      showToast(t(emp.Name + '-এর এই সময়ের বেতন আগেই হয়েছে (' + existingHead.PayrollID + ', ' + payrollPeriodLabel(existingHead) + ')।', 'Already paid in ' + existingHead.PayrollID), 'error'); return;
-    }
-    const payrollId = existingHead ? existingHead.PayrollID : null;
-    const draft = st.drafts.find(function (d) { return d.empId === ctx.empId && d.type === ctx.type && d.from === ctx.from && d.to === ctx.to; });
-    const saved = {};
-    if (existingLine) {
-      const { data: det } = await supabaseClient.from('Payroll_Details').select('*').eq('PayrollID', payrollId).eq('EmployeeID', ctx.empId);
-      (det || []).forEach(function (d) {
-        if (d.DetailType === 'Day') saved[String(d.WorkDate).slice(0, 10)] = { inc: true, bonus: Number(d.OverQty) || 0 };
-        if (d.DetailType === 'Earning') saved.__bonus = { amt: d.Amount, note: d.Description };
-        if (d.DetailType === 'Deduction') saved.__ded = { amt: d.Amount, note: d.Description };
-        if (d.DetailType === 'IdleAdj') saved.__idle = true;
-      });
-      saved.__hasDays = (det || []).some(function (d) { return d.DetailType === 'Day'; });
-    }
-
-    // হাজিরা (ছুটির নিয়মের জন্য পরের ৭ দিনও) ও উৎপাদন
-    const att = await hrQueryRange('Attendance', 'Date', hrAddDays(ctx.from, -6), hrAddDays(ctx.to, 7)); // সপ্তাহের A গোনা ও ছুটির পরের দিনের জন্য আগে-পরের দিনও
-    const attBy = {}; att.filter(function (a) { return a.EmployeeID === ctx.empId; }).forEach(function (a) { const c = HR_ATT_CODE[a.Status]; if (c) attBy[String(a.Date).slice(0, 10)] = c; });
-    const tpHeads = await hrQueryRange('TeamProduction', 'WorkDate', ctx.from, ctx.to);
-    let mems = [], tpItems = [];
-    if (tpHeads.length) {
-      const ids = tpHeads.map(function (h) { return h.TeamProdID; });
-      const r1 = await supabaseClient.from('TeamProduction_Members').select('*').in('TeamProdID', ids);
-      const r2 = await supabaseClient.from('TeamProduction_Items').select('*').in('TeamProdID', ids);
-      mems = (r1.data || []).filter(function (m) { return m.EmployeeID === ctx.empId && (!m.BilledIn || (payrollId && m.BilledIn === payrollId)); });
-      tpItems = r2.data || [];
-    }
-    const hMap = {}; tpHeads.forEach(function (h) { hMap[String(h.TeamProdID)] = h; });
-    const dates = hrDatesBetween(ctx.from, ctx.to);
-    const days = dates.map(function (d) {
-      const entries = mems.filter(function (m) { const h = hMap[String(m.TeamProdID)]; return h && String(h.WorkDate).slice(0, 10) === d; }).map(function (m) {
-        const h = hMap[String(m.TeamProdID)];
-        const its = tpItems.filter(function (x) { return String(x.TeamProdID) === String(m.TeamProdID); });
-        const q = Number(h.TotalKg) || 0, r = Number(m.Rate) || 0;
-        const def = its.length === 1 ? gp.rateOf(its[0].ItemID, m.RoleID) : r;
-        return { memId: m.MemberID, voucher: h.ProcessingID || ('TP-' + h.TeamProdID), item: its.map(function (x) { return base.itemMap[x.ItemID] || x.ItemID; }).join(', '), itemId: its.length === 1 ? its[0].ItemID : null,
-          role: gp.roleMap[m.RoleID] || '', qty: q, rate: r, value: Number(m.Amount) || 0, origRate: r, defRate: def };
-      });
-      const c = attBy[d] || '';
-      const sv = saved[d];
-      return { date: d, att: c, entries: entries, inc: existingLine && saved.__hasDays ? !!sv : (c === 'P' || entries.length > 0), bonus: sv ? sv.bonus : (draft && draft.bonus[d]) || 0 };
+  function calcRow(r) {
+    const emp = base.empMap[r.empId] || {}, rate = rateOf(emp);
+    let p = 0, a = 0, l = 0, work = 0, make = 0, adj = 0, shortDays = 0;
+    r.days.forEach(function (d) {
+      if (d.att === 'P') p++; else if (d.att === 'A') a++; else if (d.att === 'L') l++;
+      const dc = dayCalc(d, rate);
+      work += d.value; make += dc.make; adj += dc.adj;
+      if (d.att === 'P' && d.value < rate && !d.hajOn) shortDays++;
     });
-    const pst = { adjIdle: existingLine ? !!saved.__idle : !!(draft && draft.adjIdle), days: days, withOD: true, otherBonus: saved.__bonus ? saved.__bonus.amt : (draft ? draft.otherBonus : ''), bonusNote: saved.__bonus ? saved.__bonus.note : (draft ? draft.bonusNote : ''),
-      ded: saved.__ded ? saved.__ded.amt : (draft ? draft.ded : ''), dedNote: saved.__ded ? saved.__ded.note : (draft ? draft.dedNote : ''), };
-    if (draft) draft.incDays && days.forEach(function (dy) { dy.inc = !!draft.incDays[dy.date]; });
+    const bonus = r.bonuses.reduce(function (s, b) { return s + (Number(b.Amount) || 0); }, 0);
+    const adv = Number(r.adv) || 0;
+    return { emp: emp, rate: rate, p: p, a: a, l: l, work: work, make: make, adj: adj, shortDays: shortDays, bonus: bonus, adv: adv, net: work + make + adj + bonus - adv };
+  }
+  function visibleRows() {
+    const q = st.q.trim().toLowerCase();
+    return Object.keys(st.rows).map(function (k) { return st.rows[k]; }).filter(function (r) {
+      const e = base.empMap[r.empId] || {};
+      return (!st.cat || e.CategoryID === st.cat) && (!q || String(e.Name || '').toLowerCase().indexOf(q) !== -1);
+    }).sort(function (x, y) {
+      const ex = base.empMap[x.empId] || {}, ey = base.empMap[y.empId] || {};
+      return hrBySortOrder('CategoryName')({ SortOrder: (base.cats.find(function (c) { return c.CategoryID === ex.CategoryID; }) || {}).SortOrder, CategoryName: ex.Name }, { SortOrder: (base.cats.find(function (c) { return c.CategoryID === ey.CategoryID; }) || {}).SortOrder, CategoryName: ey.Name });
+    });
+  }
 
-    function dayCalc(dy) {
-      const val = dy.entries.reduce(function (s, e) { return s + e.value; }, 0) + (Number(dy.bonus) || 0);
-      const haj = dy.att === 'P' ? wage : 0;
-      return { value: val, haj: haj, od: dy.inc ? Math.max(0, val - haj) : 0 };
-    }
-    function totals() {
-      const odDaily = pst.days.reduce(function (s, dy) { return s + dayCalc(dy).od; }, 0);
-      // সমন্বয় চালু থাকলে যে দিনের কাজের মূল্য হাজিরার কম (কাজ দেওয়া যায়নি), সেই ঘাটতি অন্য দিনের ও.ডি থেকে কাটা হয়
-      const shortfall = pst.days.reduce(function (s, dy) { if (!dy.inc) return s; const dc = dayCalc(dy); return s + Math.max(0, dc.haj - dc.value); }, 0);
-      const idleAdj = pst.adjIdle ? Math.min(odDaily, shortfall) : 0;
-      const od = odDaily - idleAdj;
-      const sal = ctx.type === 'Monthly' ? hrAttendanceSalary(ctx.from, ctx.to, attBy, gp.divisor, wage) : null;
-      const other = Number(pst.otherBonus) || 0, ded = Number(pst.ded) || 0;
-      const odPart = ctx.type === 'Monthly' ? (pst.withOD ? od : 0) : od;
-      return { od: od, odDaily: odDaily, shortfall: shortfall, idleAdj: idleAdj, sal: sal, other: other, ded: ded, net: (sal ? sal.salary : 0) + odPart + other - ded, odPart: odPart };
-    }
+  function renderTable() {
+    const rows = visibleRows();
+    const wrap = document.getElementById('wsTable');
+    document.getElementById('wsInfo').innerHTML = hrDayLabel(st.from) + ' — ' + hrDayLabel(st.to) +
+       (st.headId ? ` · <b>${t('সেভ করা ভাউচার','Saved')} ${escapeHtml(st.headId)}</b>` : ` · ${t('এখনো সেভ হয়নি','not saved yet')}`) +
+      (st.dirty ? ` · <span class="ws-flag">● ${t('পরিবর্তন সেভ হয়নি','unsaved changes')}</span>` : '');
+    if (!rows.length) { wrap.innerHTML = `<div class="ws-info">${t('এই সপ্তাহে কারো হাজিরা বা উৎপাদন নেই।','No attendance or production this week.')}</div>`; return; }
+    let tot = { work: 0, make: 0, adj: 0, bonus: 0, adv: 0, net: 0 };
+    const body = rows.map(function (r) {
+      const c = calcRow(r);
+      ['work','make','adj','bonus','adv','net'].forEach(function (k) { tot[k] += c[k]; });
+      return `<tr class="${c.shortDays ? 'short' : ''}">
+        <td><b>${escapeHtml(c.emp.Name || r.empId)}</b><span>${escapeHtml(base.catMap[c.emp.CategoryID] || '')} · ${t('হাজিরা ','wage ')}${hrMoney(c.rate)}</span></td>
+        <td>${c.p}/${c.a}/${c.l}</td>
+        <td>${hrMoney(c.work)}</td>
+        <td>${c.make ? '+' + hrMoney(c.make) : (c.shortDays ? `<span class="ws-flag">${c.shortDays} ${t('দিন কম','short')}</span>` : '—')}</td>
+        <td>${c.adj ? (c.adj > 0 ? '+' : '−') + hrMoney(Math.abs(c.adj)) : '—'}</td>
+        <td>${c.bonus ? hrMoney(c.bonus) : '—'}</td>
+        <td><input type="number" step="any" min="0" data-adv="${attr(r.empId)}" value="${attr(r.adv)}"></td>
+        <td><b>${hrMoney(c.net)}</b></td>
+        <td><button type="button" class="ws-det" data-det="${attr(r.empId)}">📄 ${t('ভাউচার','Voucher')}</button></td></tr>`;
+    }).join('');
+    wrap.innerHTML = `<div class="ws-scroll"><table class="ws-tbl"><thead><tr>
+      <th>${t('নাম','Name')}</th><th>P/A/L</th><th>${t('উৎপাদন মজুরি','Production wage')}</th><th>${t('হাজিরা মিলানো','Wage make-up')}</th><th>${t('কম-বেশি','Adjust')}</th><th>${t('বোনাস','Bonus')}</th><th>${t('অগ্রিম কর্তন','Advance')}</th><th>${t('প্রদেয়','Payable')}</th><th></th></tr></thead>
+      <tbody>${body}<tr class="tot"><td>${t('মোট','Total')} (${rows.length})</td><td></td><td>${hrMoney(tot.work)}</td><td>${hrMoney(tot.make)}</td><td>${hrMoney(tot.adj)}</td><td>${hrMoney(tot.bonus)}</td><td>${hrMoney(tot.adv)}</td><td>${hrMoney(tot.net)}</td><td></td></tr></tbody></table></div>`;
+  }
+
+  // ---------- ডেটা লোড ----------
+  async function load() {
+    if (st.dirty && !confirm(t('সেভ না করা পরিবর্তন আছে — হারিয়ে যাবে। চালিয়ে যাবেন?','Unsaved changes will be lost. Continue?'))) return false;
+    st.rows = {}; st.headId = null; st.dirty = false;
+    document.getElementById('wsTable').innerHTML = `<div class="ws-info">${t('লোড হচ্ছে…','Loading…')}</div>`;
+    try {
+      // এই সপ্তাহের সেভ করা শিট
+      const heads = (await api('list', { sheet: 'Payroll' })).filter(function (h) { return h.Status !== 'Deleted' && h.RunType === 'Weekly' && String(h.DateFrom).slice(0, 10) === st.from && String(h.DateTo).slice(0, 10) === st.to; });
+      const head = heads[0] || null; st.headId = head ? head.PayrollID : null;
+      const [att, tp, bon] = await Promise.all([
+        hrQueryRange('Attendance', 'Date', st.from, st.to),
+        hrQueryRange('TeamProduction', 'WorkDate', st.from, st.to),
+        hrQueryRange('DailyBonus', 'WorkDate', st.from, st.to).catch(function () { return []; })
+      ]);
+      let mems = [];
+      if (tp.length) {
+        const r = await supabaseClient.from('TeamProduction_Members').select('*').in('TeamProdID', tp.map(function (h) { return h.TeamProdID; }));
+        mems = r.data || [];
+      }
+      const tpDate = {}; tp.forEach(function (h) { tpDate[String(h.TeamProdID)] = String(h.WorkDate).slice(0, 10); });
+      const mine = function (billedIn) { return !billedIn || (st.headId && billedIn === st.headId); }; // অন্য শিটে দেওয়া হয়ে গেলে বাদ
+      const dates = hrDatesBetween(st.from, st.to);
+      function row(id) {
+        if (!st.rows[id]) st.rows[id] = { empId: id, adv: '', advNote: '', bonuses: [], memIds: [], days: dates.map(function (d) { return { date: d, att: '', value: 0, hajOn: false, adj: '', adjNote: '' }; }) };
+        return st.rows[id];
+      }
+      att.forEach(function (a) { const c = HR_ATT_CODE[a.Status]; if (!c || !base.empMap[a.EmployeeID]) return; const d = row(a.EmployeeID).days.find(function (x) { return x.date === String(a.Date).slice(0, 10); }); if (d) d.att = c; });
+      mems.forEach(function (m) { if (!mine(m.BilledIn) || !base.empMap[m.EmployeeID]) return; const r = row(m.EmployeeID); const d = r.days.find(function (x) { return x.date === tpDate[String(m.TeamProdID)]; }); if (d) { d.value += Number(m.Amount) || 0; r.memIds.push(m.MemberID); } });
+      bon.forEach(function (b) { if (!mine(b.BilledIn) || !base.empMap[b.EmployeeID]) return; row(b.EmployeeID).bonuses.push(b); });
+      // সেভ করা শিটের টিক ও অগ্রিম ফিরিয়ে আনা
+      if (st.headId) {
+        const [{ data: lines }, { data: det }] = await Promise.all([
+          supabaseClient.from('Payroll_Lines').select('*').eq('PayrollID', st.headId),
+          supabaseClient.from('Payroll_Details').select('*').eq('PayrollID', st.headId)
+        ]);
+        (lines || []).forEach(function (l) { if (!base.empMap[l.EmployeeID]) return; const r = row(l.EmployeeID); r.adv = Number(l.Deduction) || ''; });
+        (det || []).forEach(function (x) {
+          if (!st.rows[x.EmployeeID]) return; const r = st.rows[x.EmployeeID];
+          const d = r.days.find(function (y) { return y.date === String(x.WorkDate).slice(0, 10); });
+          if (x.DetailType === 'HajiraOn' && d) d.hajOn = true;
+          if (x.DetailType === 'Adjust' && d) { d.adj = x.Amount; d.adjNote = x.Description || ''; }
+          if (x.DetailType === 'Advance') r.advNote = x.Description || '';
+        });
+      }
+      // যার এই সপ্তাহে কোনো উৎপাদনই নেই (যেমন ম্যানেজার), নতুন শিটে তার P দিনে হাজিরার টিক আগে থেকে দেওয়া — দরকারে তুলে দেবেন
+      if (!st.headId) Object.keys(st.rows).forEach(function (id) {
+        const r = st.rows[id];
+        if (r.days.every(function (d) { return !d.value; })) r.days.forEach(function (d) { if (d.att === 'P') d.hajOn = true; });
+      });
+    } catch (err) { showToast(err.message, 'error'); }
+    renderTable();
+    return true;
+  }
+
+  // ---------- দিনওয়ারি বিস্তারিত (পূরণ ও ছুটির টিক) ----------
+  function openDetails(empId) {
+    const r = st.rows[empId]; if (!r) return;
+    const snap = JSON.parse(JSON.stringify({ days: r.days, adv: r.adv, advNote: r.advNote }));
     function body() {
-      const tt = totals();
-      const rows = pst.days.map(function (dy) {
-        const dc = dayCalc(dy);
-        const lines = dy.entries.length ? dy.entries : [null];
-        return lines.map(function (e, k) {
-          const first = k === 0;
-          return `<tr class="${dy.inc ? '' : 'off'} ${hrIsFriday(dy.date) ? 'fri' : ''}">
-            <td>${first ? `<label class="rp-box ${dy.att}"><input type="checkbox" data-inc="${dy.date}" ${dy.inc ? 'checked' : ''}><span>${dy.att || '–'}</span></label>` : ''}</td>
-            <td>${first ? hrDayLabel(dy.date) : ''}</td>
-            <td style="text-align:left;white-space:normal;min-width:92px;">${e ? escapeHtml(e.item) + `<div class="rp-sub">${escapeHtml(e.voucher)}${e.role ? ' · ' + escapeHtml(e.role) : ''}</div>` : ''}</td>
-            <td>${e ? hrNum(e.qty) : ''}</td>
-            <td>${e ? `<input type="number" step="any" class="rp-rate ${Number(e.rate) !== Number(e.defRate) ? 'ov' : ''}" data-prate="${attr(e.memId)}" value="${attr(e.rate)}" title="${t('ডিফল্ট দর ','Default rate ')}${hrMoney(e.defRate)}">` : ''}</td>
-            <td>${first ? `<input type="number" step="any" class="rp-bonus" data-bonus="${dy.date}" value="${attr(dy.bonus || '')}">` : ''}</td>
-            <td>${first ? hrMoney(dc.value) : ''}</td>
-            <td>${first ? (dc.haj ? '−' + hrMoney(dc.haj) : '—') : ''}</td>
-            <td><b>${first ? hrMoney(dc.od) : ''}</b></td></tr>`;
-        }).join('');
+      const c = calcRow(r);
+      const bonusBy = {}; r.bonuses.forEach(function (b) { const k = String(b.WorkDate).slice(0, 10); bonusBy[k] = (bonusBy[k] || 0) + (Number(b.Amount) || 0); });
+      const rows = r.days.map(function (d) {
+        const dc = dayCalc(d, c.rate), short = d.att !== 'A' && d.value < c.rate;
+        return `<tr class="${short && !d.hajOn && d.att === 'P' ? 'short' : ''} ${hrIsFriday(d.date) ? 'fri' : ''}">
+          <td class="l">${hrDayLabel(d.date)}</td>
+          <td><b class="att ${d.att}">${d.att || '—'}</b></td>
+          <td>${d.att === 'A' ? '—' : `<label class="dchk"><input type="checkbox" data-haj="${d.date}" ${d.hajOn ? 'checked' : ''}></label>`}</td>
+          <td>${hrMoney(d.value)}</td>
+          <td>${dc.make ? '+' + hrMoney(dc.make) : '—'}</td>
+          <td class="l"><input type="number" step="any" class="adj" placeholder="+/−" data-adj="${d.date}" value="${attr(d.adj)}"><input class="adjn" placeholder="${t('কারণ','Reason')}" data-adjn="${d.date}" value="${attr(d.adjNote)}"></td>
+          <td>${bonusBy[d.date] ? hrMoney(bonusBy[d.date]) : '—'}</td>
+          <td><b>${hrMoney(dc.total + (bonusBy[d.date] || 0))}</b></td></tr>`;
       }).join('');
-      const cards = pst.days.map(function (dy) {
-        const dc = dayCalc(dy);
-        return `<div class="rp-card ${dy.inc ? '' : 'off'} ${hrIsFriday(dy.date) ? 'fri' : ''}">
-          <div class="rp-card-h"><label class="rp-box ${dy.att}"><input type="checkbox" data-inc="${dy.date}" ${dy.inc ? 'checked' : ''}><span>${dy.att || '–'}</span></label>
-            <b>${hrDayLabel(dy.date)}</b><span class="rp-od">${t('ও.ডি ','O.D ')}<b>${hrMoney(dc.od)}</b></span></div>
-          ${dy.entries.map(function (e) { return `<div class="rp-line"><span>${escapeHtml(e.item)}<div class="rp-sub">${escapeHtml(e.voucher)}${e.role ? ' · ' + escapeHtml(e.role) : ''}</div></span><span>${hrNum(e.qty)} × <input type="number" step="any" class="rp-rate ${Number(e.rate) !== Number(e.defRate) ? 'ov' : ''}" data-prate="${attr(e.memId)}" value="${attr(e.rate)}"> = <b>${hrMoney(e.value)}</b></span></div>`; }).join('')}
-          <div class="rp-line"><span>${t('বোনাস','Bonus')} <input type="number" step="any" class="rp-bonus" data-bonus="${dy.date}" value="${attr(dy.bonus || '')}"></span><span>${t('মূল্য ','Value ')}${hrMoney(dc.value)} · ${t('হাজিরা ','Wage ')}${dc.haj ? '−' + hrMoney(dc.haj) : '—'}</span></div>
-        </div>`;
-      }).join('');
-      const sal = tt.sal;
-      return `
-        <div class="rp-head"><b>${escapeHtml(emp.Name)}</b> · ${escapeHtml(base.catMap[emp.CategoryID] || '')} · ${emp.SalaryType === 'Weekly' ? t('সাপ্তাহিক বেতন ','weekly ') + hrMoney(emp.BasicSalary) : t('মাসিক বেতন ','monthly ') + hrMoney(emp.BasicSalary)} · ${t('দৈনিক হাজিরা ','daily wage ')}${hrMoney(wage)}
-          <div class="rp-sub">${t(HR_RUN_TYPES[ctx.type][0], HR_RUN_TYPES[ctx.type][1])} · ${hrDayLabel(ctx.from)}${ctx.from !== ctx.to ? ' — ' + hrDayLabel(ctx.to) : ''}${payrollId ? ' · ' + escapeHtml(payrollId) : ''}</div></div>
-        <div class="rp-wrap"><table class="rp-tbl"><thead><tr><th>☑</th><th>${t('তারিখ','Date')}</th><th style="text-align:left;">${t('আইটেম · ভাউচার নং','Item · voucher')}</th><th>${t('পরিমাণ','Qty')}</th><th>${t('দর','Rate')}</th><th>${t('বোনাস','Bonus')}</th><th>${t('মূল্য','Value')}</th><th>${t('হাজিরা সমন্বয়','Wage adj.')}</th><th>${t('ও.ডি','O.D')}</th></tr></thead>
-          <tbody>${rows}${tt.idleAdj ? `<tr><td colspan="8">${t('কাজ না দেওয়া দিনের সমন্বয়','No-work day adjustment')}</td><td>−${hrMoney(tt.idleAdj)}</td></tr>` : ''}<tr class="tot"><td colspan="8">${t('মোট ও.ডি','Total O.D')}</td><td>${hrMoney(tt.od)}</td></tr></tbody></table></div>
-        <div class="rp-cards">${cards}${tt.idleAdj ? `<div class="rp-card-tot">${t('কাজ না দেওয়া দিনের সমন্বয় ','No-work adjustment ')}−${hrMoney(tt.idleAdj)}</div>` : ''}<div class="rp-card-tot">${t('মোট ও.ডি','Total O.D')} <b>${hrMoney(tt.od)}</b></div></div>
-        ${sal ? `<div class="rp-sal">
-          <div class="rp-salrow"><span>P ${sal.p} · A ${sal.a} · L ${sal.l}${sal.lPaid ? ' (' + t('বেতনসহ ছুটি ','paid leave ') + sal.lPaid + ')' : ''}</span></div>
-          ${sal.penalty ? `<div class="rp-warn">⚠ ${t('সপ্তাহে ২ দিন অনুপস্থিতির জন্য ' + sal.penalty + ' দিনের হাজিরা কর্তন','2 absences in a week: ' + sal.penalty + ' day(s) deducted')}</div>` : ''}
-          ${sal.lLost ? `<div class="rp-warn">⚠ ${t('ছুটির পরের দিন কাজে যোগ দেয়নি — ' + sal.lLost + ' দিনের ছুটির টাকা বাদ','Did not rejoin after leave — ' + sal.lLost + ' leave day(s) unpaid')}</div>` : ''}
-          <div class="rp-salrow"><span>${t('বেতনের দিন ','Paid days ')}<b>${hrNum(sal.paidDays)}</b> × ${hrMoney(wage)}</span><b>${hrMoney(sal.salary)}</b></div>
-          <label class="rp-chk"><input type="checkbox" id="rpWithOD" ${pst.withOD ? 'checked' : ''}> ${t('এখনো না পাওয়া ও.ডি এই বেতনে যোগ করুন','Add unpaid O.D to this salary')} (${hrMoney(tt.od)})</label></div>` : ''}
-        <div class="rp-extra">
-          <div class="field"><label>${t('অন্যান্য বোনাস (ঈদ/উৎসব)','Other bonus')}</label><input type="number" step="any" id="rpOB" value="${attr(pst.otherBonus)}"></div>
-          <div class="field"><label>${t('বোনাসের কারণ','Note')}</label><input id="rpOBN" value="${attr(pst.bonusNote)}"></div>
-          <div class="field"><label>${t('অগ্রিম / কর্তন','Advance / deduction')}</label><input type="number" step="any" id="rpD" value="${attr(pst.ded)}"></div>
-          <div class="field"><label>${t('কর্তনের কারণ','Note')}</label><input id="rpDN" value="${attr(pst.dedNote)}"></div>
-        </div>
-        ${tt.shortfall > 0 ? `<label class="rp-chk rp-idle"><input type="checkbox" id="rpAdjIdle" ${pst.adjIdle ? 'checked' : ''}>
-          ${t('কাজ দিতে না পারা দিনের হাজিরা এই সময়ের ও.ডি থেকে সমন্বয় করুন','Recover wages of no-work days from this period\'s O.D')}
-          (${t('ঘাটতি ','shortfall ')}${hrMoney(tt.shortfall)}${pst.adjIdle ? ' → ' + t('কাটা হলো ','deducted ') + hrMoney(tt.idleAdj) : ''})</label>` : ''}
-        <div class="rp-net">${t('প্রদেয়ঃ','Payable: ')} <b>${hrMoney(tt.net)}</b></div>`;
+      return `<div class="wd-head"><b>${escapeHtml(c.emp.Name || empId)}</b> · ${escapeHtml(base.catMap[c.emp.CategoryID] || '')} · ${t('দৈনিক হাজিরা ','daily wage ')}${hrMoney(c.rate)} · ${hrDayLabel(st.from)} — ${hrDayLabel(st.to)}
+          <div class="wd-sub">${t('হাজিরা মিলানঃ টিক দিলে সেদিন অন্তত দৈনিক হাজিরা পাবে — উৎপাদন কম হলে বাকিটা মিলিয়ে দেওয়া হয় (মালিক পক্ষের কারণে কাজ কম হলে টিক দিন)। টিক না দিলে শুধু কাজের টাকা। হলুদ = কাজ হাজিরার কম, টিক দেওয়া নেই।','Make up wage: when ticked, the day pays at least the daily wage. Yellow = below wage and not ticked.')}</div></div>
+        <div style="overflow-x:auto;"><table class="wd-tbl"><thead><tr><th class="l">${t('তারিখ','Date')}</th><th>${t('হাজিরা','Att.')}</th><th>${t('হাজিরা মিলান','Make up')}</th><th>${t('উৎপাদন মজুরি','Production')}</th><th>${t('মিলানো','Made up')}</th><th class="l">${t('কম-বেশি (কারণ)','Adjust (reason)')}</th><th>${t('বোনাস','Bonus')}</th><th>${t('দিনের মোট','Day total')}</th></tr></thead><tbody>${rows}</tbody></table></div>
+        <div class="wd-adv"><div class="field"><label>${t('অগ্রিম কর্তন','Advance deduction')}</label><input type="number" step="any" min="0" id="wdAdv" value="${attr(r.adv)}"></div>
+          <div class="field"><label>${t('কর্তনের কারণ','Reason')}</label><input id="wdAdvNote" value="${attr(r.advNote)}"></div></div>
+        <div class="wd-sum">
+          <div class="wd-line"><span>${t('উৎপাদন মজুরি','Production wage')}</span><b>${hrMoney(c.work)}</b></div>
+          ${c.make ? `<div class="wd-line"><span>${t('হাজিরা মিলানো','Wage make-up')}</span><b>+${hrMoney(c.make)}</b></div>` : ''}
+          ${c.adj ? `<div class="wd-line"><span>${t('কম-বেশি','Adjustment')}</span><b>${c.adj > 0 ? '+' : '−'}${hrMoney(Math.abs(c.adj))}</b></div>` : ''}
+          ${c.bonus ? `<div class="wd-line"><span>${t('বোনাস','Bonus')}</span><b>+${hrMoney(c.bonus)}</b></div>` : ''}
+          ${c.adv ? `<div class="wd-line"><span>${t('অগ্রিম কর্তন','Advance')}</span><b>−${hrMoney(c.adv)}</b></div>` : ''}
+          <div class="wd-line net"><span>${t('প্রদেয়','Payable')}</span><b>${hrMoney(c.net)}</b></div></div>
+        <button type="button" class="btn btn-outline" id="wdPrint" style="width:auto;margin-top:8px;">🖨️ ${t('এই ভাউচার প্রিন্ট','Print this voucher')}</button>`;
     }
     openModal({
-      title: t('বেতনের হিসাব','Salary details') + ' — ' + emp.Name,
+      title: t('মজুরি ভাউচার','Wage Voucher') + ' — ' + ((base.empMap[empId] || {}).Name || empId),
       wide: true,
       bodyHtml: `<style>
-        .rp-head{font-size:13.5px;margin-bottom:8px;} .rp-sub{font-size:11px;color:var(--text-muted);}
-        .rp-wrap{overflow-x:auto;} .rp-tbl{width:100%;border-collapse:collapse;font-size:12px;}
-        .rp-tbl th{font-size:10.5px;color:var(--text-muted);font-weight:600;padding:4px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--border);}
-        .rp-tbl td{padding:4px 3px;text-align:right;border-bottom:1px solid var(--border);white-space:nowrap;vertical-align:top;}
-        .rp-tbl td:nth-child(1),.rp-tbl td:nth-child(2),.rp-tbl th:nth-child(1),.rp-tbl th:nth-child(2){text-align:left;}
-        .rp-tbl tr.off td{opacity:.45;} .rp-tbl tr.fri td{background:rgba(127,127,127,.08);}
-        .rp-tbl tr.tot td{font-weight:700;border-bottom:0;}
-        .rp-box{display:inline-flex;align-items:center;gap:3px;border:1.5px solid var(--border);border-radius:6px;padding:1px 4px;cursor:pointer;font-weight:700;font-size:11px;margin:0;}
-        .rp-box input{width:14px;height:14px;margin:0;}
-        .rp-box.P{border-color:#16a34a;color:#16a34a;} .rp-box.A{border-color:#dc2626;color:#dc2626;} .rp-box.L{border-color:#d97706;color:#d97706;}
-        .rp-rate{width:56px;height:26px;padding:2px 4px;font-size:12px;box-sizing:border-box;} .rp-rate.ov{border-color:#d97706;background:rgba(217,119,6,.08);}
-        .rp-bonus{width:50px;height:26px;padding:2px 4px;font-size:12px;box-sizing:border-box;}
-        .rp-sal{border:1px solid var(--border);border-radius:10px;padding:8px 10px;margin-top:10px;font-size:13px;}
-        .rp-salrow{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:3px 0;} .rp-salrow label,.rp-chk{display:flex;align-items:center;gap:5px;font-size:12px;margin:0;cursor:pointer;}
-        .rp-salrow input,.rp-chk input{width:15px;height:15px;margin:0;}
-        .rp-warn{color:#d97706;font-size:12px;margin:3px 0;}
-        .rp-extra{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px 8px;margin-top:10px;}
-        .rp-extra .field{margin:0;} .rp-extra label{font-size:11px;margin-bottom:2px;} .rp-extra input{height:32px;width:100%;box-sizing:border-box;padding:4px 6px;font-size:13px;}
-        .rp-net{text-align:right;font-size:15px;margin-top:10px;}
-        .rp-idle{margin-top:10px;padding:8px;border:1px dashed #d97706;border-radius:8px;line-height:1.5;}
-        .rp-cards{display:none;}
-        .rp-card{border:1px solid var(--border);border-radius:9px;padding:6px 8px;margin-bottom:6px;font-size:12.5px;}
-        .rp-card.off{opacity:.5;} .rp-card.fri{background:rgba(127,127,127,.06);}
-        .rp-card-h{display:flex;align-items:center;gap:8px;} .rp-card-h .rp-od{margin-left:auto;}
-        .rp-line{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-top:4px;flex-wrap:wrap;}
-        .rp-card-tot{text-align:right;font-size:13.5px;margin:4px 0;}
-        @media (max-width:600px){ .rp-extra{grid-template-columns:repeat(2,minmax(0,1fr));} .rp-wrap{display:none;} .rp-cards{display:block;} }
-      </style><div id="rpBody">${body()}</div>`,
+        .wd-head{font-size:13.5px;margin-bottom:8px;} .wd-sub{font-size:11.5px;color:var(--text-muted);margin-top:3px;line-height:1.5;}
+        .wd-tbl{width:100%;border-collapse:collapse;font-size:12.5px;} .wd-tbl th{font-size:11px;color:var(--text-muted);font-weight:600;padding:5px;text-align:right;border-bottom:1px solid var(--border);white-space:nowrap;}
+        .wd-tbl td{padding:4px 5px;text-align:right;border-bottom:1px solid var(--border);white-space:nowrap;} .wd-tbl .l{text-align:left;}
+        .wd-tbl tr.short td{background:#fffbeb;} .wd-tbl tr.fri td{color:var(--text-muted);}
+        .wd-tbl input.adj{width:70px;height:26px;padding:2px 5px;font-size:12.5px;text-align:right;box-sizing:border-box;} .wd-tbl input.adjn{width:120px;height:26px;padding:2px 5px;font-size:12px;margin-left:4px;box-sizing:border-box;}
+        .att.P{color:#16a34a;} .att.A{color:#dc2626;} .att.L{color:#d97706;}
+        .dchk{display:inline-flex;margin:0;cursor:pointer;} .dchk input{width:18px;height:18px;margin:0;}
+        .wd-line{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:3px 0;} .wd-line.net{border-top:2px solid var(--border);margin-top:4px;padding-top:6px;font-size:15px;}
+        .wd-adv{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:8px;margin-top:10px;} .wd-adv .field{margin:0;} .wd-adv label{font-size:11px;} .wd-adv input{height:32px;width:100%;box-sizing:border-box;padding:4px 6px;}
+        .wd-sum{margin-top:10px;border:1px solid var(--border);border-radius:8px;padding:8px 10px;}
+      </style><div id="wdBody">${body()}</div>`,
       onSave: async function () {
-        const tt = totals();
-        const rec = { empId: ctx.empId, type: ctx.type, from: ctx.from, to: ctx.to, payrollId: payrollId, name: emp.Name,
-          bonus: {}, incDays: {}, otherBonus: pst.otherBonus, bonusNote: pst.bonusNote, ded: pst.ded, dedNote: pst.dedNote,
-          net: tt.net, od: tt.odPart, salary: tt.sal ? tt.sal.salary : 0, sal: tt.sal, wage: wage, withOD: pst.withOD, adjIdle: pst.adjIdle, idleAdj: tt.idleAdj,
-          dayRows: pst.days.filter(function (dy) { return dy.inc; }).map(function (dy) { const dc = dayCalc(dy); return { date: dy.date, att: dy.att, entries: dy.entries, bonus: Number(dy.bonus) || 0, value: dc.value, haj: dc.haj, od: dc.od }; }) };
-        pst.days.forEach(function (dy) { rec.bonus[dy.date] = dy.bonus; rec.incDays[dy.date] = dy.inc; });
-        if ((Number(pst.ded) || 0) && !String(pst.dedNote || '').trim()) throw new Error(t('কর্তনের কারণ লিখুন।','Enter a reason for the deduction.'));
-        st.drafts = st.drafts.filter(function (d) { return !(d.empId === rec.empId && d.type === rec.type && d.from === rec.from && d.to === rec.to); });
-        st.drafts.unshift(rec);
-        renderRecent();
-        showToast(t('রেকর্ডে যোগ হয়েছে — 💾 চেপে সেভ করুন।','Added to records — press 💾 to save.'), 'success');
+        if ((Number(r.adv) || 0) && !String(r.advNote || '').trim()) throw new Error(t('অগ্রিম কর্তনের কারণ লিখুন।','Enter a reason for the advance deduction.'));
+        const noReason = r.days.find(function (d) { return (Number(d.adj) || 0) && !String(d.adjNote || '').trim(); });
+        if (noReason) throw new Error(hrDayLabel(noReason.date) + t(' — কম-বেশির কারণ লিখুন।',' — enter a reason for the adjustment.'));
+        cleanup(); st.dirty = true; renderTable();
+        showToast(t('ঠিক আছে — নিচে 💾 সেভ চাপুন।','Done — press 💾 Save.'), 'success');
       }
     });
-    const rb = document.getElementById('rpBody');
-    function redraw() { rb.innerHTML = body(); }
-    rb.addEventListener('change', function (ev) {
+    const restore = function () { r.days = snap.days; r.adv = snap.adv; r.advNote = snap.advNote; cleanup(); };
+    const cleanup = function () { ['modalCancelBtn', 'modalCloseBtn'].forEach(function (id) { const b = document.getElementById(id); if (b) b.removeEventListener('click', restore); }); };
+    ['modalCancelBtn', 'modalCloseBtn'].forEach(function (id) { const b = document.getElementById(id); if (b) b.addEventListener('click', restore); });
+    const wb = document.getElementById('wdBody');
+    const redraw = function (focusSel) { wb.innerHTML = body(); if (focusSel) { const el = wb.querySelector(focusSel); if (el) { el.focus(); try { const n = String(el.value).length; el.setSelectionRange(n, n); } catch (e) {} } } };
+    const day = function (k) { return r.days.find(function (x) { return x.date === k; }); };
+    wb.addEventListener('change', function (ev) { const el = ev.target; if (el.dataset.haj) { day(el.dataset.haj).hajOn = el.checked; redraw(); } });
+    wb.addEventListener('input', function (ev) {
       const el = ev.target;
-      if (el.dataset.inc) { const dy = pst.days.find(function (x) { return x.date === el.dataset.inc; }); dy.inc = el.checked; redraw(); }
-      else if (el.id === 'rpWithOD') { pst.withOD = el.checked; redraw(); }
-      else if (el.id === 'rpAdjIdle') { pst.adjIdle = el.checked; redraw(); }
+      if (el.dataset.adj) { day(el.dataset.adj).adj = el.value; redraw(`[data-adj="${el.dataset.adj}"]`); }
+      else if (el.dataset.adjn) { day(el.dataset.adjn).adjNote = el.value; }
+      else if (el.id === 'wdAdv') { r.adv = el.value; redraw('#wdAdv'); }
+      else if (el.id === 'wdAdvNote') { r.advNote = el.value; }
     });
-    rb.addEventListener('input', function (ev) {
-      const el = ev.target;
-      if (el.dataset.prate) {
-        pst.days.forEach(function (dy) { dy.entries.forEach(function (e) { if (String(e.memId) === el.dataset.prate) { e.rate = Number(el.value) || 0; e.value = e.qty * e.rate; } }); });
-        const keep = el.dataset.prate, inCards = !!el.closest('.rp-cards'); redraw();
-        const ni = rb.querySelector((inCards ? '.rp-cards ' : '.rp-wrap ') + `[data-prate="${keep}"]`); if (ni) { ni.focus(); try { const n = ni.value.length; ni.setSelectionRange(n, n); } catch (e2) {} }
-        return;
-      }
-      if (el.dataset.bonus) { pst.days.find(function (x) { return x.date === el.dataset.bonus; }).bonus = el.value; }
-      else if (el.id === 'rpOB') pst.otherBonus = el.value; else if (el.id === 'rpOBN') pst.bonusNote = el.value;
-      else if (el.id === 'rpD') pst.ded = el.value; else if (el.id === 'rpDN') pst.dedNote = el.value;
-      else return;
-      if (el.dataset.bonus || el.id === 'rpOB' || el.id === 'rpD') { // শুধু হিসাবের ঘরগুলো নতুন করে — লেখার ঘরের ফোকাস না হারিয়ে
-        const tt = totals();
-        rb.querySelector('.rp-net b').textContent = hrMoney(tt.net);
-        if (el.dataset.bonus) { const keep = el.dataset.bonus, inCards = !!el.closest('.rp-cards'); redraw(); const ni = rb.querySelector((inCards ? '.rp-cards ' : '.rp-wrap ') + `[data-bonus="${keep}"]`); if (ni) { ni.focus(); try { const n = ni.value.length; ni.setSelectionRange(n, n); } catch (e) {} } }
-      }
-    });
+    wb.addEventListener('click', function (ev) { if (ev.target.closest('#wdPrint')) printVouchers([r]); });
   }
 
-  // ---------- রেকর্ড সেভ / ডিলিট / প্রিভিউ ----------
-  async function saveRecord(rec) {
-    // এই রান (ধরন + সময়) না থাকলে তৈরি
-    let pid = rec.payrollId;
-    if (!pid) {
-      const found = (await api('list', { sheet: 'Payroll' })).find(function (h) { return h.Status !== 'Deleted' && h.RunType === rec.type && h.DateFrom === rec.from && h.DateTo === rec.to; });
-      if (found) pid = found.PayrollID;
-      else {
-        const d = hrDate(rec.to);
-        const { data, error } = await supabaseClient.from('Payroll').insert({ RunType: rec.type, DateFrom: rec.from, DateTo: rec.to, Month: HR_MONTHS_BN[d.getMonth()], Year: String(d.getFullYear()), Divisor: gp.divisor, TotalNetPay: 0, Status: 'Active' }).select();
-        if (error) throw new Error(error.message);
-        pid = data[0].PayrollID;
-      }
+  // ---------- সেভ ----------
+  async function save() {
+    const rows = Object.keys(st.rows).map(function (k) { return st.rows[k]; });
+    for (const r of rows) { if ((Number(r.adv) || 0) && !String(r.advNote || '').trim()) { const e = base.empMap[r.empId] || {}; throw new Error((e.Name || r.empId) + t(' — অগ্রিম কর্তনের কারণ লিখুন (📄 ভাউচার)।',' — enter the advance reason (📄 Voucher).')); } }
+    let pid = st.headId;
+    if (pid) {
+      // পুরনো শিট মুছে নতুন করে (যে উৎপাদন ও বোনাস এই শিটে ছিল সেগুলো আগে ছেড়ে দেওয়া)
+      await supabaseClient.from('TeamProduction_Members').update({ BilledIn: null }).eq('BilledIn', pid);
+      await supabaseClient.from('DailyBonus').update({ BilledIn: null }).eq('BilledIn', pid);
+      await supabaseClient.from('Payroll_Details').delete().eq('PayrollID', pid);
+      await supabaseClient.from('Payroll_Lines').delete().eq('PayrollID', pid);
+    } else {
+      const d = hrDate(st.to);
+      const { data, error } = await supabaseClient.from('Payroll').insert({ RunType: 'Weekly', DateFrom: st.from, DateTo: st.to, Month: HR_MONTHS_BN[d.getMonth()], Year: String(d.getFullYear()), TotalNetPay: 0, Status: 'Active' }).select();
+      if (error) throw new Error(error.message);
+      pid = data[0].PayrollID;
     }
-    await removeLine(pid, rec.empId, false);
-    const emp = base.empMap[rec.empId] || {}, s = rec.sal;
-    const line = { PayrollID: pid, EmployeeID: rec.empId, CategoryID: emp.CategoryID || null, SalaryType: rec.type,
-      MonthlySalary: Number(emp.BasicSalary) || 0, DailyWage: rec.wage,
-      PresentDays: s ? s.p : rec.dayRows.filter(function (d) { return d.att === 'P'; }).length, AbsentDays: s ? s.a : 0, LeaveDays: s ? s.l : 0,
-      PaidHolidays: s ? s.lPaid : 0, PaidDays: s ? s.paidDays : 0, AttendancePay: rec.salary, OverDutyPay: rec.od,
-      Bonus: Number(rec.otherBonus) || 0, Deduction: Number(rec.ded) || 0, NetPay: rec.net,
-      BasicSalary: rec.salary, Allowance: Number(rec.otherBonus) || 0, ProductionAmount: rec.od, CalculatedPay: rec.net, DaysWorked: s ? s.p : 0, RatePerUnit: rec.wage };
-    const r1 = await supabaseClient.from('Payroll_Lines').insert(line);
-    if (r1.error) throw new Error(r1.error.message);
-    const det = [];
-    rec.dayRows.forEach(function (d) {
-      det.push({ PayrollID: pid, EmployeeID: rec.empId, DetailType: 'Day', WorkDate: d.date, Description: d.att || '', Qty: d.entries.reduce(function (x, e) { return x + e.qty; }, 0), Rate: 0, Amount: d.od, TargetQty: d.haj, OverQty: d.bonus });
-      d.entries.forEach(function (e) { det.push({ PayrollID: pid, EmployeeID: rec.empId, DetailType: 'Prod', WorkDate: d.date, ItemID: e.itemId, Description: e.voucher + ' · ' + e.item + (e.role ? ' · ' + e.role : ''), Qty: e.qty, Rate: e.rate, Amount: e.value }); });
+    const lines = [], det = [], memIds = [], bonIds = [];
+    let total = 0;
+    rows.forEach(function (r) {
+      const c = calcRow(r);
+      if (!c.p && !c.a && !c.l && !c.work && !c.bonus && !c.adv && !c.adj) return;
+      total += c.net;
+      lines.push({ PayrollID: pid, EmployeeID: r.empId, CategoryID: c.emp.CategoryID || null, SalaryType: 'Wage',
+        DailyWage: c.rate, PresentDays: c.p, AbsentDays: c.a, LeaveDays: c.l, ProductionAmount: c.work,
+        TopUpPay: c.make, AdjustPay: c.adj, Bonus: c.bonus, Deduction: c.adv, NetPay: c.net,
+        BasicSalary: c.work, Allowance: c.bonus, CalculatedPay: c.net, AttendancePay: 0, LeavePay: 0, OverDutyPay: 0, DaysWorked: c.p, RatePerUnit: c.rate });
+      r.days.forEach(function (d) {
+        const dc = dayCalc(d, c.rate);
+        det.push({ PayrollID: pid, EmployeeID: r.empId, DetailType: 'Day', WorkDate: d.date, Description: d.att || '', Amount: d.value, TargetQty: dc.make });
+        if (d.hajOn) det.push({ PayrollID: pid, EmployeeID: r.empId, DetailType: 'HajiraOn', WorkDate: d.date, Amount: dc.make });
+        if (dc.adj) det.push({ PayrollID: pid, EmployeeID: r.empId, DetailType: 'Adjust', WorkDate: d.date, Description: d.adjNote || '', Amount: dc.adj });
+      });
+      if (c.adv) det.push({ PayrollID: pid, EmployeeID: r.empId, DetailType: 'Advance', Description: r.advNote || '', Amount: c.adv });
+      memIds.push.apply(memIds, r.memIds);
+      r.bonuses.forEach(function (b) { bonIds.push(b.BonusID); });
     });
-    if (Number(rec.otherBonus)) det.push({ PayrollID: pid, EmployeeID: rec.empId, DetailType: 'Earning', Description: rec.bonusNote || t('বোনাস','Bonus'), Amount: Number(rec.otherBonus) });
-    if (rec.idleAdj) det.push({ PayrollID: pid, EmployeeID: rec.empId, DetailType: 'IdleAdj', Description: t('কাজ না দেওয়া দিনের হাজিরা ও.ডি থেকে সমন্বয়','No-work day wage recovered from O.D'), Amount: rec.idleAdj });
-    if (Number(rec.ded)) det.push({ PayrollID: pid, EmployeeID: rec.empId, DetailType: 'Deduction', Description: rec.dedNote || '', Amount: Number(rec.ded) });
-    if (det.length) { const r2 = await supabaseClient.from('Payroll_Details').insert(det); if (r2.error) { await removeLine(pid, rec.empId, true); throw new Error(r2.error.message); } }
-    // ও.ডি যে উৎপাদনগুলো থেকে দেওয়া হলো সেগুলো চিহ্নিত — আর কোনো রানে আসবে না
-    const odPaid = rec.type !== 'Monthly' || rec.withOD;
-    const memIds = []; if (odPaid) rec.dayRows.forEach(function (d) { d.entries.forEach(function (e) { memIds.push(e.memId); }); });
+    if (lines.length) { const { error } = await supabaseClient.from('Payroll_Lines').insert(lines); if (error) throw new Error(error.message); }
+    if (det.length) { const { error } = await supabaseClient.from('Payroll_Details').insert(det); if (error) throw new Error(error.message); }
     if (memIds.length) await supabaseClient.from('TeamProduction_Members').update({ BilledIn: pid }).in('MemberID', memIds);
-    // পপআপে হাতে বদলানো দর উৎপাদন এন্ট্রিতেও লিখে রাখা — পরে দেখলে একই হিসাব পাওয়া যাবে
-    for (const d of rec.dayRows) for (const e of d.entries) {
-      if (Number(e.rate) !== Number(e.origRate)) await supabaseClient.from('TeamProduction_Members').update({ Rate: e.rate, Amount: e.value }).eq('MemberID', e.memId);
-    }
-    await refreshTotal(pid);
-    return pid;
+    if (bonIds.length) await supabaseClient.from('DailyBonus').update({ BilledIn: pid }).in('BonusID', bonIds);
+    await supabaseClient.from('Payroll').update({ TotalNetPay: total }).eq('PayrollID', pid);
+    st.headId = pid; st.dirty = false;
   }
-  async function removeLine(pid, empId, recalc) {
-    await supabaseClient.from('TeamProduction_Members').update({ BilledIn: null }).eq('BilledIn', pid).eq('EmployeeID', empId);
-    await supabaseClient.from('Payroll_Details').delete().eq('PayrollID', pid).eq('EmployeeID', empId);
-    await supabaseClient.from('Payroll_Lines').delete().eq('PayrollID', pid).eq('EmployeeID', empId);
-    if (recalc) await refreshTotal(pid);
+
+  async function printHeader(title) {
+    let co = {}; try { co = await api('getSingleton', { sheet: 'CompanyProfile' }); } catch (e) {}
+    return `<div class="v-co"><div class="v-logo">${co.LogoURL ? `<img src="${attr(co.LogoURL)}" alt="">` : '<span>লোগো</span>'}</div>
+      <div class="v-co-info"><div class="v-co-name">${escapeHtml(co.CompanyNameBn || 'জি মেটাল ওয়ার্কস')}</div><div class="v-co-addr">${escapeHtml(co.AddressBn || '')}</div><div class="v-type">${escapeHtml(title)}</div></div>
+      <div class="v-meta"><div class="v-print">প্রিন্টঃ <span class="en">${escapeHtml(formatPrintDate())}</span></div>${st.headId ? `<div class="v-meta-row"><span>ভাউচার নংঃ</span><b class="en">${escapeHtml(st.headId)}</b></div>` : ''}<div class="v-meta-row"><span>সময়কালঃ</span><b>${escapeHtml(hrDayLabel(st.from) + ' — ' + hrDayLabel(st.to))}</b></div></div></div>`;
   }
-  async function refreshTotal(pid) {
-    const { data } = await supabaseClient.from('Payroll_Lines').select('NetPay').eq('PayrollID', pid);
-    if (!data || !data.length) { await supabaseClient.from('Payroll').delete().eq('PayrollID', pid); return; }
-    await supabaseClient.from('Payroll').update({ TotalNetPay: data.reduce(function (s, l) { return s + (Number(l.NetPay) || 0); }, 0) }).eq('PayrollID', pid);
-  }
-  async function printSlip(pid, empId) {
+  function printWin(title, inner, landscape) {
     const win = window.open('', '_blank');
     if (!win) { showToast(t('পপ-আপ ব্লক হয়েছে — এই সাইটের জন্য পপ-আপ অনুমতি দিন।','Pop-up blocked — allow pop-ups for this site.'), 'error'); return; }
-    const head = (await api('list', { sheet: 'Payroll' })).find(function (h) { return h.PayrollID === pid; }) || {};
-    const { data: lines } = await supabaseClient.from('Payroll_Lines').select('*').eq('PayrollID', pid).eq('EmployeeID', empId);
-    const { data: det } = await supabaseClient.from('Payroll_Details').select('*').eq('PayrollID', pid).eq('EmployeeID', empId);
-    const l = (lines || [])[0] || {}, emp = base.empMap[empId] || { Name: empId };
-    let co = {}; try { co = await api('getSingleton', { sheet: 'CompanyProfile' }); } catch (e) {}
-    const days = (det || []).filter(function (d) { return d.DetailType === 'Day'; }).sort(function (a, b) { return String(a.WorkDate).localeCompare(String(b.WorkDate)); });
-    const prods = (det || []).filter(function (d) { return d.DetailType === 'Prod'; });
-    const rows = days.map(function (d) {
-      const ps = prods.filter(function (p) { return String(p.WorkDate) === String(d.WorkDate); });
-      const lines2 = ps.length ? ps : [null];
-      return lines2.map(function (p, k) {
-        return `<tr><td>${k === 0 ? escapeHtml(d.Description || '–') : ''}</td><td>${k === 0 ? hrDayLabel(d.WorkDate) : ''}</td><td class="l">${p ? escapeHtml(p.Description) : ''}</td><td>${p ? hrNum(p.Qty) : ''}</td><td class="r">${p ? hrMoney(p.Rate) : ''}</td>
-          <td class="r">${k === 0 && Number(d.OverQty) ? hrMoney(d.OverQty) : ''}</td><td class="r">${p ? hrMoney(p.Amount) : ''}</td><td class="r">${k === 0 && Number(d.TargetQty) ? '−' + hrMoney(d.TargetQty) : ''}</td><td class="r">${k === 0 ? hrMoney(d.Amount) : ''}</td></tr>`;
-      }).join('');
-    }).join('');
-    const idleRow = (det || []).find(function (d) { return d.DetailType === 'IdleAdj'; });
-    const extra = (idleRow ? `<tr><td colspan="8">− ${escapeHtml(idleRow.Description)} (ও.ডি থেকে কাটা, উপরের ও.ডি-তে ধরা আছে)</td><td class="r">${hrMoney(idleRow.Amount)}</td></tr>` : '') + (det || []).filter(function (d) { return d.DetailType === 'Earning' || d.DetailType === 'Deduction'; })
-      .map(function (d) { return `<tr><td colspan="8">${d.DetailType === 'Deduction' ? '− ' : '+ '}${escapeHtml(d.Description || '')}</td><td class="r">${hrMoney(d.Amount)}</td></tr>`; }).join('');
-    win.document.write(`<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>বেতন স্লিপ — ${escapeHtml(emp.Name)}</title>
+    win.document.write(`<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${escapeHtml(title)}</title>
       <link href="https://fonts.googleapis.com/css2?family=Anek+Bangla:wght@400;500;600;700&display=swap" rel="stylesheet">
-      <style>${VOUCHER_TABLE_CSS} .items-table .l{text-align:left;} .items-table td,.items-table th{font-size:10px;}</style></head><body>
-      <div class="toolbar"><button class="primary" onclick="window.print()">🖨️ প্রিন্ট</button></div>
-      <div class="v-co"><div class="v-logo">${co.LogoURL ? `<img src="${attr(co.LogoURL)}" alt="">` : '<span>লোগো</span>'}</div>
-        <div class="v-co-info"><div class="v-co-name">${escapeHtml(co.CompanyNameBn || 'জি মেটাল ওয়ার্কস')}</div><div class="v-co-addr">${escapeHtml(co.AddressBn || '')}</div><div class="v-type">বেতন স্লিপ (${escapeHtml(HR_RUN_TYPES[head.RunType] ? HR_RUN_TYPES[head.RunType][0] : '')})</div></div>
-        <div class="v-meta"><div class="v-print">প্রিন্টঃ <span class="en">${escapeHtml(formatPrintDate())}</span></div><div class="v-meta-row"><span>রান নংঃ</span><b class="en">${escapeHtml(pid)}</b></div><div class="v-meta-row"><span>সময়কালঃ</span><b>${escapeHtml(payrollPeriodLabel(head))}</b></div></div></div>
-      <div class="v-party"><div class="v-party-name"><span class="lbl">কর্মচারীঃ</span> ${escapeHtml(emp.Name)}</div><div class="v-party-sub"><span>${escapeHtml(base.catMap[emp.CategoryID] || '')}</span><span>দৈনিক হাজিরাঃ ${hrMoney(l.DailyWage)}</span></div></div>
-      <table class="items-table"><thead><tr><th>হাজিরা</th><th>তারিখ</th><th>ভাউচার · আইটেম</th><th>পরিমাণ</th><th class="r">দর</th><th class="r">বোনাস</th><th class="r">মূল্য</th><th class="r">হাজিরা সমন্বয়</th><th class="r">ও.ডি</th></tr></thead>
-      <tbody>${rows}
-        ${head.RunType === 'Monthly' ? `<tr class="total-row"><td colspan="8">হাজিরার বেতন (P ${hrNum(l.PresentDays)} · A ${hrNum(l.AbsentDays)} · L ${hrNum(l.LeaveDays)} · বেতনের দিন ${hrNum(l.PaidDays)})</td><td class="r">${hrMoney(l.AttendancePay)}</td></tr>` : ''}
-        <tr class="total-row"><td colspan="8">ও.ডি</td><td class="r">${hrMoney(l.OverDutyPay)}</td></tr>${extra}
-        <tr class="grand-all"><td colspan="8">প্রদেয়ঃ</td><td class="r">${hrMoney(l.NetPay)}</td></tr></tbody></table>
-      <div class="sign-row"><div>কর্মচারীর স্বাঃ</div><div>হিসাবরক্ষকের স্বাঃ</div><div>অনুমোদনকারীর স্বাঃ</div></div>
+      <style>${VOUCHER_TABLE_CSS} @page{size:A4 ${landscape ? 'landscape' : 'portrait'};margin:8mm;} .items-table .l{text-align:left;} .items-table td,.items-table th{font-size:10.5px;} .s{font-size:9px;color:#555;} .sg{min-width:30mm;} .pb{page-break-after:always;} .pb:last-child{page-break-after:auto;}</style></head><body>
+      <div class="toolbar"><button class="primary" onclick="window.print()">🖨️ প্রিন্ট</button></div>${inner}
       <script>window.addEventListener("load",function(){setTimeout(function(){window.print();},400);});<\/script></body></html>`);
     win.document.close();
   }
-
-  async function renderRecent() {
-    const wrap = document.getElementById('prRecent'); if (!wrap) return;
-    let saved = [];
-    try {
-      const heads = (await api('list', { sheet: 'Payroll' })).filter(function (h) { return h.Status !== 'Deleted' && h.RunType && h.DateFrom; });
-      const hMap = {}; heads.forEach(function (h) { hMap[h.PayrollID] = h; });
-      const ids = heads.map(function (h) { return h.PayrollID; });
-      if (ids.length) {
-        const { data } = await supabaseClient.from('Payroll_Lines').select('*').in('PayrollID', ids);
-        saved = (data || []).map(function (l) { return { line: l, head: hMap[l.PayrollID] }; })
-          .sort(function (a, b) { return String(b.head.DateFrom).localeCompare(String(a.head.DateFrom)) || String(b.line.PayrollID).localeCompare(String(a.line.PayrollID)); }).slice(0, 40);
-      }
-    } catch (e) { saved = []; }
-    const draftHtml = st.drafts.map(function (d, i) {
-      return `<div class="pr-rec pr-draft"><div class="nm"><b>${escapeHtml(d.name)}</b><span>${t(HR_RUN_TYPES[d.type][0], HR_RUN_TYPES[d.type][1])} · ${escapeHtml(payrollPeriodLabel({ RunType: d.type, DateFrom: d.from, DateTo: d.to }))} · <span style="color:#d97706;">${t('সেভ হয়নি','not saved')}</span></span></div>
-        <div class="acts"><button data-dv="${i}" title="${t('প্রিভিউ','Preview')}">👁</button><button data-de="${i}" title="${t('এডিট','Edit')}">✏️</button><button data-dd="${i}" title="${t('ডিলিট','Delete')}">🗑</button><button data-ds="${i}" title="${t('সেভ','Save')}">💾</button></div>
-        <div class="tot"><span>${d.type === 'Monthly' ? t('হাজিরা ','Wage ') + hrMoney(d.salary) + ' · ' : ''}${t('ও.ডি ','O.D ')}${hrMoney(d.od)}</span><b>${hrMoney(d.net)}</b></div></div>`;
+  async function printSheet() {
+    const rows = visibleRows();
+    if (!rows.length) { showToast(t('প্রিন্ট করার মতো কিছু নেই।','Nothing to print.'), 'error'); return; }
+    let tot = 0;
+    const trs = rows.map(function (r, i) {
+      const c = calcRow(r); tot += c.net;
+      return `<tr><td>${i + 1}</td><td class="l"><b>${escapeHtml(c.emp.Name || r.empId)}</b><div class="s">${escapeHtml(base.catMap[c.emp.CategoryID] || '')}</div></td>
+        <td>${c.p}/${c.a}/${c.l}</td><td class="r">${hrMoney(c.work)}</td><td class="r">${c.make ? hrMoney(c.make) : ''}</td><td class="r">${c.adj ? (c.adj > 0 ? '+' : '−') + hrMoney(Math.abs(c.adj)) : ''}</td>
+        <td class="r">${c.bonus ? hrMoney(c.bonus) : ''}</td><td class="r">${c.adv ? '−' + hrMoney(c.adv) : ''}</td><td class="r"><b>${hrMoney(c.net)}</b></td><td class="sg"></td></tr>`;
     }).join('');
-    const savedHtml = saved.map(function (r) {
-      const l = r.line, h = r.head, e = base.empMap[l.EmployeeID] || { Name: l.EmployeeID };
-      return `<div class="pr-rec"><div class="nm"><b>${escapeHtml(e.Name)}</b><span>${escapeHtml(HR_RUN_TYPES[h.RunType] ? t(HR_RUN_TYPES[h.RunType][0], HR_RUN_TYPES[h.RunType][1]) : h.RunType)} · ${escapeHtml(payrollPeriodLabel(h))} · ${escapeHtml(l.PayrollID)}</span></div>
-        <div class="acts"><button data-sv="${attr(l.PayrollID)}|${attr(l.EmployeeID)}" title="${t('প্রিভিউ / প্রিন্ট','Preview / print')}">👁</button><button data-se="${attr(l.PayrollID)}|${attr(l.EmployeeID)}" title="${t('এডিট','Edit')}">✏️</button><button data-sd="${attr(l.PayrollID)}|${attr(l.EmployeeID)}" title="${t('ডিলিট','Delete')}">🗑</button><button disabled title="${t('সেভ হয়েছে','Saved')}">✅</button></div>
-        <div class="tot"><span>${h.RunType === 'Monthly' ? t('হাজিরা ','Wage ') + hrMoney(l.AttendancePay) + ' · ' : ''}${t('ও.ডি ','O.D ')}${hrMoney(l.OverDutyPay)}</span><b>${hrMoney(l.NetPay)}</b></div></div>`;
-    }).join('');
-    wrap.innerHTML = (st.drafts.length > 1 ? `<button class="btn btn-primary" id="prSaveAll" style="width:auto;margin-bottom:8px;">💾 ${t('সব সেভ করুন','Save all')} (${st.drafts.length})</button>` : '') +
-      (draftHtml + savedHtml || `<div class="pr-hint">${t('এখনো কোনো রেকর্ড নেই। উপরে নাম বাছাই করে শুরু করুন।','No records yet. Pick a name above to start.')}</div>`);
+    printWin('মজুরি ভাউচার — সারাংশ', (await printHeader('মজুরি ভাউচার — সারাংশ')) + `
+      <table class="items-table"><thead><tr><th>ক্রঃ</th><th>নাম</th><th>P/A/L</th><th class="r">উৎপাদন মজুরি</th><th class="r">হাজিরা মিলানো</th><th class="r">কম-বেশি</th><th class="r">বোনাস</th><th class="r">অগ্রিম কর্তন</th><th class="r">প্রদেয়</th><th>স্বাক্ষর</th></tr></thead>
+      <tbody>${trs}<tr class="grand-all"><td colspan="8">সর্বমোটঃ</td><td class="r">${hrMoney(tot)}</td><td></td></tr></tbody></table>
+      <div class="sign-row"><div>প্রস্তুতকারীর স্বাঃ</div><div>হিসাবরক্ষকের স্বাঃ</div><div>অনুমোদনকারীর স্বাঃ</div></div>`, true);
   }
-  document.getElementById('prRecent').addEventListener('click', async function (ev) {
-    const b = ev.target.closest('button'); if (!b || b.disabled) return;
-    const ds = b.dataset;
-    try {
-      if (ds.ds !== undefined || b.id === 'prSaveAll') {
-        const list = b.id === 'prSaveAll' ? st.drafts.slice() : [st.drafts[Number(ds.ds)]];
-        b.disabled = true;
-        for (const rec of list) { await saveRecord(rec); st.drafts = st.drafts.filter(function (d) { return d !== rec; }); }
-        showToast(t('সেভ হয়েছে ✅','Saved ✅'), 'success'); await renderRecent();
-      } else if (ds.dd !== undefined) { st.drafts.splice(Number(ds.dd), 1); renderRecent(); }
-      else if (ds.de !== undefined || ds.dv !== undefined) { const d = st.drafts[Number(ds.de !== undefined ? ds.de : ds.dv)]; openRunPopup({ empId: d.empId, type: d.type, from: d.from, to: d.to, payrollId: d.payrollId }); }
-      else if (ds.sv) { const p = ds.sv.split('|'); await printSlip(p[0], p[1]); }
-      else if (ds.se) {
-        const p = ds.se.split('|'); const h = (await api('list', { sheet: 'Payroll' })).find(function (x) { return x.PayrollID === p[0]; });
-        if (h) openRunPopup({ empId: p[1], type: h.RunType, from: String(h.DateFrom).slice(0, 10), to: String(h.DateTo).slice(0, 10), payrollId: h.PayrollID });
-      } else if (ds.sd) {
-        const p = ds.sd.split('|');
-        if (!confirm(t('এই বেতনের রেকর্ডটা ডিলিট করবেন? এর ও.ডি আবার পরের রানে আসবে।','Delete this salary record? Its O.D becomes payable again.'))) return;
-        await removeLine(p[0], p[1], true); showToast(t('ডিলিট হয়েছে ✅','Deleted ✅'), 'success'); await renderRecent();
-      }
-    } catch (err) { showToast(err.message, 'error'); b.disabled = false; }
-  });
+  /** একজন (বা কয়েকজন) কর্মচারীর মজুরি ভাউচার — প্রতিজন আলাদা পাতায় */
+  async function printVouchers(list) {
+    const head = await printHeader('মজুরি ভাউচার');
+    const pages = list.map(function (r) {
+      const c = calcRow(r);
+      const bonusBy = {}; r.bonuses.forEach(function (b) { const k = String(b.WorkDate).slice(0, 10); bonusBy[k] = (bonusBy[k] || 0) + (Number(b.Amount) || 0); });
+      const trs = r.days.map(function (d) {
+        const dc = dayCalc(d, c.rate);
+        return `<tr><td class="l">${hrDayLabel(d.date)}</td><td>${d.att || '—'}</td><td>${d.hajOn ? '✔' : ''}</td><td class="r">${hrMoney(d.value)}</td><td class="r">${dc.make ? hrMoney(dc.make) : ''}</td>
+          <td class="r">${dc.adj ? (dc.adj > 0 ? '+' : '−') + hrMoney(Math.abs(dc.adj)) : ''}${d.adjNote && dc.adj ? `<div class="s">${escapeHtml(d.adjNote)}</div>` : ''}</td><td class="r">${bonusBy[d.date] ? hrMoney(bonusBy[d.date]) : ''}</td><td class="r"><b>${hrMoney(dc.total + (bonusBy[d.date] || 0))}</b></td></tr>`;
+      }).join('');
+      return `<div class="pb">${head}
+        <div class="v-party"><div class="v-party-name"><span class="lbl">কর্মচারীঃ</span> ${escapeHtml(c.emp.Name || r.empId)}</div><div class="v-party-sub"><span>${escapeHtml(base.catMap[c.emp.CategoryID] || '')}</span><span>দৈনিক হাজিরাঃ ${hrMoney(c.rate)}</span></div></div>
+        <table class="items-table"><thead><tr><th>তারিখ</th><th>হাজিরা</th><th>হাজিরা মিলান</th><th class="r">উৎপাদন মজুরি</th><th class="r">মিলানো</th><th class="r">কম-বেশি</th><th class="r">বোনাস</th><th class="r">দিনের মোট</th></tr></thead>
+        <tbody>${trs}
+          <tr class="total-row"><td colspan="7">মোট</td><td class="r">${hrMoney(c.work + c.make + c.adj + c.bonus)}</td></tr>
+          ${c.adv ? `<tr><td colspan="7">− অগ্রিম কর্তন${r.advNote ? ' (' + escapeHtml(r.advNote) + ')' : ''}</td><td class="r">${hrMoney(c.adv)}</td></tr>` : ''}
+          <tr class="grand-all"><td colspan="7">প্রদেয়ঃ</td><td class="r">${hrMoney(c.net)}</td></tr></tbody></table>
+        <div class="sign-row"><div>কর্মচারীর স্বাঃ</div><div>হিসাবরক্ষকের স্বাঃ</div><div>অনুমোদনকারীর স্বাঃ</div></div></div>`;
+    }).join('');
+    printWin('মজুরি ভাউচার', pages, false);
+  }
 
-  renderDates(); renderCats(); await loadNames(); await renderRecent();
+  // ---------- ইভেন্ট ----------
+  async function setWeek(from) { const old = { f: st.from, t: st.to }; st.from = from; st.to = hrAddDays(from, 5); document.getElementById('wsFrom').value = st.from; document.getElementById('wsTo').value = st.to; if (!(await load())) { st.from = old.f; st.to = old.t; document.getElementById('wsFrom').value = st.from; document.getElementById('wsTo').value = st.to; } }
+  document.getElementById('wsPrev').addEventListener('click', function () { setWeek(hrAddDays(st.from, -7)); });
+  document.getElementById('wsNext').addEventListener('click', function () { setWeek(hrAddDays(st.from, 7)); });
+  document.getElementById('wsFrom').addEventListener('change', function () { if (this.value) setWeek(this.value); });
+  document.getElementById('wsTo').addEventListener('change', async function () { if (!this.value) return; const old = st.to; st.to = this.value; if (!(await load())) { st.to = old; this.value = old; } });
+  document.getElementById('wsCat').addEventListener('change', function () { st.cat = this.value; renderTable(); });
+  document.getElementById('wsQ').addEventListener('input', function () { st.q = this.value; renderTable(); });
+  const tbl = document.getElementById('wsTable');
+  tbl.addEventListener('input', function (ev) {
+    const el = ev.target; if (!el.dataset.adv) return;
+    st.rows[el.dataset.adv].adv = el.value; st.dirty = true;
+    const pos = el.selectionStart, key = el.dataset.adv; renderTable();
+    const ni = tbl.querySelector(`[data-adv="${key}"]`); if (ni) { ni.focus(); try { ni.setSelectionRange(pos, pos); } catch (e) {} }
+  });
+  tbl.addEventListener('click', function (ev) { const b = ev.target.closest('[data-det]'); if (b) openDetails(b.dataset.det); });
+  document.getElementById('wsSave').addEventListener('click', async function () {
+    this.disabled = true;
+    try { await save(); showToast(t('মজুরি ভাউচার সেভ হয়েছে ✅','Wage voucher saved ✅'), 'success'); renderTable(); }
+    catch (err) { showToast(err.message, 'error'); }
+    this.disabled = false;
+  });
+  document.getElementById('wsPrint').addEventListener('click', printSheet);
+  document.getElementById('wsPrintAll').addEventListener('click', function () { const rows = visibleRows(); if (rows.length) printVouchers(rows); });
+
+  await load();
 }
 
 /** ছুটি ব্যবস্থাপনা — তালিকা+মোডাল, Status(Pending/Approved/Rejected) সারিতে ক্লিক করে বদলানো যাবে */
@@ -8018,7 +7916,7 @@ const ALL_DATA_SHEETS = [
   'BOM','BOM_Lines','ProductionOrder','ProductionMaterialIssue','PMI_Lines','FinishedGoodsReceive','FGR_Lines',
   'ProcessingVoucher','ProcessingByProduct_Lines',
   'ChartOfAccounts','BankCashAccounts','JournalVoucher','JV_Lines','ContraVoucher','PaymentVoucher','ReceiptVoucher','BankCashBook','PartyLedger',
-  'Attendance','LeaveRequests','Payroll','Payroll_Lines','Payroll_Details','EmployeeCategories','WorkRoles','SizeRates','TeamProduction','TeamProduction_Items','TeamProduction_Members','TeamProduction_Costs',
+  'Attendance','LeaveRequests','Payroll','Payroll_Lines','Payroll_Details','EmployeeCategories','WorkRoles','SizeRates','TeamProduction','TeamProduction_Items','TeamProduction_Members','TeamProduction_Costs','DailyBonus',
   'SystemSettings'
 ];
 
