@@ -3692,6 +3692,7 @@ async function renderSizeRatesPage(content) {
       .srt-hint{font-size:12px;color:var(--text-muted);margin:6px 0;}
       .srt-tbl th.cost{background:#fff3e0;color:#9a5b00;} .srt-tbl td.cost{background:#fffaf2;}
       .srt-tbl th.duty{background:#e0f2fe;color:#075985;} .srt-tbl td.duty{background:#f0f9ff;}
+      .srt-tbl th.sum{background:#dcfce7;color:#166534;} .srt-tbl td.sum{background:#f0fdf4;font-weight:700;text-align:right;padding-right:8px;min-width:80px;}
       .srt-tbl .addcol{width:36px;min-width:36px;text-align:center;padding:2px;}
       .srt-tbl th .colname{display:block;} .srt-tbl th .colact{display:flex;justify-content:center;gap:3px;margin-top:2px;}
       .srt-tbl th .colact button{width:22px;height:18px;border:1px solid var(--border);border-radius:4px;background:var(--surface);cursor:pointer;font-size:10.5px;line-height:1;padding:0;color:var(--text-muted);}
@@ -3733,12 +3734,12 @@ async function renderSizeRatesPage(content) {
     if (!st.group && !st.cat) { wrap.innerHTML = `<div class="srt-hint">${t('গ্রুপ বা ক্যাটাগরি বাছাই করুন।','Select a group or category.')}</div>`; return; }
     const list = sortItemsBySerial(items.filter(function (i) { return (!st.group || i.GroupID === st.group) && (!st.cat || i.CategoryID === st.cat); }), catName);
     wrap.innerHTML = list.length ?
-      `<div class="srt-scroll"><table class="srt-tbl"><thead><tr><th>${t('আইটেম','Item')}</th><th class="duty" title="${t('কত কেজি বানালে এক দিনের হাজিরা — প্রতিটা আইটেমের ডিউটি পরিমাণ','Kg that equals one day\'s work for this item')}">${t('ডিউটি পরিঃ','Duty qty')}<span class="colname" style="font-size:10px;font-weight:500;">(${t('কেজি','kg')})</span></th>${gp.roles.map(function (r) { return `<th class="${r.Kind === 'Cost' ? 'cost' : ''}" title="${r.Kind === 'Cost' ? t('উৎপাদন খরচ (প্রতি কেজি)','Production cost (per kg)') : t('কর্মচারীর কাজের মজুরি (প্রতি কেজি)','Worker wage (per kg)')}"><span class="colname">${escapeHtml(r.RoleName)}</span><span class="colact"><button type="button" data-colren="${attr(r.RoleID)}" title="${t('নাম বদলান','Rename')}">✎</button><button type="button" data-colhide="${attr(r.RoleID)}" title="${t('কলাম সরান','Remove column')}">✕</button></span></th>`; }).join('')}<th class="addcol"><button type="button" id="srtAddCol" title="${t('ডান পাশে নতুন কলাম','Add a column on the right')}">＋</button></th></tr></thead><tbody>
+      `<div class="srt-scroll"><table class="srt-tbl"><thead><tr><th>${t('আইটেম','Item')}</th><th class="duty" title="${t('কত কেজি বানালে এক দিনের হাজিরা — প্রতিটা আইটেমের ডিউটি পরিমাণ','Kg that equals one day\'s work for this item')}">${t('ডিউটি পরিঃ','Duty qty')}<span class="colname" style="font-size:10px;font-weight:500;">(${t('কেজি','kg')})</span></th>${gp.roles.map(function (r) { return `<th class="${r.Kind === 'Cost' ? 'cost' : ''}" title="${r.Kind === 'Cost' ? t('উৎপাদন খরচ (প্রতি কেজি)','Production cost (per kg)') : t('কর্মচারীর কাজের মজুরি (প্রতি কেজি)','Worker wage (per kg)')}"><span class="colname">${escapeHtml(r.RoleName)}</span><span class="colact"><button type="button" data-colren="${attr(r.RoleID)}" title="${t('নাম বদলান','Rename')}">✎</button><button type="button" data-colhide="${attr(r.RoleID)}" title="${t('কলাম সরান','Remove column')}">✕</button></span></th>`; }).join('')}<th class="addcol"><button type="button" id="srtAddCol" title="${t('ডান পাশে নতুন কলাম','Add a column on the right')}">＋</button></th><th class="sum" title="${t('সব কলামের দরের যোগফল — প্রতি কেজি মোট খরচ (ডিউটি পরিমাণ বাদে)','Sum of all rates — total cost per kg (duty qty excluded)')}">${t('যোগফল','Total')}<span class="colname" style="font-size:10px;font-weight:500;">(${t('প্রতি কেজি','per kg')})</span></th></tr></thead><tbody>
         ${list.map(function (i) {
           const dk = i.ItemID + '|' + HR_DUTY_KEY, dv = st.edits[dk] !== undefined ? st.edits[dk] : (gp.rate[dk] || '');
           return `<tr><td title="${attr(i.ItemName)}">${escapeHtml(i.ItemName)}</td><td class="duty"><input type="number" step="any" min="0" inputmode="decimal" data-k="${attr(dk)}" value="${attr(dv)}"></td>${gp.roles.map(function (r) {
           const k = i.ItemID + '|' + r.RoleID, v = st.edits[k] !== undefined ? st.edits[k] : (gp.rate[k] || '');
-          return `<td class="${r.Kind === 'Cost' ? 'cost' : ''}"><input type="number" step="any" min="0" inputmode="decimal" data-k="${attr(k)}" value="${attr(v)}"></td>`; }).join('')}<td class="addcol"></td></tr>`; }).join('')}
+          return `<td class="${r.Kind === 'Cost' ? 'cost' : ''}"><input type="number" step="any" min="0" inputmode="decimal" data-k="${attr(k)}" value="${attr(v)}"></td>`; }).join('')}<td class="addcol"></td><td class="sum" data-sum="${attr(i.ItemID)}">${hrMoney(rowSum(i.ItemID))}</td></tr>`; }).join('')}
       </tbody></table></div>` : `<div class="srt-hint">${t('এই গ্রুপ/ক্যাটাগরিতে কোনো আইটেম নেই।','No items in this group/category.')}</div>`;
   }
   document.getElementById('srtGroup').addEventListener('change', function () { st.group = this.value; fillCats(); render(); });
@@ -3788,7 +3789,19 @@ async function renderSizeRatesPage(content) {
     } catch (err) { showToast(err.message, 'error'); }
     this.disabled = false;
   });
-  document.getElementById('srtRows').addEventListener('input', function (ev) { if (ev.target.dataset.k) st.edits[ev.target.dataset.k] = ev.target.value; });
+  /** একটা আইটেমের সব কলামের দরের যোগফল (লেখার সাথে সাথে) — ডিউটি পরিমাণ এতে ধরা হয় না */
+  function rowSum(itemId) {
+    return gp.roles.reduce(function (sum, r) {
+      const k = itemId + '|' + r.RoleID, v = st.edits[k] !== undefined ? st.edits[k] : gp.rate[k];
+      return sum + (Number(v) || 0);
+    }, 0);
+  }
+  document.getElementById('srtRows').addEventListener('input', function (ev) {
+    const k = ev.target.dataset.k; if (!k) return;
+    st.edits[k] = ev.target.value;
+    const itemId = k.split('|')[0], cell = document.querySelector(`[data-sum="${itemId}"]`);
+    if (cell) cell.textContent = hrMoney(rowSum(itemId));
+  });
   document.getElementById('srtSave').addEventListener('click', async function () {
     this.disabled = true;
     try {
