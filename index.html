@@ -4429,29 +4429,50 @@ async function renderPayrollPage(content) {
     if (!win) { showToast(t('পপ-আপ ব্লক হয়েছে — এই সাইটের জন্য পপ-আপ অনুমতি দিন।','Pop-up blocked — allow pop-ups for this site.'), 'error'); return; }
     let co = {}; try { co = await api('getSingleton', { sheet: 'CompanyProfile' }); } catch (e) {}
     const e = base.empMap[st.emp] || {}, tt = totals(), hm = headMap();
+    // A5-এ জায়গা কম — "দিন + হাজিরা" এক ঘরে, "অন্যান্য + টাকা" এক ঘরে
     const trs = st.days.map(function (d) {
       return d.rows.map(function (r, ri) {
         const first = ri === 0, oth = rowOther(r), rt = rowWage(r) + oth + (first && d.hajOn ? (Number(d.haj) || 0) : 0);
         const nm = r.kind === 'manual' ? (itemName[r.itemId] || '') : r.item;
         if (!first && !nm && !rt) return '';
-        return `<tr><td class="l">${first ? dd(d.date) : ''}</td><td class="l">${escapeHtml(nm || '—')}</td><td>${r.kind !== 'bonus' && Number(r.qty) ? hrNum(r.qty) : ''}</td><td class="r">${r.kind !== 'bonus' && Number(r.rate) ? hrMoney(r.rate) : ''}</td><td class="r">${rowWage(r) ? hrMoney(rowWage(r)) : ''}</td>
-          <td>${first ? (d.hajOn ? '☑ ' : '☐ ') + dayName(d.date) + (d.att ? ' (' + d.att + ')' : '') : ''}</td><td class="r">${first && d.hajOn ? hrMoney(d.haj) : ''}</td>
-          <td class="l">${r.head && hm[r.head] ? escapeHtml(hm[r.head].HeadName) : ''}</td><td class="r">${oth ? (oth < 0 ? '−' : '') + hrMoney(Math.abs(oth)) : ''}</td><td class="r"><b>${hrMoney(rt)}</b></td></tr>`;
+        const othTxt = oth ? escapeHtml(r.head && hm[r.head] ? hm[r.head].HeadName : '') + ' ' + (oth < 0 ? '−' : '') + hrMoney(Math.abs(oth)) : '';
+        return `<tr class="${first ? 'fd' : ''}"><td class="l">${first ? `<b>${dd(d.date)}</b> ${dayName(d.date)}` : ''}</td><td class="l it">${escapeHtml(nm || '—')}</td>
+          <td>${r.kind !== 'bonus' && Number(r.qty) ? hrNum(r.qty) : ''}</td><td class="r">${r.kind !== 'bonus' && Number(r.rate) ? hrMoney(r.rate) : ''}</td><td class="r">${rowWage(r) ? hrMoney(rowWage(r)) : ''}</td>
+          <td class="r">${first ? (d.att ? `<span class="att">${d.att}</span> ` : '') + (d.hajOn ? hrMoney(d.haj) : '—') : ''}</td>
+          <td class="l">${othTxt}</td><td class="r"><b>${rt ? hrMoney(rt) : ''}</b></td></tr>`;
       }).join('');
     }).join('');
     win.document.write(`<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>সেলারী ভাউচার — ${escapeHtml(e.Name || '')}</title>
       <link href="https://fonts.googleapis.com/css2?family=Anek+Bangla:wght@400;500;600;700&display=swap" rel="stylesheet">
-      <style>${VOUCHER_TABLE_CSS} @page{size:A4 landscape;margin:8mm;} .items-table .l{text-align:left;} .items-table td,.items-table th{font-size:10.5px;}</style></head><body>
-      <div class="toolbar"><button class="primary" onclick="window.print()">🖨️ প্রিন্ট</button></div>
+      <style>${VOUCHER_TABLE_CSS}
+        .items-table .l{text-align:left;} .items-table td,.items-table th{font-size:9px;padding:2px 3px;line-height:1.25;}
+        .items-table th{white-space:nowrap;} .items-table td.it{white-space:normal;word-break:break-word;}
+        .items-table tr.fd td{border-top:1px solid #999;}
+        .att{display:inline-block;font-size:8px;font-weight:700;border:1px solid #999;border-radius:3px;padding:0 2px;}
+        .v-co-name{font-size:15px;} .v-type{font-size:11px;} .v-party{padding:4px 6px;} .sum-box{margin-top:4px;display:flex;justify-content:flex-end;}
+        .sum-box table{border-collapse:collapse;font-size:9.5px;min-width:45%;} .sum-box td{padding:2px 6px;border:1px solid #bbb;} .sum-box td.r{text-align:right;}
+        .sum-box tr.net td{font-weight:700;font-size:11px;background:#f3f3f3;}
+        .sign-row{margin-top:22px;font-size:9.5px;}
+      </style><style id="pg">@page{size:A5 portrait;margin:6mm;}</style></head><body>
+      <div class="toolbar"><button class="primary" onclick="window.print()">🖨️ প্রিন্ট</button>
+        <button onclick="document.getElementById('pg').textContent='@page{size:A5 portrait;margin:6mm;}'">A5 খাড়া</button>
+        <button onclick="document.getElementById('pg').textContent='@page{size:A5 landscape;margin:6mm;}'">A5 আড়াআড়ি</button></div>
       <div class="v-co"><div class="v-logo">${co.LogoURL ? `<img src="${attr(co.LogoURL)}" alt="">` : '<span>লোগো</span>'}</div>
-        <div class="v-co-info"><div class="v-co-name">${escapeHtml(co.CompanyNameBn || 'জি মেটাল ওয়ার্কস')}</div><div class="v-co-addr">${escapeHtml(co.AddressBn || '')}</div><div class="v-type">সেলারী ভাউচার — হাজিরা ও মুজুরী</div></div>
-        <div class="v-meta"><div class="v-print">প্রিন্টঃ <span class="en">${escapeHtml(formatPrintDate())}</span></div><div class="v-meta-row"><span>ভাউচার নংঃ</span><b class="en">${escapeHtml(st.no || 'খসড়া')}</b></div><div class="v-meta-row"><span>ভাউচার তারিখঃ</span><b>${escapeHtml(formatShortDate(st.vdate))}</b></div></div></div>
-      <div class="v-party"><div class="v-party-name"><span class="lbl">কর্মচারীঃ</span> ${escapeHtml(e.Name || st.emp)}</div><div class="v-party-sub"><span>${escapeHtml(base.catMap[e.CategoryID] || '')}</span><span>সময়কালঃ ${escapeHtml(formatShortDate(st.from) + ' — ' + formatShortDate(st.to))}</span><span>দৈনিক হাজিরাঃ ${hrMoney(wageOf())}</span></div></div>
-      <table class="items-table"><thead><tr><th>তারিখ</th><th>আইটেম</th><th>পরিমান কেজি</th><th class="r">দর</th><th class="r">মুজুরী</th><th>দিন</th><th class="r">হাজিরা</th><th>অন্যান্য</th><th class="r">(৳)</th><th class="r">মোট</th></tr></thead>
-      <tbody>${trs}<tr class="total-row"><td colspan="4">মোটঃ</td><td class="r">${hrMoney(tt.wage)}</td><td></td><td class="r">${hrMoney(tt.haj)}</td><td></td><td class="r">${tt.oth < 0 ? '−' : ''}${hrMoney(Math.abs(tt.oth))}</td><td class="r">${hrMoney(tt.total)}</td></tr>
-      <tr class="grand-all"><td colspan="9">মোট প্রদেয়ঃ</td><td class="r">${hrMoney(tt.total)}</td></tr></tbody></table>
+        <div class="v-co-info"><div class="v-co-name">${escapeHtml(co.CompanyNameBn || 'জি মেটাল ওয়ার্কস')}</div><div class="v-co-addr">${escapeHtml(co.AddressBn || '')}</div>${co.Phone ? `<div class="v-co-mob">মোবাইলঃ <span class="en">${escapeHtml(co.Phone)}</span></div>` : ''}<div class="v-type">সেলারী ভাউচার — হাজিরা ও মুজুরী</div></div>
+        <div class="v-meta"><div class="v-print">প্রিন্টঃ <span class="en">${escapeHtml(formatPrintDate())}</span></div><div class="v-meta-row"><span>ভাউচার নংঃ</span><b class="en">${escapeHtml(st.no || 'খসড়া')}</b></div><div class="v-meta-row"><span>তারিখঃ</span><b class="en">${escapeHtml(formatShortDate(st.vdate))}</b></div></div></div>
+      <div class="v-party"><div class="v-party-name"><span class="lbl">কর্মচারীঃ</span> ${escapeHtml(e.Name || st.emp)}</div>
+        <div class="v-party-sub"><span>${escapeHtml(base.catMap[e.CategoryID] || '')}</span><span>সময়কালঃ ${escapeHtml(formatShortDate(st.from) + ' — ' + formatShortDate(st.to))}</span><span>দৈনিক হাজিরাঃ ${hrMoney(wageOf())}</span></div></div>
+      <table class="items-table">
+        <colgroup><col style="width:13%"><col style="width:23%"><col style="width:8%"><col style="width:8%"><col style="width:11%"><col style="width:12%"><col style="width:13%"><col style="width:12%"></colgroup>
+        <thead><tr><th>তারিখ / দিন</th><th>আইটেম</th><th>কেজি</th><th class="r">দর</th><th class="r">মুজুরী</th><th class="r">হাজিরা</th><th>অন্যান্য</th><th class="r">মোট</th></tr></thead>
+        <tbody>${trs}<tr class="total-row"><td colspan="4">মোটঃ</td><td class="r">${hrMoney(tt.wage)}</td><td class="r">${hrMoney(tt.haj)}</td><td class="r">${tt.oth < 0 ? '−' : ''}${hrMoney(Math.abs(tt.oth))}</td><td class="r">${hrMoney(tt.total)}</td></tr></tbody></table>
+      <div class="sum-box"><table>
+        <tr><td>মুজুরী</td><td class="r">${hrMoney(tt.wage)}</td></tr>
+        <tr><td>হাজিরা</td><td class="r">${hrMoney(tt.haj)}</td></tr>
+        <tr><td>অন্যান্য</td><td class="r">${tt.oth < 0 ? '−' : ''}${hrMoney(Math.abs(tt.oth))}</td></tr>
+        <tr class="net"><td>মোট প্রদেয়</td><td class="r">${hrMoney(tt.total)}</td></tr></table></div>
       <div class="sign-row"><div>কর্মচারীর স্বাঃ</div><div>হিসাবরক্ষকের স্বাঃ</div><div>অনুমোদনকারীর স্বাঃ</div></div>
-      <script>window.addEventListener("load",function(){setTimeout(function(){window.print();},400);});<\/script></body></html>`);
+      <script>window.addEventListener("load",function(){setTimeout(function(){window.print();},500);});<\/script></body></html>`);
     win.document.close();
   }
 
