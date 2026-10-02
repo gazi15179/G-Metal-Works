@@ -4133,7 +4133,7 @@ async function renderPayrollPage(content) {
       .sv-emp{font-size:12px;color:var(--text-muted);margin-top:4px;}
       .sv-tbl-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:10px;margin-top:6px;}
       .sv-tbl{border-collapse:separate;border-spacing:0;width:100%;font-size:13px;min-width:900px;}
-      .sv-tbl th{background:var(--bg);font-size:11.5px;font-weight:700;padding:7px 5px;text-align:right;white-space:nowrap;border-bottom:2px solid var(--border);position:sticky;top:0;}
+      .sv-tbl th{background:var(--bg);font-size:11.5px;font-weight:700;padding:7px 5px;text-align:center !important;white-space:nowrap;border-bottom:2px solid var(--border);position:sticky;top:0;}
       .sv-tbl td{padding:4px 5px;border-bottom:1px solid var(--border);text-align:right;white-space:nowrap;vertical-align:middle;}
       .sv-tbl .l{text-align:left;} .sv-tbl tr.first td{border-top:1px solid var(--border-strong,#d4d4d4);}
       .sv-tbl tr.fri td{background:rgba(127,127,127,.05);}
@@ -4228,7 +4228,7 @@ async function renderPayrollPage(content) {
     const item = manual ? `<select class="itm" data-di="${di}" data-ri="${ri}" data-f="itemId">${itemOptions(r.itemId)}</select>` : `<span>${escapeHtml(r.item)}</span>`;
     const qty = manual ? `<input type="number" step="any" min="0" class="num" data-di="${di}" data-ri="${ri}" data-f="qty" value="${attr(r.qty)}">` : (bonus || !r.qty ? '' : hrNum(r.qty));
     const rate = manual ? `<input type="number" step="any" min="0" class="num" data-di="${di}" data-ri="${ri}" data-f="rate" value="${attr(r.rate)}">` : (bonus || !r.rate ? '' : hrMoney(r.rate));
-    return { item: item, qty: qty, rate: rate, wage: (bonus ? '' : hrMoney(rowWage(r))) };
+    return { item: item, qty: qty, rate: rate, wage: (bonus ? '' : `<span data-rw="${di}|${ri}">${hrMoney(rowWage(r))}</span>`) };
   }
   function renderBody() {
     const body = document.getElementById('svBody');
@@ -4248,7 +4248,7 @@ async function renderPayrollPage(content) {
           <td>${first ? `<input type="number" step="any" min="0" class="num" data-di="${di}" data-f="haj" value="${attr(d.haj)}" ${d.hajOn ? '' : 'disabled style="opacity:.45"'}>` : ''}</td>
           <td class="l"><select data-di="${di}" data-ri="${ri}" data-f="head" style="min-width:120px;">${headOptions(r.head)}</select></td>
           <td><input type="number" step="any" min="0" class="num" data-di="${di}" data-ri="${ri}" data-f="oth" value="${attr(r.oth)}"></td>
-          <td><b>${hrMoney(rt)}</b></td>
+          <td><b data-rt="${di}|${ri}">${hrMoney(rt)}</b></td>
           <td>${r.kind === 'manual' && d.rows.length > 1 ? `<button type="button" class="sv-x" data-del="${di}|${ri}" aria-label="${t('সারি মুছুন','Remove row')}">✕</button>` : ''}<button type="button" class="sv-plus" data-add="${di}|${ri}" aria-label="${t('সারি যোগ','Add row')}">+</button></td></tr>`;
       }).join('');
     }).join('');
@@ -4258,12 +4258,12 @@ async function renderPayrollPage(content) {
       return `<div class="sv-card ${hrIsFriday(d.date) ? 'fri' : ''}">
         <div class="sv-ch"><label class="sv-day"><input type="checkbox" data-di="${di}" data-f="hajOn" ${d.hajOn ? 'checked' : ''}>${dayName(d.date)} ${dd(d.date)}</label>${d.att ? `<span class="sv-att ${d.att}">${d.att}</span>` : ''}
           <input type="number" step="any" min="0" class="haj" placeholder="${t('হাজিরা','Wage')}" data-di="${di}" data-f="haj" value="${attr(d.haj)}" ${d.hajOn ? '' : 'disabled style="opacity:.45"'}>
-          <span class="tot">${hrMoney(dc.total)}</span></div>
+          <span class="tot" data-dt="${di}">${hrMoney(dc.total)}</span></div>
         ${d.rows.map(function (r, ri) {
           const manual = r.kind === 'manual', bonus = r.kind === 'bonus';
           return `<div class="sv-line">
             ${manual ? `<div class="mrow"><select data-di="${di}" data-ri="${ri}" data-f="itemId">${itemOptions(r.itemId)}</select><input type="number" step="any" min="0" placeholder="${t('কেজি','kg')}" data-di="${di}" data-ri="${ri}" data-f="qty" value="${attr(r.qty)}"><input type="number" step="any" min="0" placeholder="${t('দর','rate')}" data-di="${di}" data-ri="${ri}" data-f="rate" value="${attr(r.rate)}"></div>
-                <div class="calc" style="margin-top:4px;">${t('মুজুরী ','Wage ')}${hrMoney(rowWage(r))}</div>`
+                <div class="calc" style="margin-top:4px;">${t('মুজুরী ','Wage ')}<span data-rw="${di}|${ri}">${hrMoney(rowWage(r))}</span></div>`
               : `<div class="top"><span>${escapeHtml(r.item)}</span>${bonus ? '' : `<b>${hrMoney(rowWage(r))}</b>`}</div>${bonus || !r.qty ? '' : `<div class="calc">${hrNum(r.qty)} ${t('কেজি','kg')} × ${hrMoney(r.rate)}</div>`}`}
             <div class="row2"><select data-di="${di}" data-ri="${ri}" data-f="head">${headOptions(r.head)}</select>
               <input type="number" step="any" min="0" placeholder="(৳)" data-di="${di}" data-ri="${ri}" data-f="oth" value="${attr(r.oth)}">
@@ -4276,9 +4276,9 @@ async function renderPayrollPage(content) {
       <div class="sv-tbl-wrap"><table class="sv-tbl"><thead><tr>
         <th class="l">${t('তারিখ','Date')}</th><th class="l">${t('আইটেম','Item')}</th><th>${t('পরিমান কেজি','Qty kg')}</th><th>${t('দর','Rate')}</th><th>${t('মুজুরী','Wage')}</th>
         <th class="l">${t('দিন','Day')}</th><th>${t('হাজিরা','Attendance')}</th><th class="l">${t('অন্যান্য','Other')}</th><th>(৳)</th><th>${t('মোট','Total')}</th><th></th></tr></thead>
-        <tbody>${trs}<tr class="sum"><td class="l" colspan="4">${t('মুজুরীর যোগফল','Wage total')}</td><td>${hrMoney(tt.wage)}</td><td></td><td>${hrMoney(tt.haj)}</td><td></td><td>${hrMoney(tt.oth)}</td><td>${hrMoney(tt.total)}</td><td></td></tr></tbody></table></div>
+        <tbody>${trs}<tr class="sum"><td class="l" colspan="4">${t('মুজুরীর যোগফল','Wage total')}</td><td id="svSW">${hrMoney(tt.wage)}</td><td></td><td id="svSH">${hrMoney(tt.haj)}</td><td></td><td id="svSO">${hrMoney(tt.oth)}</td><td id="svST">${hrMoney(tt.total)}</td><td></td></tr></tbody></table></div>
       <div class="sv-cards">${cards}</div>
-      <div class="sv-foot"><div>${t('মুজুরী','Wage')}<b>${hrMoney(tt.wage)}</b></div><div>${t('হাজিরা','Attendance')}<b>${hrMoney(tt.haj)}</b></div><div>${t('অন্যান্য','Other')}<b>${tt.oth < 0 ? '−' : ''}${hrMoney(Math.abs(tt.oth))}</b></div><div class="net">${t('মোট প্রদেয়','Net payable')}<b>${hrMoney(tt.total)}</b></div></div>
+      <div class="sv-foot"><div>${t('মুজুরী','Wage')}<b id="svFW">${hrMoney(tt.wage)}</b></div><div>${t('হাজিরা','Attendance')}<b id="svFH">${hrMoney(tt.haj)}</b></div><div>${t('অন্যান্য','Other')}<b id="svFO">${tt.oth < 0 ? '−' : ''}${hrMoney(Math.abs(tt.oth))}</b></div><div class="net">${t('মোট প্রদেয়','Net payable')}<b id="svFT">${hrMoney(tt.total)}</b></div></div>
       <div class="sv-acts">
         ${st.id ? `<button class="btn btn-outline" id="svNew">＋ ${t('নতুন ভাউচার','New')}</button><button class="btn btn-outline" id="svDel" style="color:var(--danger);">🗑 ${t('ডিলিট','Delete')}</button>` : ''}
         <button class="btn btn-outline" id="svView">👁 ${t('ভিউ / প্রিন্ট','View / print')}</button>
@@ -4446,7 +4446,7 @@ async function renderPayrollPage(content) {
       <link href="https://fonts.googleapis.com/css2?family=Anek+Bangla:wght@400;500;600;700&display=swap" rel="stylesheet">
       <style>${VOUCHER_TABLE_CSS}
         .items-table .l{text-align:left;} .items-table td,.items-table th{font-size:9px;padding:2px 3px;line-height:1.25;}
-        .items-table th{white-space:nowrap;} .items-table td.it{white-space:normal;word-break:break-word;}
+        .items-table th{white-space:nowrap;text-align:center !important;} .items-table td.it{white-space:normal;word-break:break-word;}
         .items-table tr.fd td{border-top:1px solid #999;}
         .att{display:inline-block;font-size:8px;font-weight:700;border:1px solid #999;border-radius:3px;padding:0 2px;}
         .v-co-name{font-size:15px;} .v-type{font-size:11px;} .v-party{padding:4px 6px;} .sum-box{margin-top:4px;display:flex;justify-content:flex-end;}
@@ -4530,11 +4530,27 @@ async function renderPayrollPage(content) {
     if (el.tagName === 'INPUT' && el.type === 'number') return; // সংখ্যা লেখার সময় input ইভেন্টেই
     field(el); refresh();
   });
+  function updateNumbers(src) {
+    const set = function (sel, v) { body.querySelectorAll(sel).forEach(function (x) { x.textContent = v; }); };
+    // টেবিল আর মোবাইল কার্ড — দুই জায়গার একই ঘরে একই মান
+    if (src) body.querySelectorAll(`[data-di="${src.dataset.di}"]` + (src.dataset.ri !== undefined ? `[data-ri="${src.dataset.ri}"]` : ':not([data-ri])') + `[data-f="${src.dataset.f}"]`).forEach(function (x) { if (x !== src) x.value = src.value; });
+    st.days.forEach(function (d, di) {
+      const dc = dayCalc(d);
+      set(`[data-dt="${di}"]`, hrMoney(dc.total));
+      d.rows.forEach(function (r, ri) {
+        set(`[data-rw="${di}|${ri}"]`, hrMoney(rowWage(r)));
+        set(`[data-rt="${di}|${ri}"]`, hrMoney(rowWage(r) + rowOther(r) + (ri === 0 && d.hajOn ? (Number(d.haj) || 0) : 0)));
+      });
+    });
+    const tt = totals(), neg = (tt.oth < 0 ? '−' : '') + hrMoney(Math.abs(tt.oth));
+    set('#svSW', hrMoney(tt.wage)); set('#svSH', hrMoney(tt.haj)); set('#svSO', hrMoney(tt.oth)); set('#svST', hrMoney(tt.total));
+    set('#svFW', hrMoney(tt.wage)); set('#svFH', hrMoney(tt.haj)); set('#svFO', neg); set('#svFT', hrMoney(tt.total));
+    renderState();
+  }
   body.addEventListener('input', function (ev) {
     const el = ev.target; if (el.dataset.di === undefined || !(el.tagName === 'INPUT' && el.type === 'number')) return;
     field(el);
-    const sel = (el.closest('.sv-cards') ? '.sv-cards ' : '.sv-tbl-wrap ') + `[data-di="${el.dataset.di}"]` + (el.dataset.ri !== undefined ? `[data-ri="${el.dataset.ri}"]` : '') + `[data-f="${el.dataset.f}"]`;
-    refresh(sel);
+    updateNumbers(el);
   });
   async function addHead(sel, r) {
     const name = prompt(t('নতুন খাতের নাম (যেমনঃ যাতায়াত, জরিমানা):','New head name:'), '');
