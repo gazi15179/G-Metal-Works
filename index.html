@@ -444,7 +444,7 @@ const MODULES = [
     {key:'empCategories', bn:'কর্মচারীর ধরন', en:'Employee Types'},{key:'empInfo', bn:'কর্মচারী তথ্য', en:'Employee Info'},
     {key:'workRoles', bn:'দরের কলাম', en:'Rate Columns'},{key:'sizeRates', bn:'সাইজ অনুযায়ী মজুরি দর', en:'Size Wage Rates'},{key:'attendance', bn:'হাজিরা', en:'Attendance'},
     {key:'dailyProduction', bn:'দৈনিক উৎপাদন ও দল', en:'Daily Production & Team'},{key:'leave', bn:'ছুটি ব্যবস্থাপনা', en:'Leave Management'},
-    {key:'payroll', bn:'সেলারী ভাউচার', en:'Salary Voucher'},{key:'salaryIssue', bn:'সেলারী ইস্যু', en:'Salary Issue'},
+    {key:'payroll', bn:'সেলারী ভাউচার', en:'Salary Voucher'},{key:'salaryIssue', bn:'সেলারী ইস্যু', en:'Salary Issue'},{key:'hrReports', bn:'বেতন ও উৎপাদন রিপোর্ট', en:'Salary & Production Reports'},
   ]},
   {key:'reports', bn:'রিপোর্ট', en:'Reports', sub:[
     {key:'invReport', bn:'ইনভেন্টরি প্রতিবেদন', en:'Inventory Reports'},{key:'salesReport', bn:'বিক্রয় প্রতিবেদন', en:'Sales Reports'},
@@ -465,7 +465,7 @@ const READY_PAGES = ['dashboard','companyProfile','userManagement','roles','acti
   'so','dc','si','sr','custLedger',
   'bom','processing','pOrder','pmi','fgr',
   'coa','bankCash','jv','cv','pv','rv','bankBook','trialBalance',
-  'empCategories','empInfo','workRoles','sizeRates','attendance','dailyProduction','leave','payroll','salaryIssue','payslip',
+  'empCategories','empInfo','workRoles','sizeRates','attendance','dailyProduction','leave','payroll','salaryIssue','hrReports','payslip',
   'invReport','salesReport','purReport','prodReport','finReport',
   'general','langSettings','companySettings','backup'];
 
@@ -1270,6 +1270,7 @@ async function navigateTo(pageKey, moduleLabel, pageLabel) {
     else if (pageKey === 'payroll') await renderPayrollPage(content);
     else if (pageKey === 'payslip') await renderPayrollPage(content);
     else if (pageKey === 'salaryIssue') await renderSalaryIssuePage(content);
+    else if (pageKey === 'hrReports') await renderHrReportsPage(content);
     else if (pageKey === 'dailyProduction') await renderDailyProductionPage(content);
     else if (pageKey === 'sizeRates') await renderSizeRatesPage(content);
     else if (pageKey === 'invReport') await renderInventoryReport(content);
@@ -4600,7 +4601,9 @@ async function renderPayrollPage(content) {
 async function renderSalaryIssuePage(content) {
   const base = await hrLoadBase();
   const accounts = (await cachedList('BankCashAccounts')).filter(function (a) { return a.Status !== 'Deleted'; });
-  const st = { date: hrToday(), emp: '', acc: (accounts.find(function (a) { return a.Type === 'Cash'; }) || accounts[0] || {}).BankAccID || '', amount: '', note: '', ledger: {} };
+  const st = { date: hrToday(), emp: '', acc: (accounts.find(function (a) { return a.Type === 'Cash'; }) || accounts[0] || {}).BankAccID || '', amount: '', note: '', ledger: {},
+    otpMode: false, otp: { id: null, sentTo: '', code: '', verified: false, verifiedAt: null, busy: false } };
+  function resetOtp() { st.otp = { id: null, sentTo: '', code: '', verified: false, verifiedAt: null, busy: false }; }
 
   content.innerHTML = `
     <style>
@@ -4619,7 +4622,16 @@ async function renderSalaryIssuePage(content) {
       .si-li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px 4px;border-bottom:1px solid var(--border);font-size:13px;}
       .si-li .meta{font-size:11.5px;color:var(--text-muted);} .si-li .ic{display:flex;gap:6px;align-items:center;}
       .si-li .ic button{height:34px;min-width:34px;border:1px solid var(--border);border-radius:8px;background:var(--surface);cursor:pointer;font-size:13px;padding:0 8px;font-family:inherit;}
-      .si-due{color:#b45309;font-weight:700;} .si-adv{color:#1d4ed8;font-weight:700;}
+      .si-due{color:#b45309;font-weight:700;}
+      .si-otp{border:1px dashed var(--border);border-radius:12px;padding:10px 12px;margin-top:10px;}
+      .si-otp-h{font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:6px;}
+      .si-rad{display:flex;gap:8px;flex-wrap:wrap;}
+      .si-rad label{display:flex;align-items:center;gap:6px;height:38px;padding:0 12px;border:1px solid var(--border);border-radius:8px;margin:0;cursor:pointer;font-size:13.5px;}
+      .si-rad label.on{border-color:#16a34a;background:#f0fdf4;font-weight:600;} .si-rad input{width:16px !important;height:16px !important;margin:0;}
+      .si-otp-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;font-size:13.5px;}
+      .si-otp-row input{max-width:180px;letter-spacing:4px;font-size:18px !important;text-align:center;}
+      .si-otp-row .btn{width:auto;height:38px;padding:0 14px;margin:0;}
+      .si-otp-msg{font-size:12.5px;margin-top:6px;color:var(--text-muted);} .si-otp-msg.ok{color:#166534;font-weight:700;} .si-otp-msg.err{color:#b45309;} .si-adv{color:#1d4ed8;font-weight:700;}
       @media (max-width:700px){ .si-g2{grid-template-columns:minmax(0,1fr);} .si-sum{grid-template-columns:minmax(0,1fr);} .si-acts .btn{flex:1;} }
     </style>
     <div class="panel si">
@@ -4680,7 +4692,41 @@ async function renderSalaryIssuePage(content) {
         <div>${t('এখন দেওয়া হচ্ছে','Paying now')}<b id="siNow">${hrMoney(amt)}</b></div>
         <div class="after">${t('ইস্যুর পর ','After issue: ')}<span id="siAfterL">${after >= 0 ? t('বকেয়া','due') : t('অগ্রিম','advance')}</span><b id="siAfter">${hrMoney(Math.abs(after))}</b></div>
       </div>
-      <div class="si-acts"><button class="btn btn-primary" id="siSave">💾 ${t('ইস্যু ও সেভ','Issue & save')}</button></div>`;
+      <div class="si-otp">
+        <div class="si-otp-h">${t('OTP যাচাই','OTP verification')}</div>
+        <div class="si-rad">
+          <label class="${st.otpMode ? '' : 'on'}"><input type="radio" name="siOtpMode" value="0" ${st.otpMode ? '' : 'checked'}> ${t('OTP ছাড়া','Without OTP')}</label>
+          <label class="${st.otpMode ? 'on' : ''}"><input type="radio" name="siOtpMode" value="1" ${st.otpMode ? 'checked' : ''}> ${t('OTP সহ','With OTP')}</label>
+        </div>
+        ${st.otpMode ? otpBox() : ''}
+      </div>
+      <div class="si-acts"><button class="btn btn-primary" id="siSave" ${st.otpMode && !st.otp.verified ? 'disabled title="' + t('আগে OTP যাচাই করুন','Verify the OTP first') + '"' : ''}>💾 ${t('ইস্যু ও সেভ','Issue & save')}</button></div>`;
+  }
+  function empPhone() { return String((base.empMap[st.emp] || {}).Phone || '').trim(); }
+  function maskPhone(p) { p = String(p || ''); return p.length > 5 ? p.slice(0, 3) + '****' + p.slice(-3) : p; }
+  function otpBox() {
+    const ph = empPhone();
+    if (!ph) return `<div class="si-otp-msg err">⚠ ${t('এই কর্মচারীর মোবাইল নম্বর নেই — কর্মচারী তথ্যে নম্বর দিন, অথবা "OTP ছাড়া" বাছাই করুন।','No mobile number for this employee — add it in Employee Info, or choose "Without OTP".')}</div>`;
+    if (st.otp.verified) return `<div class="si-otp-msg ok">✔ ${t('OTP যাচাই হয়েছে','OTP verified')} — ${escapeHtml(maskPhone(st.otp.sentTo))}</div>`;
+    return `<div class="si-otp-row">
+        <span>${t('মোবাইলঃ ','Mobile: ')}<b>${escapeHtml(ph)}</b></span>
+        <button type="button" class="btn btn-outline" id="siOtpSend" ${st.otp.busy ? 'disabled' : ''}>📩 ${st.otp.id ? t('আবার পাঠান','Resend') : t('OTP পাঠান','Send OTP')}</button>
+      </div>
+      ${st.otp.id ? `<div class="si-otp-row"><input id="siOtpCode" inputmode="numeric" maxlength="6" placeholder="${t('৬ অঙ্কের OTP','6-digit OTP')}" value="${attr(st.otp.code)}" autocomplete="one-time-code">
+        <button type="button" class="btn btn-primary" id="siOtpVerify" ${st.otp.busy ? 'disabled' : ''}>✔ ${t('যাচাই','Verify')}</button></div>
+        <div class="si-otp-msg">${t('কর্মচারীর মোবাইলে কোড পাঠানো হয়েছে — ৫ মিনিটের মধ্যে বসান।','Code sent — enter it within 5 minutes.')}</div>` : ''}`;
+  }
+  async function otpCall(body) {
+    if (!supabaseClient.functions) throw new Error(t('OTP সার্ভিস পাওয়া যায়নি।','OTP service unavailable.'));
+    const { data, error } = await supabaseClient.functions.invoke('salary-otp', { body: body });
+    if (error) {
+      let msg = error.message || '';
+      try { const ctx = error.context && await error.context.json(); if (ctx && ctx.error) msg = ctx.error; } catch (e) {}
+      if (/not found|404|Failed to send a request/i.test(msg)) msg = t('OTP সার্ভিস (salary-otp) এখনো Supabase-এ বসানো হয়নি।','The salary-otp function is not deployed yet.');
+      throw new Error(msg);
+    }
+    if (data && data.error) throw new Error(data.error);
+    return data || {};
   }
   function renderDues() {
     const el = document.getElementById('siDues');
@@ -4702,14 +4748,14 @@ async function renderSalaryIssuePage(content) {
     el.innerHTML = list.length ? list.map(function (x) {
       const e = base.empMap[x.EmployeeID] || {};
       return `<div class="si-li"><div><b>${escapeHtml(x.IssueNo || x.IssueID)}</b> · ${escapeHtml(e.Name || x.EmployeeID)}
-          <div class="meta">${escapeHtml(formatShortDate(x.IssueDate))} · ${escapeHtml(accName[x.BankCashAccID] || '')} · <b>${hrMoney(x.Amount)}</b>${x.Note ? ' · ' + escapeHtml(x.Note) : ''}</div></div>
+          <div class="meta">${escapeHtml(formatShortDate(x.IssueDate))} · ${escapeHtml(accName[x.BankCashAccID] || '')} · <b>${hrMoney(x.Amount)}</b>${x.OtpVerified ? ' · <span style="color:#166534;">✔ OTP</span>' : ''}${x.Note ? ' · ' + escapeHtml(x.Note) : ''}</div></div>
         <div class="ic"><button data-view="${attr(x.IssueID)}" title="${t('প্রিন্ট','Print')}" aria-label="${t('প্রিন্ট','Print')}">👁</button><button data-del="${attr(x.IssueID)}" title="${t('ডিলিট','Delete')}" aria-label="${t('ডিলিট','Delete')}">🗑</button></div></div>`;
     }).join('') : `<div style="color:var(--text-muted);font-size:13px;">${t('এখনো কোনো সেলারী ইস্যু নেই।','No salary issues yet.')}</div>`;
   }
   async function reloadAll() { await loadLedger(); renderBody(); renderDues(); renderList(); }
 
   function pickEmp(id) {
-    st.emp = id; const e = base.empMap[id] || {};
+    st.emp = id; resetOtp(); const e = base.empMap[id] || {};
     document.getElementById('siEmp').value = e.Name || id;
     const L = st.ledger[id]; st.amount = L && L.due > 0 ? L.due : ''; st.note = '';
     renderBody(); window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -4728,7 +4774,11 @@ async function renderSalaryIssuePage(content) {
     const L = st.ledger[st.emp] || { due: 0 };
     if (amt > L.due + 0.005 && !confirm(t('বকেয়ার (' + hrMoney(L.due) + ') চেয়ে বেশি দিচ্ছেন — বাড়তি অংশ অগ্রিম হিসেবে থাকবে। চালিয়ে যাবেন?','Paying more than due — the extra becomes an advance. Continue?'))) return null;
     const no = await nextNo();
-    const { data, error } = await supabaseClient.from('SalaryIssue').insert({ IssueNo: no, IssueDate: st.date, EmployeeID: st.emp, BankCashAccID: st.acc, Amount: amt, Note: st.note || '', DueBefore: L.due, Status: 'Active' }).select();
+    if (st.otpMode && !st.otp.verified) throw new Error(t('আগে OTP যাচাই করুন, অথবা "OTP ছাড়া" বাছাই করুন।','Verify the OTP first, or choose "Without OTP".'));
+    if (st.otpMode && Math.abs((Number(st.otp.amount) || 0) - amt) > 0.005) throw new Error(t('OTP পাঠানোর পর টাকার অঙ্ক বদলেছে — আবার OTP পাঠান।','Amount changed after sending the OTP — send it again.'));
+    const row = { IssueNo: no, IssueDate: st.date, EmployeeID: st.emp, BankCashAccID: st.acc, Amount: amt, Note: st.note || '', DueBefore: L.due, Status: 'Active' };
+    if (st.otpMode) { row.OtpVerified = true; row.OtpPhone = st.otp.sentTo; row.OtpAt = st.otp.verifiedAt; row.OtpRef = st.otp.id; }
+    const { data, error } = await supabaseClient.from('SalaryIssue').insert(row).select();
     if (error) throw new Error(error.message);
     try { await postBankCashBookEntry(st.acc, st.date, 'SalaryIssue', no, 0, amt); } // টাকা বের হলো — ক্যাশ/ব্যাংক বইতে Credit
     catch (err) { await supabaseClient.from('SalaryIssue').delete().eq('IssueID', data[0].IssueID); throw err; }
@@ -4765,7 +4815,8 @@ async function renderSalaryIssuePage(content) {
         <tr class="grand-all"><td>${after >= 0 ? 'অবশিষ্ট বকেয়া' : 'অগ্রিম'}</td><td class="r">${hrMoney(Math.abs(after))}</td></tr>
         ${x.Note ? `<tr><td colspan="2">নোটঃ ${escapeHtml(x.Note)}</td></tr>` : ''}
       </tbody></table>
-      <div class="sign-row" style="margin-top:40px;"><div>গ্রহীতার স্বাঃ</div><div>প্রদানকারীর স্বাঃ</div><div>অনুমোদনকারীর স্বাঃ</div></div>
+      ${x.OtpVerified ? `<div style="margin-top:14px;border:1.5px solid #16a34a;border-radius:6px;padding:5px 8px;font-size:10.5px;color:#166534;">✔ OTP যাচাই হয়েছে — গ্রহীতার মোবাইল <span class="en">${escapeHtml(x.OtpPhone || '')}</span>, <span class="en">${escapeHtml(x.OtpAt ? new Date(x.OtpAt).toLocaleString('en-GB') : '')}</span></div>` : ''}
+      <div class="sign-row" style="margin-top:${x.OtpVerified ? 26 : 40}px;"><div>গ্রহীতার স্বাঃ<div style="font-size:9.5px;font-weight:400;margin-top:3px;">মোবাইলঃ <span class="en">${escapeHtml(e.Phone || '..................')}</span></div></div><div>প্রদানকারীর স্বাঃ</div><div>অনুমোদনকারীর স্বাঃ</div></div>
       <script>window.addEventListener("load",function(){setTimeout(function(){window.print();},400);});<\/script></body></html>`);
     win.document.close();
   }
@@ -4778,13 +4829,43 @@ async function renderSalaryIssuePage(content) {
     const el = ev.target;
     if (el.id === 'siAmt') {
       st.amount = el.value;
+      if (st.otpMode && st.otp.id && Math.abs((Number(st.otp.amount) || 0) - (Number(el.value) || 0)) > 0.005) { resetOtp(); setTimeout(renderBody, 0); }
       const L = st.ledger[st.emp] || { due: 0 }, after = L.due - (Number(el.value) || 0);
       document.getElementById('siNow').textContent = hrMoney(Number(el.value) || 0);
       document.getElementById('siAfter').textContent = hrMoney(Math.abs(after));
       document.getElementById('siAfterL').textContent = after >= 0 ? t('বকেয়া','due') : t('অগ্রিম','advance');
     } else if (el.id === 'siNote') st.note = el.value;
   });
-  body.addEventListener('change', function (ev) { if (ev.target.id === 'siAcc') st.acc = ev.target.value; });
+  body.addEventListener('change', function (ev) {
+    if (ev.target.id === 'siAcc') st.acc = ev.target.value;
+    if (ev.target.name === 'siOtpMode') { st.otpMode = ev.target.value === '1'; resetOtp(); renderBody(); }
+  });
+  body.addEventListener('click', async function (ev) {
+    const send = ev.target.closest('#siOtpSend'), ver = ev.target.closest('#siOtpVerify');
+    if (!send && !ver) return;
+    const amt = Number(st.amount) || 0;
+    // ঘর নতুন করে আঁকার আগেই লেখা কোডটা নিয়ে রাখা
+    if (ver) st.otp.code = String((document.getElementById('siOtpCode') || {}).value || '');
+    try {
+      st.otp.busy = true; renderBody();
+      if (send) {
+        if (!(amt > 0)) throw new Error(t('আগে টাকার পরিমাণ লিখুন।','Enter the amount first.'));
+        const e = base.empMap[st.emp] || {};
+        const r = await otpCall({ action: 'send', employeeId: st.emp, phone: empPhone(), name: e.Name || '', amount: amt });
+        st.otp.id = r.otpId; st.otp.sentTo = empPhone(); st.otp.amount = amt; st.otp.code = '';
+        showToast(t('OTP পাঠানো হয়েছে ✅','OTP sent ✅'), 'success');
+      } else {
+        const code = String(st.otp.code || '').replace(/[০-৯]/g, function (d) { return '০১২৩৪৫৬৭৮৯'.indexOf(d); }).trim();
+        st.otp.code = code;
+        if (!/^\d{6}$/.test(code)) throw new Error(t('৬ অঙ্কের OTP লিখুন।','Enter the 6-digit OTP.'));
+        const r = await otpCall({ action: 'verify', otpId: st.otp.id, code: code });
+        st.otp.verified = true; st.otp.verifiedAt = r.verifiedAt || new Date().toISOString();
+        showToast(t('OTP যাচাই হয়েছে ✅ — এখন ইস্যু করতে পারেন','OTP verified ✅'), 'success');
+      }
+    } catch (err) { showToast(err.message, 'error'); }
+    st.otp.busy = false; renderBody();
+    const ci = document.getElementById('siOtpCode'); if (ci && !st.otp.verified) ci.focus();
+  });
   body.addEventListener('click', async function (ev) {
     const b = ev.target.closest('#siSave'); if (!b) return;
     b.disabled = true;
@@ -4811,6 +4892,251 @@ async function renderSalaryIssuePage(content) {
 
   if (!accounts.length) showToast(t('আগে হিসাব → ব্যাংক ও ক্যাশ অ্যাকাউন্টে অন্তত একটা ক্যাশ অ্যাকাউন্ট যোগ করুন।','Add a cash account first in Accounts → Bank & Cash.'), 'error');
   await reloadAll();
+}
+
+/* ============================================================
+   বেতন ও উৎপাদন রিপোর্ট
+   ১) কর্মচারীর বেতন খতিয়ান — কবে কত পাওনা (সেলারী ভাউচার), কত দেওয়া (সেলারী ইস্যু), চলমান বকেয়া
+   ২) মাসিক মজুরি খরচ — মাসে কার কত মুজুরী, হাজিরা, অন্যান্য, কর্তন, মোট; কত দেওয়া হলো; মাস শেষে বকেয়া
+   ৩) উৎপাদন ও মজুরি খরচ — আইটেম বা কর্মচারী অনুযায়ী কত কেজি, কত মজুরি, কেজিপ্রতি খরচ
+   ============================================================ */
+async function renderHrReportsPage(content) {
+  const base = await hrLoadBase();
+  const gp = await hrLoadGroups();
+  const m = await cachedListMultiple(['Items', 'Categories']);
+  const items = (m.Items || []).filter(function (i) { return i.Status !== 'Deleted'; });
+  const catName = {}; (m.Categories || []).forEach(function (c) { catName[c.CategoryID] = c.CategoryName; });
+  const itemMap = {}; items.forEach(function (i) { itemMap[i.ItemID] = i; });
+  const today = hrToday();
+  const st = { tab: 'ledger', emp: '', from: today.slice(0, 8) + '01', to: today, month: today.slice(0, 7), pFrom: hrWeekOf(today).from, pTo: today, pBy: 'item', pGroup: '', pCat: '' };
+
+  content.innerHTML = `
+    <style>
+      .rp{padding:12px !important;max-width:1150px;}
+      .rp-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 0 10px;} .rp-head h1{font-size:18px;margin:0;}
+      .rp-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;}
+      .rp-tab{height:38px;padding:0 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);font-family:inherit;font-weight:600;font-size:13.5px;cursor:pointer;color:var(--text);}
+      .rp-tab.on{background:var(--text);color:var(--surface);}
+      .rp .field{margin:0;min-width:0;} .rp .field label{font-size:11.5px;margin-bottom:3px;}
+      .rp input,.rp select{height:36px;padding:4px 8px;font-size:14px;width:100%;min-width:0;box-sizing:border-box;}
+      .rp-bar{display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) auto;gap:8px;align-items:end;margin-bottom:10px;}
+      .rp-bar .btn{height:36px;width:auto;padding:0 14px;margin:0;}
+      .rp-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:10px;}
+      .rp-cards div{background:var(--bg);border-radius:10px;padding:8px;text-align:center;font-size:11.5px;color:var(--text-muted);} .rp-cards b{display:block;font-size:17px;color:var(--text);margin-top:2px;}
+      .rp-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:10px;}
+      .rp-tbl{border-collapse:separate;border-spacing:0;width:100%;font-size:13px;min-width:640px;}
+      .rp-tbl th{background:var(--bg);font-size:11.5px;font-weight:700;padding:7px 6px;text-align:center;white-space:nowrap;border-bottom:2px solid var(--border);position:sticky;top:0;}
+      .rp-tbl td{padding:6px;border-bottom:1px solid var(--border);text-align:right;white-space:nowrap;}
+      .rp-tbl td.l{text-align:left;} .rp-tbl tr.tot td{font-weight:700;background:var(--bg);}
+      .rp-tbl tr.open td{color:var(--text-muted);font-style:italic;}
+      .rp-due{color:#b45309;font-weight:700;} .rp-adv{color:#1d4ed8;font-weight:700;}
+      .rp-hint{font-size:12.5px;color:var(--text-muted);padding:10px 0;}
+      .rp-tag{font-size:11px;padding:2px 7px;border-radius:8px;} .rp-tag.v{background:#e0f2fe;color:#075985;} .rp-tag.i{background:#dcfce7;color:#166534;}
+      @media (max-width:760px){ .rp-bar{grid-template-columns:repeat(2,minmax(0,1fr));} .rp-bar .btn{grid-column:1 / -1;} .rp-cards{grid-template-columns:repeat(2,minmax(0,1fr));} }
+    </style>
+    <div class="panel rp">
+      <div class="rp-head"><h1>${t('বেতন ও উৎপাদন রিপোর্ট','Salary & Production Reports')}</h1></div>
+      <div class="rp-tabs">
+        <button class="rp-tab on" data-tab="ledger">📒 ${t('কর্মচারীর বেতন খতিয়ান','Employee salary ledger')}</button>
+        <button class="rp-tab" data-tab="month">📅 ${t('মাসিক মজুরি খরচ','Monthly wage cost')}</button>
+        <button class="rp-tab" data-tab="prod">🏭 ${t('উৎপাদন ও মজুরি খরচ','Production & wage cost')}</button>
+      </div>
+      <div id="rpBar"></div>
+      <div id="rpOut"></div>
+    </div>`;
+
+  // ---------- ডেটা ----------
+  async function loadMoney() {
+    const [heads, issues] = await Promise.all([api('list', { sheet: 'Payroll' }), api('list', { sheet: 'SalaryIssue' }).catch(function () { return []; })]);
+    const vouchers = heads.filter(function (h) { return h.Status !== 'Deleted' && h.RunType === 'SalaryVoucher' && h.EmployeeID; })
+      .map(function (h) { h._date = String(h.VoucherDate || h.DateTo || '').slice(0, 10); return h; });
+    const iss = issues.filter(function (x) { return x.Status !== 'Deleted'; }).map(function (x) { x._date = String(x.IssueDate || '').slice(0, 10); return x; });
+    return { vouchers: vouchers, issues: iss };
+  }
+  const empName = function (id) { return (base.empMap[id] || {}).Name || id; };
+  const balTxt = function (b) { return Math.abs(b) < 0.005 ? '0.00' : (b > 0 ? `<span class="rp-due">${hrMoney(b)}</span>` : `<span class="rp-adv">${t('অগ্রিম ','Adv ')}${hrMoney(-b)}</span>`); };
+
+  // ---------- ১) বেতন খতিয়ান ----------
+  async function runLedger() {
+    const out = document.getElementById('rpOut');
+    if (!st.emp) { out.innerHTML = `<div class="rp-hint">${t('কর্মচারী বাছাই করুন।','Select an employee.')}</div>`; return; }
+    const d = await loadMoney();
+    const ev = [];
+    d.vouchers.filter(function (v) { return v.EmployeeID === st.emp; }).forEach(function (v) { ev.push({ date: v._date, kind: 'v', no: v.VoucherNo || v.PayrollID, note: t('সময়কাল ','Period ') + payrollPeriodLabel(v), earn: Number(v.TotalNetPay) || 0, paid: 0 }); });
+    d.issues.filter(function (x) { return x.EmployeeID === st.emp; }).forEach(function (x) { ev.push({ date: x._date, kind: 'i', no: x.IssueNo || x.IssueID, note: (x.Note || '') + (x.OtpVerified ? ' ✔OTP' : ''), earn: 0, paid: Number(x.Amount) || 0 }); });
+    ev.sort(function (a, b) { return a.date.localeCompare(b.date) || (a.kind === 'v' ? -1 : 1); });
+    let open = 0; ev.filter(function (e) { return e.date < st.from; }).forEach(function (e) { open += e.earn - e.paid; });
+    const rows = ev.filter(function (e) { return e.date >= st.from && e.date <= st.to; });
+    let bal = open, te = 0, tp = 0;
+    const trs = rows.map(function (e) {
+      bal += e.earn - e.paid; te += e.earn; tp += e.paid;
+      return `<tr><td class="l">${escapeHtml(formatShortDate(e.date))}</td><td class="l"><span class="rp-tag ${e.kind}">${e.kind === 'v' ? t('সেলারী ভাউচার','Salary voucher') : t('সেলারী ইস্যু','Salary issue')}</span></td>
+        <td class="l">${escapeHtml(e.no)}</td><td class="l">${escapeHtml(e.note)}</td><td>${e.earn ? hrMoney(e.earn) : ''}</td><td>${e.paid ? hrMoney(e.paid) : ''}</td><td>${balTxt(bal)}</td></tr>`;
+    }).join('');
+    const e = base.empMap[st.emp] || {};
+    st.print = { title: t('কর্মচারীর বেতন খতিয়ান','Employee salary ledger'), sub: empName(st.emp) + (base.catMap[e.CategoryID] ? ' · ' + base.catMap[e.CategoryID] : '') + ' · ' + formatShortDate(st.from) + ' — ' + formatShortDate(st.to) };
+    out.innerHTML = `
+      <div class="rp-cards"><div>${t('শুরুর বকেয়া','Opening due')}<b>${balTxt(open)}</b></div><div>${t('পাওনা হয়েছে','Earned')}<b>${hrMoney(te)}</b></div><div>${t('দেওয়া হয়েছে','Paid')}<b>${hrMoney(tp)}</b></div><div>${t('শেষ বকেয়া','Closing due')}<b>${balTxt(bal)}</b></div></div>
+      <div class="rp-wrap" id="rpPrintArea"><table class="rp-tbl"><thead><tr><th>${t('তারিখ','Date')}</th><th>${t('ধরন','Type')}</th><th>${t('নম্বর','No.')}</th><th>${t('বিবরণ','Details')}</th><th>${t('পাওনা','Earned')}</th><th>${t('পরিশোধ','Paid')}</th><th>${t('বকেয়া','Balance')}</th></tr></thead>
+        <tbody><tr class="open"><td class="l" colspan="6">${t('শুরুর বকেয়া (','Opening balance (')}${escapeHtml(formatShortDate(st.from))} ${t('এর আগে)','before)')}</td><td>${balTxt(open)}</td></tr>
+        ${trs || `<tr><td class="l" colspan="7" style="color:var(--text-muted);">${t('এই সময়ে কোনো লেনদেন নেই।','No transactions in this period.')}</td></tr>`}
+        <tr class="tot"><td class="l" colspan="4">${t('মোট','Total')}</td><td>${hrMoney(te)}</td><td>${hrMoney(tp)}</td><td>${balTxt(bal)}</td></tr></tbody></table></div>`;
+  }
+
+  // ---------- ২) মাসিক মজুরি খরচ ----------
+  async function runMonth() {
+    const out = document.getElementById('rpOut');
+    const r = hrMonthRange(st.month);
+    const d = await loadMoney();
+    const vs = d.vouchers.filter(function (v) { return v._date >= r.from && v._date <= r.to; });
+    let lines = [];
+    if (vs.length) { const res = await supabaseClient.from('Payroll_Lines').select('*').in('PayrollID', vs.map(function (v) { return v.PayrollID; })); lines = res.data || []; }
+    const per = {};
+    const row = function (id) { return per[id] = per[id] || { wage: 0, haj: 0, plus: 0, minus: 0, total: 0, paid: 0, n: 0 }; };
+    vs.forEach(function (v) { const x = row(v.EmployeeID); x.n++; x.total += Number(v.TotalNetPay) || 0; });
+    lines.forEach(function (l) { const x = row(l.EmployeeID); x.wage += Number(l.ProductionAmount) || 0; x.haj += Number(l.AttendancePay) || 0; x.plus += Number(l.Bonus) || 0; x.minus += Number(l.Deduction) || 0; });
+    d.issues.filter(function (i) { return i._date >= r.from && i._date <= r.to; }).forEach(function (i) { row(i.EmployeeID).paid += Number(i.Amount) || 0; });
+    // মাস শেষে মোট বকেয়া (শুরু থেকে)
+    const due = {};
+    d.vouchers.filter(function (v) { return v._date <= r.to; }).forEach(function (v) { due[v.EmployeeID] = (due[v.EmployeeID] || 0) + (Number(v.TotalNetPay) || 0); });
+    d.issues.filter(function (i) { return i._date <= r.to; }).forEach(function (i) { due[i.EmployeeID] = (due[i.EmployeeID] || 0) - (Number(i.Amount) || 0); });
+    const ids = Object.keys(per).sort(function (a, b) { return String(empName(a)).localeCompare(String(empName(b))); });
+    const T = { wage: 0, haj: 0, plus: 0, minus: 0, total: 0, paid: 0, due: 0 };
+    const trs = ids.map(function (id) {
+      const x = per[id], e = base.empMap[id] || {}, dd = due[id] || 0;
+      ['wage','haj','plus','minus','total','paid'].forEach(function (k) { T[k] += x[k]; }); T.due += dd;
+      return `<tr><td class="l"><b>${escapeHtml(empName(id))}</b><div style="font-size:11px;color:var(--text-muted);">${escapeHtml(base.catMap[e.CategoryID] || '')}${x.n ? ' · ' + x.n + t(' ভাউচার',' voucher(s)') : ''}</div></td>
+        <td>${hrMoney(x.wage)}</td><td>${hrMoney(x.haj)}</td><td>${x.plus ? hrMoney(x.plus) : '—'}</td><td>${x.minus ? '−' + hrMoney(x.minus) : '—'}</td><td><b>${hrMoney(x.total)}</b></td><td>${hrMoney(x.paid)}</td><td>${balTxt(dd)}</td></tr>`;
+    }).join('');
+    st.print = { title: t('মাসিক মজুরি খরচ','Monthly wage cost'), sub: HR_MONTHS_BN[r.month - 1] + ' ' + r.year };
+    out.innerHTML = `
+      <div class="rp-cards"><div>${t('মোট মজুরি খরচ','Total wage cost')}<b>${hrMoney(T.total)}</b></div><div>${t('উৎপাদন মুজুরী','Production wage')}<b>${hrMoney(T.wage)}</b></div><div>${t('এই মাসে দেওয়া','Paid this month')}<b>${hrMoney(T.paid)}</b></div><div>${t('মাস শেষে বকেয়া','Due at month end')}<b>${balTxt(T.due)}</b></div></div>
+      <div class="rp-wrap" id="rpPrintArea"><table class="rp-tbl"><thead><tr><th>${t('কর্মচারী','Employee')}</th><th>${t('মুজুরী','Wage')}</th><th>${t('হাজিরা','Attendance')}</th><th>${t('অন্যান্য (+)','Other (+)')}</th><th>${t('কর্তন (−)','Deduction (−)')}</th><th>${t('মোট পাওনা','Total earned')}</th><th>${t('দেওয়া','Paid')}</th><th>${t('মাস শেষে বকেয়া','Due')}</th></tr></thead>
+        <tbody>${trs || `<tr><td class="l" colspan="8" style="color:var(--text-muted);">${t('এই মাসে কোনো সেলারী ভাউচার নেই।','No salary vouchers this month.')}</td></tr>`}
+        <tr class="tot"><td class="l">${t('মোট','Total')} (${ids.length})</td><td>${hrMoney(T.wage)}</td><td>${hrMoney(T.haj)}</td><td>${hrMoney(T.plus)}</td><td>−${hrMoney(T.minus)}</td><td>${hrMoney(T.total)}</td><td>${hrMoney(T.paid)}</td><td>${balTxt(T.due)}</td></tr></tbody></table></div>
+      <div class="rp-hint">${t('ভাউচারের তারিখ অনুযায়ী মাস ধরা হয়েছে। "মাস শেষে বকেয়া" = শুরু থেকে মাসের শেষ দিন পর্যন্ত মোট পাওনা − মোট দেওয়া।','Month is by voucher date. Due = all earned − all paid up to month end.')}</div>`;
+  }
+
+  // ---------- ৩) উৎপাদন ও মজুরি খরচ ----------
+  async function runProd() {
+    const out = document.getElementById('rpOut');
+    const heads = await hrQueryRange('TeamProduction', 'WorkDate', st.pFrom, st.pTo);
+    let tpi = [], mems = [];
+    if (heads.length) {
+      const ids = heads.map(function (h) { return h.TeamProdID; });
+      const [a, b] = await Promise.all([supabaseClient.from('TeamProduction_Items').select('*').in('TeamProdID', ids), supabaseClient.from('TeamProduction_Members').select('*').in('TeamProdID', ids)]);
+      tpi = a.data || []; mems = b.data || [];
+    }
+    const okItem = function (id) { const it = itemMap[id] || {}; return (!st.pGroup || it.GroupID === st.pGroup) && (!st.pCat || it.CategoryID === st.pCat); };
+    const tpItem = {}; tpi.forEach(function (x) { (tpItem[String(x.TeamProdID)] = tpItem[String(x.TeamProdID)] || []).push(x); });
+    const costRate = function (itemId) { return gp.costRoles.reduce(function (s, r) { return s + gp.rateOf(itemId, r.RoleID); }, 0); };
+    if (st.pBy === 'item') {
+      const per = {};
+      tpi.forEach(function (x) { if (!okItem(x.ItemID)) return; const p = per[x.ItemID] = per[x.ItemID] || { kg: 0, wage: 0, days: {} }; p.kg += Number(x.Qty) || 0; });
+      mems.forEach(function (mm) {
+        const its = (tpItem[String(mm.TeamProdID)] || []).filter(function (x) { return okItem(x.ItemID); }); if (!its.length) return;
+        const tot = its.reduce(function (s, x) { return s + (Number(x.Qty) || 0); }, 0) || 1;
+        its.forEach(function (x) { per[x.ItemID].wage += (Number(mm.Amount) || 0) * (Number(x.Qty) || 0) / tot; }); // একাধিক আইটেম হলে কেজি অনুপাতে ভাগ
+      });
+      const list = sortItemsBySerial(Object.keys(per).map(function (id) { return itemMap[id] || { ItemID: id, ItemName: id }; }), catName);
+      const T = { kg: 0, wage: 0, cost: 0 };
+      const trs = list.map(function (it) {
+        const p = per[it.ItemID], cr = costRate(it.ItemID), cost = p.kg * cr;
+        T.kg += p.kg; T.wage += p.wage; T.cost += cost;
+        return `<tr><td class="l">${escapeHtml(it.ItemName)}</td><td>${hrNum(Math.round(p.kg * 100) / 100)}</td><td>${hrMoney(p.wage)}</td><td>${p.kg ? hrMoney(p.wage / p.kg) : '—'}</td><td>${cr ? hrMoney(cr) : '—'}</td><td>${cost ? hrMoney(cost) : '—'}</td><td><b>${p.kg ? hrMoney((p.wage + cost) / p.kg) : '—'}</b></td></tr>`;
+      }).join('');
+      st.print = { title: t('উৎপাদন ও মজুরি খরচ — আইটেম অনুযায়ী','Production & wage cost — by item'), sub: formatShortDate(st.pFrom) + ' — ' + formatShortDate(st.pTo) };
+      out.innerHTML = `
+        <div class="rp-cards"><div>${t('মোট উৎপাদন','Total produced')}<b>${hrNum(Math.round(T.kg * 100) / 100)} ${t('কেজি','kg')}</b></div><div>${t('মোট মজুরি','Total wages')}<b>${hrMoney(T.wage)}</b></div><div>${t('মজুরি / কেজি','Wage / kg')}<b>${T.kg ? hrMoney(T.wage / T.kg) : '—'}</b></div><div>${t('মোট খরচ / কেজি','Total cost / kg')}<b>${T.kg ? hrMoney((T.wage + T.cost) / T.kg) : '—'}</b></div></div>
+        <div class="rp-wrap" id="rpPrintArea"><table class="rp-tbl"><thead><tr><th>${t('আইটেম','Item')}</th><th>${t('মোট কেজি','Total kg')}</th><th>${t('মজুরি','Wages')}</th><th>${t('মজুরি / কেজি','Wage / kg')}</th><th>${t('অন্যান্য খরচ দর / কেজি','Other cost rate / kg')}</th><th>${t('অন্যান্য খরচ','Other cost')}</th><th>${t('মোট খরচ / কেজি','Total cost / kg')}</th></tr></thead>
+          <tbody>${trs || `<tr><td class="l" colspan="7" style="color:var(--text-muted);">${t('এই সময়ে কোনো উৎপাদন নেই।','No production in this period.')}</td></tr>`}
+          <tr class="tot"><td class="l">${t('মোট','Total')}</td><td>${hrNum(Math.round(T.kg * 100) / 100)}</td><td>${hrMoney(T.wage)}</td><td>${T.kg ? hrMoney(T.wage / T.kg) : '—'}</td><td></td><td>${hrMoney(T.cost)}</td><td>${T.kg ? hrMoney((T.wage + T.cost) / T.kg) : '—'}</td></tr></tbody></table></div>
+        <div class="rp-hint">${t('মজুরি = দৈনিক উৎপাদনে লেখা আসল মজুরি। অন্যান্য খরচ (বিদ্যুৎ, মেশিঃ ও ডাইস, মেডিসিন, ধোলাই, বিবিধ) = মজুরি দর পেজের বর্তমান দর × কেজি — আনুমানিক।','Wages are actual; other costs are estimated from current rates × kg.')}</div>`;
+    } else {
+      const per = {};
+      mems.forEach(function (mm) {
+        const its = (tpItem[String(mm.TeamProdID)] || []).filter(function (x) { return okItem(x.ItemID); }); if (!its.length) return;
+        const p = per[mm.EmployeeID] = per[mm.EmployeeID] || { kg: 0, wage: 0, days: {}, roles: {} };
+        p.kg += its.reduce(function (s, x) { return s + (Number(x.Qty) || 0); }, 0); p.wage += Number(mm.Amount) || 0;
+        const h = heads.find(function (x) { return String(x.TeamProdID) === String(mm.TeamProdID); }); if (h) p.days[String(h.WorkDate).slice(0, 10)] = true;
+        if (mm.RoleID) p.roles[gp.roleMap[mm.RoleID] || mm.RoleID] = true;
+      });
+      const ids = Object.keys(per).sort(function (a, b) { return per[b].wage - per[a].wage; });
+      const T = { kg: 0, wage: 0 };
+      const trs = ids.map(function (id) {
+        const p = per[id], e = base.empMap[id] || {}, nd = Object.keys(p.days).length; T.kg += p.kg; T.wage += p.wage;
+        return `<tr><td class="l"><b>${escapeHtml(empName(id))}</b><div style="font-size:11px;color:var(--text-muted);">${escapeHtml(base.catMap[e.CategoryID] || '')}</div></td><td class="l" style="white-space:normal;">${escapeHtml(Object.keys(p.roles).join(', '))}</td>
+          <td>${nd}</td><td>${hrNum(Math.round(p.kg * 100) / 100)}</td><td><b>${hrMoney(p.wage)}</b></td><td>${nd ? hrMoney(p.wage / nd) : '—'}</td></tr>`;
+      }).join('');
+      st.print = { title: t('উৎপাদন ও মজুরি — কর্মচারী অনুযায়ী','Production & wages — by employee'), sub: formatShortDate(st.pFrom) + ' — ' + formatShortDate(st.pTo) };
+      out.innerHTML = `
+        <div class="rp-cards"><div>${t('কর্মচারী','Employees')}<b>${ids.length}</b></div><div>${t('মোট কেজি (কাজ অনুযায়ী)','Total kg (by job)')}<b>${hrNum(Math.round(T.kg * 100) / 100)}</b></div><div>${t('মোট মজুরি','Total wages')}<b>${hrMoney(T.wage)}</b></div><div>${t('গড় মজুরি / জন','Avg / person')}<b>${ids.length ? hrMoney(T.wage / ids.length) : '—'}</b></div></div>
+        <div class="rp-wrap" id="rpPrintArea"><table class="rp-tbl"><thead><tr><th>${t('কর্মচারী','Employee')}</th><th>${t('কাজের ধরন','Jobs')}</th><th>${t('কাজের দিন','Work days')}</th><th>${t('কেজি','Kg')}</th><th>${t('মজুরি','Wages')}</th><th>${t('গড় / দিন','Avg / day')}</th></tr></thead>
+          <tbody>${trs || `<tr><td class="l" colspan="6" style="color:var(--text-muted);">${t('এই সময়ে কোনো উৎপাদন নেই।','No production in this period.')}</td></tr>`}
+          <tr class="tot"><td class="l" colspan="3">${t('মোট','Total')}</td><td>${hrNum(Math.round(T.kg * 100) / 100)}</td><td>${hrMoney(T.wage)}</td><td></td></tr></tbody></table></div>
+        <div class="rp-hint">${t('একই আইটেমে একজন একাধিক কাজ করলে (যেমন শেপ ও ফিনিশ) কেজি প্রতিটা কাজের জন্য আলাদা গোনা হয়।','Kg is counted once per job a person did on an item.')}</div>`;
+    }
+  }
+
+  // ---------- ফিল্টার ----------
+  function renderBar() {
+    const bar = document.getElementById('rpBar');
+    const printBtn = `<button class="btn btn-outline" id="rpPrint">🖨️ ${t('প্রিন্ট','Print')}</button>`;
+    if (st.tab === 'ledger') {
+      bar.innerHTML = `<div class="rp-bar"><div class="field" style="grid-column:span 2;"><label>${t('কর্মচারী','Employee')}</label><input id="rpEmp" placeholder="${t('নাম লিখুন — তালিকা থেকে বাছাই করুন','Type a name — pick from the list')}" value="${attr(st.emp ? empName(st.emp) : '')}"></div>
+        <div class="field"><label>${t('তারিখ হইতে','From')}</label><input type="date" id="rpFrom" value="${st.from}"></div><div class="field"><label>${t('তারিখ পর্যন্ত','To')}</label><input type="date" id="rpTo" value="${st.to}"></div>${printBtn}</div>`;
+      hrNameSuggest(document.getElementById('rpEmp'), { list: function () { return hrEmpSuggestList(base, base.emps); }, onPick: function (it) { st.emp = it.id; document.getElementById('rpEmp').value = it.name; run(); } });
+    } else if (st.tab === 'month') {
+      bar.innerHTML = `<div class="rp-bar"><div class="field"><label>${t('মাস','Month')}</label><input type="month" id="rpMonth" value="${st.month}"></div><div></div><div></div><div></div>${printBtn}</div>`;
+    } else {
+      bar.innerHTML = `<div class="rp-bar">
+        <div class="field"><label>${t('তারিখ হইতে','From')}</label><input type="date" id="rpPFrom" value="${st.pFrom}"></div>
+        <div class="field"><label>${t('তারিখ পর্যন্ত','To')}</label><input type="date" id="rpPTo" value="${st.pTo}"></div>
+        <div class="field"><label>${t('গ্রুপ','Group')}</label><select id="rpPGroup"><option value="">${t('সব','All')}</option>${gp.groups.map(function (g) { return `<option value="${attr(g.GroupID)}" ${g.GroupID === st.pGroup ? 'selected' : ''}>${escapeHtml(g.GroupName)}</option>`; }).join('')}</select></div>
+        <div class="field"><label>${t('দেখাও','Show by')}</label><select id="rpPBy"><option value="item" ${st.pBy === 'item' ? 'selected' : ''}>${t('আইটেম অনুযায়ী','By item')}</option><option value="emp" ${st.pBy === 'emp' ? 'selected' : ''}>${t('কর্মচারী অনুযায়ী','By employee')}</option></select></div>
+        ${printBtn}</div>`;
+    }
+  }
+  async function run() {
+    const out = document.getElementById('rpOut'); out.innerHTML = `<div class="rp-hint">${t('লোড হচ্ছে…','Loading…')}</div>`;
+    try { if (st.tab === 'ledger') await runLedger(); else if (st.tab === 'month') await runMonth(); else await runProd(); }
+    catch (err) { out.innerHTML = `<div class="rp-hint">${escapeHtml(err.message)}</div>`; }
+  }
+  async function printReport() {
+    const area = document.getElementById('rpPrintArea'); if (!area) { showToast(t('প্রিন্ট করার মতো কিছু নেই।','Nothing to print.'), 'error'); return; }
+    const win = window.open('', '_blank');
+    if (!win) { showToast(t('পপ-আপ ব্লক হয়েছে — এই সাইটের জন্য পপ-আপ অনুমতি দিন।','Pop-up blocked — allow pop-ups for this site.'), 'error'); return; }
+    let co = {}; try { co = await api('getSingleton', { sheet: 'CompanyProfile' }); } catch (e) {}
+    const cards = document.querySelector('.rp-cards');
+    win.document.write(`<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${escapeHtml(st.print.title)}</title>
+      <link href="https://fonts.googleapis.com/css2?family=Anek+Bangla:wght@400;500;600;700&display=swap" rel="stylesheet">
+      <style>body{font-family:'Anek Bangla',sans-serif;margin:0;padding:10mm;color:#111;} @page{size:A4 portrait;margin:8mm;} @media print{.tb{display:none;} body{padding:0;}}
+        .tb{margin-bottom:8px;} .tb button{padding:6px 14px;font-family:inherit;}
+        h2{margin:0;font-size:18px;text-align:center;} .co{text-align:center;font-size:11px;color:#444;} h3{margin:8px 0 2px;text-align:center;font-size:14px;} .sub{text-align:center;font-size:11.5px;color:#444;margin-bottom:8px;}
+        .cards{display:flex;gap:6px;margin-bottom:8px;} .cards div{flex:1;border:1px solid #ccc;border-radius:6px;padding:5px;text-align:center;font-size:10px;color:#555;} .cards b{display:block;font-size:13px;color:#111;}
+        table{width:100%;border-collapse:collapse;font-size:10.5px;} th,td{border:1px solid #bbb;padding:3px 5px;text-align:right;} th{background:#f1f1f1;text-align:center;} td.l{text-align:left;} tr.tot td{font-weight:700;background:#f6f6f6;}
+        .rp-tag{font-size:9.5px;} .rp-due{color:#b45309;font-weight:700;} .rp-adv{color:#1d4ed8;font-weight:700;}</style></head><body>
+      <div class="tb"><button onclick="window.print()">🖨️ প্রিন্ট</button></div>
+      <h2>${escapeHtml(co.CompanyNameBn || 'জি মেটাল ওয়ার্কস')}</h2><div class="co">${escapeHtml(co.AddressBn || '')}</div>
+      <h3>${escapeHtml(st.print.title)}</h3><div class="sub">${escapeHtml(st.print.sub)} · প্রিন্টঃ ${escapeHtml(formatPrintDate())}</div>
+      ${cards ? `<div class="cards">${cards.innerHTML}</div>` : ''}${area.innerHTML}
+      <script>window.addEventListener("load",function(){setTimeout(function(){window.print();},400);});<\/script></body></html>`);
+    win.document.close();
+  }
+
+  // ---------- ইভেন্ট ----------
+  content.querySelectorAll('.rp-tab').forEach(function (b) {
+    b.addEventListener('click', function () {
+      st.tab = b.dataset.tab; content.querySelectorAll('.rp-tab').forEach(function (x) { x.classList.toggle('on', x === b); });
+      renderBar(); run();
+    });
+  });
+  document.getElementById('rpBar').addEventListener('change', function (ev) {
+    const el = ev.target, map = { rpFrom: 'from', rpTo: 'to', rpMonth: 'month', rpPFrom: 'pFrom', rpPTo: 'pTo', rpPGroup: 'pGroup', rpPBy: 'pBy' };
+    if (map[el.id] && el.value !== undefined) { st[map[el.id]] = el.value; run(); }
+  });
+  document.getElementById('rpBar').addEventListener('click', function (ev) { if (ev.target.closest('#rpPrint')) printReport(); });
+  renderBar(); run();
 }
 
 /** ছুটি ব্যবস্থাপনা — তালিকা+মোডাল, Status(Pending/Approved/Rejected) সারিতে ক্লিক করে বদলানো যাবে */
