@@ -1337,36 +1337,171 @@ function closeTab(evt, pageKey) {
 /* ============================================================
    ৮) পেজ: DASHBOARD (লাইভ KPI)
    ============================================================ */
+/** মেনুর যেকোনো পেজ তার key দিয়ে খোলা (মডিউল ও পেজের নাম MODULES থেকে) */
+function goPage(key) {
+  for (const m of MODULES) {
+    const sub = (m.sub || []).find(function (s) { return s.key === key; });
+    if (sub) return navigateTo(key, t(m.bn, m.en), t(sub.bn, sub.en));
+    if (m.key === key) return navigateTo(key, t(m.bn, m.en), t(m.bn, m.en));
+  }
+}
+
+/* ============================================================
+   ড্যাশবোর্ড — এক নজরে আজকের অবস্থা
+   ============================================================ */
 async function renderDashboard(content) {
-  const [users, items, currentStock, activity] = await Promise.all([
-    api('list', { sheet: 'Users' }),
-    api('list', { sheet: 'Items' }),
-    api('list', { sheet: 'CurrentStock' }),
-    api('list', { sheet: 'ActivityLog' })
+  const today = hrToday(), week = hrWeekOf(today);
+  const safe = function (p) { return p.catch(function () { return []; }); };
+  content.innerHTML = `<div class="empty-state">${t('লোড হচ্ছে...','Loading...')}</div>`;
+  const [items, stock, accounts, book, si, pi, att, tp, payroll, issues, emps, cats] = await Promise.all([
+    safe(api('list', { sheet: 'Items' })), safe(api('list', { sheet: 'CurrentStock' })), safe(api('list', { sheet: 'BankCashAccounts' })), safe(api('list', { sheet: 'BankCashBook' })),
+    safe(api('list', { sheet: 'SalesInvoice' })), safe(api('list', { sheet: 'PurchaseInvoice' })),
+    safe(hrQueryRange('Attendance', 'Date', today, today)), safe(hrQueryRange('TeamProduction', 'WorkDate', week.from, week.to)),
+    safe(api('list', { sheet: 'Payroll' })), safe(api('list', { sheet: 'SalaryIssue' })), safe(api('list', { sheet: 'Employees' })), safe(api('list', { sheet: 'EmployeeCategories' }))
   ]);
+  const live = function (r) { return r.Status !== 'Deleted' && r.Status !== 'Cancelled'; };
+  const d10 = function (v) { return String(v || '').slice(0, 10); };
 
-  const activeUsers = users.filter(function(u){ return isTrue(u.IsActive); }).length;
-  const lowStockCount = currentStock.filter(function (cs) {
-    const item = items.find(function(i){ return i.ItemID === cs.ItemID; });
-    return item && item.ReorderLevel && Number(cs.QtyOnHand) < Number(item.ReorderLevel);
-  }).length;
-  const today = new Date().toDateString();
-  const todayActivity = activity.filter(function(a){ return new Date(a.Timestamp).toDateString() === today; }).length;
+  // ---- বিক্রয় / ক্রয় ----
+  const salesToday = si.filter(function (x) { return live(x) && d10(x.InvoiceDate || x.Date) === today; });
+  const purchToday = pi.filter(function (x) { return live(x) && d10(x.InvoiceDate || x.Date) === today; });
+  const sum = function (arr, k) { return arr.reduce(function (s, x) { return s + (Number(x[k]) || 0); }, 0); };
+  const monthStart = today.slice(0, 8) + '01';
+  const salesMonth = sum(si.filter(function (x) { return live(x) && d10(x.InvoiceDate || x.Date) >= monthStart; }), 'TotalAmount');
 
+  // ---- ক্যাশ ও ব্যাংক ----
+  const accRows = accounts.filter(function (a) { return a.Status !== 'Deleted'; }).map(function (a) {
+    const mv = book.filter(function (b) { return b.BankCashAccID === a.BankAccID; }).reduce(function (s, b) { return s + (Number(b.Debit) || 0) - (Number(b.Credit) || 0); }, 0);
+    return { id: a.BankAccID, name: a.AccountName, type: a.Type, bal: (Number(a.OpeningBalance) || 0) + mv };
+  });
+  const cashBal = accRows.filter(function (a) { return a.type === 'Cash'; }).reduce(function (s, a) { return s + a.bal; }, 0);
+  const bankBal = accRows.filter(function (a) { return a.type !== 'Cash'; }).reduce(function (s, a) { return s + a.bal; }, 0);
+
+  // ---- হাজিরা ----
+  const activeEmps = emps.filter(function (e) { return e.Status !== 'Deleted' && (e.IsActive === undefined || e.IsActive === null || isTrue(e.IsActive)); });
+  const ac = { P: 0, A: 0, L: 0 }; att.forEach(function (a) { const c = HR_ATT_CODE[a.Status]; if (c) ac[c]++; });
+  const unmarked = Math.max(0, activeEmps.length - ac.P - ac.A - ac.L);
+
+  // ---- এই সপ্তাহের উৎপাদন ----
+  let wkKg = 0, wkWage = 0; const byDay = {};
+  hrDatesBetween(week.from, week.to).forEach(function (d) { byDay[d] = { kg: 0, wage: 0 }; });
+  if (tp.length) {
+    const ids = tp.map(function (h) { return h.TeamProdID; });
+    const [a, b] = await Promise.all([supabaseClient.from('TeamProduction_Items').select('*').in('TeamProdID', ids), supabaseClient.from('TeamProduction_Members').select('*').in('TeamProdID', ids)]);
+    const dOf = {}; tp.forEach(function (h) { dOf[String(h.TeamProdID)] = d10(h.WorkDate); });
+    (a.data || []).forEach(function (x) { const d = dOf[String(x.TeamProdID)]; wkKg += Number(x.Qty) || 0; if (byDay[d]) byDay[d].kg += Number(x.Qty) || 0; });
+    (b.data || []).forEach(function (x) { const d = dOf[String(x.TeamProdID)]; wkWage += Number(x.Amount) || 0; if (byDay[d]) byDay[d].wage += Number(x.Amount) || 0; });
+  }
+  const maxKg = Math.max.apply(null, Object.keys(byDay).map(function (d) { return byDay[d].kg; }).concat([1]));
+
+  // ---- বকেয়া বেতন ----
+  const due = {};
+  payroll.filter(function (h) { return h.Status !== 'Deleted' && h.RunType === 'SalaryVoucher' && h.EmployeeID; }).forEach(function (h) { due[h.EmployeeID] = (due[h.EmployeeID] || 0) + (Number(h.TotalNetPay) || 0); });
+  issues.filter(function (x) { return x.Status !== 'Deleted'; }).forEach(function (x) { due[x.EmployeeID] = (due[x.EmployeeID] || 0) - (Number(x.Amount) || 0); });
+  const empMap = {}; emps.forEach(function (e) { empMap[e.EmployeeID] = e; });
+  const catMap = {}; cats.forEach(function (c) { catMap[c.CategoryID] = c.CategoryName; });
+  const dueList = Object.keys(due).filter(function (k) { return due[k] > 0.005; }).sort(function (a, b) { return due[b] - due[a]; });
+  const dueTotal = dueList.reduce(function (s, k) { return s + due[k]; }, 0);
+
+  // ---- কম স্টক ----
+  const itemMap = {}; items.forEach(function (i) { itemMap[i.ItemID] = i; });
+  const stockBy = {}; stock.forEach(function (cs) { stockBy[cs.ItemID] = (stockBy[cs.ItemID] || 0) + (Number(cs.QtyOnHand) || 0); });
+  const low = items.filter(function (i) { return i.Status !== 'Deleted' && Number(i.ReorderLevel) > 0 && (stockBy[i.ItemID] || 0) < Number(i.ReorderLevel); })
+    .map(function (i) { return { it: i, qty: stockBy[i.ItemID] || 0, re: Number(i.ReorderLevel) }; }).sort(function (a, b) { return (a.qty / a.re) - (b.qty / b.re); });
+
+  const money = function (v) { return '৳ ' + hrMoney(v); };
+  const dayShort = ['রবি','সোম','মঙ্গল','বুধ','বৃহঃ','শুক্র','শনি'];
   content.innerHTML = `
-    <div class="page-head"><div><h1>স্বাগতম, ${escapeHtml(currentUser.FullName || '')}</h1><p>আজকের সিস্টেম সারসংক্ষেপ</p></div></div>
-    <div class="kpi-grid">
-      <div class="kpi"><div class="kpi-label">মোট আইটেম</div><div class="kpi-val">${items.length}</div><div class="kpi-sub">Item Master-এ নিবন্ধিত</div></div>
-      <div class="kpi blue"><div class="kpi-label">সক্রিয় ব্যবহারকারী</div><div class="kpi-val">${activeUsers}</div><div class="kpi-sub">মোট ${users.length} জনের মধ্যে</div></div>
-      <div class="kpi green"><div class="kpi-label">আজকের কার্যকলাপ</div><div class="kpi-val">${todayActivity}</div><div class="kpi-sub">Activity Log অনুযায়ী</div></div>
-      <div class="kpi red"><div class="kpi-label">নিম্ন স্টক সতর্কতা</div><div class="kpi-val">${lowStockCount}</div><div class="kpi-sub">রি-অর্ডার লেভেলের নিচে</div></div>
-    </div>
-    <div class="panel"><div class="panel-head"><div class="section-title" style="margin:0;">দ্রুত তথ্য</div></div>
-      <div style="padding:16px 18px;font-size:13px;color:var(--text-muted);line-height:1.8;">
-        Core মডিউল এখন সম্পূর্ণ কার্যকর — বাম পাশের মেনু থেকে Company Profile, User Management, Roles ও Activity Log ব্যবহার করুন।
-        বাকি মডিউল (Master, Purchase, Inventory...) ধাপে ধাপে তৈরি হচ্ছে।
+    <style>
+      .db{max-width:1200px;}
+      .db-head{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
+      .db-head h1{margin:0;font-size:20px;} .db-head p{margin:2px 0 0;font-size:12.5px;color:var(--text-muted);}
+      .db-head .btn{width:auto;height:36px;padding:0 14px;margin:0;}
+      .db-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:10px;}
+      .db-k{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px 14px;cursor:pointer;transition:transform .1s;}
+      .db-k:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(0,0,0,.06);}
+      .db-k .l{font-size:12px;color:var(--text-muted);display:flex;justify-content:space-between;} .db-k .v{font-size:22px;font-weight:700;margin-top:4px;} .db-k .s{font-size:11.5px;color:var(--text-muted);margin-top:2px;}
+      .db-k.g .v{color:#166534;} .db-k.r .v{color:#b91c1c;} .db-k.o .v{color:#b45309;} .db-k.b .v{color:#1d4ed8;}
+      .db-att{display:flex;gap:6px;margin-top:6px;} .db-att span{flex:1;text-align:center;border-radius:8px;padding:3px 0;font-size:12px;font-weight:700;}
+      .db-att .P{background:#dcfce7;color:#166534;} .db-att .A{background:#fee2e2;color:#991b1b;} .db-att .L{background:#fef3c7;color:#92400e;} .db-att .U{background:var(--bg);color:var(--text-muted);}
+      .db-grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:10px;margin-bottom:10px;}
+      .db-p{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px 14px;min-width:0;}
+      .db-p h3{margin:0 0 8px;font-size:14px;display:flex;justify-content:space-between;align-items:center;} .db-p h3 a{font-size:12px;font-weight:500;cursor:pointer;color:var(--text-muted);}
+      .db-bars{display:flex;gap:8px;align-items:flex-end;height:150px;padding-top:6px;}
+      .db-bar{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11px;color:var(--text-muted);min-width:0;}
+      .db-bar i{display:block;width:100%;max-width:46px;background:linear-gradient(180deg,#22c55e,#15803d);border-radius:6px 6px 2px 2px;min-height:2px;}
+      .db-bar b{font-size:11px;color:var(--text);} .db-bar.today i{background:linear-gradient(180deg,#f59e0b,#b45309);}
+      .db-tbl{width:100%;border-collapse:collapse;font-size:13px;}
+      .db-tbl th{font-size:11px;color:var(--text-muted);font-weight:700;text-align:center !important;padding:5px;border-bottom:1px solid var(--border);}
+      .db-tbl td{padding:6px 5px;border-bottom:1px solid var(--border);text-align:right;} .db-tbl td.l{text-align:left;} .db-tbl tr:last-child td{border-bottom:0;}
+      .db-tbl .ic{text-align:center;white-space:nowrap;} .db-tbl .ic button{width:30px;height:30px;border:1px solid var(--border);border-radius:7px;background:var(--surface);cursor:pointer;padding:0;font-size:13px;}
+      .db-empty{font-size:12.5px;color:var(--text-muted);padding:8px 0;}
+      .db-quick{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;}
+      .db-quick button{height:64px;border:1px solid var(--border);border-radius:12px;background:var(--surface);cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:600;color:var(--text);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;}
+      .db-quick button span{font-size:20px;} .db-quick button:hover{background:var(--bg);}
+      @media (max-width:900px){ .db-kpis{grid-template-columns:repeat(2,minmax(0,1fr));} .db-grid{grid-template-columns:minmax(0,1fr);} .db-quick{grid-template-columns:repeat(3,minmax(0,1fr));} .db-k .v{font-size:19px;} }
+    </style>
+    <div class="db">
+      <div class="db-head"><div><h1>${t('স্বাগতম','Welcome')}, ${escapeHtml(currentUser.FullName || '')}</h1><p>${escapeHtml(hrDayLabel(today))} · ${t('আজকের সারসংক্ষেপ','Today at a glance')}</p></div>
+        <button class="btn btn-outline" id="dbRefresh">↻ ${t('রিফ্রেশ','Refresh')}</button></div>
+
+      <div class="db-kpis">
+        <div class="db-k g" data-go="si"><div class="l"><span>💰 ${t('আজকের বিক্রয়','Sales today')}</span><span>${salesToday.length}${t('টি','')}</span></div><div class="v">${money(sum(salesToday, 'TotalAmount'))}</div><div class="s">${t('এই মাসে ','This month ')}${money(salesMonth)}</div></div>
+        <div class="db-k o" data-go="pi"><div class="l"><span>🛒 ${t('আজকের ক্রয়','Purchases today')}</span><span>${purchToday.length}${t('টি','')}</span></div><div class="v">${money(sum(purchToday, 'TotalAmount'))}</div><div class="s">${t('ক্রয় চালান','Purchase invoices')}</div></div>
+        <div class="db-k b" data-go="bankBook"><div class="l"><span>💵 ${t('ক্যাশ ব্যালেন্স','Cash balance')}</span></div><div class="v">${money(cashBal)}</div><div class="s">${t('ব্যাংকে ','Bank ')}${money(bankBal)}</div></div>
+        <div class="db-k r" data-go="salaryIssue"><div class="l"><span>👷 ${t('বকেয়া বেতন','Salary due')}</span><span>${dueList.length}${t(' জন',' ppl')}</span></div><div class="v">${money(dueTotal)}</div><div class="s">${t('সেলারী ভাউচার − ইস্যু','Vouchers − issues')}</div></div>
       </div>
+      <div class="db-kpis">
+        <div class="db-k" data-go="attendance"><div class="l"><span>🗓 ${t('আজকের হাজিরা','Attendance today')}</span><span>${activeEmps.length}${t(' জন',' ppl')}</span></div>
+          <div class="db-att"><span class="P">P ${ac.P}</span><span class="A">A ${ac.A}</span><span class="L">L ${ac.L}</span><span class="U">${t('বাকি ','Left ')}${unmarked}</span></div></div>
+        <div class="db-k g" data-go="dailyProduction"><div class="l"><span>🏭 ${t('এই সপ্তাহের উৎপাদন','Production this week')}</span></div><div class="v">${hrNum(Math.round(wkKg))} ${t('কেজি','kg')}</div><div class="s">${t('মজুরি ','Wages ')}${money(wkWage)}</div></div>
+        <div class="db-k o" data-go="payroll"><div class="l"><span>🧾 ${t('মজুরি / কেজি (সপ্তাহ)','Wage / kg (week)')}</span></div><div class="v">${wkKg ? money(wkWage / wkKg) : '—'}</div><div class="s">${escapeHtml(formatShortDate(week.from))} — ${escapeHtml(formatShortDate(week.to))}</div></div>
+        <div class="db-k r" data-go="stockOverview"><div class="l"><span>📦 ${t('কম স্টক','Low stock')}</span></div><div class="v">${low.length}</div><div class="s">${t('রি-অর্ডার লেভেলের নিচে','Below reorder level')}</div></div>
+      </div>
+
+      <div class="db-grid">
+        <div class="db-p"><h3>🏭 ${t('এই সপ্তাহের দৈনিক উৎপাদন (কেজি)','Daily production this week (kg)')}<a data-go="hrReports">${t('রিপোর্ট →','Report →')}</a></h3>
+          ${wkKg ? '' : `<div class="db-empty">${t('এই সপ্তাহে এখনো কোনো উৎপাদন লেখা হয়নি।','No production entered this week yet.')}</div>`}
+          <div class="db-bars">${Object.keys(byDay).map(function (d) {
+            const x = byDay[d], h = Math.round((x.kg / maxKg) * 120);
+            return `<div class="db-bar ${d === today ? 'today' : ''}" title="${escapeHtml(formatShortDate(d))} · ${hrNum(Math.round(x.kg))} ${t('কেজি','kg')} · ${hrMoney(x.wage)}"><b>${x.kg ? hrNum(Math.round(x.kg)) : ''}</b><i style="height:${h}px"></i>${dayShort[hrDate(d).getDay()]}</div>`;
+          }).join('')}</div></div>
+        <div class="db-p"><h3>💵 ${t('ক্যাশ ও ব্যাংক','Cash & bank')}<a data-go="bankBook">${t('বই →','Book →')}</a></h3>
+          ${accRows.length ? `<table class="db-tbl"><thead><tr><th>${t('অ্যাকাউন্ট','Account')}</th><th>${t('ব্যালেন্স','Balance')}</th><th></th></tr></thead><tbody>
+            ${accRows.map(function (a) { return `<tr><td class="l">${a.type === 'Cash' ? '💵' : '🏦'} ${escapeHtml(a.name)}</td><td><b>${hrMoney(a.bal)}</b></td><td class="ic"><button data-go="bankBook" title="${t('দেখুন','View')}" aria-label="${t('দেখুন','View')}">👁</button></td></tr>`; }).join('')}
+            <tr><td class="l"><b>${t('মোট','Total')}</b></td><td><b>${hrMoney(cashBal + bankBal)}</b></td><td></td></tr></tbody></table>` : `<div class="db-empty">${t('কোনো ক্যাশ/ব্যাংক অ্যাকাউন্ট নেই।','No cash/bank accounts.')}</div>`}</div>
+      </div>
+
+      <div class="db-grid">
+        <div class="db-p"><h3>👷 ${t('বকেয়া বেতন (বেশি থেকে কম)','Salary dues')}<a data-go="salaryIssue">${t('সেলারী ইস্যু →','Salary issue →')}</a></h3>
+          ${dueList.length ? `<table class="db-tbl"><thead><tr><th>${t('কর্মচারী','Employee')}</th><th>${t('ধরন','Type')}</th><th>${t('বকেয়া','Due')}</th><th></th></tr></thead><tbody>
+            ${dueList.slice(0, 8).map(function (k) { const e = empMap[k] || {}; return `<tr><td class="l">${escapeHtml(e.Name || k)}</td><td class="l">${escapeHtml(catMap[e.CategoryID] || '')}</td><td><b style="color:#b45309;">${hrMoney(due[k])}</b></td>
+              <td class="ic"><button data-pay="${attr(k)}" title="${t('বেতন দিন','Pay')}" aria-label="${t('বেতন দিন','Pay')}">💵</button></td></tr>`; }).join('')}</tbody></table>
+            ${dueList.length > 8 ? `<div class="db-empty">${t('আরো ','+')}${dueList.length - 8}${t(' জন — সেলারী ইস্যুতে দেখুন',' more')}</div>` : ''}` : `<div class="db-empty">✅ ${t('কারো বেতন বকেয়া নেই।','No salary dues.')}</div>`}</div>
+        <div class="db-p"><h3>📦 ${t('কম স্টকের আইটেম','Low-stock items')}<a data-go="stockOverview">${t('স্টক →','Stock →')}</a></h3>
+          ${low.length ? `<table class="db-tbl"><thead><tr><th>${t('আইটেম','Item')}</th><th>${t('স্টক','Stock')}</th><th>${t('রি-অর্ডার','Reorder')}</th><th></th></tr></thead><tbody>
+            ${low.slice(0, 8).map(function (x) { return `<tr><td class="l">${escapeHtml(x.it.ItemName)}</td><td style="color:#b91c1c;font-weight:700;">${hrNum(Math.round(x.qty * 100) / 100)}</td><td>${hrNum(x.re)}</td>
+              <td class="ic"><button data-go="stockOverview" title="${t('দেখুন','View')}" aria-label="${t('দেখুন','View')}">👁</button><button data-go="pi" title="${t('ক্রয় করুন','Purchase')}" aria-label="${t('ক্রয় করুন','Purchase')}">🛒</button></td></tr>`; }).join('')}</tbody></table>
+            ${low.length > 8 ? `<div class="db-empty">${t('আরো ','+')}${low.length - 8}${t('টি আইটেম',' more')}</div>` : ''}` : `<div class="db-empty">✅ ${t('সব আইটেমের স্টক ঠিক আছে।','All items above reorder level.')}</div>`}</div>
+      </div>
+
+      <div class="db-p"><h3>⚡ ${t('দ্রুত কাজ','Quick actions')}</h3>
+        <div class="db-quick">
+          <button data-go="si"><span>💰</span>${t('বিক্রয়','Sale')}</button>
+          <button data-go="pi"><span>🛒</span>${t('ক্রয়','Purchase')}</button>
+          <button data-go="attendance"><span>🗓</span>${t('হাজিরা','Attendance')}</button>
+          <button data-go="dailyProduction"><span>🏭</span>${t('দৈনিক উৎপাদন','Production')}</button>
+          <button data-go="payroll"><span>🧾</span>${t('সেলারী ভাউচার','Salary voucher')}</button>
+          <button data-go="salaryIssue"><span>💵</span>${t('সেলারী ইস্যু','Salary issue')}</button>
+        </div></div>
     </div>`;
+
+  content.querySelector('.db').addEventListener('click', function (ev) {
+    const pay = ev.target.closest('[data-pay]');
+    if (pay) { window.__siPick = pay.dataset.pay; goPage('salaryIssue'); return; }
+    const g = ev.target.closest('[data-go]'); if (g) goPage(g.dataset.go);
+  });
+  document.getElementById('dbRefresh').addEventListener('click', function () { listCache = {}; renderDashboard(content); });
 }
 
 /* ============================================================
@@ -4969,6 +5104,7 @@ async function renderSalaryIssuePage(content) {
 
   if (!accounts.length) showToast(t('আগে হিসাব → ব্যাংক ও ক্যাশ অ্যাকাউন্টে অন্তত একটা ক্যাশ অ্যাকাউন্ট যোগ করুন।','Add a cash account first in Accounts → Bank & Cash.'), 'error');
   await reloadAll();
+  if (window.__siPick) { const id = window.__siPick; window.__siPick = null; pickEmp(id); }
   const req = window.__siOpen; window.__siOpen = null;
   if (req) {
     try {
