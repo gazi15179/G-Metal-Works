@@ -3303,7 +3303,7 @@ function hrNameSuggest(input, opts) {
     if (!box) { if (ev.key === 'ArrowDown') open(); return; }
     if (ev.key === 'ArrowDown') { idx = Math.min(items.length - 1, idx + 1); mark(); ev.preventDefault(); }
     else if (ev.key === 'ArrowUp') { idx = Math.max(0, idx - 1); mark(); ev.preventDefault(); }
-    else if (ev.key === 'Enter') { if (idx >= 0) { pick(idx); ev.preventDefault(); } }
+    else if (ev.key === 'Enter') { if (idx >= 0) { pick(idx); ev.preventDefault(); } else if (items.length) { pick(0); ev.preventDefault(); } }
     else if (ev.key === 'Escape') close();
   });
   input.addEventListener('blur', function () { setTimeout(function () { if (window.__hrSugActive === api) close(); }, 180); });
@@ -4094,6 +4094,8 @@ async function renderDailyProductionPage(content) {
   });
 
   fillCats(); fillItems();
+  const req = window.__dpgOpen; window.__dpgOpen = null;
+  if (req && req.date) { st.date = req.date; document.getElementById('dpgDate').value = req.date; }
   await loadDay();
 }
 
@@ -4590,6 +4592,16 @@ async function renderPayrollPage(content) {
   });
 
   renderBody(); await renderList();
+  // রিপোর্ট বা অন্য পেজ থেকে পাঠানো নির্দেশ — {id, action: view|edit|delete|pdf} অথবা {emp}
+  const req = window.__svOpen; window.__svOpen = null;
+  if (req) {
+    try {
+      if (req.id) {
+        const h = (await api('list', { sheet: 'Payroll' })).find(function (x) { return x.PayrollID === req.id; });
+        if (h) { await openSaved(h); if (req.action === 'view' || req.action === 'pdf') await printVoucher(); else if (req.action === 'delete') await del(); }
+      } else if (req.emp) { st.emp = req.emp; document.getElementById('svEmp').value = (base.empMap[req.emp] || {}).Name || ''; showEmpInfo(); await loadFresh(); }
+    } catch (err) { showToast(err.message, 'error'); }
+  }
 }
 
 /* ============================================================
@@ -4892,6 +4904,15 @@ async function renderSalaryIssuePage(content) {
 
   if (!accounts.length) showToast(t('আগে হিসাব → ব্যাংক ও ক্যাশ অ্যাকাউন্টে অন্তত একটা ক্যাশ অ্যাকাউন্ট যোগ করুন।','Add a cash account first in Accounts → Bank & Cash.'), 'error');
   await reloadAll();
+  const req = window.__siOpen; window.__siOpen = null;
+  if (req) {
+    try {
+      const x = (st.allIssues || []).find(function (y) { return String(y.IssueID) === String(req.id); });
+      if (x && (req.action === 'view' || req.action === 'pdf')) await printIssue(x);
+      else if (x && req.action === 'delete') await del(x.IssueID);
+      else if (x && req.action === 'edit') { pickEmp(x.EmployeeID); showToast(t('সেলারী ইস্যু বদলানো যায় না — ভুল হলে 🗑 ডিলিট করে নতুন ইস্যু দিন। নিচে ' + x.IssueNo + ' আছে।','Issues cannot be edited — delete and re-issue.'), 'success'); }
+    } catch (err) { showToast(err.message, 'error'); }
+  }
 }
 
 /* ============================================================
@@ -4925,13 +4946,16 @@ async function renderHrReportsPage(content) {
       .rp-cards div{background:var(--bg);border-radius:10px;padding:8px;text-align:center;font-size:11.5px;color:var(--text-muted);} .rp-cards b{display:block;font-size:17px;color:var(--text);margin-top:2px;}
       .rp-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:10px;}
       .rp-tbl{border-collapse:separate;border-spacing:0;width:100%;font-size:13px;min-width:640px;}
-      .rp-tbl th{background:var(--bg);font-size:11.5px;font-weight:700;padding:7px 6px;text-align:center;white-space:nowrap;border-bottom:2px solid var(--border);position:sticky;top:0;}
+      .rp-tbl th{background:var(--bg);font-size:11.5px;font-weight:700;padding:7px 6px;text-align:center !important;white-space:nowrap;border-bottom:2px solid var(--border);position:sticky;top:0;}
       .rp-tbl td{padding:6px;border-bottom:1px solid var(--border);text-align:right;white-space:nowrap;}
       .rp-tbl td.l{text-align:left;} .rp-tbl tr.tot td{font-weight:700;background:var(--bg);}
       .rp-tbl tr.open td{color:var(--text-muted);font-style:italic;}
       .rp-due{color:#b45309;font-weight:700;} .rp-adv{color:#1d4ed8;font-weight:700;}
       .rp-hint{font-size:12.5px;color:var(--text-muted);padding:10px 0;}
-      .rp-tag{font-size:11px;padding:2px 7px;border-radius:8px;} .rp-tag.v{background:#e0f2fe;color:#075985;} .rp-tag.i{background:#dcfce7;color:#166534;}
+      .rp-tag{font-size:11px;padding:2px 7px;border-radius:8px;}
+      .rp-ic{display:inline-flex;gap:4px;} .rp-ic button{width:30px;height:30px;border:1px solid var(--border);border-radius:7px;background:var(--surface);cursor:pointer;font-size:13px;padding:0;}
+      .rp-ic button:disabled{opacity:.3;cursor:not-allowed;} .rp-tbl td.ic{text-align:center;}
+      @media print{ .rp-ic{display:none;} } .rp-tag.v{background:#e0f2fe;color:#075985;} .rp-tag.i{background:#dcfce7;color:#166534;}
       @media (max-width:760px){ .rp-bar{grid-template-columns:repeat(2,minmax(0,1fr));} .rp-bar .btn{grid-column:1 / -1;} .rp-cards{grid-template-columns:repeat(2,minmax(0,1fr));} }
     </style>
     <div class="panel rp">
@@ -4962,8 +4986,8 @@ async function renderHrReportsPage(content) {
     if (!st.emp) { out.innerHTML = `<div class="rp-hint">${t('কর্মচারী বাছাই করুন।','Select an employee.')}</div>`; return; }
     const d = await loadMoney();
     const ev = [];
-    d.vouchers.filter(function (v) { return v.EmployeeID === st.emp; }).forEach(function (v) { ev.push({ date: v._date, kind: 'v', no: v.VoucherNo || v.PayrollID, note: t('সময়কাল ','Period ') + payrollPeriodLabel(v), earn: Number(v.TotalNetPay) || 0, paid: 0 }); });
-    d.issues.filter(function (x) { return x.EmployeeID === st.emp; }).forEach(function (x) { ev.push({ date: x._date, kind: 'i', no: x.IssueNo || x.IssueID, note: (x.Note || '') + (x.OtpVerified ? ' ✔OTP' : ''), earn: 0, paid: Number(x.Amount) || 0 }); });
+    d.vouchers.filter(function (v) { return v.EmployeeID === st.emp; }).forEach(function (v) { ev.push({ date: v._date, kind: 'v', id: v.PayrollID, no: v.VoucherNo || v.PayrollID, note: t('সময়কাল ','Period ') + payrollPeriodLabel(v), earn: Number(v.TotalNetPay) || 0, paid: 0 }); });
+    d.issues.filter(function (x) { return x.EmployeeID === st.emp; }).forEach(function (x) { ev.push({ date: x._date, kind: 'i', id: x.IssueID, no: x.IssueNo || x.IssueID, note: (x.Note || '') + (x.OtpVerified ? ' ✔OTP' : ''), earn: 0, paid: Number(x.Amount) || 0 }); });
     ev.sort(function (a, b) { return a.date.localeCompare(b.date) || (a.kind === 'v' ? -1 : 1); });
     let open = 0; ev.filter(function (e) { return e.date < st.from; }).forEach(function (e) { open += e.earn - e.paid; });
     const rows = ev.filter(function (e) { return e.date >= st.from && e.date <= st.to; });
@@ -4971,16 +4995,16 @@ async function renderHrReportsPage(content) {
     const trs = rows.map(function (e) {
       bal += e.earn - e.paid; te += e.earn; tp += e.paid;
       return `<tr><td class="l">${escapeHtml(formatShortDate(e.date))}</td><td class="l"><span class="rp-tag ${e.kind}">${e.kind === 'v' ? t('সেলারী ভাউচার','Salary voucher') : t('সেলারী ইস্যু','Salary issue')}</span></td>
-        <td class="l">${escapeHtml(e.no)}</td><td class="l">${escapeHtml(e.note)}</td><td>${e.earn ? hrMoney(e.earn) : ''}</td><td>${e.paid ? hrMoney(e.paid) : ''}</td><td>${balTxt(bal)}</td></tr>`;
+        <td class="l">${escapeHtml(e.no)}</td><td class="l">${escapeHtml(e.note)}</td><td>${e.earn ? hrMoney(e.earn) : ''}</td><td>${e.paid ? hrMoney(e.paid) : ''}</td><td>${balTxt(bal)}</td><td class="ic">${rowIcons(e.kind, e.id)}</td></tr>`;
     }).join('');
     const e = base.empMap[st.emp] || {};
     st.print = { title: t('কর্মচারীর বেতন খতিয়ান','Employee salary ledger'), sub: empName(st.emp) + (base.catMap[e.CategoryID] ? ' · ' + base.catMap[e.CategoryID] : '') + ' · ' + formatShortDate(st.from) + ' — ' + formatShortDate(st.to) };
     out.innerHTML = `
       <div class="rp-cards"><div>${t('শুরুর বকেয়া','Opening due')}<b>${balTxt(open)}</b></div><div>${t('পাওনা হয়েছে','Earned')}<b>${hrMoney(te)}</b></div><div>${t('দেওয়া হয়েছে','Paid')}<b>${hrMoney(tp)}</b></div><div>${t('শেষ বকেয়া','Closing due')}<b>${balTxt(bal)}</b></div></div>
-      <div class="rp-wrap" id="rpPrintArea"><table class="rp-tbl"><thead><tr><th>${t('তারিখ','Date')}</th><th>${t('ধরন','Type')}</th><th>${t('নম্বর','No.')}</th><th>${t('বিবরণ','Details')}</th><th>${t('পাওনা','Earned')}</th><th>${t('পরিশোধ','Paid')}</th><th>${t('বকেয়া','Balance')}</th></tr></thead>
-        <tbody><tr class="open"><td class="l" colspan="6">${t('শুরুর বকেয়া (','Opening balance (')}${escapeHtml(formatShortDate(st.from))} ${t('এর আগে)','before)')}</td><td>${balTxt(open)}</td></tr>
-        ${trs || `<tr><td class="l" colspan="7" style="color:var(--text-muted);">${t('এই সময়ে কোনো লেনদেন নেই।','No transactions in this period.')}</td></tr>`}
-        <tr class="tot"><td class="l" colspan="4">${t('মোট','Total')}</td><td>${hrMoney(te)}</td><td>${hrMoney(tp)}</td><td>${balTxt(bal)}</td></tr></tbody></table></div>`;
+      <div class="rp-wrap" id="rpPrintArea"><table class="rp-tbl"><thead><tr><th>${t('তারিখ','Date')}</th><th>${t('ধরন','Type')}</th><th>${t('নম্বর','No.')}</th><th>${t('বিবরণ','Details')}</th><th>${t('পাওনা','Earned')}</th><th>${t('পরিশোধ','Paid')}</th><th>${t('বকেয়া','Balance')}</th><th class="rp-ic-h"></th></tr></thead>
+        <tbody><tr class="open"><td class="l" colspan="6">${t('শুরুর বকেয়া (','Opening balance (')}${escapeHtml(formatShortDate(st.from))} ${t('এর আগে)','before)')}</td><td>${balTxt(open)}</td><td></td></tr>
+        ${trs || `<tr><td class="l" colspan="8" style="color:var(--text-muted);">${t('এই সময়ে কোনো লেনদেন নেই।','No transactions in this period.')}</td></tr>`}
+        <tr class="tot"><td class="l" colspan="4">${t('মোট','Total')}</td><td>${hrMoney(te)}</td><td>${hrMoney(tp)}</td><td>${balTxt(bal)}</td><td></td></tr></tbody></table></div>`;
   }
 
   // ---------- ২) মাসিক মজুরি খরচ ----------
@@ -5006,14 +5030,14 @@ async function renderHrReportsPage(content) {
       const x = per[id], e = base.empMap[id] || {}, dd = due[id] || 0;
       ['wage','haj','plus','minus','total','paid'].forEach(function (k) { T[k] += x[k]; }); T.due += dd;
       return `<tr><td class="l"><b>${escapeHtml(empName(id))}</b><div style="font-size:11px;color:var(--text-muted);">${escapeHtml(base.catMap[e.CategoryID] || '')}${x.n ? ' · ' + x.n + t(' ভাউচার',' voucher(s)') : ''}</div></td>
-        <td>${hrMoney(x.wage)}</td><td>${hrMoney(x.haj)}</td><td>${x.plus ? hrMoney(x.plus) : '—'}</td><td>${x.minus ? '−' + hrMoney(x.minus) : '—'}</td><td><b>${hrMoney(x.total)}</b></td><td>${hrMoney(x.paid)}</td><td>${balTxt(dd)}</td></tr>`;
+        <td>${hrMoney(x.wage)}</td><td>${hrMoney(x.haj)}</td><td>${x.plus ? hrMoney(x.plus) : '—'}</td><td>${x.minus ? '−' + hrMoney(x.minus) : '—'}</td><td><b>${hrMoney(x.total)}</b></td><td>${hrMoney(x.paid)}</td><td>${balTxt(dd)}</td><td class="ic">${rowIcons('m', id)}</td></tr>`;
     }).join('');
     st.print = { title: t('মাসিক মজুরি খরচ','Monthly wage cost'), sub: HR_MONTHS_BN[r.month - 1] + ' ' + r.year };
     out.innerHTML = `
       <div class="rp-cards"><div>${t('মোট মজুরি খরচ','Total wage cost')}<b>${hrMoney(T.total)}</b></div><div>${t('উৎপাদন মুজুরী','Production wage')}<b>${hrMoney(T.wage)}</b></div><div>${t('এই মাসে দেওয়া','Paid this month')}<b>${hrMoney(T.paid)}</b></div><div>${t('মাস শেষে বকেয়া','Due at month end')}<b>${balTxt(T.due)}</b></div></div>
-      <div class="rp-wrap" id="rpPrintArea"><table class="rp-tbl"><thead><tr><th>${t('কর্মচারী','Employee')}</th><th>${t('মুজুরী','Wage')}</th><th>${t('হাজিরা','Attendance')}</th><th>${t('অন্যান্য (+)','Other (+)')}</th><th>${t('কর্তন (−)','Deduction (−)')}</th><th>${t('মোট পাওনা','Total earned')}</th><th>${t('দেওয়া','Paid')}</th><th>${t('মাস শেষে বকেয়া','Due')}</th></tr></thead>
-        <tbody>${trs || `<tr><td class="l" colspan="8" style="color:var(--text-muted);">${t('এই মাসে কোনো সেলারী ভাউচার নেই।','No salary vouchers this month.')}</td></tr>`}
-        <tr class="tot"><td class="l">${t('মোট','Total')} (${ids.length})</td><td>${hrMoney(T.wage)}</td><td>${hrMoney(T.haj)}</td><td>${hrMoney(T.plus)}</td><td>−${hrMoney(T.minus)}</td><td>${hrMoney(T.total)}</td><td>${hrMoney(T.paid)}</td><td>${balTxt(T.due)}</td></tr></tbody></table></div>
+      <div class="rp-wrap" id="rpPrintArea"><table class="rp-tbl"><thead><tr><th>${t('কর্মচারী','Employee')}</th><th>${t('মুজুরী','Wage')}</th><th>${t('হাজিরা','Attendance')}</th><th>${t('অন্যান্য (+)','Other (+)')}</th><th>${t('কর্তন (−)','Deduction (−)')}</th><th>${t('মোট পাওনা','Total earned')}</th><th>${t('দেওয়া','Paid')}</th><th>${t('মাস শেষে বকেয়া','Due')}</th><th></th></tr></thead>
+        <tbody>${trs || `<tr><td class="l" colspan="9" style="color:var(--text-muted);">${t('এই মাসে কোনো সেলারী ভাউচার নেই।','No salary vouchers this month.')}</td></tr>`}
+        <tr class="tot"><td class="l">${t('মোট','Total')} (${ids.length})</td><td>${hrMoney(T.wage)}</td><td>${hrMoney(T.haj)}</td><td>${hrMoney(T.plus)}</td><td>−${hrMoney(T.minus)}</td><td>${hrMoney(T.total)}</td><td>${hrMoney(T.paid)}</td><td>${balTxt(T.due)}</td><td></td></tr></tbody></table></div>
       <div class="rp-hint">${t('ভাউচারের তারিখ অনুযায়ী মাস ধরা হয়েছে। "মাস শেষে বকেয়া" = শুরু থেকে মাসের শেষ দিন পর্যন্ত মোট পাওনা − মোট দেওয়া।','Month is by voucher date. Due = all earned − all paid up to month end.')}</div>`;
   }
 
@@ -5043,14 +5067,14 @@ async function renderHrReportsPage(content) {
       const trs = list.map(function (it) {
         const p = per[it.ItemID], cr = costRate(it.ItemID), cost = p.kg * cr;
         T.kg += p.kg; T.wage += p.wage; T.cost += cost;
-        return `<tr><td class="l">${escapeHtml(it.ItemName)}</td><td>${hrNum(Math.round(p.kg * 100) / 100)}</td><td>${hrMoney(p.wage)}</td><td>${p.kg ? hrMoney(p.wage / p.kg) : '—'}</td><td>${cr ? hrMoney(cr) : '—'}</td><td>${cost ? hrMoney(cost) : '—'}</td><td><b>${p.kg ? hrMoney((p.wage + cost) / p.kg) : '—'}</b></td></tr>`;
+        return `<tr><td class="l">${escapeHtml(it.ItemName)}</td><td>${hrNum(Math.round(p.kg * 100) / 100)}</td><td>${hrMoney(p.wage)}</td><td>${p.kg ? hrMoney(p.wage / p.kg) : '—'}</td><td>${cr ? hrMoney(cr) : '—'}</td><td>${cost ? hrMoney(cost) : '—'}</td><td><b>${p.kg ? hrMoney((p.wage + cost) / p.kg) : '—'}</b></td><td class="ic">${rowIcons('pi', it.ItemID)}</td></tr>`;
       }).join('');
       st.print = { title: t('উৎপাদন ও মজুরি খরচ — আইটেম অনুযায়ী','Production & wage cost — by item'), sub: formatShortDate(st.pFrom) + ' — ' + formatShortDate(st.pTo) };
       out.innerHTML = `
         <div class="rp-cards"><div>${t('মোট উৎপাদন','Total produced')}<b>${hrNum(Math.round(T.kg * 100) / 100)} ${t('কেজি','kg')}</b></div><div>${t('মোট মজুরি','Total wages')}<b>${hrMoney(T.wage)}</b></div><div>${t('মজুরি / কেজি','Wage / kg')}<b>${T.kg ? hrMoney(T.wage / T.kg) : '—'}</b></div><div>${t('মোট খরচ / কেজি','Total cost / kg')}<b>${T.kg ? hrMoney((T.wage + T.cost) / T.kg) : '—'}</b></div></div>
-        <div class="rp-wrap" id="rpPrintArea"><table class="rp-tbl"><thead><tr><th>${t('আইটেম','Item')}</th><th>${t('মোট কেজি','Total kg')}</th><th>${t('মজুরি','Wages')}</th><th>${t('মজুরি / কেজি','Wage / kg')}</th><th>${t('অন্যান্য খরচ দর / কেজি','Other cost rate / kg')}</th><th>${t('অন্যান্য খরচ','Other cost')}</th><th>${t('মোট খরচ / কেজি','Total cost / kg')}</th></tr></thead>
-          <tbody>${trs || `<tr><td class="l" colspan="7" style="color:var(--text-muted);">${t('এই সময়ে কোনো উৎপাদন নেই।','No production in this period.')}</td></tr>`}
-          <tr class="tot"><td class="l">${t('মোট','Total')}</td><td>${hrNum(Math.round(T.kg * 100) / 100)}</td><td>${hrMoney(T.wage)}</td><td>${T.kg ? hrMoney(T.wage / T.kg) : '—'}</td><td></td><td>${hrMoney(T.cost)}</td><td>${T.kg ? hrMoney((T.wage + T.cost) / T.kg) : '—'}</td></tr></tbody></table></div>
+        <div class="rp-wrap" id="rpPrintArea"><table class="rp-tbl"><thead><tr><th>${t('আইটেম','Item')}</th><th>${t('মোট কেজি','Total kg')}</th><th>${t('মজুরি','Wages')}</th><th>${t('মজুরি / কেজি','Wage / kg')}</th><th>${t('অন্যান্য খরচ দর / কেজি','Other cost rate / kg')}</th><th>${t('অন্যান্য খরচ','Other cost')}</th><th>${t('মোট খরচ / কেজি','Total cost / kg')}</th><th></th></tr></thead>
+          <tbody>${trs || `<tr><td class="l" colspan="8" style="color:var(--text-muted);">${t('এই সময়ে কোনো উৎপাদন নেই।','No production in this period.')}</td></tr>`}
+          <tr class="tot"><td class="l">${t('মোট','Total')}</td><td>${hrNum(Math.round(T.kg * 100) / 100)}</td><td>${hrMoney(T.wage)}</td><td>${T.kg ? hrMoney(T.wage / T.kg) : '—'}</td><td></td><td>${hrMoney(T.cost)}</td><td>${T.kg ? hrMoney((T.wage + T.cost) / T.kg) : '—'}</td><td></td></tr></tbody></table></div>
         <div class="rp-hint">${t('মজুরি = দৈনিক উৎপাদনে লেখা আসল মজুরি। অন্যান্য খরচ (বিদ্যুৎ, মেশিঃ ও ডাইস, মেডিসিন, ধোলাই, বিবিধ) = মজুরি দর পেজের বর্তমান দর × কেজি — আনুমানিক।','Wages are actual; other costs are estimated from current rates × kg.')}</div>`;
     } else {
       const per = {};
@@ -5066,16 +5090,94 @@ async function renderHrReportsPage(content) {
       const trs = ids.map(function (id) {
         const p = per[id], e = base.empMap[id] || {}, nd = Object.keys(p.days).length; T.kg += p.kg; T.wage += p.wage;
         return `<tr><td class="l"><b>${escapeHtml(empName(id))}</b><div style="font-size:11px;color:var(--text-muted);">${escapeHtml(base.catMap[e.CategoryID] || '')}</div></td><td class="l" style="white-space:normal;">${escapeHtml(Object.keys(p.roles).join(', '))}</td>
-          <td>${nd}</td><td>${hrNum(Math.round(p.kg * 100) / 100)}</td><td><b>${hrMoney(p.wage)}</b></td><td>${nd ? hrMoney(p.wage / nd) : '—'}</td></tr>`;
+          <td>${nd}</td><td>${hrNum(Math.round(p.kg * 100) / 100)}</td><td><b>${hrMoney(p.wage)}</b></td><td>${nd ? hrMoney(p.wage / nd) : '—'}</td><td class="ic">${rowIcons('pe', id)}</td></tr>`;
       }).join('');
       st.print = { title: t('উৎপাদন ও মজুরি — কর্মচারী অনুযায়ী','Production & wages — by employee'), sub: formatShortDate(st.pFrom) + ' — ' + formatShortDate(st.pTo) };
       out.innerHTML = `
         <div class="rp-cards"><div>${t('কর্মচারী','Employees')}<b>${ids.length}</b></div><div>${t('মোট কেজি (কাজ অনুযায়ী)','Total kg (by job)')}<b>${hrNum(Math.round(T.kg * 100) / 100)}</b></div><div>${t('মোট মজুরি','Total wages')}<b>${hrMoney(T.wage)}</b></div><div>${t('গড় মজুরি / জন','Avg / person')}<b>${ids.length ? hrMoney(T.wage / ids.length) : '—'}</b></div></div>
-        <div class="rp-wrap" id="rpPrintArea"><table class="rp-tbl"><thead><tr><th>${t('কর্মচারী','Employee')}</th><th>${t('কাজের ধরন','Jobs')}</th><th>${t('কাজের দিন','Work days')}</th><th>${t('কেজি','Kg')}</th><th>${t('মজুরি','Wages')}</th><th>${t('গড় / দিন','Avg / day')}</th></tr></thead>
-          <tbody>${trs || `<tr><td class="l" colspan="6" style="color:var(--text-muted);">${t('এই সময়ে কোনো উৎপাদন নেই।','No production in this period.')}</td></tr>`}
-          <tr class="tot"><td class="l" colspan="3">${t('মোট','Total')}</td><td>${hrNum(Math.round(T.kg * 100) / 100)}</td><td>${hrMoney(T.wage)}</td><td></td></tr></tbody></table></div>
+        <div class="rp-wrap" id="rpPrintArea"><table class="rp-tbl"><thead><tr><th>${t('কর্মচারী','Employee')}</th><th>${t('কাজের ধরন','Jobs')}</th><th>${t('কাজের দিন','Work days')}</th><th>${t('কেজি','Kg')}</th><th>${t('মজুরি','Wages')}</th><th>${t('গড় / দিন','Avg / day')}</th><th></th></tr></thead>
+          <tbody>${trs || `<tr><td class="l" colspan="7" style="color:var(--text-muted);">${t('এই সময়ে কোনো উৎপাদন নেই।','No production in this period.')}</td></tr>`}
+          <tr class="tot"><td class="l" colspan="3">${t('মোট','Total')}</td><td>${hrNum(Math.round(T.kg * 100) / 100)}</td><td>${hrMoney(T.wage)}</td><td></td><td></td></tr></tbody></table></div>
         <div class="rp-hint">${t('একই আইটেমে একজন একাধিক কাজ করলে (যেমন শেপ ও ফিনিশ) কেজি প্রতিটা কাজের জন্য আলাদা গোনা হয়।','Kg is counted once per job a person did on an item.')}</div>`;
     }
+  }
+
+  // ---------- প্রতি সারির বাটনঃ 👁 দেখুন · ✏️ এডিট · 🗑 ডিলিট · 💾 PDF সেভ ----------
+  function rowIcons(kind, id) {
+    const b = function (act, ic, title, dis) { return `<button type="button" data-ra="${act}" data-rk="${kind}" data-rid="${attr(id)}" title="${title}" aria-label="${title}" ${dis ? 'disabled' : ''}>${ic}</button>`; };
+    const delOk = kind === 'v' || kind === 'i';
+    return `<span class="rp-ic">${b('view', '👁', t('দেখুন','View'))}${b('edit', '✏️', t('এডিট','Edit'))}${b('delete', '🗑', delOk ? t('ডিলিট','Delete') : t('এখানে ডিলিট নেই — খতিয়ান বা মূল পেজ থেকে করুন','Delete from the ledger or the source page'), !delOk)}${b('pdf', '💾', t('PDF হিসেবে সেভ','Save as PDF'))}</span>`;
+  }
+  const HR_MOD = function () { return t('এইচআর ও পে-রোল','HR & Payroll'); };
+  async function rowAction(act, kind, id) {
+    if (kind === 'v') { window.__svOpen = { id: id, action: act }; await navigateTo('payroll', HR_MOD(), t('সেলারী ভাউচার','Salary Voucher')); return; }
+    if (kind === 'i') { window.__siOpen = { id: id, action: act }; await navigateTo('salaryIssue', HR_MOD(), t('সেলারী ইস্যু','Salary Issue')); return; }
+    if (kind === 'm') {
+      const r = hrMonthRange(st.month);
+      if (act === 'view' || act === 'pdf') {
+        st.tab = 'ledger'; st.emp = id; st.from = r.from; st.to = r.to;
+        content.querySelectorAll('.rp-tab').forEach(function (x) { x.classList.toggle('on', x.dataset.tab === 'ledger'); });
+        renderBar(); await run(); if (act === 'pdf') await printReport();
+      } else if (act === 'edit') {
+        const d = await loadMoney();
+        const v = d.vouchers.filter(function (x) { return x.EmployeeID === id && x._date >= r.from && x._date <= r.to; }).sort(function (a, b) { return b._date.localeCompare(a._date); })[0];
+        if (v) { window.__svOpen = { id: v.PayrollID, action: 'edit' }; } else window.__svOpen = { emp: id };
+        await navigateTo('payroll', HR_MOD(), t('সেলারী ভাউচার','Salary Voucher'));
+      }
+      return;
+    }
+    if (kind === 'pi' || kind === 'pe') {
+      if (act === 'edit') { window.__dpgOpen = { date: st.pTo }; await navigateTo('dailyProduction', HR_MOD(), t('দৈনিক উৎপাদন ও দল','Daily Production & Team')); return; }
+      await prodDetails(kind, id, act === 'pdf');
+    }
+  }
+  /** উৎপাদনের দিনওয়ারি বিস্তারিত — প্রতিটা এন্ট্রিতে এডিট (সেই দিনের উৎপাদন পেজ) ও ডিলিট (বেতনে না উঠলে) */
+  async function prodDetails(kind, id, pdf) {
+    const heads = await hrQueryRange('TeamProduction', 'WorkDate', st.pFrom, st.pTo);
+    if (!heads.length) return;
+    const ids = heads.map(function (h) { return h.TeamProdID; });
+    const [a, b] = await Promise.all([supabaseClient.from('TeamProduction_Items').select('*').in('TeamProdID', ids), supabaseClient.from('TeamProduction_Members').select('*').in('TeamProdID', ids)]);
+    const tpi = a.data || [], mems = b.data || [];
+    const rows = [];
+    heads.sort(function (x, y) { return String(x.WorkDate).localeCompare(String(y.WorkDate)); }).forEach(function (h) {
+      const its = tpi.filter(function (x) { return String(x.TeamProdID) === String(h.TeamProdID); });
+      const ms = mems.filter(function (x) { return String(x.TeamProdID) === String(h.TeamProdID); });
+      if (kind === 'pi' && !its.some(function (x) { return x.ItemID === id; })) return;
+      ms.forEach(function (mm) {
+        if (kind === 'pe' && mm.EmployeeID !== id) return;
+        rows.push({ tp: h.TeamProdID, date: String(h.WorkDate).slice(0, 10), item: its.map(function (x) { return (itemMap[x.ItemID] || {}).ItemName || x.ItemID; }).join(', '), kg: its.reduce(function (s, x) { return s + (Number(x.Qty) || 0); }, 0),
+          emp: empName(mm.EmployeeID), role: gp.roleMap[mm.RoleID] || '', rate: Number(mm.Rate) || 0, amt: Number(mm.Amount) || 0, billed: mm.BilledIn || '' });
+      });
+    });
+    const title = kind === 'pi' ? ((itemMap[id] || {}).ItemName || id) : empName(id);
+    const tot = rows.reduce(function (s, r) { return s + r.amt; }, 0);
+    const tbl = `<table class="rp-tbl" style="min-width:560px;"><thead><tr><th>${t('তারিখ','Date')}</th><th>${kind === 'pi' ? t('কর্মচারী','Employee') : t('আইটেম','Item')}</th><th>${t('কাজ','Job')}</th><th>${t('কেজি','Kg')}</th><th>${t('দর','Rate')}</th><th>${t('মজুরি','Wage')}</th><th></th></tr></thead><tbody>
+      ${rows.map(function (r) { return `<tr><td class="l">${escapeHtml(formatShortDate(r.date))}</td><td class="l">${escapeHtml(kind === 'pi' ? r.emp : r.item)}</td><td class="l">${escapeHtml(r.role)}</td><td>${hrNum(r.kg)}</td><td>${hrMoney(r.rate)}</td><td>${hrMoney(r.amt)}</td>
+        <td class="ic"><span class="rp-ic"><button type="button" data-pde="${escapeHtml(r.date)}" title="${t('এডিট — সেই দিনের উৎপাদন পেজ','Edit — open that day')}">✏️</button><button type="button" data-pdd="${attr(r.tp)}" ${r.billed ? 'disabled title="' + t('বেতনে উঠে গেছে — আগে ভাউচার ডিলিট করুন','Already paid — delete the voucher first') + '"' : 'title="' + t('এই দিনের এই আইটেমের এন্ট্রি ডিলিট','Delete this entry') + '"'}>🗑</button></span></td></tr>`; }).join('')}
+      <tr class="tot"><td class="l" colspan="5">${t('মোট','Total')}</td><td>${hrMoney(tot)}</td><td></td></tr></tbody></table>`;
+    if (pdf) {
+      st.print = { title: t('উৎপাদনের বিস্তারিত — ','Production details — ') + title, sub: formatShortDate(st.pFrom) + ' — ' + formatShortDate(st.pTo) };
+      const holder = document.createElement('div'); holder.id = 'rpPrintArea'; holder.innerHTML = tbl; holder.style.display = 'none';
+      const old = document.getElementById('rpPrintArea'); if (old) old.id = 'rpPrintAreaOld';
+      document.body.appendChild(holder); await printReport(); holder.remove(); if (old) old.id = 'rpPrintArea';
+      return;
+    }
+    openModal({ title: t('উৎপাদনের বিস্তারিত — ','Production details — ') + title, wide: true, bodyHtml: `<div style="overflow-x:auto;">${tbl}</div>`, onSave: async function () {} });
+    const mb = document.getElementById('modalBody');
+    mb.addEventListener('click', async function (ev) {
+      const e = ev.target.closest('[data-pde]'), d = ev.target.closest('[data-pdd]');
+      if (e) { closeModal(); window.__dpgOpen = { date: e.dataset.pde }; await navigateTo('dailyProduction', HR_MOD(), t('দৈনিক উৎপাদন ও দল','Daily Production & Team')); }
+      else if (d && !d.disabled) {
+        if (!confirm(t('এই উৎপাদন এন্ট্রি (ওই দিনের ওই আইটেমের সব কাজ) ডিলিট করবেন?','Delete this production entry?'))) return;
+        const tp = d.dataset.pdd;
+        await supabaseClient.from('TeamProduction_Members').delete().eq('TeamProdID', tp);
+        await supabaseClient.from('TeamProduction_Costs').delete().eq('TeamProdID', tp);
+        await supabaseClient.from('TeamProduction_Items').delete().eq('TeamProdID', tp);
+        const { error } = await supabaseClient.from('TeamProduction').delete().eq('TeamProdID', tp);
+        if (error) { showToast(error.message, 'error'); return; }
+        showToast(t('ডিলিট হয়েছে ✅','Deleted ✅'), 'success'); closeModal(); await run();
+      }
+    });
   }
 
   // ---------- ফিল্টার ----------
@@ -5119,7 +5221,7 @@ async function renderHrReportsPage(content) {
       <div class="tb"><button onclick="window.print()">🖨️ প্রিন্ট</button></div>
       <h2>${escapeHtml(co.CompanyNameBn || 'জি মেটাল ওয়ার্কস')}</h2><div class="co">${escapeHtml(co.AddressBn || '')}</div>
       <h3>${escapeHtml(st.print.title)}</h3><div class="sub">${escapeHtml(st.print.sub)} · প্রিন্টঃ ${escapeHtml(formatPrintDate())}</div>
-      ${cards ? `<div class="cards">${cards.innerHTML}</div>` : ''}${area.innerHTML}
+      ${cards ? `<div class="cards">${cards.innerHTML}</div>` : ''}${area.innerHTML.replace(/<span class="rp-ic">[\s\S]*?<\/span>/g, '')}
       <script>window.addEventListener("load",function(){setTimeout(function(){window.print();},400);});<\/script></body></html>`);
     win.document.close();
   }
@@ -5136,6 +5238,10 @@ async function renderHrReportsPage(content) {
     if (map[el.id] && el.value !== undefined) { st[map[el.id]] = el.value; run(); }
   });
   document.getElementById('rpBar').addEventListener('click', function (ev) { if (ev.target.closest('#rpPrint')) printReport(); });
+  document.getElementById('rpOut').addEventListener('click', async function (ev) {
+    const b = ev.target.closest('[data-ra]'); if (!b || b.disabled) return;
+    try { await rowAction(b.dataset.ra, b.dataset.rk, b.dataset.rid); } catch (err) { showToast(err.message, 'error'); }
+  });
   renderBar(); run();
 }
 
@@ -6018,11 +6124,58 @@ async function openPrintableVoucherView(docType, docId) {
   win.document.close();
 }
 
+/** পুরো সফটওয়্যারের সাধারণ কীবোর্ড নিয়ম (কম্পিউটারে দ্রুত কাজের জন্য):
+ *  • Enter  = পরের ঘরে যাওয়া; শেষ ঘরে Enter চাপলে ওই অংশের সেভ বাটনে ফোকাস — আবার Enter চাপলেই সেভ
+ *  • Escape = আগের ঘরে ফেরা; প্রথম ঘরে থাকলে (পপআপে) পপআপ বন্ধ
+ *  নাম খোঁজার তালিকা খোলা থাকলে Enter সেই তালিকার নাম বাছাই করে, Escape তালিকা বন্ধ করে। */
+(function installGlobalKeyNav() {
+  if (window.__globalKeyNav) return; window.__globalKeyNav = true;
+  function isField(el) {
+    if (!el || el.disabled || el.readOnly && el.tagName !== 'SELECT') return false;
+    if (el.tagName === 'SELECT' || el.tagName === 'TEXTAREA') return true;
+    if (el.tagName !== 'INPUT') return false;
+    return ['checkbox','radio','file','button','submit','hidden','range','color'].indexOf(el.type) === -1;
+  }
+  function visible(el) { return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length) && getComputedStyle(el).visibility !== 'hidden'; }
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' && e.key !== 'Escape') return;
+    if (e.defaultPrevented || e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return;
+    const el = document.activeElement;
+    if (!el || el.closest('[data-keynav]')) return;
+    if (document.querySelector('.hr-sug')) return; // নাম খোঁজার তালিকা নিজে সামলায়
+    const modalOpen = document.getElementById('modalOverlay') && document.getElementById('modalOverlay').classList.contains('show');
+    if (e.key === 'Escape' && modalOpen && !isField(el)) { e.preventDefault(); const c = document.getElementById('modalCancelBtn'); if (c) c.click(); return; }
+    const scope = el.closest('#modalBody') || (modalOpen ? null : el.closest('#pageContent'));
+    if (!scope) {
+      if (e.key === 'Escape' && modalOpen && !el.closest('input,select,textarea')) { e.preventDefault(); const c = document.getElementById('modalCancelBtn'); if (c) c.click(); }
+      return;
+    }
+    if (!isField(el)) return;
+    if (el.tagName === 'TEXTAREA' && e.key === 'Enter') return; // লেখার বক্সে Enter = নতুন লাইন
+    const fields = Array.prototype.filter.call(scope.querySelectorAll('input, select, textarea'), function (x) { return isField(x) && visible(x); });
+    const i = fields.indexOf(el); if (i === -1) return;
+    e.preventDefault();
+    if (e.key === 'Enter') {
+      const next = fields[i + 1];
+      if (next) { next.focus(); if (next.select && next.tagName === 'INPUT') try { next.select(); } catch (er) {} return; }
+      // শেষ ঘর — সেভ বাটনে
+      const save = (scope.id === 'modalBody' ? document.getElementById('modalSaveBtn') : null) ||
+        Array.prototype.find.call(scope.querySelectorAll('button.btn-primary'), function (b) { return visible(b) && !b.disabled; });
+      if (save) save.focus();
+    } else {
+      const prev = fields[i - 1];
+      if (prev) { prev.focus(); if (prev.select && prev.tagName === 'INPUT') try { prev.select(); } catch (er) {} }
+      else if (scope.id === 'modalBody') { const c = document.getElementById('modalCancelBtn'); if (c) c.click(); }
+    }
+  }, true);
+})();
+
 /** ডেস্কটপে যেকোনো ফর্মে Enter চাপলে পরের ইনপুট ফিল্ডে, Escape চাপলে আগের
  *  ফিল্ডে ফোকাস যাবে — শুধু দৃশ্যমান ও সক্রিয় (disabled নয়) input/select/textarea
  *  ধরে, checkbox বাদ দিয়ে (checkbox নিজের স্বাভাবিক Space/click আচরণ রাখবে)। */
 function wireSequentialKeyNav(container) {
   if (!container) return;
+  container.dataset.keynav = '1'; // এই অংশের নিজস্ব নিয়ম আছে — সাধারণ নিয়ম এখানে কাজ করবে না
   function focusable() {
     return Array.from(container.querySelectorAll('input, select, textarea')).filter(function (el) {
       return !el.disabled && el.type !== 'checkbox' && el.offsetParent !== null;
