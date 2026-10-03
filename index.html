@@ -444,7 +444,7 @@ const MODULES = [
     {key:'empCategories', bn:'কর্মচারীর ধরন', en:'Employee Types'},{key:'empInfo', bn:'কর্মচারী তথ্য', en:'Employee Info'},
     {key:'workRoles', bn:'দরের কলাম', en:'Rate Columns'},{key:'sizeRates', bn:'সাইজ অনুযায়ী মজুরি দর', en:'Size Wage Rates'},{key:'attendance', bn:'হাজিরা', en:'Attendance'},
     {key:'dailyProduction', bn:'দৈনিক উৎপাদন ও দল', en:'Daily Production & Team'},{key:'leave', bn:'ছুটি ব্যবস্থাপনা', en:'Leave Management'},
-    {key:'payroll', bn:'সেলারী ভাউচার', en:'Salary Voucher'},{key:'salaryIssue', bn:'সেলারী ইস্যু', en:'Salary Issue'},{key:'hrReports', bn:'বেতন ও উৎপাদন রিপোর্ট', en:'Salary & Production Reports'},
+    {key:'payroll', bn:'সেলারী ভাউচার', en:'Salary Voucher'},{key:'salaryIssue', bn:'সেলারী ইস্যু', en:'Salary Issue'},{key:'payHeads', bn:'অন্যান্য খাত (বেতন)', en:'Pay Heads'},{key:'hrReports', bn:'বেতন ও উৎপাদন রিপোর্ট', en:'Salary & Production Reports'},
   ]},
   {key:'reports', bn:'রিপোর্ট', en:'Reports', sub:[
     {key:'invReport', bn:'ইনভেন্টরি প্রতিবেদন', en:'Inventory Reports'},{key:'salesReport', bn:'বিক্রয় প্রতিবেদন', en:'Sales Reports'},
@@ -465,7 +465,7 @@ const READY_PAGES = ['dashboard','companyProfile','userManagement','roles','acti
   'so','dc','si','sr','custLedger',
   'bom','processing','pOrder','pmi','fgr',
   'coa','bankCash','jv','cv','pv','rv','bankBook','trialBalance',
-  'empCategories','empInfo','workRoles','sizeRates','attendance','dailyProduction','leave','payroll','salaryIssue','hrReports','payslip',
+  'empCategories','empInfo','workRoles','sizeRates','attendance','dailyProduction','leave','payroll','salaryIssue','payHeads','hrReports','payslip',
   'invReport','salesReport','purReport','prodReport','finReport',
   'general','langSettings','companySettings','backup'];
 
@@ -1681,6 +1681,16 @@ const MASTER_CONFIGS = {
     fields: [
       {key:'CategoryName', label:'ধরনের নাম', type:'text', required:true},
       {key:'SortOrder', label:'ক্রম', type:'number'},
+      {key:'IsActive', label:'অবস্থা', type:'boolean'}
+    ]
+  },
+  payHeads: {
+    sheet: 'PayHeads', idField: 'HeadID', idPrefix: 'PH',
+    titleBn: 'অন্যান্য খাত (বেতন)', titleEn: 'Pay Heads', subBn: 'সেলারী ভাউচারের "অন্যান্য" ড্রপডাউনের খাত — বোনাস, যাতায়াত (যোগ) বা অগ্রিম কর্তন, জরিমানা (কর্তন)', subEn: 'Heads for the "Other" dropdown in salary vouchers',
+    columns: [{key:'HeadID',label:'আইডি'},{key:'HeadName',label:'খাতের নাম'},{key:'HeadType',label:'ধরন',labels:{Earning:'যোগ (+)',Deduction:'কর্তন (−)'}},{key:'IsActive',label:'অবস্থা'}],
+    fields: [
+      {key:'HeadName', label:'খাতের নাম', type:'text', required:true},
+      {key:'HeadType', label:'ধরন', type:'select-enum', options:[['Earning','যোগ (+) — মোটে যোগ হবে'],['Deduction','কর্তন (−) — মোট থেকে বিয়োগ হবে']], required:true},
       {key:'IsActive', label:'অবস্থা', type:'boolean'}
     ]
   },
@@ -4117,7 +4127,9 @@ async function renderPayrollPage(content) {
   const base = await hrLoadBase();
   const gp = await hrLoadGroups();
   const items = (await cachedList('Items')).filter(function (i) { return i.Status !== 'Deleted'; });
-  let heads = (await cachedList('PayHeads').catch(function () { return []; })).filter(function (h) { return h.Status !== 'Deleted' && (h.IsActive === undefined || h.IsActive === null || isTrue(h.IsActive)); });
+  let allHeads = (await cachedList('PayHeads').catch(function () { return []; }));
+  const activeHead = function (h) { return h.Status !== 'Deleted' && (h.IsActive === undefined || h.IsActive === null || isTrue(h.IsActive)); };
+  let heads = allHeads.filter(activeHead);
   const w0 = hrWeekOf(hrToday());
   const st = { id: null, no: '', vdate: hrToday(), from: w0.from, to: hrAddDays(w0.from, 5), emp: '', days: [], dirty: false };
 
@@ -4202,7 +4214,7 @@ async function renderPayrollPage(content) {
 
   // ---------- সাহায্যকারী ----------
   const itemName = {}; items.forEach(function (i) { itemName[i.ItemID] = i.ItemName; });
-  const headMap = function () { const m = {}; heads.forEach(function (h) { m[h.HeadID] = h; }); return m; };
+  const headMap = function () { const m = {}; allHeads.forEach(function (h) { m[h.HeadID] = h; }); return m; };
   function wageOf() { return hrDailyWage(base.empMap[st.emp] || {}, gp.divisor); }
   function sign(headId) { const h = headMap()[headId]; return h && h.HeadType === 'Deduction' ? -1 : 1; }
   function newRow(kind) { return { kind: kind || 'manual', memIds: [], bonusIds: [], itemId: '', item: '', qty: '', rate: '', wage: 0, head: '', oth: '' }; }
@@ -4216,7 +4228,10 @@ async function renderPayrollPage(content) {
   }
   function totals() { return st.days.reduce(function (s, d) { const c = dayCalc(d); s.wage += c.wage; s.haj += c.haj; s.oth += c.oth; s.total += c.total; return s; }, { wage: 0, haj: 0, oth: 0, total: 0 }); }
   function headOptions(sel) {
-    return `<option value="">—</option>` + heads.map(function (h) { return `<option value="${attr(h.HeadID)}" ${h.HeadID === sel ? 'selected' : ''}>${escapeHtml(h.HeadName)}${h.HeadType === 'Deduction' ? ' (−)' : ''}</option>`; }).join('') + `<option value="__new">➕ ${t('নতুন খাত…','New head…')}</option>`;
+    const old = sel && !heads.some(function (h) { return h.HeadID === sel; }) ? headMap()[sel] : null; // বাদ দেওয়া খাত পুরনো ভাউচারে থাকলে
+    return `<option value="">—</option>` + (old ? `<option value="${attr(old.HeadID)}" selected>${escapeHtml(old.HeadName)} (${t('বাদ','removed')})</option>` : '') +
+      heads.map(function (h) { return `<option value="${attr(h.HeadID)}" ${h.HeadID === sel ? 'selected' : ''}>${escapeHtml(h.HeadName)}${h.HeadType === 'Deduction' ? ' (−)' : ''}</option>`; }).join('') +
+      `<option value="__new">➕ ${t('নতুন খাত…','New head…')}</option><option value="__manage">⚙️ ${t('খাত এডিট / ডিলিট…','Edit / delete heads…')}</option>`;
   }
   function itemOptions(sel) { return `<option value="">${t('— আইটেম —','— item —')}</option>` + items.map(function (i) { return `<option value="${attr(i.ItemID)}" ${i.ItemID === sel ? 'selected' : ''}>${escapeHtml(i.ItemName)}</option>`; }).join(''); }
   function dayName(d) { return SV_DAY_FULL[hrDate(d).getDay()]; }
@@ -4521,6 +4536,7 @@ async function renderPayrollPage(content) {
     if (el.dataset.ri !== undefined) {
       const r = d.rows[Number(el.dataset.ri)];
       if (f === 'head' && el.value === '__new') { addHead(el, r); return; }
+      if (f === 'head' && el.value === '__manage') { el.value = r.head || ''; manageHeads(); return; }
       r[f] = el.value;
       if (f === 'itemId' && r.kind === 'manual' && !r.rate) { /* দর হাতে লেখা হবে */ }
     } else if (f === 'hajOn') {
@@ -4556,13 +4572,62 @@ async function renderPayrollPage(content) {
     field(el);
     updateNumbers(el);
   });
+  /** অন্যান্য খাতের তালিকা — নাম বদল, যোগ/কর্তন বদল, ডিলিট, নতুন যোগ */
+  function manageHeads() {
+    let list = heads.map(function (h) { return { id: h.HeadID, name: h.HeadName, type: h.HeadType === 'Deduction' ? 'Deduction' : 'Earning', del: false }; });
+    const usedIds = {}; st.days.forEach(function (d) { d.rows.forEach(function (r) { if (r.head) usedIds[r.head] = true; }); });
+    function html() {
+      return `<div class="hm-list">${list.map(function (h, i) {
+        return `<div class="hm-row ${h.del ? 'del' : ''}"><input data-hi="${i}" data-hf="name" value="${attr(h.name)}" ${h.del ? 'disabled' : ''} placeholder="${t('খাতের নাম','Head name')}">
+          <select data-hi="${i}" data-hf="type" ${h.del ? 'disabled' : ''}><option value="Earning" ${h.type === 'Earning' ? 'selected' : ''}>${t('যোগ (+)','Add (+)')}</option><option value="Deduction" ${h.type === 'Deduction' ? 'selected' : ''}>${t('কর্তন (−)','Deduct (−)')}</option></select>
+          <button type="button" data-hdel="${i}" title="${h.del ? t('ফিরিয়ে আনুন','Restore') : t('ডিলিট','Delete')}" aria-label="${h.del ? t('ফিরিয়ে আনুন','Restore') : t('ডিলিট','Delete')}">${h.del ? '↩' : '🗑'}</button></div>`;
+      }).join('')}</div>
+      <button type="button" class="btn btn-outline" id="hmAdd" style="width:auto;height:34px;margin-top:8px;">➕ ${t('নতুন খাত','New head')}</button>
+      <div class="hm-note">${t('নাম বদলালে পুরনো সব ভাউচারেও নতুন নাম দেখাবে। ডিলিট করা খাত আর ড্রপডাউনে আসবে না, তবে পুরনো ভাউচারে তার টাকা ও নাম ঠিক থাকবে।','Renames apply to old vouchers too. Deleted heads leave the dropdown but stay on old vouchers.')}</div>`;
+    }
+    openModal({
+      title: t('অন্যান্য খাত — এডিট / ডিলিট','Other heads — edit / delete'),
+      bodyHtml: `<style>.hm-row{display:grid;grid-template-columns:minmax(0,1fr) 120px 38px;gap:6px;margin-bottom:6px;} .hm-row input,.hm-row select{height:36px;padding:4px 8px;font-size:14px;width:100%;box-sizing:border-box;}
+        .hm-row button{height:36px;border:1px solid var(--border);border-radius:8px;background:var(--surface);cursor:pointer;} .hm-row.del input{text-decoration:line-through;opacity:.5;}
+        .hm-note{font-size:11.5px;color:var(--text-muted);margin-top:8px;line-height:1.5;}</style><div id="hmBody">${html()}</div>`,
+      onSave: async function () {
+        for (const h of list) { if (!h.del && !String(h.name).trim()) throw new Error(t('খাতের নাম খালি রাখা যাবে না।','Head name cannot be empty.')); }
+        for (const h of list) {
+          const orig = h.id ? allHeads.find(function (x) { return x.HeadID === h.id; }) : null;
+          if (h.del && h.id) { const { error } = await supabaseClient.from('PayHeads').update({ Status: 'Deleted' }).eq('HeadID', h.id); if (error) throw new Error(error.message); if (orig) orig.Status = 'Deleted'; }
+          else if (!h.del && h.id && orig && (orig.HeadName !== h.name.trim() || orig.HeadType !== h.type)) {
+            const { error } = await supabaseClient.from('PayHeads').update({ HeadName: h.name.trim(), HeadType: h.type }).eq('HeadID', h.id); if (error) throw new Error(error.message);
+            orig.HeadName = h.name.trim(); orig.HeadType = h.type;
+          } else if (!h.del && !h.id) {
+            const { data, error } = await supabaseClient.from('PayHeads').insert({ HeadName: h.name.trim(), HeadType: h.type }).select(); if (error) throw new Error(error.message);
+            allHeads.push(data[0]);
+          }
+        }
+        heads = allHeads.filter(activeHead); listCache = {};
+        renderBody(); showToast(t('খাত সেভ হয়েছে ✅','Heads saved ✅'), 'success');
+      }
+    });
+    const mb = document.getElementById('hmBody');
+    const redraw = function () { mb.innerHTML = html(); };
+    mb.addEventListener('input', function (ev) { const el = ev.target; if (el.dataset.hi !== undefined) list[Number(el.dataset.hi)][el.dataset.hf] = el.value; });
+    mb.addEventListener('change', function (ev) { const el = ev.target; if (el.dataset.hi !== undefined) list[Number(el.dataset.hi)][el.dataset.hf] = el.value; });
+    mb.addEventListener('click', function (ev) {
+      const d = ev.target.closest('[data-hdel]'), add = ev.target.closest('#hmAdd');
+      if (d) {
+        const h = list[Number(d.dataset.hdel)];
+        if (!h.id) { list.splice(Number(d.dataset.hdel), 1); redraw(); return; }
+        if (!h.del && usedIds[h.id] && !confirm(t('"' + h.name + '" এই ভাউচারে ব্যবহার হচ্ছে। ডিলিট করলেও এখানে থাকবে, কিন্তু নতুন করে বাছাই করা যাবে না। চালিয়ে যাবেন?','This head is used in the current voucher. Continue?'))) return;
+        h.del = !h.del; redraw();
+      } else if (add) { list.push({ id: null, name: '', type: 'Earning', del: false }); redraw(); const ins = mb.querySelectorAll('[data-hf="name"]'); ins[ins.length - 1].focus(); }
+    });
+  }
   async function addHead(sel, r) {
     const name = prompt(t('নতুন খাতের নাম (যেমনঃ যাতায়াত, জরিমানা):','New head name:'), '');
     if (!name || !name.trim()) { sel.value = r.head || ''; return; }
     const isDed = confirm(t('"' + name.trim() + '" কি কর্তনের খাত (টাকা বিয়োগ হবে)?\nOK = কর্তন, Cancel = যোগ','Is this a deduction? OK = deduction, Cancel = addition'));
     const { data, error } = await supabaseClient.from('PayHeads').insert({ HeadName: name.trim(), HeadType: isDed ? 'Deduction' : 'Earning' }).select();
     if (error) { showToast(error.message, 'error'); sel.value = r.head || ''; return; }
-    heads.push(data[0]); listCache = {}; r.head = data[0].HeadID; st.dirty = true; refresh();
+    heads.push(data[0]); allHeads.push(data[0]); listCache = {}; r.head = data[0].HeadID; st.dirty = true; refresh();
     showToast(t('নতুন খাত যোগ হয়েছে ✅','Head added ✅'), 'success');
   }
   body.addEventListener('click', async function (ev) {
