@@ -777,7 +777,7 @@ async function runPostingLogic(docType, header, docId) {
   if (docType === 'PaymentVoucher') {
     const amt = Number(header.Amount) || 0;
     // টাকা বের হয়ে যাচ্ছে, তাই ব্যাংক/ক্যাশ বইতে Credit
-    // নীট জমা (মোট − ডিসকাউন্ট) = ক্যাশ/ব্যাংক থেকে আসলে যত টাকা বের হলো; পুরনো ভাউচারে NetAmount না থাকলে মোটই ধরা হবে
+    // নীট প্রদান (মোট − ডিসকাউন্ট) = ক্যাশ/ব্যাংক থেকে আসলে যত টাকা বের হলো; পুরনো ভাউচারে NetAmount না থাকলে মোটই ধরা হবে
     const netPaid = (header.NetAmount !== null && header.NetAmount !== undefined) ? (Number(header.NetAmount) || 0) : amt;
     if (netPaid > 0) await postBankCashBookEntry(header.BankCashAccID, header.Date || today, 'PaymentVoucher', docId, 0, netPaid);
     // সাপ্লায়ারকে পেমেন্ট দিলে দেনা কমে (Debit); কাস্টমারকে পেমেন্ট দিলে (যেমন ফেরত) তার পাওনা কমে (Credit)
@@ -2677,36 +2677,49 @@ const SIMPLE_VOUCHER_CONFIGS = {
 
 /* ============================================================
    পেমেন্ট ভাউচার — নতুন করে তৈরি: উপরে ফর্ম, নিচে ভাউচার তালিকা
-   মোট জমা = পার্টির হিসাবে যত টাকা মেটানো হলো; নীট জমা = মোট − ডিসকাউন্ট
+   মোট প্রদান = পার্টির হিসাবে যত টাকা মেটানো হলো; নীট প্রদান = মোট − ডিসকাউন্ট
    (অর্থাৎ ক্যাশ/ব্যাংক থেকে আসলে যত টাকা বের হলো)
    ============================================================ */
-function payvBalanceText(type, bal) {
+function payvBalanceText(bal) {
   bal = Number(bal) || 0;
-  if (bal === 0) return '0.00';
-  // পার্টি লেজারে ব্যালেন্স ঋণাত্মক (Cr) মানে আমরা পার্টির কাছে দেনাদার; ধনাত্মক (Dr) মানে পার্টি আমাদের কাছে দেনাদার (আমাদের পাওনা)
-  return Math.abs(bal).toFixed(2) + ' ' + (bal < 0 ? t('দেনা','Payable') : t('পাওনা','Receivable'));
+  if (Math.abs(bal) < 0.005) return '0.00';
+  // পার্টি লেজারের নিয়ম: ধনাত্মক = Dr (পাওনা/অগ্রীম), ঋণাত্মক = Cr (দেনা/বকেয়া)
+  return Math.abs(bal).toFixed(2) + (bal > 0 ? ' Dr (' + t('পাওনা/অগ্রীম','Receivable/Advance') + ')' : ' Cr (' + t('দেনা/বকেয়া','Payable/Due') + ')');
 }
 
 async function renderPaymentVoucherPage(content) {
   const pdata = await cachedListMultiple(['Suppliers', 'Customers', 'BankCashAccounts']);
   const ourBanks = (pdata.BankCashAccounts || []).filter(function (b) { return b.Status !== 'Deleted' && b.BankAccID !== 'BC-CASH'; });
-  const parties = [];
+  // পার্টি লেজারের মতোই: একই Code-এর কাস্টমার ও সাপ্লায়ার মিলিয়ে একটামাত্র নাম দেখানো হয়
+  const parties = [], byKey = {}, idToKey = {};
+  function addParty(kind, id, code, name, zone, bankName, bankAcc) {
+    const key = 'P|' + (code || (kind + '|' + id));
+    let p = byKey[key];
+    if (!p) { p = byKey[key] = { key: key, name: name, zone: zone || '', supplierId: null, customerId: null, bankName: '', bankAcc: '' }; parties.push(p); }
+    if (kind === 'Supplier') p.supplierId = id; else p.customerId = id;
+    if (!p.name) p.name = name;
+    if (!p.zone) p.zone = zone || '';
+    if (!p.bankName && bankName) { p.bankName = bankName; p.bankAcc = bankAcc || ''; }
+    idToKey[kind + '|' + id] = key;
+  }
   (pdata.Suppliers || []).forEach(function (s) {
     if (s.Status === 'Deleted' || s.SupplierID === 'SUP-CASH') return;
-    parties.push({ key: 'Supplier|' + s.SupplierID, type: 'Supplier', id: s.SupplierID, name: s.CompanyName || s.Name, zone: s.Zone || '', bankName: s.BankName || '', bankAcc: s.BankAccountNumber || '' });
+    addParty('Supplier', s.SupplierID, s.Code, s.CompanyName || s.Name, s.Zone, s.BankName, s.BankAccountNumber);
   });
   (pdata.Customers || []).forEach(function (c) {
     if (c.Status === 'Deleted' || c.CustomerID === 'CUS-CASH') return;
-    parties.push({ key: 'Customer|' + c.CustomerID, type: 'Customer', id: c.CustomerID, name: c.CompanyName || c.Name, zone: c.Zone || '', bankName: c.BankName || '', bankAcc: c.BankAccountNumber || '' });
+    addParty('Customer', c.CustomerID, c.Code, c.CompanyName || c.Name, c.Zone, c.BankName, c.BankAccountNumber);
   });
+  // পোস্টিংয়ের জন্য: দুই দিকেই থাকলে সাপ্লায়ার-লেজার ব্যবহার হবে (পেমেন্ট সাধারণত সাপ্লায়ারকেই)
+  parties.forEach(function (p) { p.type = p.supplierId ? 'Supplier' : 'Customer'; p.id = p.supplierId || p.customerId; });
   parties.sort(function (a, b) { return String(a.name).localeCompare(String(b.name), 'bn'); });
   const partyMap = {}; parties.forEach(function (p) { partyMap[p.key] = p; });
   const zoneList = Array.from(new Set(parties.map(function (p) { return p.zone; }).filter(Boolean))).sort(function (a, b) { return String(a).localeCompare(String(b), 'bn'); });
-  const typeLabel = function (ty) { return ty === 'Supplier' ? t('সাপ্লায়ার','Supplier') : t('গ্রাহক','Customer'); };
 
   let editingId = null;
   let bankInfo = null;   // { amount, method, ourBankId, note }
   let records = [];
+  let curBalance = 0;   // পার্টির (মিলিত) বর্তমান ব্যালেন্স: ধনাত্মক = Dr, ঋণাত্মক = Cr
 
   content.innerHTML = `
     <style>
@@ -2730,6 +2743,7 @@ async function renderPaymentVoucherPage(content) {
       </div>
       <div class="field"><label>${t('পার্টি নামঃ','Party Name:')}</label><select id="payv_Party"></select></div>
       <div class="field"><label>${t('পার্টি হিসাবঃ','Party Balance:')}</label><input id="payv_Balance" readonly style="background:var(--bg);font-weight:700;"></div>
+      <div class="field"><label>${t('অবশিষ্ট হিসাবঃ (প্রদানের পর)','Remaining (after payment):')}</label><input id="payv_Remain" readonly style="background:var(--bg);font-weight:700;"></div>
       <div class="field"><label>${t('হিসাবের ধরনঃ','Account Type:')}</label>
         <select id="payv_Mode"><option value="Cash">${t('নগদ','Cash')}</option><option value="Bank">${t('ব্যাংক','Bank')}</option></select>
       </div>
@@ -2760,7 +2774,7 @@ async function renderPaymentVoucherPage(content) {
   function buildPartyOptions(zone, selectedKey) {
     const list = zone ? parties.filter(function (p) { return p.zone === zone; }) : parties;
     $('payv_Party').innerHTML = `<option value="">—</option>` + list.map(function (p) {
-      return `<option value="${attr(p.key)}" ${p.key === selectedKey ? 'selected' : ''}>${escapeHtml(p.name)} (${typeLabel(p.type)})${p.zone ? ' — ' + escapeHtml(p.zone) : ''}</option>`;
+      return `<option value="${attr(p.key)}" ${p.key === selectedKey ? 'selected' : ''}>${escapeHtml(p.name)}${p.zone ? ' — ' + escapeHtml(p.zone) : ''}</option>`;
     }).join('');
   }
 
@@ -2772,9 +2786,11 @@ async function renderPaymentVoucherPage(content) {
   function refreshSummary() {
     const total = currentTotal(), disc = currentDiscount();
     $('payv_Summary').innerHTML = `
-      <div>${t('মোট জমা','Total')}: <b>${total.toFixed(2)}</b></div>
+      <div>${t('মোট প্রদান','Total Paid')}: <b>${total.toFixed(2)}</b></div>
       <div>${t('ডিসকাউন্ট','Discount')}: <b>${disc.toFixed(2)}</b></div>
-      <div>${t('নীট জমা','Net')}: <b>${(total - disc).toFixed(2)}</b></div>`;
+      <div>${t('নীট প্রদান','Net Paid')}: <b>${(total - disc).toFixed(2)}</b></div>`;
+    // অবশিষ্ট হিসাব = বর্তমান ব্যালেন্স + মোট প্রদান (প্রদান পার্টির হিসাবে Debit হয়)
+    $('payv_Remain').value = partyMap[val('payv_Party')] ? payvBalanceText(curBalance + total) : '';
   }
   function bankSummaryText() {
     if (!bankInfo) return '';
@@ -2792,19 +2808,29 @@ async function renderPaymentVoucherPage(content) {
 
   async function loadBalance() {
     const p = partyMap[val('payv_Party')];
-    if (!p) { $('payv_Balance').value = ''; return; }
+    if (!p) { curBalance = 0; $('payv_Balance').value = ''; refreshSummary(); return; }
     $('payv_Balance').value = t('লোড হচ্ছে...','Loading...');
-    const { data } = await supabaseClient.from('PartyLedger').select('Balance').eq('PartyType', p.type).eq('PartyID', p.id).order('id', { ascending: false }).limit(1);
-    $('payv_Balance').value = payvBalanceText(p.type, (data && data[0]) ? data[0].Balance : 0);
+    // মিলিত পার্টির ক্ষেত্রে সাপ্লায়ার ও কাস্টমার — দুই লেজারের সর্বশেষ ব্যালেন্স যোগ করে একটামাত্র হিসাব
+    let sum = 0;
+    const ledgers = [];
+    if (p.supplierId) ledgers.push(['Supplier', p.supplierId]);
+    if (p.customerId) ledgers.push(['Customer', p.customerId]);
+    for (const lg of ledgers) {
+      const { data } = await supabaseClient.from('PartyLedger').select('Balance').eq('PartyType', lg[0]).eq('PartyID', lg[1]).order('id', { ascending: false }).limit(1);
+      sum += (data && data[0]) ? (Number(data[0].Balance) || 0) : 0;
+    }
+    curBalance = sum;
+    $('payv_Balance').value = payvBalanceText(curBalance);
+    refreshSummary();
   }
 
   function resetForm() {
-    editingId = null; bankInfo = null;
+    editingId = null; bankInfo = null; curBalance = 0;
     $('payv_Date').value = new Date().toISOString().slice(0, 10);
     $('payv_No').value = t('অটো তৈরি হবে','Auto');
     $('payv_ZoneCheck').checked = true; $('payv_Zone').disabled = false; $('payv_Zone').value = '';
     buildPartyOptions('', '');
-    $('payv_Balance').value = '';
+    $('payv_Balance').value = ''; $('payv_Remain').value = '';
     $('payv_Mode').value = 'Cash';
     $('payv_CashAmount').value = ''; $('payv_CashNote').value = '';
     $('payv_DiscCheck').checked = false; $('payv_Discount').value = ''; $('payv_Discount').style.display = 'none';
@@ -2825,7 +2851,7 @@ async function renderPaymentVoucherPage(content) {
     overlay.innerHTML = `
       <div style="background:var(--surface);border-radius:12px;max-width:380px;width:100%;padding:20px;max-height:90vh;overflow-y:auto;">
         <h3 style="margin:0 0 14px;font-size:15px;">${t('ব্যাংক প্রদানের বিবরণ','Bank Payment Details')}</h3>
-        <div class="field"><label>${t('পরিমাণ (মোট জমা)','Amount (Total)')} *</label><input id="payv_PopAmount" data-order="0" type="number" step="any" value="${attr(cur.amount)}" placeholder="৳"></div>
+        <div class="field"><label>${t('পরিমাণ (মোট প্রদান)','Amount (Total)')} *</label><input id="payv_PopAmount" data-order="0" type="number" step="any" value="${attr(cur.amount)}" placeholder="৳"></div>
         <div class="field"><label>${t('প্রদানের ধরন','Payment Method')} *</label>
           <select id="payv_PopMethod" data-order="1">
             <option value="CashToPartyBank" ${cur.method === 'CashToPartyBank' ? 'selected' : ''}>${t('নগদ টু পার্টি ব্যাংক','Cash to Party Bank')}</option>
@@ -2899,12 +2925,13 @@ async function renderPaymentVoucherPage(content) {
     }
     if (!(total > 0)) { showToast(t('পরিমাণ দিন।','Enter the amount.'), 'error'); return; }
     const discount = currentDiscount();
-    if (discount < 0 || discount > total) { showToast(t('ডিসকাউন্ট মোট জমার চেয়ে বেশি হতে পারে না।','Discount cannot exceed the total.'), 'error'); return; }
+    if (discount < 0 || discount > total) { showToast(t('ডিসকাউন্ট মোট প্রদানর চেয়ে বেশি হতে পারে না।','Discount cannot exceed the total.'), 'error'); return; }
 
     const rowData = {
       Date: date, PartyType: party.type, PartyID: party.id, BankCashAccID: bankAccId,
       Amount: total, DiscountAmount: discount, NetAmount: total - discount,
-      PayMode: mode, BankPayMethod: bankMethod, ZoneName: party.zone || null, Narration: note || null
+      PayMode: mode, BankPayMethod: bankMethod, ZoneName: party.zone || null, Narration: note || null,
+      PrevBalance: curBalance, RemainBalance: curBalance + total
     };
     try {
       if (editingId) {
@@ -2930,7 +2957,7 @@ async function renderPaymentVoucherPage(content) {
       const total = Number(r.Amount) || 0;
       const net = (r.NetAmount !== null && r.NetAmount !== undefined) ? Number(r.NetAmount) : total;
       const posted = r.Status === 'Posted';
-      const p = partyMap[r.PartyType + '|' + r.PartyID];
+      const p = partyMap[idToKey[r.PartyType + '|' + r.PartyID]];
       const tip = r.PayID + (p ? ' — ' + p.name : '');
       const ico = function (act, icon, title, dis) { return `<button type="button" class="payv-ico" data-act="${act}" data-id="${attr(r.PayID)}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
       return `<tr>
@@ -2946,7 +2973,7 @@ async function renderPaymentVoucherPage(content) {
     }).join('');
     wrap.innerHTML = `<table class="data-table"><thead><tr>
       <th style="text-align:center;">${t('ক্রঃ','No.')}</th><th style="text-align:center;">${t('তারিখ','Date')}</th><th style="text-align:center;">${t('জোন','Zone')}</th>
-      <th style="text-align:center;">${t('মোট জমা','Total')}</th><th style="text-align:center;">${t('নীট জমা','Net')}</th><th></th>
+      <th style="text-align:center;">${t('মোট প্রদান','Total')}</th><th style="text-align:center;">${t('নীট প্রদান','Net')}</th><th></th>
     </tr></thead><tbody>${rows}</tbody></table>`;
   }
   async function reloadList() { records = await api('list', { sheet: 'PaymentVoucher' }); renderList(); }
@@ -2956,7 +2983,7 @@ async function renderPaymentVoucherPage(content) {
     $('payv_Date').value = rec.Date || '';
     $('payv_No').value = rec.PayID;
     $('payv_Zone').value = ''; $('payv_ZoneCheck').checked = true; $('payv_Zone').disabled = false;
-    const key = rec.PartyType + '|' + rec.PartyID;
+    const key = idToKey[rec.PartyType + '|' + rec.PartyID] || '';
     buildPartyOptions('', key);
     const mode = rec.PayMode || (rec.BankCashAccID && rec.BankCashAccID !== 'BC-CASH' ? 'Bank' : 'Cash');
     $('payv_Mode').value = mode;
@@ -3049,7 +3076,7 @@ async function openPaymentVoucherPrint(rec, autoPrint) {
   const modeText = d.mode === 'Cash' ? 'নগদ'
     : ('ব্যাংক' + ((rec.BankCashAccID && rec.BankCashAccID !== 'BC-CASH' && d.acc) ? ' — ' + d.acc.AccountName : ' (নগদ টু পার্টি ব্যাংক)'));
   const partyBank = (d.mode === 'Bank' && (d.party.BankName || d.party.BankAccountNumber)) ? ((d.party.BankName || '') + (d.party.BankAccountNumber ? ' — ' + d.party.BankAccountNumber : '')) : '';
-  const shareText = 'পেমেন্ট ভাউচার ' + rec.PayID + '\nতারিখ: ' + formatShortDate(rec.Date) + '\nপার্টি: ' + partyName + '\nমোট জমা: ' + d.total.toFixed(2) + '\nনীট জমা: ' + d.net.toFixed(2);
+  const shareText = 'পেমেন্ট ভাউচার ' + rec.PayID + '\nতারিখ: ' + formatShortDate(rec.Date) + '\nপার্টি: ' + partyName + '\nমোট প্রদান: ' + d.total.toFixed(2) + '\nনীট প্রদান: ' + d.net.toFixed(2);
 
   const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>পেমেন্ট ভাউচার — ${escapeHtml(rec.PayID)}</title>
@@ -3080,9 +3107,10 @@ async function openPaymentVoucherPrint(rec, autoPrint) {
   </table>
   <table style="margin-top:-1px;">
     <tr><td colspan="2" style="text-align:left;">হিসাবের ধরনঃ ${escapeHtml(modeText)}${partyBank ? '<br>পার্টির ব্যাংকঃ ' + escapeHtml(partyBank) : ''}</td></tr>
-    <tr class="total-row"><td style="text-align:right;">মোট জমাঃ</td><td style="width:120px;">${d.total.toFixed(2)}</td></tr>
+    <tr class="total-row"><td style="text-align:right;">মোট প্রদানঃ</td><td style="width:120px;">${d.total.toFixed(2)}</td></tr>
     ${d.discount > 0 ? `<tr><td style="text-align:right;">ডিসকাউন্টঃ</td><td>− ${d.discount.toFixed(2)}</td></tr>` : ''}
-    <tr class="total-row"><td style="text-align:right;">নীট জমাঃ</td><td>${d.net.toFixed(2)}</td></tr>
+    <tr class="total-row"><td style="text-align:right;">নীট প্রদানঃ</td><td>${d.net.toFixed(2)}</td></tr>
+    ${(rec.PrevBalance !== null && rec.PrevBalance !== undefined) ? `<tr><td style="text-align:right;">পূর্বের হিসাবঃ</td><td>${formatAmountDrCr(rec.PrevBalance, true)}</td></tr><tr class="total-row"><td style="text-align:right;">অবশিষ্ট হিসাবঃ</td><td>${formatAmountDrCr(rec.RemainBalance, true)}</td></tr>` : ''}
     ${rec.Narration ? `<tr><td colspan="2" style="text-align:left;">বিবরণঃ ${escapeHtml(rec.Narration)}</td></tr>` : ''}
   </table>
   <div class="sign-row"><div>গ্রহীতার স্বাঃ</div><div>অথরাইজেশন স্বাঃ<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div><div>প্রস্তুতকারী স্বাঃ<br>${escapeHtml(rec.CreatedBy || '')}</div></div>
@@ -3105,7 +3133,7 @@ async function openPaymentVoucherPrint(rec, autoPrint) {
 async function sharePaymentVoucher(rec) {
   const d = await buildPaymentVoucherData(rec);
   const text = 'পেমেন্ট ভাউচার ' + rec.PayID + '\nতারিখ: ' + formatShortDate(rec.Date) + '\nপার্টি: ' + (d.party.CompanyName || d.party.Name || rec.PartyID) +
-    '\nমোট জমা: ' + d.total.toFixed(2) + '\nনীট জমা: ' + d.net.toFixed(2);
+    '\nমোট প্রদান: ' + d.total.toFixed(2) + '\nনীট প্রদান: ' + d.net.toFixed(2);
   if (navigator.share) { try { await navigator.share({ title: 'পেমেন্ট ভাউচার', text: text }); } catch (e) {} }
   else if (navigator.clipboard) { await navigator.clipboard.writeText(text); showToast(t('তথ্য ক্লিপবোর্ডে কপি হয়েছে।','Copied to clipboard.'), 'success'); }
 }
