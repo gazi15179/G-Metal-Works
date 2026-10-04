@@ -1778,7 +1778,15 @@ async function renderUserManagement(content) {
         <div class="field"><label>${t('পূর্ণ নাম','Full name')}</label><input id="um_FullName" value="${attr(u && u.FullName)}" ${dis}></div>
         <div class="field"><label>${t('ইমেইল (লগইনের জন্য)','Email (login)')}</label><input id="um_Email" type="email" value="${attr(u && u.Email)}" ${isEdit ? 'disabled' : ''}></div>
         ${readOnly ? '' : `<div class="field"><label>${isEdit ? t('নতুন পাসওয়ার্ড (খালি রাখলে আগেরটাই থাকবে)','New password (leave blank to keep)') : t('পাসওয়ার্ড (কমপক্ষে ৬ অক্ষর)','Password (min 6)')}</label><input id="um_Password" type="password" autocomplete="new-password"></div>`}
-        <div class="field"><label>${t('ভূমিকা','Role')}</label><select id="um_RoleID" ${dis}>${roleOpts}</select></div>
+        <div class="field"><label>${t('ভূমিকা','Role')}</label>
+          <div style="display:flex;gap:6px;"><select id="um_RoleID" ${dis} style="flex:1;min-width:0;">${roleOpts}</select>
+            ${readOnly ? '' : `<button type="button" class="btn btn-outline" id="umNewRoleBtn" style="width:auto;margin:0;padding:0 12px;white-space:nowrap;">➕ ${t('নতুন ভূমিকা','New role')}</button>`}</div>
+          <div id="umNewRole" style="display:none;border:1px dashed var(--border);border-radius:10px;padding:8px;margin-top:6px;">
+            <div class="field" style="margin-bottom:6px;"><label>${t('নতুন ভূমিকার নাম','New role name')}</label><input id="umRoleName" placeholder="${t('যেমনঃ প্রোডাকশন ম্যানেজার, স্টোর কিপার, হিসাবরক্ষক, বিক্রয়কর্মী','e.g. Production manager')}"></div>
+            <div class="field" style="margin-bottom:6px;"><label>${t('শুরুর অনুমতি (পরে "ভূমিকা ও অনুমতি" পেজে পেজ ধরে ঠিক করা যাবে)','Starting permission')}</label>
+              <select id="umRolePreset"><option value="0">${t('কিছুই না — শুধু ড্যাশবোর্ড (পরে ঠিক করব)','Nothing — dashboard only')}</option><option value="1">${t('সব পেজ শুধু দেখা','View all pages')}</option><option value="2">${t('সব পেজে এন্ট্রি ও এডিট (ডিলিট নয়)','Entry & edit everywhere (no delete)')}</option><option value="3">${t('সব পেজে সব (ডিলিটসহ)','Full everywhere')}</option><option value="admin">${t('পূর্ণ অ্যাডমিন','Full admin')}</option></select></div>
+            <div style="display:flex;gap:6px;justify-content:flex-end;"><button type="button" class="btn btn-outline" id="umRoleCancel" style="width:auto;margin:0;">✕</button><button type="button" class="btn btn-primary" id="umRoleSave" style="width:auto;margin:0;">💾 ${t('ভূমিকা সেভ','Save role')}</button></div>
+          </div></div>
         <div class="field"><label>${t('মোবাইল','Mobile')}</label><input id="um_Phone" value="${attr(u && u.Phone)}" ${dis}></div>
         <div class="field"><label>${t('অবস্থা','Status')}</label><select id="um_IsActive" ${dis}><option value="TRUE" ${!u || isTrue(u.IsActive) ? 'selected' : ''}>${t('সক্রিয়','Active')}</option><option value="FALSE" ${u && !isTrue(u.IsActive) ? 'selected' : ''}>${t('নিষ্ক্রিয়','Inactive')}</option></select></div>`,
       onSave: async function () {
@@ -1799,7 +1807,31 @@ async function renderUserManagement(content) {
         showToast(t('সেভ হয়েছে ✅','Saved ✅'), 'success'); reload();
       }
     });
-    if (readOnly) { const sb = document.getElementById('modalSaveBtn'); if (sb) sb.style.display = 'none'; }
+    if (readOnly) { const sb = document.getElementById('modalSaveBtn'); if (sb) sb.style.display = 'none'; return; }
+    // ফর্মের ভেতর থেকেই নতুন ভূমিকা
+    const box = document.getElementById('umNewRole');
+    document.getElementById('umNewRoleBtn').addEventListener('click', function () { box.style.display = 'block'; document.getElementById('umRoleName').focus(); });
+    document.getElementById('umRoleCancel').addEventListener('click', function () { box.style.display = 'none'; });
+    document.getElementById('umRoleSave').addEventListener('click', async function () {
+      const name = val('umRoleName').trim(), preset = val('umRolePreset');
+      if (!name) { showToast(t('ভূমিকার নাম লিখুন।','Enter a role name.'), 'error'); return; }
+      if (roles.some(function (r) { return r.Status !== 'Deleted' && String(r.RoleName).trim() === name; })) { showToast(t('এই নামে ভূমিকা আগেই আছে।','A role with this name exists.'), 'error'); return; }
+      let perms;
+      if (preset === 'admin') perms = { __admin: true };
+      else { const lv = Number(preset), pages = {}; MODULES.forEach(function (m) { (m.sub || []).forEach(function (sb) { if (sb.key !== 'roles' && sb.key !== 'userManagement' && lv) pages[sb.key] = lv; }); }); perms = { pages: pages }; }
+      this.disabled = true;
+      try {
+        const r = await api('create', { sheet: 'Roles', idField: 'RoleID', idPrefix: 'ROLE', requiredFields: ['RoleName'], data: { RoleName: name, Permissions: perms } });
+        const newRole = (r && r.RoleID) ? r : (await api('list', { sheet: 'Roles' })).find(function (x) { return x.RoleName === name && x.Status !== 'Deleted'; });
+        if (!newRole) throw new Error(t('ভূমিকা সেভ হয়েছে কিনা নিশ্চিত হওয়া যায়নি — পেজ রিফ্রেশ করুন।','Could not confirm the new role — refresh.'));
+        roles.push(newRole); rolesCache = roles;
+        const sel = document.getElementById('um_RoleID'), o = document.createElement('option');
+        o.value = newRole.RoleID; o.textContent = name; sel.appendChild(o); sel.value = newRole.RoleID;
+        box.style.display = 'none'; document.getElementById('umRoleName').value = '';
+        showToast(t('নতুন ভূমিকা তৈরি ও বাছাই হয়েছে ✅','Role created and selected ✅'), 'success');
+      } catch (err) { showToast(err.message, 'error'); }
+      this.disabled = false;
+    });
   }
 }
 /** নতুন ব্যবহারকারী বানানো / অন্যের পাসওয়ার্ড বদল — নিরাপত্তার জন্য Supabase-এর admin-users ফাংশনের মাধ্যমে */
