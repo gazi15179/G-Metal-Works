@@ -366,7 +366,10 @@ table.data-table{width:100%;border-collapse:collapse;font-size:13px;}
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="supabase.umd.js"></script>
+<script>if(!window.supabase){document.write('<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"><\/script>');}</script>
+<script>if(!window.supabase){document.write('<script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"><\/script>');}</script>
+<script>if(!window.supabase){document.write('<script src="https://fastly.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"><\/script>');}</script>
 <script>
 /* ============================================================
    ১) DATA: মডিউল ও সাব-মেনু
@@ -468,6 +471,12 @@ const READY_PAGES = ['dashboard','companyProfile','userManagement','roles','acti
 const SUPABASE_URL = "https://szapuukkvraycfqtfsdl.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_bDffkGoqkMO45bQ7L0t6kA_zdG7OZKZ";
 
+if (!window.supabase) {
+  const lerr = document.getElementById('loginError');
+  if (lerr) { lerr.textContent = 'সার্ভার-লাইব্রেরি (Supabase) লোড হয়নি — ইন্টারনেট সংযোগ দেখে পেজটা রিফ্রেশ (Ctrl+Shift+R) করুন।'; lerr.classList.add('show'); }
+  document.getElementById('loginForm').addEventListener('submit', function (e) { e.preventDefault(); });
+  throw new Error('Supabase library failed to load');
+}
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 let currentUser = null;
