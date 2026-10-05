@@ -581,12 +581,15 @@ async function postPartyLedgerEntry(partyType, partyId, date, refModule, refId, 
   const prevBalance = (existing && existing[0]) ? Number(existing[0].Balance) || 0 : 0;
   const newBalance = prevBalance + debit - credit;
 
-  const { error } = await supabaseClient.from('PartyLedger').insert({
+  const row = {
     PartyType: partyType, PartyID: partyId, Date: date, RefModule: refModule, RefID: refId,
     Debit: debit, Credit: credit, Balance: newBalance,
     CreatedBy: currentUser ? (currentUser.FullName || currentUser.Email || null) : null
-  });
-  if (error) throw new Error(error.message);
+  };
+  let ins = await supabaseClient.from('PartyLedger').insert(row);
+  // "CreatedBy" কলাম এখনো যোগ না হয়ে থাকলে (মাইগ্রেশন ১৭), ওই তথ্য ছাড়াই এন্ট্রিটা বসিয়ে দেওয়া হয় — যাতে হিসাব হারিয়ে না যায়
+  if (ins.error && /CreatedBy/i.test(ins.error.message || '')) { delete row.CreatedBy; ins = await supabaseClient.from('PartyLedger').insert(row); }
+  if (ins.error) throw new Error(ins.error.message);
 }
 
 /** ব্যাংক/ক্যাশ অ্যাকাউন্টের বইতে একটা এন্ট্রি বসায় — টাকা ঢুকলে Debit,
@@ -6632,14 +6635,31 @@ async function renderPartyLedger(content, partyTypeFilter) {
     lastParty = party; lastPartyName = party.name;
     wrap.innerHTML = `<div class="empty-state">${t('লোড হচ্ছে...','Loading...')}</div>`;
 
-    const allEntries = await api('list', { sheet:'PartyLedger' });
-    const rows = allEntries.filter(function (r) {
-      return (party.customerId && r.PartyType === 'Customer' && r.PartyID === party.customerId) ||
-             (party.supplierId && r.PartyType === 'Supplier' && r.PartyID === party.supplierId);
-    }).sort(function (a, b) { return String(a.Date || '').localeCompare(String(b.Date || '')); });
+    async function fetchLedgerOf(type, id) {
+      let out = [], from = 0;
+      for (;;) {
+        const { data, error } = await supabaseClient.from('PartyLedger').select('*').eq('PartyType', type).eq('PartyID', id).order('id', { ascending: true }).range(from, from + 999);
+        if (error) throw new Error(error.message);
+        out = out.concat(data || []);
+        if (!data || data.length < 1000) break;
+        from += 1000;
+      }
+      return out;
+    }
+    let rows = [];
+    try {
+      if (party.customerId) rows = rows.concat(await fetchLedgerOf('Customer', party.customerId));
+      if (party.supplierId) rows = rows.concat(await fetchLedgerOf('Supplier', party.supplierId));
+    } catch (err) {
+      wrap.innerHTML = `<div class="empty-state">${t('লেজার লোড করা যায়নি: ','Could not load the ledger: ')}${escapeHtml(err.message)}</div>`;
+      showToast(err.message, 'error');
+      return;
+    }
+    // দুই দিকের এন্ট্রি তারিখ অনুযায়ী, একই তারিখে এন্ট্রির ক্রম অনুযায়ী
+    rows.sort(function (a, b) { return String(a.Date || '').localeCompare(String(b.Date || '')) || ((Number(a.id) || 0) - (Number(b.id) || 0)); });
     lastRows = rows;
 
-    if (rows.length === 0) { wrap.innerHTML = `<div class="empty-state">${t('কোনো এন্ট্রি পাওয়া যায়নি।','No entries found.')}</div>`; return; }
+    if (rows.length === 0) { wrap.innerHTML = `<div class="empty-state">${t('কোনো এন্ট্রি পাওয়া যায়নি। (শুধু পোস্ট করা ভাউচারের হিসাবই লেজারে আসে)','No entries found. (Only posted vouchers appear in the ledger)')}</div>`; return; }
 
     // দুই দিকের (ক্রয় + বিক্রয়) এন্ট্রি একসাথে মিলিয়ে, তারিখ অনুযায়ী সাজিয়ে,
     // নতুন করে একটামাত্র চলমান ব্যালেন্স হিসাব করা হচ্ছে — টেবিলে যেটা আলাদা
@@ -6671,11 +6691,20 @@ async function renderPartyLedger(content, partyTypeFilter) {
       <table class="data-table"><thead><tr>${headCells}</tr></thead><tbody>${bodyRows}</tbody></table>`;
   }
 
-  searchInput.addEventListener('change', function () {
-    const key = findPartyByTypedValue(searchInput.value.trim());
-    if (!key && searchInput.value.trim()) { showToast(t('তালিকা থেকে একটা পার্টি বাছাই করুন।','Pick a party from the list.'), 'error'); return; }
-    loadLedgerForKey(key);
-  });
+  function tryLoadFromTyped(commit) {
+    const typed = searchInput.value.trim();
+    if (!typed) { if (commit) { currentPartyKey = null; loadLedgerForKey(null); } return; }
+    let key = findPartyByTypedValue(typed);
+    if (!key && commit) {
+      const low = typed.toLowerCase();
+      const matches = Array.from(datalist.options).filter(function (o) { return o.value.toLowerCase().indexOf(low) !== -1; });
+      if (matches.length === 1) { key = matches[0].getAttribute('data-key'); searchInput.value = matches[0].value; }
+    }
+    if (key) { if (key !== currentPartyKey) loadLedgerForKey(key); }
+    else if (commit) showToast(t('তালিকা থেকে একটা পার্টি বাছাই করুন।','Pick a party from the list.'), 'error');
+  }
+  searchInput.addEventListener('input', function () { tryLoadFromTyped(false); });
+  searchInput.addEventListener('change', function () { tryLoadFromTyped(true); });
 
   printBtn.addEventListener('click', function () {
     if (!lastRows.length) { showToast(t('কোনো এন্ট্রি নেই।','No entries.'), 'error'); return; }
