@@ -4455,63 +4455,69 @@ async function openProcessingForm() {
   const [items, warehouses] = await Promise.all([cachedList('Items'), cachedList('Warehouses')]);
   window.__procItems = items.filter(function (i) { return i.Status !== 'Deleted'; });
   window.__procItemMap = {}; items.forEach(function (i) { window.__procItemMap[i.ItemID] = i; });
-  window.__procByProductRows = []; // { name, itemId, qty, rate }
+  window.__procByProductRows = [];   // { name, itemId, qty, rate }
+  window.__procFGRows = [{}];        // { itemId, kg, rateKg, pcs, ratePc, driver }  — শুরুতেই একটা ফাঁকা লাইন
 
-  function opts(list, idF, labelF) {
-    return list.map(function (r) { return `<option value="${attr(r[idF])}">${escapeHtml(r[labelF])}</option>`; }).join('');
+  function opts(list, idF, labelF, selected) {
+    return list.map(function (r) { return `<option value="${attr(r[idF])}" ${selected && selected === r[idF] ? 'selected' : ''}>${escapeHtml(r[labelF])}</option>`; }).join('');
   }
+  const gv = function (id) { const el = document.getElementById(id); return el ? el.value : ''; };
 
+  // এই ভাউচারের সব অংশই বাই-প্রডাক্টের ঘরের মতো: শিরোনাম-সারি + ইনপুট-সারি, এক লাইনে পাশাপাশি; মোবাইলে ডানে-বামে সরানো যায়
   const bodyHtml = `
-    <h4 style="margin:0 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;">${t('কাঁচামাল ও গড় দর','Raw Material & Average Rate')}</h4>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;">
-      <div class="field"><label>${t('কাঁচামাল আইটেম','Raw Material Item')}</label><select id="pv_RawMaterialItemID"><option value="">—</option>${opts(window.__procItems, 'ItemID', 'ItemName')}</select></div>
-      <div class="field"><label>${t('তারিখ থেকে','Date From')}</label><input type="date" id="pv_DateFrom"></div>
-      <div class="field"><label>${t('তারিখ পর্যন্ত','Date To')}</label><input type="date" id="pv_DateTo"></div>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px;">
-      <div class="field"><label>${t('গুদাম','Warehouse')}</label><select id="pv_WarehouseID"><option value="">—</option>${opts(warehouses.filter(function(w){return w.Status!=='Deleted';}), 'WarehouseID', 'WarehouseName')}</select></div>
-      <div class="field"><label>${t('তারিখ (ভাউচার)','Date (Voucher)')}</label><input type="date" id="pv_Date" value="${new Date().toISOString().slice(0,10)}"></div>
-    </div>
-    <div style="margin-top:10px;"><button type="button" class="btn" style="width:auto;" id="pv_FetchRateBtn">${t('↻ গড় দর আনুন','↻ Fetch Average Rate')}</button> <span id="pv_RateHint" style="font-size:11.5px;color:var(--text-muted);margin-left:8px;"></span></div>
+    <style>
+      .pv-sec{margin:18px 0 8px;font-size:12.5px;color:var(--text-muted);text-transform:uppercase;font-weight:600;letter-spacing:.03em;}
+      .pv-sec:first-child{margin-top:0;}
+      .pv-box{overflow-x:auto;}
+      .pv-tbl{width:100%;border-collapse:collapse;}
+      .pv-tbl th{font-size:11px;text-align:center;padding:6px 4px;color:var(--text-muted);font-weight:600;border-bottom:1px solid var(--border);white-space:nowrap;}
+      .pv-tbl td{padding:4px;vertical-align:middle;}
+      .pv-tbl input,.pv-tbl select{width:100%;min-width:76px;height:32px;padding:5px 7px;font-size:12.5px;box-sizing:border-box;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);}
+      .pv-tbl input[readonly]{background:var(--bg);font-weight:600;}
+      .pv-tbl .pv-item{min-width:140px;}
+      .pv-tbl td.pv-val{text-align:center;font-weight:700;white-space:nowrap;padding:4px 8px;}
+      .pv-tbl tfoot td{font-weight:700;text-align:center;border-top:2px solid var(--border);padding:7px 4px;}
+      .pv-x{border:none;background:none;cursor:pointer;color:var(--danger);font-size:15px;}
+    </style>
 
-    <h4 style="margin:20px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('কাঁচামাল ও উৎপাদন খরচ','Raw Material & Processing Cost')}</h4>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;">
-      <div class="field"><label>${t('পরিমাণ (কেজি)','Quantity (kg)')}</label><input id="pv_Qty" type="number" step="any" oninput="recalcProcessing()"></div>
-      <div class="field"><label>${t('কাঁচামালের দর/কেজি','RM Rate/kg')}</label><input id="pv_RMRate" type="number" step="any" oninput="recalcProcessing()"></div>
-      <div class="field"><label>${t('কাঁচামাল মূল্য','RM Value')}</label><input id="pv_RMValue" readonly style="background:var(--bg);"></div>
-      <div class="field"><label>${t('উৎপাদন খরচ/কেজি','Processing Rate/kg')}</label><input id="pv_ProcRate" type="number" step="any" oninput="recalcProcessing()"></div>
-      <div class="field"><label>${t('উৎপাদন খরচ মূল্য','Processing Value')}</label><input id="pv_ProcValue" readonly style="background:var(--bg);"></div>
-      <div class="field"><label>${t('মোট','Total')}</label><input id="pv_Total" readonly style="background:var(--bg);font-weight:600;"></div>
-    </div>
+    <div class="pv-sec">${t('কাঁচামাল ও গড় দর','Raw Material & Average Rate')}</div>
+    <div class="pv-box"><table class="pv-tbl">
+      <thead><tr><th>${t('কাঁচামাল আইটেম','Raw Material Item')}</th><th>${t('গুদাম','Warehouse')}</th><th>${t('ভাউচার তারিখ','Voucher Date')}</th><th>${t('তারিখ থেকে','Date From')}</th><th>${t('তারিখ পর্যন্ত','Date To')}</th><th></th></tr></thead>
+      <tbody><tr>
+        <td><select id="pv_RawMaterialItemID" class="pv-item"><option value="">—</option>${opts(window.__procItems, 'ItemID', 'ItemName')}</select></td>
+        <td><select id="pv_WarehouseID"><option value="">—</option>${opts(warehouses.filter(function (w) { return w.Status !== 'Deleted'; }), 'WarehouseID', 'WarehouseName')}</select></td>
+        <td><input type="date" id="pv_Date" value="${new Date().toISOString().slice(0, 10)}"></td>
+        <td><input type="date" id="pv_DateFrom"></td>
+        <td><input type="date" id="pv_DateTo"></td>
+        <td><button type="button" class="btn" style="width:auto;padding:6px 10px;font-size:12px;white-space:nowrap;" id="pv_FetchRateBtn">${t('↻ গড় দর','↻ Avg Rate')}</button></td>
+      </tr></tbody></table></div>
+    <div id="pv_RateHint" style="font-size:11.5px;color:var(--text-muted);margin:4px 4px 0;"></div>
 
-    <h4 style="margin:20px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('বাই-প্রডাক্ট (ভাঙারি/কাটিং/অপচয়)','By-Products (scrap/cutting/wastage)')}</h4>
+    <div class="pv-sec">${t('কাঁচামাল ও উৎপাদন খরচ','Raw Material & Processing Cost')}</div>
+    <div class="pv-box"><table class="pv-tbl">
+      <thead><tr><th>${t('পরিমাণ (কেজি)','Quantity (kg)')}</th><th>${t('কাঁচামালের দর/কেজি','RM Rate/kg')}</th><th>${t('কাঁচামাল মূল্য','RM Value')}</th><th>${t('উৎপাদন খরচ/কেজি','Proc. Rate/kg')}</th><th>${t('উৎপাদন খরচ মূল্য','Proc. Value')}</th><th>${t('মোট','Total')}</th></tr></thead>
+      <tbody><tr>
+        <td><input id="pv_Qty" type="number" step="any" oninput="recalcProcessing()"></td>
+        <td><input id="pv_RMRate" type="number" step="any" oninput="recalcProcessing()"></td>
+        <td><input id="pv_RMValue" readonly></td>
+        <td><input id="pv_ProcRate" type="number" step="any" oninput="recalcProcessing()"></td>
+        <td><input id="pv_ProcValue" readonly></td>
+        <td><input id="pv_Total" readonly></td>
+      </tr></tbody></table></div>
+
+    <div class="pv-sec">${t('বাই-প্রডাক্ট (ভাঙারি/কাটিং/অপচয়)','By-Products (scrap/cutting/wastage)')}</div>
     <div id="pv_ByProductWrap"></div>
     <button type="button" class="btn" style="width:auto;margin-top:8px;" id="pv_AddByProductBtn">${t('+ বাই-প্রডাক্ট যোগ করুন','+ Add By-Product')}</button>
 
-    <h4 style="margin:20px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('ফলাফল — নেট ফিনিশড গুডস','Result — Net Finished Goods')}</h4>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
-      <div class="field"><label>${t('নেট ওজন','Net Weight')}</label><input id="pv_NetWeight" readonly style="background:var(--bg);font-weight:600;"></div>
-      <div class="field"><label>${t('নেট মূল্য','Net Value')}</label><input id="pv_NetValue" readonly style="background:var(--bg);font-weight:600;"></div>
-    </div>
+    <div class="pv-sec">${t('ফলাফল — নেট ফিনিশড গুডস','Result — Net Finished Goods')}</div>
+    <div class="pv-box"><table class="pv-tbl">
+      <thead><tr><th>${t('নেট ওজন','Net Weight')}</th><th>${t('নেট মূল্য','Net Value')}</th></tr></thead>
+      <tbody><tr><td><input id="pv_NetWeight" readonly></td><td><input id="pv_NetValue" readonly></td></tr></tbody></table></div>
 
-    <h4 style="margin:20px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('প্রস্তুত পণ্য (একই সার্কেল থেকে একাধিক)','Finished Goods (several from the same circle)')}</h4>
-    <style>
-      .pvfg-entry{display:grid;grid-template-columns:2.2fr 1fr 1fr 1fr 1fr auto;gap:8px;align-items:end;}
-      .pvfg-entry .field{margin-bottom:0;}
-      .pvfg-entry .field label{font-size:11px;}
-      #pv_FGWrap th{text-align:center;}
-      @media (max-width:700px){.pvfg-entry{grid-template-columns:1fr 1fr;}.pvfg-entry .pvfg-item{grid-column:1 / -1;}}
-    </style>
-    <div class="pvfg-entry">
-      <div class="field pvfg-item"><label>${t('প্রস্তুত পণ্য আইটেম','Finished Goods Item')}</label><select id="pv_fgItem"><option value="">—</option>${opts(window.__procItems, 'ItemID', 'ItemName')}</select></div>
-      <div class="field"><label>${t('পরিমাণ (কেজি)','Qty (kg)')}</label><input id="pv_fgKg" type="number" step="any"></div>
-      <div class="field"><label>${t('প্রতি কেজি দর','Rate / kg')}</label><input id="pv_fgRateKg" type="number" step="any"></div>
-      <div class="field"><label>${t('পরিমাণ (পিস)','Qty (pcs)')}</label><input id="pv_fgPcs" type="number" step="any"></div>
-      <div class="field"><label>${t('প্রতি পিস দর','Rate / pc')}</label><input id="pv_fgRatePc" type="number" step="any"></div>
-      <div class="field"><button type="button" id="pv_fgAddBtn" class="btn btn-primary" title="${attr(t('লাইন যোগ করুন','Add line'))}" style="width:auto;padding:0 16px;height:34px;font-size:18px;line-height:1;">＋</button></div>
-    </div>
-    <div style="font-size:11.5px;color:var(--text-muted);margin:6px 0 10px;">${t('মূল্য','Value')}: <b id="pv_fgValue">0.00</b> &nbsp;•&nbsp; ${t('কেজি-দর লিখলে পিস-দর, আর পিস-দর লিখলে কেজি-দর নিজে থেকে হিসাব হয়।','Typing the kg rate fills the piece rate, and the other way round.')}</div>
+    <div class="pv-sec">${t('প্রস্তুত পণ্য (একই সার্কেল থেকে একাধিক)','Finished Goods (several from the same circle)')}</div>
     <div id="pv_FGWrap"></div>
+    <button type="button" class="btn" style="width:auto;margin-top:8px;" id="pv_AddFGBtn">${t('+ প্রস্তুত পণ্য যোগ করুন','+ Add Finished Goods')}</button>
+    <div style="font-size:11.5px;color:var(--text-muted);margin:8px 2px 0;">${t('প্রতি কেজি দর নেট মূল্য ÷ নেট ওজন থেকে নিজে আসে, আর তা থেকেই পিস-দর হিসাব হয়। চাইলে কোনো দর নিজে লিখে বদলানো যায়; দরের ঘর খালি করলে আবার অটো। শেষ ঘরে Enter চাপলে নতুন লাইন আসে।','The kg rate fills in automatically from net value ÷ net weight and the piece rate follows from it. You can type a rate to override it; clear the field to go back to auto. Press Enter in the last field for a new line.')}</div>
     <div id="pv_FGRecon" style="margin-top:10px;"></div>`;
 
   openModal({
@@ -4522,11 +4528,10 @@ async function openProcessingForm() {
       const qty = Number(val('pv_Qty')) || 0;
       const rawMaterialItemId = val('pv_RawMaterialItemID');
       const warehouseId = val('pv_WarehouseID');
-      const fgLines = window.__procFGLines || [];
       if (!rawMaterialItemId) throw new Error(t('কাঁচামাল আইটেম বাছাই করা আবশ্যক।','Raw material item is required.'));
       if (!warehouseId) throw new Error(t('গুদাম বাছাই করা আবশ্যক।','Warehouse is required.'));
-      if (fgLines.length === 0) throw new Error(t('অন্তত একটা প্রস্তুত পণ্য লাইন যোগ করুন (＋ চাপুন)।','Add at least one finished goods line (press ＋).'));
       if (qty <= 0) throw new Error(t('পরিমাণ আবশ্যক।','Quantity is required.'));
+      const fgLines = window.__procCollectFG();   // লাইনে সমস্যা থাকলে নিজেই Error ছোঁড়ে
       // নেট ওজন ও নেট মূল্যের সাথে প্রস্তুত পণ্যের মোট না মিললে সেভের আগে জিজ্ঞেস করা হয়
       const fgTotKg = fgLines.reduce(function (s, l) { return s + l.kg; }, 0), fgTotPcs = fgLines.reduce(function (s, l) { return s + l.pcs; }, 0), fgTotVal = fgLines.reduce(function (s, l) { return s + l.value; }, 0);
       const netW = Number(val('pv_NetWeight')) || 0, netV = Number(val('pv_NetValue')) || 0;
@@ -4555,7 +4560,7 @@ async function openProcessingForm() {
         TotalValue: Number(val('pv_Total')) || 0,
         ByProductQty: byProductLines.reduce(function (s, l) { return s + l.Quantity; }, 0),
         ByProductValue: byProductLines.reduce(function (s, l) { return s + l.Value; }, 0),
-        NetWeight: Number(val('pv_NetWeight')) || 0, NetValue: Number(val('pv_NetValue')) || 0,
+        NetWeight: netW, NetValue: netV,
         FinishedGoodsItemID: fgLines[0].itemId, Pieces: fgTotPcs,
         RatePerKg: netW > 0 ? netV / netW : 0, RatePerPiece: fgTotPcs > 0 ? netV / fgTotPcs : 0
       };
@@ -4596,11 +4601,19 @@ async function openProcessingForm() {
     }
   });
 
+  // ---------- বাই-প্রডাক্ট লাইন ----------
+  function bpSyncFromDom() {
+    window.__procByProductRows = window.__procByProductRows.map(function (_, i) {
+      return { name: gv('pv_bp_' + i + '_name'), itemId: gv('pv_bp_' + i + '_item'), qty: gv('pv_bp_' + i + '_qty'), rate: gv('pv_bp_' + i + '_rate') };
+    });
+  }
   document.getElementById('pv_AddByProductBtn').addEventListener('click', function () {
+    bpSyncFromDom();                       // আগের লাইনে লেখা মান যেন নতুন লাইন যোগ করলে হারিয়ে না যায়
     window.__procByProductRows.push({});
     renderProcByProductRows();
+    const n = window.__procByProductRows.length - 1, first = document.getElementById('pv_bp_' + n + '_name');
+    if (first) first.focus();
   });
-
   function renderProcByProductRows() {
     const wrap = document.getElementById('pv_ByProductWrap');
     if (!wrap) return;
@@ -4611,95 +4624,71 @@ async function openProcessingForm() {
     const headCells = `<th>${t('নাম','Name')}</th><th>${t('আইটেম (ঐচ্ছিক)','Item (optional)')}</th><th>${t('পরিমাণ','Qty')}</th><th>${t('দর','Rate')}</th><th>${t('মূল্য','Value')}</th><th></th>`;
     const rows = window.__procByProductRows.map(function (row, idx) {
       return `<tr>
-        <td><input id="pv_bp_${idx}_name" value="${attr(row.name)}" style="width:100px;"></td>
-        <td><select id="pv_bp_${idx}_item"><option value="">—</option>${opts(window.__procItems, 'ItemID', 'ItemName')}</select></td>
-        <td><input id="pv_bp_${idx}_qty" type="number" step="any" value="${row.qty||''}" oninput="recalcProcessing()" style="width:80px;"></td>
-        <td><input id="pv_bp_${idx}_rate" type="number" step="any" value="${row.rate||''}" oninput="recalcProcessing()" style="width:80px;"></td>
-        <td><span id="pv_bp_${idx}_val">0.00</span></td>
-        <td><button type="button" onclick="window.__removeProcByProduct(${idx})">✕</button></td>
+        <td><input id="pv_bp_${idx}_name" value="${attr(row.name)}"></td>
+        <td><select id="pv_bp_${idx}_item" class="pv-item"><option value="">—</option>${opts(window.__procItems, 'ItemID', 'ItemName', row.itemId)}</select></td>
+        <td><input id="pv_bp_${idx}_qty" type="number" step="any" value="${attr(row.qty)}" oninput="recalcProcessing()"></td>
+        <td><input id="pv_bp_${idx}_rate" type="number" step="any" value="${attr(row.rate)}" oninput="recalcProcessing()"></td>
+        <td class="pv-val"><span id="pv_bp_${idx}_val">0.00</span></td>
+        <td><button type="button" class="pv-x" onclick="window.__removeProcByProduct(${idx})" title="${attr(t('মুছুন','Remove'))}">✕</button></td>
       </tr>`;
     }).join('');
-    wrap.innerHTML = `<table class="data-table"><thead><tr>${headCells}</tr></thead><tbody>${rows}</tbody></table>`;
+    wrap.innerHTML = `<div class="pv-box"><table class="pv-tbl"><thead><tr>${headCells}</tr></thead><tbody>${rows}</tbody></table></div>`;
+    if (window.recalcProcessing) window.recalcProcessing();
   }
   window.__renderProcByProductRows = renderProcByProductRows;
   window.__removeProcByProduct = function (idx) {
+    bpSyncFromDom();
     window.__procByProductRows.splice(idx, 1);
     renderProcByProductRows();
     recalcProcessing();
   };
   renderProcByProductRows();
 
-  // ---------- প্রস্তুত পণ্য লাইন (একই সার্কেল থেকে রাইচ/তরকারী/ডিস্কো ইত্যাদি) ----------
-  window.__procFGLines = [];   // { itemId, kg, rateKg, pcs, ratePc, value }
-  let fgDriver = 'kg';         // কোন দর লিখে মূল্য ঠিক হচ্ছে: কেজি-দর না পিস-দর
-  const fgNum = function (id) { return Number(document.getElementById(id).value) || 0; };
-  function fgSyncEntry() {
-    const kg = fgNum('pv_fgKg'), pcs = fgNum('pv_fgPcs');
-    let value;
-    if (fgDriver === 'kg') {
-      value = kg * fgNum('pv_fgRateKg');
-      document.getElementById('pv_fgRatePc').value = (pcs > 0 && value > 0) ? (value / pcs).toFixed(2) : '';
-    } else {
-      value = pcs * fgNum('pv_fgRatePc');
-      document.getElementById('pv_fgRateKg').value = (kg > 0 && value > 0) ? (value / kg).toFixed(2) : '';
-    }
-    document.getElementById('pv_fgValue').textContent = value.toFixed(2);
-    return value;
+  // ---------- প্রস্তুত পণ্য লাইন (একই সার্কেল থেকে রাইচ/তরকারী/ডিস্কো ইত্যাদি) — বাই-প্রডাক্টের ঘরের মতো এক লাইনে ৫টা ঘর ----------
+  // প্রতি কেজি দর ডিফল্টে নেট মূল্য ÷ নেট ওজন থেকে নিজে আসে (auto); সেই দর × কেজি = লাইনের মূল্য, আর মূল্য ÷ পিস = পিস-দর।
+  // ব্যবহারকারী কেজি-দর বা পিস-দর নিজে লিখলে ওই লাইন ম্যানুয়াল হয়ে যায়; দরের ঘর খালি করলে আবার অটো
+  function fgDefaultRate() {
+    const net = window.__procNet || { w: Number(gv('pv_NetWeight')) || 0, v: Number(gv('pv_NetValue')) || 0 };
+    return net.w > 0 ? net.v / net.w : 0;
   }
-  ['pv_fgKg', 'pv_fgPcs'].forEach(function (id) { document.getElementById(id).addEventListener('input', fgSyncEntry); });
-  document.getElementById('pv_fgRateKg').addEventListener('input', function () { fgDriver = 'kg'; fgSyncEntry(); });
-  document.getElementById('pv_fgRatePc').addEventListener('input', function () { fgDriver = 'pc'; fgSyncEntry(); });
-
-  function fgAddLine() {
-    const itemId = val('pv_fgItem');
-    const kg = fgNum('pv_fgKg'), pcs = fgNum('pv_fgPcs');
-    const value = fgSyncEntry();
-    if (!itemId) { showToast(t('প্রস্তুত পণ্য আইটেম বাছাই করুন।','Select a finished goods item.'), 'error'); return; }
-    if (!(kg > 0) && !(pcs > 0)) { showToast(t('কেজি অথবা পিসের পরিমাণ দিন।','Enter the kg or pieces quantity.'), 'error'); return; }
-    if (!(value > 0)) { showToast(t('দর দিন (কেজি-দর অথবা পিস-দর)।','Enter a rate (per kg or per piece).'), 'error'); return; }
-    window.__procFGLines.push({
-      itemId: itemId, kg: kg, pcs: pcs, value: value,
-      rateKg: kg > 0 ? value / kg : fgNum('pv_fgRateKg'), ratePc: pcs > 0 ? value / pcs : fgNum('pv_fgRatePc')
+  function fgRowValue(row) {
+    const kg = Number(row.kg) || 0, pcs = Number(row.pcs) || 0;
+    if (row.auto !== false) return kg * fgDefaultRate();
+    return row.driver === 'pc' ? pcs * (Number(row.ratePc) || 0) : kg * (Number(row.rateKg) || 0);   // ম্যানুয়ালে মূল্য ঠিক হয় যে দরটা লেখা হয়েছে সেটা দিয়ে
+  }
+  function fgSyncRowsFromDom() {
+    window.__procFGRows = window.__procFGRows.map(function (row, i) {
+      return { itemId: gv('pv_fg_' + i + '_item'), kg: gv('pv_fg_' + i + '_kg'), rateKg: gv('pv_fg_' + i + '_rk'), pcs: gv('pv_fg_' + i + '_pcs'), ratePc: gv('pv_fg_' + i + '_rp'), driver: row.driver || 'kg', auto: row.auto !== false };
     });
-    ['pv_fgKg', 'pv_fgRateKg', 'pv_fgPcs', 'pv_fgRatePc'].forEach(function (id) { document.getElementById(id).value = ''; });
-    document.getElementById('pv_fgItem').value = '';
-    document.getElementById('pv_fgValue').textContent = '0.00';
-    fgDriver = 'kg';
-    renderFGLines();
-    document.getElementById('pv_fgItem').focus();
   }
-  document.getElementById('pv_fgAddBtn').addEventListener('click', fgAddLine);
-  document.getElementById('pv_fgRatePc').addEventListener('keydown', function (e) { if (e.key === 'Enter') fgAddLine(); }); // শেষ ঘরে Enter চাপলেও লাইন যোগ হবে
-
-  function renderFGLines() {
-    const wrap = document.getElementById('pv_FGWrap');
-    if (!wrap) return;
-    const lines = window.__procFGLines;
-    if (lines.length === 0) {
-      wrap.innerHTML = `<div class="empty-state" style="padding:14px;">${t('এখনো কোনো প্রস্তুত পণ্য যোগ করা হয়নি।','No finished goods added yet.')}</div>`;
-    } else {
-      const sum = function (f) { return lines.reduce(function (s, l) { return s + l[f]; }, 0); };
-      wrap.innerHTML = `<table class="data-table"><thead><tr>
-          <th>${t('ক্রঃ','No.')}</th><th>${t('প্রস্তুত পণ্য','Finished Goods')}</th><th>${t('কেজি','kg')}</th><th>${t('দর/কেজি','Rate/kg')}</th><th>${t('পিস','Pcs')}</th><th>${t('দর/পিস','Rate/pc')}</th><th>${t('মূল্য','Value')}</th><th></th></tr></thead>
-        <tbody>${lines.map(function (l, i) {
-          const it = window.__procItemMap[l.itemId] || {};
-          return `<tr><td style="text-align:center;">${i + 1}</td><td>${escapeHtml(it.ItemName || l.itemId)}</td>
-            <td style="text-align:center;">${l.kg ? l.kg.toFixed(3) : '—'}</td><td style="text-align:center;">${l.kg ? l.rateKg.toFixed(2) : '—'}</td>
-            <td style="text-align:center;">${l.pcs || '—'}</td><td style="text-align:center;">${l.pcs ? l.ratePc.toFixed(2) : '—'}</td>
-            <td style="text-align:center;"><b>${l.value.toFixed(2)}</b></td>
-            <td style="text-align:center;"><button type="button" onclick="window.__removeProcFG(${i})" title="${attr(t('মুছুন','Remove'))}" style="border:none;background:none;cursor:pointer;color:var(--danger);">✕</button></td></tr>`;
-        }).join('')}</tbody>
-        <tfoot><tr style="font-weight:700;"><td colspan="2" style="text-align:center;">${t('মোট','Total')}</td><td style="text-align:center;">${sum('kg').toFixed(3)}</td><td></td><td style="text-align:center;">${sum('pcs')}</td><td></td><td style="text-align:center;">${sum('value').toFixed(2)}</td><td></td></tr></tfoot></table>`;
-    }
-    renderFGRecon();
+  // অটো লাইনগুলোর কেজি-দর, পিস-দর ও মূল্য নেট মূল্য/ওজন অনুযায়ী নতুন করে বসানো (নেট বদলালেও এটা চলে)
+  function fgRefreshAuto() {
+    const rate = fgDefaultRate();
+    window.__procFGRows.forEach(function (row, i) {
+      if (row.auto === false) return;
+      const kgEl = document.getElementById('pv_fg_' + i + '_kg'), pcsEl = document.getElementById('pv_fg_' + i + '_pcs');
+      if (!kgEl) return;
+      row.itemId = gv('pv_fg_' + i + '_item'); row.kg = kgEl.value; row.pcs = pcsEl.value;
+      const kg = Number(row.kg) || 0, pcs = Number(row.pcs) || 0, value = kg * rate;
+      row.rateKg = rate > 0 ? rate.toFixed(2) : '';
+      row.ratePc = (pcs > 0 && value > 0) ? (value / pcs).toFixed(2) : '';
+      document.getElementById('pv_fg_' + i + '_rk').value = row.rateKg;
+      document.getElementById('pv_fg_' + i + '_rp').value = row.ratePc;
+      const vs = document.getElementById('pv_fg_' + i + '_val'); if (vs) vs.textContent = value.toFixed(2);
+    });
+  }
+  function fgRefreshTotals() {
+    let tk = 0, tp = 0, tv = 0;
+    window.__procFGRows.forEach(function (row) { tk += Number(row.kg) || 0; tp += Number(row.pcs) || 0; tv += fgRowValue(row); });
+    const setTxt = function (id, txt) { const el = document.getElementById(id); if (el) el.textContent = txt; };
+    setTxt('pv_fgTotKg', tk.toFixed(3)); setTxt('pv_fgTotPcs', String(tp)); setTxt('pv_fgTotVal', tv.toFixed(2));
+    renderFGRecon(tk, tv);
   }
   // নেট ওজন ও নেট মূল্যের সাথে সমন্বয় (অমিল দেখায়)
-  function renderFGRecon() {
+  function renderFGRecon(tk, tv) {
     const box = document.getElementById('pv_FGRecon');
     if (!box) return;
-    const lines = window.__procFGLines;
-    const tk = lines.reduce(function (s, l) { return s + l.kg; }, 0), tv = lines.reduce(function (s, l) { return s + l.value; }, 0);
-    const nw = Number(document.getElementById('pv_NetWeight').value) || 0, nv = Number(document.getElementById('pv_NetValue').value) || 0;
+    const nw = Number(gv('pv_NetWeight')) || 0, nv = Number(gv('pv_NetValue')) || 0;
     const row = function (label, net, got, unit, dec, tol) {
       const diff = net - got, ok = Math.abs(diff) <= tol;
       return `<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:7px 10px;border-radius:8px;margin-bottom:6px;font-size:12.5px;background:${ok ? '#e5f5ec' : '#fdf3e3'};color:${ok ? 'var(--success)' : 'var(--amber-dim)'};">
@@ -4708,9 +4697,82 @@ async function openProcessingForm() {
     };
     box.innerHTML = row(t('ওজন','Weight'), nw, tk, t('কেজি','kg'), 3, 0.0005) + row(t('মূল্য','Value'), nv, tv, '৳', 2, 0.5);
   }
-  window.__removeProcFG = function (i) { window.__procFGLines.splice(i, 1); renderFGLines(); };
-  window.__procRenderFG = renderFGRecon;
-  renderFGLines();
+  function renderFGRows() {
+    const wrap = document.getElementById('pv_FGWrap');
+    if (!wrap) return;
+    const rows = window.__procFGRows;
+    wrap.innerHTML = `<div class="pv-box"><table class="pv-tbl"><thead><tr>
+        <th>${t('প্রস্তুত পণ্য আইটেম','Finished Goods Item')}</th><th>${t('পরিমাণ (কেজি)','Qty (kg)')}</th><th>${t('প্রতি কেজি দর','Rate / kg')}</th><th>${t('পরিমাণ (পিস)','Qty (pcs)')}</th><th>${t('প্রতি পিস দর','Rate / pc')}</th><th>${t('মূল্য','Value')}</th><th></th></tr></thead>
+      <tbody>${rows.map(function (row, i) {
+        return `<tr>
+          <td><select class="pv-item" id="pv_fg_${i}_item" data-i="${i}" data-f="item"><option value="">—</option>${opts(window.__procItems, 'ItemID', 'ItemName', row.itemId)}</select></td>
+          <td><input id="pv_fg_${i}_kg" data-i="${i}" data-f="kg" type="number" step="any" value="${attr(row.kg)}"></td>
+          <td><input id="pv_fg_${i}_rk" data-i="${i}" data-f="rk" type="number" step="any" value="${attr(row.rateKg)}"></td>
+          <td><input id="pv_fg_${i}_pcs" data-i="${i}" data-f="pcs" type="number" step="any" value="${attr(row.pcs)}"></td>
+          <td><input id="pv_fg_${i}_rp" data-i="${i}" data-f="rp" type="number" step="any" value="${attr(row.ratePc)}"></td>
+          <td class="pv-val"><span id="pv_fg_${i}_val">${fgRowValue(row).toFixed(2)}</span></td>
+          <td><button type="button" class="pv-x" onclick="window.__removeProcFG(${i})" title="${attr(t('মুছুন','Remove'))}">✕</button></td></tr>`;
+      }).join('')}</tbody>
+      <tfoot><tr><td>${t('মোট','Total')}</td><td id="pv_fgTotKg">0.000</td><td></td><td id="pv_fgTotPcs">0</td><td></td><td id="pv_fgTotVal">0.00</td><td></td></tr></tfoot></table></div>`;
+    fgRefreshAuto();
+    fgRefreshTotals();
+  }
+  // কোনো ঘরে লিখলে: লাইনের অবস্থা হালনাগাদ, অন্য দর/মূল্য/মোট নিজে থেকে হিসাব (লাইন নতুন করে না এঁকে, যাতে কার্সর না হারায়)
+  function fgOnInput(e) {
+    const el = e.target, f = el.getAttribute && el.getAttribute('data-f');
+    if (!f) return;
+    const i = Number(el.getAttribute('data-i')), row = window.__procFGRows[i];
+    if (!row) return;
+    // দরের ঘরে নিজে লিখলে ম্যানুয়াল; ঘর খালি করলে আবার অটো (নেট মূল্য ÷ নেট ওজন)
+    if (f === 'rk') { row.driver = 'kg'; row.auto = gv('pv_fg_' + i + '_rk') === ''; }
+    else if (f === 'rp') { row.driver = 'pc'; row.auto = gv('pv_fg_' + i + '_rp') === ''; }
+    row.itemId = gv('pv_fg_' + i + '_item'); row.kg = gv('pv_fg_' + i + '_kg'); row.rateKg = gv('pv_fg_' + i + '_rk'); row.pcs = gv('pv_fg_' + i + '_pcs'); row.ratePc = gv('pv_fg_' + i + '_rp');
+    if (row.auto !== false) { fgRefreshAuto(); fgRefreshTotals(); return; }
+    const kg = Number(row.kg) || 0, pcs = Number(row.pcs) || 0, value = fgRowValue(row);
+    if (row.driver === 'pc') { const rk = document.getElementById('pv_fg_' + i + '_rk'); rk.value = (kg > 0 && value > 0) ? (value / kg).toFixed(2) : ''; row.rateKg = rk.value; }
+    else { const rp = document.getElementById('pv_fg_' + i + '_rp'); rp.value = (pcs > 0 && value > 0) ? (value / pcs).toFixed(2) : ''; row.ratePc = rp.value; }
+    const vs = document.getElementById('pv_fg_' + i + '_val'); if (vs) vs.textContent = value.toFixed(2);
+    fgRefreshTotals();
+  }
+  const fgWrap = document.getElementById('pv_FGWrap');
+  fgWrap.addEventListener('input', fgOnInput);
+  fgWrap.addEventListener('change', fgOnInput);
+  function fgAddRow() {
+    fgSyncRowsFromDom();
+    window.__procFGRows.push({});
+    renderFGRows();
+    const first = document.getElementById('pv_fg_' + (window.__procFGRows.length - 1) + '_item');
+    if (first) first.focus();
+  }
+  document.getElementById('pv_AddFGBtn').addEventListener('click', fgAddRow);
+  fgWrap.addEventListener('keydown', function (e) {   // শেষ লাইনের শেষ ঘরে Enter চাপলে নতুন লাইন
+    const el = e.target;
+    if (e.key === 'Enter' && el.getAttribute && el.getAttribute('data-f') === 'rp' && Number(el.getAttribute('data-i')) === window.__procFGRows.length - 1) fgAddRow();
+  });
+  window.__removeProcFG = function (i) {
+    fgSyncRowsFromDom();
+    window.__procFGRows.splice(i, 1);
+    if (window.__procFGRows.length === 0) window.__procFGRows.push({});
+    renderFGRows();
+  };
+  // সেভের সময়: পূরণ করা লাইনগুলো যাচাই করে সংগ্রহ (পুরোপুরি ফাঁকা লাইন বাদ)
+  window.__procCollectFG = function () {
+    fgSyncRowsFromDom();
+    const out = [];
+    window.__procFGRows.forEach(function (row, i) {
+      const kg = Number(row.kg) || 0, pcs = Number(row.pcs) || 0, value = fgRowValue(row);
+      if (!row.itemId && !kg && !pcs && (row.auto !== false || (!Number(row.rateKg) && !Number(row.ratePc)))) return;
+      const no = i + 1;
+      if (!row.itemId) throw new Error(t('প্রস্তুত পণ্য লাইন ' + no + ': আইটেম বাছাই করুন।', 'Finished goods line ' + no + ': select an item.'));
+      if (!(kg > 0) && !(pcs > 0)) throw new Error(t('প্রস্তুত পণ্য লাইন ' + no + ': কেজি অথবা পিসের পরিমাণ দিন।', 'Finished goods line ' + no + ': enter the kg or pieces quantity.'));
+      if (!(value > 0)) throw new Error(t('প্রস্তুত পণ্য লাইন ' + no + ': দর দিন (কেজি-দর অথবা পিস-দর)।', 'Finished goods line ' + no + ': enter a rate (per kg or per piece).'));
+      out.push({ itemId: row.itemId, kg: kg, pcs: pcs, value: value, rateKg: kg > 0 ? value / kg : (Number(row.rateKg) || 0), ratePc: pcs > 0 ? value / pcs : (Number(row.ratePc) || 0) });
+    });
+    if (out.length === 0) throw new Error(t('অন্তত একটা প্রস্তুত পণ্য লাইন পূরণ করুন।', 'Fill in at least one finished goods line.'));
+    return out;
+  };
+  window.__procRenderFG = function () { fgRefreshAuto(); fgRefreshTotals(); };
+  renderFGRows();
   wireSequentialKeyNav(document.getElementById('modalBody'));
 }
 
@@ -4740,6 +4802,7 @@ window.recalcProcessing = function () {
 
   const netWeight = qty - bpQtySum;
   const netValue = total - bpValueSum;
+  window.__procNet = { w: netWeight, v: netValue };
   document.getElementById('pv_NetWeight').value = netWeight.toFixed(3);
   document.getElementById('pv_NetValue').value = netValue.toFixed(2);
 
