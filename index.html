@@ -429,7 +429,7 @@ const MODULES = [
   ]},
   {key:'production', bn:'প্রোডাকশন', en:'Production', sub:[
     {key:'bom', bn:'বিল অফ ম্যাটেরিয়ালস (BOM)', en:'Bill of Materials'},
-    {key:'processing', bn:'প্রসেসিং', en:'Processing'},
+    {key:'processing', bn:'প্রসেসিং', en:'Processing'},{key:'prodDaily', bn:'দৈনিক উৎপাদন', en:'Daily Production'},
     {key:'pOrder', bn:'উৎপাদন আদেশ', en:'Production Order'},
     {key:'pmi', bn:'উৎপাদনে মালামাল ইস্যু', en:'Material Issue to Production'},{key:'fgr', bn:'প্রস্তুত পণ্য গ্রহণ', en:'Finished Goods Receive'},
     {key:'pReport', bn:'উৎপাদন প্রতিবেদন', en:'Production Report'},
@@ -463,7 +463,7 @@ const READY_PAGES = ['dashboard','companyProfile','userManagement','roles','acti
   'pr','po','grn','pi','pret','pvoucherList',
   'stockOverview','goodsReceive','materialIssue','stockTransfer','stockAdjust','stockLedger',
   'so','dc','si','sr','custLedger',
-  'bom','processing','pOrder','pmi','fgr',
+  'bom','processing','prodDaily','pOrder','pmi','fgr',
   'coa','bankCash','jv','cv','pv','rv','bankBook','trialBalance',
   'empCategories','empInfo','workRoles','sizeRates','attendance','dailyProduction','leave','payroll','salaryIssue','payHeads','hrReports','payslip',
   'invReport','salesReport','purReport','prodReport','finReport',
@@ -1311,6 +1311,7 @@ async function navigateTo(pageKey, moduleLabel, pageLabel) {
     else if (pageKey === 'backup') await renderBackupRestorePage(content);
     else if (pageKey === 'pOrder') await renderProductionOrderPage(content);
     else if (pageKey === 'processing') await renderProcessingPage(content);
+    else if (pageKey === 'prodDaily') await renderProdDailyPage(content);
     else if (SIMPLE_VOUCHER_CONFIGS[pageKey]) await renderSimpleVoucherPage(content, SIMPLE_VOUCHER_CONFIGS[pageKey]);
     else if (pageKey === 'bankBook') await renderBankCashBook(content);
     else if (pageKey === 'trialBalance') await renderTrialBalance(content);
@@ -5808,6 +5809,278 @@ async function openLeaveForm(existing) {
  * কাঁচামালের দর দুই তারিখের মধ্যে GRN থেকে গড় (weighted average) করে
  * অটো-বসানো হয়, ব্যবহারকারী চাইলে বদলাতে পারবেন।
  */
+/* ============================================================
+   প্রোডাকশন → দৈনিক উৎপাদন
+   মাসের প্রতিটা দিন এক সারি: কাঁচামাল পরিমাণ | কাটিং | ভাঙ্গাড়ী | অপচয় | তৈরী পণ্য পরিমাণ | তৈরী পণ্য আইটেম-১/২/৩ (কেজি ও পিস)
+   • শিরোনামের নিচের সারিতে আইটেম বাছাই: কাঁচামাল (সার্কেল) আর তিনটা তৈরী পণ্য
+   • শিরোনাম দুই সারি, তারিখের কলাম আর নিচের মোট — স্ক্রল করলেও স্থির (ফ্রিজ) থাকে
+   • তৈরী পণ্য পরিমাণ নিজে বসে = কাঁচামাল − কাটিং − ভাঙ্গাড়ী − অপচয় (হাতে বদলানো যায়, কমলা = হাতে লেখা)
+   • সেভ করা দিন লক থাকে; ✏️ চাপলে এডিট, 💾 সেভ, 🗑️ মুছুন, 👁️ দেখুন
+   ============================================================ */
+async function renderProdDailyPage(content) {
+  const items = (await cachedList('Items')).filter(function (i) { return i.Status !== 'Deleted'; })
+    .sort(function (a, b) { return String(a.ItemName).localeCompare(String(b.ItemName), 'bn'); });
+  const itemName = {}; items.forEach(function (i) { itemName[i.ItemID] = i.ItemName; });
+  const dayBn = ['রবি', 'সোম', 'মঙ্গল', 'বুধ', 'বৃহঃ', 'শুক্র', 'শনি'], dayEn = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const now = new Date();
+  const todayIso = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+  const st = { month: todayIso.slice(0, 7), raw: '', fg: ['', '', ''], rows: {}, others: [] };
+  const NUM = ['raw', 'cut', 'scrap', 'waste', 'fgq', 'f1k', 'f1p', 'f2k', 'f2p', 'f3k', 'f3p'];
+  const COL = { raw: 'RawQty', cut: 'CuttingQty', scrap: 'ScrapQty', waste: 'WasteQty', fgq: 'FGQty', f1k: 'FG1Kg', f1p: 'FG1Pcs', f2k: 'FG2Kg', f2p: 'FG2Pcs', f3k: 'FG3Kg', f3p: 'FG3Pcs' };
+  const n = function (x) { return Number(x) || 0; };
+  const show = function (x, dec) { const v = Number(x); if (!v) return ''; return String(+v.toFixed(dec === undefined ? 3 : dec)); };
+  const $ = function (id) { return document.getElementById(id); };
+
+  function blankRow() { return { id: null, v: {}, fgqOv: false, fgItems: [null, null, null], saved: false, edit: false, dirty: false, by: '' }; }
+  function row(d) { return st.rows[d] = st.rows[d] || blankRow(); }
+  function locked(r) { return r.saved && !r.edit; }
+  function autoFgq(r) { const raw = n(r.v.raw); if (!raw) return 0; return raw - n(r.v.cut) - n(r.v.scrap) - n(r.v.waste); }
+  function fgq(r) { return r.fgqOv ? n(r.v.fgq) : autoFgq(r); }
+  function fgKgSum(r) { return n(r.v.f1k) + n(r.v.f2k) + n(r.v.f3k); }
+  function hasAny(r) { return NUM.some(function (k) { return n(r.v[k]) !== 0; }); }
+  function itemFor(r, i) { return (r.saved && r.fgItems[i]) ? r.fgItems[i] : st.fg[i]; }   // সেভ করা দিনের আইটেম বদলায় না
+  function days() {
+    const p = st.month.split('-').map(Number), nd = new Date(p[0], p[1], 0).getDate(), out = [];
+    for (let i = 1; i <= nd; i++) out.push(st.month + '-' + String(i).padStart(2, '0'));
+    return out;
+  }
+  const opt = function (sel) { return '<option value="">—</option>' + items.map(function (i) { return `<option value="${attr(i.ItemID)}" ${sel === i.ItemID ? 'selected' : ''}>${escapeHtml(i.ItemName)}</option>`; }).join(''); };
+
+  content.innerHTML = `
+    <style>
+      .pdl-bar{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin-bottom:10px;}
+      .pdl-bar .field{margin:0;} .pdl-bar .field label{font-size:11px;font-weight:600;}
+      .pdl-sum{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;margin:6px 0 10px;}
+      .pdl-scroll{overflow:auto;max-height:calc(100vh - 290px);border:1px solid var(--border);border-radius:10px;}
+      .pdl-tbl{border-collapse:separate;border-spacing:0;min-width:1180px;width:100%;}
+      .pdl-tbl th,.pdl-tbl td{border-bottom:1px solid var(--border);border-right:1px solid var(--border);padding:4px 5px;background:var(--surface);text-align:center;font-size:12px;white-space:nowrap;}
+      .pdl-tbl thead tr.h1 th{position:sticky;top:0;z-index:3;height:34px;box-sizing:border-box;background:var(--bg);font-weight:700;}
+      .pdl-tbl thead tr.h2 th{position:sticky;top:34px;z-index:3;background:#f3f5f8;font-weight:400;}
+      .pdl-tbl .dt{position:sticky;left:0;z-index:2;text-align:left;min-width:74px;font-weight:600;}
+      .pdl-tbl thead .dt{z-index:5;} .pdl-tbl tfoot .dt{z-index:5;}
+      .pdl-tbl tfoot td{position:sticky;bottom:0;z-index:3;background:var(--bg);font-weight:700;}
+      .pdl-tbl input{width:78px;height:28px;padding:2px 5px;font-size:12px;text-align:right;box-sizing:border-box;}
+      .pdl-tbl .pair{display:flex;gap:3px;justify-content:center;} .pdl-tbl .pair input{width:64px;}
+      .pdl-tbl select{min-width:150px;height:28px;font-size:12px;}
+      .pdl-tbl .u{font-size:10.5px;color:var(--text-muted);}
+      .pdl-tbl tr.saved td{background:#f5fbf6;} .pdl-tbl tr.dirty td{background:#fff7e8;} .pdl-tbl tr.today td.dt{color:var(--amber-dim);}
+      .pdl-tbl tr.fri td.dt{color:var(--danger);}
+      .pdl-tbl input.ov{border-color:#d97706;background:rgba(217,119,6,.10);font-weight:700;}
+      .pdl-tbl td.warn input[data-f="fgq"]{border-color:var(--danger);box-shadow:0 0 0 1px var(--danger) inset;}
+      .pdl-chip{font-size:10px;color:var(--text-muted);margin-top:2px;max-width:140px;overflow:hidden;text-overflow:ellipsis;}
+      .pdl-ico{border:1px solid var(--border);background:var(--surface);border-radius:6px;padding:2px 5px;font-size:12px;cursor:pointer;margin:0 1px;line-height:1.2;}
+      .pdl-ico:disabled{opacity:.35;cursor:default;}
+    </style>
+    <div class="page-head"><div><h1>${t('দৈনিক উৎপাদন','Daily Production')}</h1>
+      <p>${t('কাঁচামাল (সার্কেল) থেকে প্রতিদিন কী তৈরি হলো — কাটিং, ভাঙ্গাড়ী, অপচয় ও তৈরী পণ্য','What was made from the raw material (circle) each day — cutting, scrap, wastage and finished goods')}</p></div></div>
+    <div class="panel" style="padding:14px;">
+      <div class="pdl-bar">
+        <div class="field"><label>${t('মাস','Month')}</label><input type="month" id="pdlMonth" value="${st.month}"></div>
+        <button type="button" class="btn btn-primary" id="pdlSaveAll" style="width:auto;">💾 ${t('সেভ','Save')}</button>
+        <span id="pdlOthers" style="font-size:12px;color:var(--text-muted);"></span>
+      </div>
+      <div class="pdl-sum" id="pdlSum"></div>
+      <div class="pdl-scroll" id="pdlWrap"><div class="empty-state">${t('লোড হচ্ছে...','Loading...')}</div></div>
+      <div style="font-size:11.5px;color:var(--text-muted);margin-top:8px;">${t('তৈরী পণ্য পরিমাণ নিজে বসে (কাঁচামাল − কাটিং − ভাঙ্গাড়ী − অপচয়); হাতে বদলানো যায় (কমলা = হাতে লেখা)। আইটেমগুলোর মোট কেজি না মিললে লাল দাগ। সেভ করা দিন লক থাকে — ✏️ চাপলে এডিট।','Finished qty fills itself (raw − cutting − scrap − wastage); it can be typed over (orange). A red mark means the item kg do not add up. Saved days are locked — press ✏️ to edit.')}</div>
+    </div>`;
+
+  // ---------- আঁকা ----------
+  function cellNum(d, f, r) { return `<input type="number" step="any" min="0" inputmode="decimal" data-d="${d}" data-f="${f}" value="${attr(f === 'fgq' ? show(fgq(r)) : show(r.v[f]))}" class="${f === 'fgq' && r.fgqOv ? 'ov' : ''}" ${locked(r) ? 'disabled' : ''}>`; }
+  function fgCell(d, r, i) {
+    const k = 'f' + (i + 1);
+    const stored = r.saved && r.fgItems[i] && r.fgItems[i] !== st.fg[i] ? `<div class="pdl-chip" title="${attr(t('এই দিনে সেভ করা আইটেম','Item saved on this day'))}">↳ ${escapeHtml(itemName[r.fgItems[i]] || r.fgItems[i])}</div>` : '';
+    return `<td><div class="pair"><input type="number" step="any" min="0" inputmode="decimal" data-d="${d}" data-f="${k}k" placeholder="${t('কেজি','kg')}" value="${attr(show(r.v[k + 'k']))}" ${locked(r) ? 'disabled' : ''}><input type="number" step="any" min="0" inputmode="decimal" data-d="${d}" data-f="${k}p" placeholder="${t('পিস','pcs')}" value="${attr(show(r.v[k + 'p'], 0))}" ${locked(r) ? 'disabled' : ''}></div>${stored}</td>`;
+  }
+  function warnOf(r) { const s = fgKgSum(r); return s > 0 && Math.abs(s - fgq(r)) > 0.0005; }
+  function rowHtml(d) {
+    const r = row(d), dt = new Date(d + 'T00:00:00'), wd = dt.getDay();
+    const ico = function (act, icon, title, dis) { return `<button type="button" class="pdl-ico" data-act="${act}" data-d="${d}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
+    const warn = warnOf(r);
+    return `<tr data-d="${d}" class="${r.saved ? 'saved' : ''} ${r.dirty ? 'dirty' : ''} ${d === todayIso ? 'today' : ''} ${wd === 5 ? 'fri' : ''}">
+      <td class="dt">${d.slice(8)} ${currentLang === 'bn' ? dayBn[wd] : dayEn[wd]}</td>
+      <td>${cellNum(d, 'raw', r)}</td><td>${cellNum(d, 'cut', r)}</td><td>${cellNum(d, 'scrap', r)}</td><td>${cellNum(d, 'waste', r)}</td>
+      <td class="${warn ? 'warn' : ''}" title="${warn ? attr(t('তৈরী পণ্য আইটেমগুলোর মোট ', 'Finished items total ') + show(fgKgSum(r)) + t(' কেজি — মিলছে না', ' kg — does not match')) : ''}">${cellNum(d, 'fgq', r)}</td>
+      ${fgCell(d, r, 0)}${fgCell(d, r, 1)}${fgCell(d, r, 2)}
+      <td style="white-space:nowrap;">${ico('view', '👁️', t('দেখুন', 'View'), !hasAny(r))}${ico('edit', '✏️', t('এডিট', 'Edit'), !locked(r))}${ico('save', '💾', t('সেভ', 'Save'), !r.dirty)}${ico('del', '🗑️', t('মুছুন', 'Delete'), !r.saved && !hasAny(r))}</td>
+    </tr>`;
+  }
+  function totals() {
+    const t0 = {}; NUM.forEach(function (k) { t0[k] = 0; });
+    days().forEach(function (d) { const r = st.rows[d]; if (!r) return; NUM.forEach(function (k) { t0[k] += k === 'fgq' ? fgq(r) : n(r.v[k]); }); });
+    return t0;
+  }
+  function footHtml() {
+    const s = totals();
+    const pair = function (i) { const k = 'f' + (i + 1); return `${show(s[k + 'k']) || 0} ${t('কেজি', 'kg')}${s[k + 'p'] ? ' / ' + show(s[k + 'p'], 0) + ' ' + t('পিস', 'pcs') : ''}`; };
+    return `<tr><td class="dt">${t('মোট', 'Total')}</td><td>${show(s.raw) || 0}</td><td>${show(s.cut) || 0}</td><td>${show(s.scrap) || 0}</td><td>${show(s.waste) || 0}</td><td>${show(s.fgq) || 0}</td><td>${pair(0)}</td><td>${pair(1)}</td><td>${pair(2)}</td><td></td></tr>`;
+  }
+  function renderSum() {
+    const s = totals(), dirty = days().filter(function (d) { return st.rows[d] && st.rows[d].dirty; }).length;
+    const savedDays = days().filter(function (d) { return st.rows[d] && st.rows[d].saved; }).length;
+    const yieldPct = s.raw > 0 ? (s.fgq / s.raw * 100) : 0;
+    $('pdlSum').innerHTML = `<span>${t('কাঁচামাল', 'Raw')} <b>${show(s.raw) || 0}</b> ${t('কেজি', 'kg')}</span>
+      <span>→ ${t('তৈরী পণ্য', 'Finished')} <b>${show(s.fgq) || 0}</b> ${t('কেজি', 'kg')} (${yieldPct.toFixed(1)}%)</span>
+      <span>${t('কাটিং', 'Cutting')} <b>${show(s.cut) || 0}</b></span><span>${t('ভাঙ্গাড়ী', 'Scrap')} <b>${show(s.scrap) || 0}</b></span><span>${t('অপচয়', 'Wastage')} <b>${show(s.waste) || 0}</b></span>
+      <span>${t('সেভ করা দিন', 'Saved days')} <b>${savedDays}</b></span>${dirty ? `<span style="color:#d97706;">● ${dirty} ${t('দিন সেভ হয়নি', 'day(s) unsaved')}</span>` : ''}`;
+    const foot = $('pdlFoot'); if (foot) foot.innerHTML = footHtml();
+  }
+  function render() {
+    const fgHead = function (i) { return `<th>${t('তৈরী পণ্য আইটেম-', 'Finished item-')}${currentLang === 'bn' ? '১২৩'[i] : (i + 1)}</th>`; };
+    const fgSel = function (i) { return `<th><select data-fgsel="${i}">${opt(st.fg[i])}</select><div class="u">${t('কেজি · পিস', 'kg · pcs')}</div></th>`; };
+    $('pdlWrap').innerHTML = `<table class="pdl-tbl"><thead>
+        <tr class="h1"><th class="dt">${t('তারিখ', 'Date')}</th><th>${t('কাঁচামাল', 'Raw material')}</th><th>${t('কাটিং', 'Cutting')}</th><th>${t('ভাঙ্গাড়ী', 'Scrap')}</th><th>${t('অপচয়', 'Wastage')}</th><th>${t('তৈরী পণ্য পরিমাণ', 'Finished qty')}</th>${fgHead(0)}${fgHead(1)}${fgHead(2)}<th></th></tr>
+        <tr class="h2"><th class="dt"><span class="u">${t('আইটেম →', 'Item →')}</span></th><th><select id="pdlRaw">${opt(st.raw)}</select><div class="u">${t('পরিমাণ (কেজি)', 'qty (kg)')}</div></th>
+          <th class="u">${t('কেজি', 'kg')}</th><th class="u">${t('কেজি', 'kg')}</th><th class="u">${t('কেজি', 'kg')}</th><th class="u">${t('কেজি', 'kg')}</th>${fgSel(0)}${fgSel(1)}${fgSel(2)}<th></th></tr>
+      </thead><tbody>${days().map(rowHtml).join('')}</tbody><tfoot id="pdlFoot">${footHtml()}</tfoot></table>`;
+    renderSum();
+  }
+  function refreshRow(d) {
+    const tr = $('pdlWrap').querySelector(`tr[data-d="${d}"]`);
+    if (tr) tr.outerHTML = rowHtml(d);
+    renderSum();
+  }
+
+  // ---------- লোড ----------
+  async function load() {
+    st.rows = {};
+    const dd = days(), from = dd[0], to = dd[dd.length - 1];
+    const { data, error } = await supabaseClient.from('DailyProduction').select('*').gte('ProdDate', from).lte('ProdDate', to);
+    if (error) {
+      $('pdlWrap').innerHTML = `<div class="empty-state">${escapeHtml(error.message)}<br>${t('(Supabase-এ 24_daily_production_register.sql রান করা আছে কিনা দেখুন)', '(check that 24_daily_production_register.sql has been run in Supabase)')}</div>`;
+      return;
+    }
+    const all = (data || []).slice().sort(function (a, b) { return String(b.ProdDate).localeCompare(String(a.ProdDate)); });
+    const raws = Array.from(new Set(all.map(function (r) { return r.RawItemID; })));
+    if (!st.raw && raws.length) st.raw = all[0].RawItemID;   // মাসে এন্ট্রি থাকলে সর্বশেষ কাঁচামালটাই শুরুতে
+    const mine = all.filter(function (x) { return x.RawItemID === st.raw; });
+    if (!st.fg.some(Boolean) && mine.length) st.fg = [mine[0].FG1ItemID || '', mine[0].FG2ItemID || '', mine[0].FG3ItemID || ''];
+    mine.forEach(function (x) {
+      const d = String(x.ProdDate).slice(0, 10), r = row(d);
+      r.id = x.id; r.saved = true; r.by = x.CreatedBy || '';
+      NUM.forEach(function (k) { r.v[k] = x[COL[k]]; });
+      r.fgItems = [x.FG1ItemID || null, x.FG2ItemID || null, x.FG3ItemID || null];
+      r.fgqOv = Math.abs(n(x.FGQty) - autoFgq(r)) > 0.0005;
+    });
+    st.others = raws.filter(function (id) { return id !== st.raw; });
+    $('pdlOthers').innerHTML = st.others.length ? t('এই মাসে অন্য কাঁচামালেরও এন্ট্রি আছে: ', 'Other raw materials this month: ') + st.others.map(function (id) { return `<a style="cursor:pointer;color:var(--amber-dim);" data-raw="${attr(id)}">${escapeHtml(itemName[id] || id)}</a>`; }).join(', ') : '';
+    render();
+  }
+  function anyDirty() { return Object.keys(st.rows).some(function (d) { return st.rows[d].dirty; }); }
+  function okToLeave() { return !anyDirty() || confirm(t('কিছু দিন সেভ হয়নি — সেগুলো বাদ দিয়ে চালিয়ে যাবেন?', 'Some days are not saved — discard them and continue?')); }
+
+  // ---------- সেভ ----------
+  async function saveDays(list) {
+    const todo = list.filter(function (d) { return st.rows[d] && st.rows[d].dirty; });
+    if (!todo.length) { showToast(t('সেভ করার মতো কোনো পরিবর্তন নেই।', 'Nothing to save.'), 'success'); return; }
+    if (!st.raw) { showToast(t('শিরোনামের নিচে কাঁচামাল আইটেম বাছাই করুন।', 'Select the raw material item under the header.'), 'error'); return; }
+    for (const d of todo) {   // আগে সব যাচাই
+      const r = st.rows[d], lbl = d.slice(8) + ' ' + t('তারিখ', '');
+      if (NUM.some(function (k) { return n(r.v[k]) < 0; })) { showToast(lbl + t(': ঋণাত্মক সংখ্যা চলবে না।', ': negative numbers are not allowed.'), 'error'); return; }
+      for (let i = 0; i < 3; i++) {
+        const k = 'f' + (i + 1);
+        if ((n(r.v[k + 'k']) || n(r.v[k + 'p'])) && !itemFor(r, i)) { showToast(lbl + t(': তৈরী পণ্য আইটেম-' + (i + 1) + ' বাছাই করুন (শিরোনামের নিচে)।', ': select finished item-' + (i + 1) + ' (under the header).'), 'error'); return; }
+      }
+      if (hasAny(r) && !(n(r.v.raw) > 0)) { showToast(lbl + t(': কাঁচামালের পরিমাণ দিন।', ': enter the raw material quantity.'), 'error'); return; }
+    }
+    let saved = 0, removed = 0;
+    try {
+      for (const d of todo) {
+        const r = st.rows[d];
+        if (!hasAny(r)) {   // সব ঘর খালি করে সেভ = দিনটা মুছে ফেলা
+          if (r.id) { const { error } = await supabaseClient.from('DailyProduction').delete().eq('id', r.id); if (error) throw new Error(error.message); removed++; }
+          st.rows[d] = blankRow(); continue;
+        }
+        const rec = { ProdDate: d, RawItemID: st.raw, CreatedBy: currentUser ? (currentUser.FullName || currentUser.Email || null) : null, updated_at: new Date().toISOString() };
+        NUM.forEach(function (k) { rec[COL[k]] = k === 'fgq' ? fgq(r) : n(r.v[k]); });
+        for (let i = 0; i < 3; i++) rec['FG' + (i + 1) + 'ItemID'] = itemFor(r, i) || null;
+        let res;
+        if (r.id) res = await supabaseClient.from('DailyProduction').update(rec).eq('id', r.id).select();
+        else res = await supabaseClient.from('DailyProduction').insert(rec).select();
+        if (res.error) throw new Error(res.error.message);
+        const x = (res.data && res.data[0]) || {};
+        r.id = x.id || r.id; r.saved = true; r.edit = false; r.dirty = false; r.by = rec.CreatedBy || '';
+        r.fgItems = [rec.FG1ItemID, rec.FG2ItemID, rec.FG3ItemID];
+        saved++;
+      }
+      showToast(t('সেভ হয়েছে ✅', 'Saved ✅') + (removed ? ' (' + removed + t(' দিন মুছে ফেলা হলো)', ' day(s) removed)') : ''), 'success');
+    } catch (err) { showToast(err.message, 'error'); }
+    render();
+  }
+
+  // ---------- ঘটনা ----------
+  const wrap = $('pdlWrap');
+  wrap.addEventListener('input', function (e) {
+    const el = e.target, d = el.getAttribute('data-d'), f = el.getAttribute('data-f');
+    if (!d || !f) return;
+    const r = row(d);
+    r.v[f] = el.value;
+    if (f === 'fgq') { r.fgqOv = el.value !== ''; el.classList.toggle('ov', r.fgqOv); }
+    r.dirty = true;
+    const tr = el.closest('tr'); tr.classList.add('dirty');
+    if (!r.fgqOv && ['raw', 'cut', 'scrap', 'waste'].indexOf(f) !== -1) { const q = tr.querySelector('[data-f="fgq"]'); if (q) q.value = show(autoFgq(r)); }
+    const fq = tr.querySelector('[data-f="fgq"]').closest('td'), w = warnOf(r);
+    fq.classList.toggle('warn', w);
+    fq.title = w ? t('তৈরী পণ্য আইটেমগুলোর মোট ', 'Finished items total ') + show(fgKgSum(r)) + t(' কেজি — মিলছে না', ' kg — does not match') : '';
+    tr.querySelectorAll('[data-act="save"],[data-act="view"],[data-act="del"]').forEach(function (b) { b.disabled = false; });
+    renderSum();
+  });
+  wrap.addEventListener('change', function (e) {
+    const el = e.target;
+    if (el.id === 'pdlRaw') {
+      if (!okToLeave()) { el.value = st.raw; return; }
+      st.raw = el.value; st.fg = ['', '', '']; load(); return;
+    }
+    if (el.hasAttribute('data-fgsel')) {
+      const i = Number(el.getAttribute('data-fgsel'));
+      st.fg[i] = el.value;
+      // নতুন/সেভ-না-করা দিনগুলোতে এই আইটেম বসবে; আগে সেভ করা দিন নিজের আইটেমেই থাকে (নিচে ছোট করে দেখায়)
+      render(); return;
+    }
+    if (el.getAttribute('data-f') === 'fgq' && el.value === '') { const r = row(el.getAttribute('data-d')); r.fgqOv = false; el.value = show(autoFgq(r)); }
+  });
+  wrap.addEventListener('click', async function (e) {
+    const b = e.target.closest('[data-act]'); if (!b || b.disabled) return;
+    const d = b.getAttribute('data-d'), act = b.getAttribute('data-act'), r = row(d);
+    if (act === 'edit') { r.edit = true; refreshRow(d); const f = wrap.querySelector(`tr[data-d="${d}"] [data-f="raw"]`); if (f) f.focus(); }
+    else if (act === 'save') await saveDays([d]);
+    else if (act === 'del') {
+      if (r.saved) {
+        if (!confirm(t('এই দিনের এন্ট্রি মুছে ফেলবেন?', 'Delete this day’s entry?'))) return;
+        const { error } = await supabaseClient.from('DailyProduction').delete().eq('id', r.id);
+        if (error) { showToast(error.message, 'error'); return; }
+        showToast(t('মুছে ফেলা হয়েছে ✅', 'Deleted ✅'), 'success');
+      }
+      st.rows[d] = blankRow(); refreshRow(d);
+    }
+    else if (act === 'view') {
+      const q = fgq(r), raw = n(r.v.raw);
+      const line = function (lbl, val) { return `<tr><td style="text-align:left;">${lbl}</td><td style="text-align:right;"><b>${val}</b></td></tr>`; };
+      let body = `<table class="data-table"><tbody>
+        ${line(t('কাঁচামাল', 'Raw material'), escapeHtml(itemName[st.raw] || st.raw || '—') + ' — ' + (show(raw) || 0) + ' ' + t('কেজি', 'kg'))}
+        ${line(t('কাটিং', 'Cutting'), (show(r.v.cut) || 0) + ' ' + t('কেজি', 'kg'))}${line(t('ভাঙ্গাড়ী', 'Scrap'), (show(r.v.scrap) || 0) + ' ' + t('কেজি', 'kg'))}${line(t('অপচয়', 'Wastage'), (show(r.v.waste) || 0) + ' ' + t('কেজি', 'kg'))}
+        ${line(t('তৈরী পণ্য পরিমাণ', 'Finished qty'), (show(q) || 0) + ' ' + t('কেজি', 'kg') + (raw ? ' (' + (q / raw * 100).toFixed(1) + '%)' : ''))}`;
+      for (let i = 0; i < 3; i++) {
+        const k = 'f' + (i + 1), it = itemFor(r, i);
+        if (n(r.v[k + 'k']) || n(r.v[k + 'p'])) body += line(escapeHtml(itemName[it] || it || (t('আইটেম-', 'Item-') + (i + 1))), (show(r.v[k + 'k']) || 0) + ' ' + t('কেজি', 'kg') + ' / ' + (show(r.v[k + 'p'], 0) || 0) + ' ' + t('পিস', 'pcs'));
+      }
+      body += `</tbody></table>${r.by ? `<div style="font-size:11.5px;color:var(--text-muted);margin-top:8px;">${t('সেভ করেছেন', 'Saved by')}: ${escapeHtml(r.by)}</div>` : ''}`;
+      openModal({ title: t('দৈনিক উৎপাদন — ', 'Daily production — ') + formatShortDate(d), bodyHtml: body, hideSave: true, onSave: async function () {} });
+    }
+  });
+  $('pdlSaveAll').addEventListener('click', function () { saveDays(days()); });
+  $('pdlMonth').addEventListener('change', function () {
+    if (!okToLeave()) { this.value = st.month; return; }
+    st.month = this.value || todayIso.slice(0, 7); load();
+  });
+  $('pdlOthers').addEventListener('click', function (e) {
+    const a = e.target.closest('[data-raw]'); if (!a) return;
+    if (!okToLeave()) return;
+    st.raw = a.getAttribute('data-raw'); st.fg = ['', '', '']; load();
+  });
+  wireSequentialKeyNav(wrap);
+  await load();
+}
+
 async function renderProcessingPage(content) {
   content.innerHTML = `
     <div class="page-head"><div>
@@ -9523,7 +9796,7 @@ const ALL_DATA_SHEETS = [
   'MaterialIssue','MI_Lines','StockTransfer','Transfer_Lines','StockAdjustment','Adjustment_Lines','CurrentStock','StockLedger',
   'SalesOrder','SO_Lines','DeliveryChallan','DC_Lines','SalesInvoice','SI_Lines','SalesReturn','SR_Lines',
   'BOM','BOM_Lines','ProductionOrder','ProductionMaterialIssue','PMI_Lines','FinishedGoodsReceive','FGR_Lines',
-  'ProcessingVoucher','ProcessingByProduct_Lines','ProcessingFG_Lines',
+  'ProcessingVoucher','ProcessingByProduct_Lines','ProcessingFG_Lines','DailyProduction',
   'ChartOfAccounts','BankCashAccounts','JournalVoucher','JV_Lines','ContraVoucher','PaymentVoucher','ReceiptVoucher','BankCashBook','PartyLedger',
   'Attendance','LeaveRequests','Payroll','Payroll_Lines','Payroll_Details','SalaryIssue','EmployeeCategories','WorkRoles','SizeRates','TeamProduction','TeamProduction_Items','TeamProduction_Members','TeamProduction_Costs','DailyBonus',
   'SystemSettings'
