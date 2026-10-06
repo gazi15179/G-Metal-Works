@@ -6136,7 +6136,9 @@ async function openProcessingForm(existingId) {
         ]);
         if (ri.error) throw new Error(ri.error.message);
         if (rm.error) throw new Error(rm.error.message);
-        const costRows = (rc && !rc.error && rc.data) || [];
+        // শুধু এখনকার খরচের খাতের সারি — কোনো খাত (যেমন ধোলাই) কর্মচারীর কাজে বদলালে তার আগের খরচ-সারি দুবার ধরা হবে না
+        const costIds = {}; gpc.costRoles.forEach(function (ro) { costIds[ro.RoleID] = true; });
+        const costRows = ((rc && !rc.error && rc.data) || []).filter(function (c) { return costIds[c.RoleID]; });
         const hDate = {}; heads.forEach(function (h) { hDate[String(h.TeamProdID)] = String(h.WorkDate).slice(0, 10); });
         const byTp = {}; (ri.data || []).forEach(function (x) { (byTp[String(x.TeamProdID)] = byTp[String(x.TeamProdID)] || []).push(x); });
         const ok = function (id) { return !fgIds.length || fgIds.indexOf(id) !== -1; };
