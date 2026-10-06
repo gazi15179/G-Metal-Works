@@ -227,6 +227,18 @@ table.data-table{width:100%;border-collapse:collapse;font-size:13px;}
 .modal-lang-switch button.active{background:var(--ink-900);color:var(--amber);}
 #modalUserName{font-size:11px;color:var(--text-muted);white-space:nowrap;max-width:90px;overflow:hidden;text-overflow:ellipsis;flex-shrink:1;}
 .modal-close{width:30px;height:30px;border-radius:8px;border:none;background:var(--bg);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.modal-winbtn{font-size:15px;line-height:1;color:var(--text);}
+.modal-winbtn:hover{background:var(--border);}
+#modalCloseBtn:hover{background:#fdecec;color:var(--danger);}
+.modal-overlay.max-on{padding:0;}
+.modal.modal-max{max-width:none;width:100vw;height:100vh;max-height:100vh;border-radius:0;}
+.modal.modal-max .modal-body{flex:1;}
+#modalTaskbar{position:fixed;left:50%;transform:translateX(-50%);bottom:10px;max-width:calc(100vw - 20px);display:none;gap:8px;padding:6px 8px;background:var(--ink-900);border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.35);z-index:150;overflow-x:auto;}
+.win-chip{display:flex;align-items:center;border:1px solid #3a4352;border-radius:8px;background:#232b38;flex-shrink:0;}
+.win-chip-main{border:none;background:none;color:var(--amber);font-family:inherit;font-size:12px;font-weight:600;padding:6px 10px;cursor:pointer;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.win-chip-main:hover{background:#2c3646;border-radius:8px 0 0 8px;}
+.win-chip-x{border:none;background:none;color:#9aa4b2;font-size:12px;padding:6px 8px;cursor:pointer;border-left:1px solid #3a4352;}
+.win-chip-x:hover{color:#ff8a8a;}
 @media (max-width:640px){
   .modal-toolbar #modalClock, #modalUserName{display:none;}
 }
@@ -316,7 +328,9 @@ table.data-table{width:100%;border-collapse:collapse;font-size:13px;}
           <button type="button" data-lang="bn">বাং</button><button type="button" data-lang="en">EN</button>
         </div>
         <span id="modalUserName" title=""></span>
-        <button class="modal-close" id="modalCloseBtn">✕</button>
+        <button type="button" class="modal-close modal-winbtn" id="modalMinBtn" title="Minimize / মিনিমাইজ">&#8211;</button>
+        <button type="button" class="modal-close modal-winbtn" id="modalMaxBtn" title="Maximize / ফুল উইন্ডো">&#9635;</button>
+        <button type="button" class="modal-close modal-winbtn" id="modalCloseBtn" title="Close / বন্ধ">✕</button>
       </div>
     </div>
     <div class="modal-body" id="modalBody"></div>
@@ -7738,7 +7752,93 @@ async function renderBackupRestorePage(content) {
    ============================================================ */
 let modalOnSaveHandler = null;
 
+/* ============================================================
+   উইন্ডো-ব্যবস্থা: প্রতিটা ফর্ম-উইন্ডোতে মিনিমাইজ (−), ম্যাক্সিমাইজ (▢), বন্ধ (✕)
+   • মিনিমাইজ করলে উইন্ডোর ভেতরের সব কিছু (লেখা মান, লাইন, হিসাব) অক্ষত অবস্থায় নিচের টাস্কবারে জমা থাকে
+   • একসাথে যত খুশি উইন্ডো মিনিমাইজ করা যায়; টাস্কবারের নামে চাপলে আগের অবস্থাতেই ফিরে আসে
+   • পর্দায় সবসময় একটাই উইন্ডো দেখা যায় (বাকিগুলো ডম থেকে সরানো থাকে, তাই ঘরের আইডি গুলিয়ে যায় না)
+   ============================================================ */
+let modalWindows = [];       // মিনিমাইজ করা: { id, key, title, holder, onSave, wide, max, errText, errShow }
+let modalCurrent = null;     // এখন দেখা যাচ্ছে যেটা: { id, key, max }
+let modalSeq = 0;
+let modalPendingKey = null;  // স্টেটফুল ফর্মের ধরন-চাবি (নিচের singleWindow দেখুন)
+
+function guessWinKey(bodyHtml) { const m = /id="([A-Za-z0-9]+)_/.exec(bodyHtml || ''); return m ? m[1] : 'modal'; }
+
+function applyModalMax() {
+  const on = !!(modalCurrent && modalCurrent.max);
+  document.getElementById('modalBox').classList.toggle('modal-max', on);
+  document.getElementById('modalOverlay').classList.toggle('max-on', on);
+  const b = document.getElementById('modalMaxBtn');
+  if (b) { b.innerHTML = on ? '&#10064;' : '&#9635;'; b.title = on ? 'Restore / ছোট করুন' : 'Maximize / ফুল উইন্ডো'; }
+}
+
+function renderModalTaskbar() {
+  let bar = document.getElementById('modalTaskbar');
+  if (!bar) {
+    bar = document.createElement('div'); bar.id = 'modalTaskbar';
+    document.body.appendChild(bar);
+    bar.addEventListener('click', function (e) {
+      const r = e.target.closest('[data-win-restore]');
+      if (r) { restoreModal(Number(r.getAttribute('data-win-restore'))); return; }
+      const x = e.target.closest('[data-win-close]');
+      if (x) {
+        const id = Number(x.getAttribute('data-win-close'));
+        if (confirm(t('এই মিনিমাইজ করা উইন্ডোটা বন্ধ করবেন? এতে এর ভেতরের সব লেখা তথ্য মুছে যাবে।','Close this minimized window? Everything entered in it will be lost.'))) {
+          modalWindows = modalWindows.filter(function (w) { return w.id !== id; });
+          renderModalTaskbar();
+        }
+      }
+    });
+  }
+  bar.style.display = modalWindows.length ? 'flex' : 'none';
+  bar.innerHTML = modalWindows.map(function (w) {
+    return `<div class="win-chip"><button type="button" class="win-chip-main" data-win-restore="${w.id}" title="${attr(t('ফিরিয়ে আনুন','Restore'))}: ${attr(w.title)}">&#128470; ${escapeHtml(w.title)}</button><button type="button" class="win-chip-x" data-win-close="${w.id}" title="${attr(t('বন্ধ করুন','Close'))}">✕</button></div>`;
+  }).join('');
+}
+
+function minimizeModal() {
+  if (!modalCurrent) return;
+  const body = document.getElementById('modalBody'), errBox = document.getElementById('modalError');
+  const holder = document.createElement('div');            // ভেতরের নোডগুলো সরিয়ে রাখা হয় — মুছে নয়, তাই মান ও ইভেন্ট-হ্যান্ডলার অক্ষত
+  while (body.firstChild) holder.appendChild(body.firstChild);
+  modalWindows.push({
+    id: modalCurrent.id, key: modalCurrent.key, title: document.getElementById('modalTitle').textContent, holder: holder,
+    onSave: modalOnSaveHandler, wide: document.getElementById('modalBox').classList.contains('modal-wide'), max: modalCurrent.max,
+    errText: errBox.textContent, errShow: errBox.classList.contains('show')
+  });
+  modalCurrent = null; modalOnSaveHandler = null;
+  document.getElementById('modalOverlay').classList.remove('show');
+  document.getElementById('modalBox').classList.remove('modal-max');
+  document.getElementById('modalOverlay').classList.remove('max-on');
+  renderModalTaskbar();
+}
+
+function restoreModal(id) {
+  if (modalCurrent) minimizeModal();                       // এখন যেটা খোলা, সেটা আগে মিনিমাইজ (হারায় না)
+  const idx = modalWindows.findIndex(function (w) { return w.id === id; });
+  if (idx === -1) return;
+  const w = modalWindows.splice(idx, 1)[0];
+  const body = document.getElementById('modalBody'), errBox = document.getElementById('modalError');
+  body.innerHTML = '';
+  while (w.holder.firstChild) body.appendChild(w.holder.firstChild);
+  document.getElementById('modalTitle').textContent = w.title;
+  document.getElementById('modalBox').classList.toggle('modal-wide', !!w.wide);
+  errBox.textContent = w.errText || ''; errBox.classList.toggle('show', !!w.errShow);
+  modalOnSaveHandler = w.onSave;
+  modalCurrent = { id: w.id, key: w.key, max: w.max };
+  document.getElementById('modalOverlay').classList.add('show');
+  document.getElementById('modalUserName').textContent = currentUser ? (currentUser.FullName || currentUser.Email) : '';
+  applyModalMax();
+  updateModalLangButtons();
+  renderModalTaskbar();
+}
+
 function openModal(opts) {
+  if (modalCurrent) minimizeModal();                       // আগের উইন্ডো খোলা থাকলে সেটা টাস্কবারে চলে যায়, মুছে যায় না
+  const key = opts.winKey || modalPendingKey || guessWinKey(opts.bodyHtml);
+  modalPendingKey = null;
+  modalCurrent = { id: ++modalSeq, key: key, max: false };
   document.getElementById('modalTitle').textContent = opts.title;
   document.getElementById('modalBody').innerHTML = opts.bodyHtml;
   document.getElementById('modalError').classList.remove('show');
@@ -7747,18 +7847,47 @@ function openModal(opts) {
   document.getElementById('modalUserName').textContent = currentUser ? (currentUser.FullName || currentUser.Email) : '';
   document.getElementById('modalUserName').title = currentUser ? (currentUser.FullName || currentUser.Email) : '';
   modalOnSaveHandler = opts.onSave;
+  applyModalMax();
   updateModalLangButtons();
 }
 
 function closeModal() {
   document.getElementById('modalOverlay').classList.remove('show');
   document.getElementById('modalBody').innerHTML = '';
-  modalOnSaveHandler = null;
+  modalOnSaveHandler = null; modalCurrent = null;
+  applyModalMax();
+  renderModalTaskbar();
 }
 
 document.getElementById('modalCloseBtn').addEventListener('click', closeModal);
+document.getElementById('modalMinBtn').addEventListener('click', minimizeModal);
+document.getElementById('modalMaxBtn').addEventListener('click', function () { if (!modalCurrent) return; modalCurrent.max = !modalCurrent.max; applyModalMax(); });
+document.querySelector('#modalBox .modal-head').addEventListener('dblclick', function (e) { if (e.target.closest('button, .modal-lang-switch')) return; document.getElementById('modalMaxBtn').click(); });
 document.getElementById('modalCancelBtn').addEventListener('click', closeModal);
-document.getElementById('modalOverlay').addEventListener('click', function (e) { if (e.target === this) closeModal(); });
+// বাইরে ক্লিক করলে আর বন্ধ নয়, মিনিমাইজ — যাতে ভুলে ক্লিকে লেখা কাজ হারিয়ে না যায়
+document.getElementById('modalOverlay').addEventListener('click', function (e) { if (e.target === this) minimizeModal(); });
+
+// যে ফর্মগুলোর ভেতরের অবস্থা গ্লোবাল ভেরিয়েবলে থাকে (লাইনের তালিকা ইত্যাদি), তাদের একই ধরনের একসাথে দুটো উইন্ডো চলে না —
+// ওই ধরনের একটা মিনিমাইজ অবস্থায় থাকলে নতুন না খুলে সেটাই ফিরিয়ে আনা হয় (নইলে একটার তথ্য অন্যটায় গুলিয়ে যেত)
+function winGuard(key) {
+  const w = modalWindows.find(function (x) { return x.key === key; });
+  if (!w) return false;
+  restoreModal(w.id);
+  showToast(t('এই ধরনের একটা উইন্ডো আগে থেকেই মিনিমাইজ করা ছিল — সেটাই ফিরিয়ে আনা হলো। নতুন করে শুরু করতে আগে এটা সেভ বা বন্ধ (✕) করুন।','A window of this type was already minimized — it has been restored. Save or close (✕) it first to start a new one.'), 'success');
+  return true;
+}
+function singleWindow(orig, key) {
+  return async function () {
+    if (winGuard(key)) return;
+    modalPendingKey = key;
+    try { return await orig.apply(this, arguments); } finally { modalPendingKey = null; }
+  };
+}
+openPurchaseVoucherForm = singleWindow(openPurchaseVoucherForm, 'pv3');
+openSalesVoucherForm = singleWindow(openSalesVoucherForm, 'sv3');
+openProcessingForm = singleWindow(openProcessingForm, 'pv');
+openItemForm = singleWindow(openItemForm, 'it');
+openDocumentForm = singleWindow(openDocumentForm, 'doc');
 
 document.getElementById('modalSaveBtn').addEventListener('click', async function () {
   if (!modalOnSaveHandler) return;
