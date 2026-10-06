@@ -465,6 +465,13 @@ const MODULES = [
   ]},
 ];
 
+// GRN (পণ্য গ্রহণ নোট) আপাতত বন্ধ — ক্রয়ের কাজ ক্রয় ভাউচার (ক্রয় চালান) দিয়ে; সেভ করলেই স্টক বাড়ে।
+// আবার চালু করতে শুধু নিচের true করে দিন।
+const FEATURE_GRN_ENABLED = false;
+if (!FEATURE_GRN_ENABLED) {
+  MODULES.forEach(function (m) { m.sub = m.sub.filter(function (s) { return s.key !== 'grn' && s.key !== 'goodsReceive'; }); });
+}
+
 // এখন পর্যন্ত যেসব পেজ সত্যিই কাজ করে (Phase 3 — Core মডিউল)
 const READY_PAGES = ['dashboard','companyProfile','userManagement','roles','activityLog',
   'items','customers','suppliers','warehouses','uom','categories','employees','party','partyLedger','zones','groups','purchasers','salespersons','bankMaster',
@@ -928,6 +935,58 @@ async function deletePostedVoucherWithAdminAuth(docType, docId, sheetName, idFie
   }
 }
 
+/* ============================================================
+   সেভ করলেই কাজ শেষ — পোস্টিং আর আলাদা ধাপ নয়
+   • নতুন ভাউচার সেভ হলেই স্টক/পার্টি লেজার/ব্যাংক-ক্যাশ বইয়ে এন্ট্রি বসে যায় (আগে "পোস্ট করুন" চাপতে হতো)
+   • সেভ করা ভাউচার এডিট করলে: পুরনো এন্ট্রি উল্টে, ভাউচার হালনাগাদ করে, আবার নতুন হিসাবে বসে
+   • ডিলিট করলে সংশ্লিষ্ট এন্ট্রিও উল্টে যায়
+   • হিসাবে বসতে না পারলে (যেমন কোনো ত্রুটি) ভাউচারটাও অর্ধেক-সেভ হয়ে পড়ে থাকে না
+   ============================================================ */
+async function applyPostingNow(docType, docId) {
+  const cfg = DOC_TYPE_MAP[docType];
+  const { data: doc, error } = await supabaseClient.from(cfg.table).select('*').eq(cfg.idField, docId).single();
+  if (error) throw new Error(error.message);
+  if (doc.Status === 'Posted') return;
+  await runPostingLogic(docType, doc, docId);
+  const { error: sErr } = await supabaseClient.from(cfg.table).update({ Status: 'Posted' }).eq(cfg.idField, docId);
+  if (sErr) throw new Error(sErr.message);
+}
+
+/** হিসাবের (স্টক/লেজার/ব্যাংক) এন্ট্রিগুলো উল্টে ভাউচারকে আবার "খসড়া" (হিসাবে-না-বসা) অবস্থায় আনে */
+async function reverseDocumentEffects(docType, docId) {
+  const cfg = DOC_TYPE_MAP[docType];
+  await reversePostedDocumentStock(docType, docId);
+  const { error } = await supabaseClient.from(cfg.table).update({ Status: 'Draft' }).eq(cfg.idField, docId);
+  if (error) throw new Error(error.message);
+  listCache = {};
+}
+
+/** নতুন সেভ করা ভাউচার হিসাবে বসাতে না পারলে: কোনো আংশিক এন্ট্রি থাকলে উল্টে, ভাউচারের সারি/লাইন মুছে ফেলা */
+async function rollbackDocumentRows(docType, docId, headerSheet, idField, linesSheet, lineIdField, extra) {
+  try { await reversePostedDocumentStock(docType, docId); } catch (e) { /* আংশিক এন্ট্রি না থাকলে কিছু করার নেই */ }
+  for (const ex of (extra || [])) { try { await supabaseClient.from(ex.table).delete().eq(ex.field, docId); } catch (e) {} }
+  if (linesSheet) { try { await supabaseClient.from(linesSheet).delete().eq(lineIdField, docId); } catch (e) {} }
+  await supabaseClient.from(headerSheet).delete().eq(idField, docId);
+}
+
+/** সেভ করা ভাউচার হালনাগাদ: (থাকলে) পুরনো হিসাব উল্টে → হালনাগাদ → আবার নতুন হিসাবে বসানো */
+async function updateSavedDocument(docType, docId, doUpdate) {
+  const cfg = DOC_TYPE_MAP[docType];
+  const { data: cur, error } = await supabaseClient.from(cfg.table).select('Status').eq(cfg.idField, docId).single();
+  if (error) throw new Error(error.message);
+  if (cur.Status === 'Posted') await reverseDocumentEffects(docType, docId);
+  let result;
+  try { result = await doUpdate(); }
+  catch (err) {
+    // হালনাগাদ ব্যর্থ — ভাউচার আগের মতোই আছে, তাই আগের হিসাবটা আবার বসিয়ে দেওয়া
+    if (cur.Status === 'Posted') { try { await applyPostingNow(docType, docId); } catch (e) {} }
+    throw err;
+  }
+  try { await applyPostingNow(docType, docId); }
+  catch (err) { throw new Error(t('পরিবর্তন সেভ হয়েছে, কিন্তু হিসাবে বসানো যায়নি: ','Changes were saved, but the accounting entries could not be applied: ') + err.message); }
+  return result;
+}
+
 async function runSupabaseAction(action, p) {
   switch (action) {
 
@@ -975,15 +1034,30 @@ async function runSupabaseAction(action, p) {
     case 'create': {
       const { data, error } = await supabaseClient.from(tableFor(p.sheet)).insert(p.data).select().single();
       if (error) throw new Error(error.message);
+      const dcfg = DOC_TYPE_MAP[p.sheet];
+      if (dcfg && !p.noAutoPost) {                     // সেভ করলেই হিসাবে বসে যাবে
+        try { await applyPostingNow(p.sheet, data[dcfg.idField]); data.Status = 'Posted'; }
+        catch (err) { await rollbackDocumentRows(p.sheet, data[dcfg.idField], dcfg.table, dcfg.idField, null, null, null); throw err; }
+      }
       return data;
     }
     case 'update': {
-      const { data, error } = await supabaseClient.from(tableFor(p.sheet)).update(p.data).eq(p.idField, p.idValue).select().single();
-      if (error) throw new Error(error.message);
-      return data;
+      const run = async function () {
+        const { data, error } = await supabaseClient.from(tableFor(p.sheet)).update(p.data).eq(p.idField, p.idValue).select().single();
+        if (error) throw new Error(error.message);
+        return data;
+      };
+      const dcfg = DOC_TYPE_MAP[p.sheet];
+      if (dcfg && p.idField === dcfg.idField && !(p.data && 'Status' in p.data)) return await updateSavedDocument(p.sheet, p.idValue, run);
+      return await run();
     }
     case 'delete': {
-      // সফট-ডিলিট — রেকর্ড আসলে মুছে যায় না, শুধু Status='Deleted' হয়ে যায় (আগের মতোই)
+      // সফট-ডিলিট — রেকর্ড আসলে মুছে যায় না, শুধু Status='Deleted' হয়ে যায় (আগের মতোই); হিসাবে বসা ভাউচার হলে আগে এন্ট্রি উল্টে যায়
+      const dcfg = DOC_TYPE_MAP[p.sheet];
+      if (dcfg && p.idField === dcfg.idField) {
+        const { data: cur } = await supabaseClient.from(dcfg.table).select('Status').eq(dcfg.idField, p.idValue).maybeSingle();
+        if (cur && cur.Status === 'Posted') await reverseDocumentEffects(p.sheet, p.idValue);
+      }
       const { error } = await supabaseClient.from(tableFor(p.sheet)).update({ Status: 'Deleted' }).eq(p.idField, p.idValue);
       if (error) throw new Error(error.message);
       return {};
@@ -1006,19 +1080,34 @@ async function runSupabaseAction(action, p) {
       if (p.lines && p.lines.length > 0) {
         const linesWithId = p.lines.map(function (l) { const row = Object.assign({}, l); row[p.lineIdField] = header[p.idField]; return row; });
         const { error: lErr } = await supabaseClient.from(p.linesSheet).insert(linesWithId);
-        if (lErr) throw new Error(lErr.message);
+        if (lErr) {
+          await supabaseClient.from(p.headerSheet).delete().eq(p.idField, header[p.idField]);
+          throw new Error(lErr.message);
+        }
+      }
+      if (DOC_TYPE_MAP[p.headerSheet] && !p.noAutoPost) {   // সেভ করলেই স্টক/লেজার/ব্যাংকে বসে যাবে
+        try { await applyPostingNow(p.headerSheet, header[p.idField]); header.Status = 'Posted'; }
+        catch (err) { await rollbackDocumentRows(p.headerSheet, header[p.idField], p.headerSheet, p.idField, p.linesSheet, p.lineIdField, null); throw err; }
       }
       return header;
     }
     case 'updateDocument': {
-      const { error: hErr } = await supabaseClient.from(p.headerSheet).update(p.headerData).eq(p.idField, p.idValue);
-      if (hErr) throw new Error(hErr.message);
-      await supabaseClient.from(p.linesSheet).delete().eq(p.lineIdField, p.idValue);
-      if (p.lines && p.lines.length > 0) {
-        const linesWithId = p.lines.map(function (l) { const row = Object.assign({}, l); row[p.lineIdField] = p.idValue; return row; });
-        const { error: lErr } = await supabaseClient.from(p.linesSheet).insert(linesWithId);
-        if (lErr) throw new Error(lErr.message);
-      }
+      const run = async function () {
+        const { error: hErr } = await supabaseClient.from(p.headerSheet).update(p.headerData).eq(p.idField, p.idValue);
+        if (hErr) throw new Error(hErr.message);
+        await supabaseClient.from(p.linesSheet).delete().eq(p.lineIdField, p.idValue);
+        if (p.lines && p.lines.length > 0) {
+          const linesWithId = p.lines.map(function (l) { const row = Object.assign({}, l); row[p.lineIdField] = p.idValue; return row; });
+          const { error: lErr } = await supabaseClient.from(p.linesSheet).insert(linesWithId);
+          if (lErr) throw new Error(lErr.message);
+        }
+        return {};
+      };
+      if (DOC_TYPE_MAP[p.headerSheet]) return await updateSavedDocument(p.headerSheet, p.idValue, run);
+      return await run();
+    }
+    case 'rollbackDocument': {   // প্রসেসিংয়ের মতো ভাউচার, যেখানে লাইন আলাদা টেবিলে বসিয়ে তারপর হিসাবে বসাতে হয়
+      await rollbackDocumentRows(p.docType, p.idValue, DOC_TYPE_MAP[p.docType].table, DOC_TYPE_MAP[p.docType].idField, p.linesSheet, p.lineIdField, p.extra);
       return {};
     }
     case 'getDocument': {
@@ -1034,7 +1123,7 @@ async function runSupabaseAction(action, p) {
       if (!cfg) throw new Error('অজানা ডকুমেন্ট টাইপ।');
       const { data: existingDoc, error: exErr } = await supabaseClient.from(cfg.table).select('*').eq(cfg.idField, p.docId).single();
       if (exErr) throw new Error(exErr.message);
-      if (existingDoc.Status === 'Posted') throw new Error('এই ডকুমেন্ট আগেই পোস্ট করা হয়েছে।');
+      if (existingDoc.Status === 'Posted') throw new Error('এই ভাউচার আগেই সেভ (হিসাবে অন্তর্ভুক্ত) হয়ে গেছে।');
 
       await runPostingLogic(p.docType, existingDoc, p.docId);
 
@@ -1049,27 +1138,32 @@ async function runSupabaseAction(action, p) {
     }
 
     case 'getAverageRate': {
-      const { data: lines, error: lErr } = await supabaseClient.from('GRN_Lines').select('GRNID, ReceivedQty, Rate').eq('ItemID', p.itemId);
+      // কাঁচামালের গড় দর এখন ক্রয় ভাউচার (PurchaseInvoice) থেকে — GRN আপাতত বন্ধ।
+      // দর = (কমিশন বাদে) নিট মূল্য ÷ পরিমাণ; শুধু সেভ করা (হিসাবে বসা) ভাউচার, দুই তারিখের মধ্যে
+      const { data: lines, error: lErr } = await supabaseClient.from('PI_Lines').select('*').eq('ItemID', p.itemId);
       if (lErr) throw new Error(lErr.message);
-      if (!lines || lines.length === 0) return { averageRate: 0, grnCount: 0, totalQtyPurchased: 0 };
-      const grnIds = Array.from(new Set(lines.map(function (l) { return l.GRNID; })));
-      const { data: headers, error: hErr } = await supabaseClient.from('GRN').select('GRNID, ReceiveDate').in('GRNID', grnIds);
+      if (!lines || lines.length === 0) return { averageRate: 0, voucherCount: 0, grnCount: 0, totalQtyPurchased: 0 };
+      const piIds = Array.from(new Set(lines.map(function (l) { return l.PIID; })));
+      const { data: headers, error: hErr } = await supabaseClient.from('PurchaseInvoice').select('PIID, InvoiceDate, Status').in('PIID', piIds);
       if (hErr) throw new Error(hErr.message);
-      const dateMap = {}; headers.forEach(function (h) { dateMap[h.GRNID] = h.ReceiveDate; });
+      const dateMap = {}; (headers || []).forEach(function (h) { if (h.Status === 'Posted') dateMap[h.PIID] = h.InvoiceDate; });
       const filtered = lines.filter(function (l) {
-        const d = dateMap[l.GRNID];
+        const d = dateMap[l.PIID];
         if (!d) return false;
         if (p.dateFrom && d < p.dateFrom) return false;
         if (p.dateTo && d > p.dateTo) return false;
         return true;
       });
-      const totalQty = filtered.reduce(function (s, l) { return s + (Number(l.ReceivedQty) || 0); }, 0);
-      const totalValue = filtered.reduce(function (s, l) { return s + (Number(l.ReceivedQty) || 0) * (Number(l.Rate) || 0); }, 0);
-      return {
-        averageRate: totalQty > 0 ? totalValue / totalQty : 0,
-        grnCount: new Set(filtered.map(function (l) { return l.GRNID; })).size,
-        totalQtyPurchased: totalQty
+      const qtyOf = function (l) { return Number(l.Quantity) || 0; };
+      const valueOf = function (l) {
+        if (l.NetAmount !== null && l.NetAmount !== undefined && l.NetAmount !== '') return Number(l.NetAmount) || 0;
+        if (l.Amount !== null && l.Amount !== undefined && l.Amount !== '') return Number(l.Amount) || 0;
+        return qtyOf(l) * (Number(l.Rate) || 0);
       };
+      const totalQty = filtered.reduce(function (s, l) { return s + qtyOf(l); }, 0);
+      const totalValue = filtered.reduce(function (s, l) { return s + valueOf(l); }, 0);
+      const count = new Set(filtered.map(function (l) { return l.PIID; })).size;
+      return { averageRate: totalQty > 0 ? totalValue / totalQty : 0, voucherCount: count, grnCount: count, totalQtyPurchased: totalQty };
     }
 
     case 'getSystemSettings': {
@@ -1233,6 +1327,10 @@ function getLangText(el){ return el.getAttribute('data-' + currentLang) || el.te
    ৭) রাউটার — কোন পেজ দেখাবে
    ============================================================ */
 async function navigateTo(pageKey, moduleLabel, pageLabel) {
+  if (!FEATURE_GRN_ENABLED && (pageKey === 'grn' || pageKey === 'goodsReceive')) {
+    showToast(t('GRN আপাতত বন্ধ আছে — ক্রয়ের কাজ ক্রয় ভাউচার (ক্রয় চালান) দিয়ে করুন।','GRN is switched off for now — please use the Purchase Voucher (Purchase Invoice) instead.'), 'success');
+    return navigateTo('pi', t('ক্রয়','Purchase'), t('ক্রয় চালান (ইনভয়েস)','Purchase Invoice'));
+  }
   document.getElementById('crumbTitle').textContent = pageLabel;
   document.getElementById('crumbPath').textContent = moduleLabel + ' / ' + pageLabel;
 
@@ -1593,12 +1691,21 @@ async function renderDashboard(content) {
     // ---- সাম্প্রতিক ভাউচার ----
     const pname = function (type, id) { const p = partyInfo[type + '|' + id]; return p ? p.name : (id || '—'); };
     const recent = [];
-    d.recent.sales.forEach(function (r) { recent.push({ type: t('বিক্রয়','Sales'), id: r.SIID, date: r.InvoiceDate, party: pname('Customer', r.CustomerID), amt: tot(r), st: r.Status }); });
-    d.recent.purch.forEach(function (r) { recent.push({ type: t('ক্রয়','Purchase'), id: r.PIID, date: r.InvoiceDate, party: pname('Supplier', r.SupplierID), amt: tot(r), st: r.Status }); });
-    d.recent.pay.forEach(function (r) { recent.push({ type: t('পেমেন্ট','Payment'), id: r.PayID, date: r.Date, party: pname(r.PartyType, r.PartyID), amt: net(r), st: r.Status }); });
-    d.recent.col.forEach(function (r) { recent.push({ type: t('কালেকশন','Collection'), id: r.ColID, date: r.Date, party: pname(r.PartyType, r.PartyID), amt: net(r), st: r.Status }); });
+    d.recent.sales.forEach(function (r) { recent.push({ dt: 'SalesInvoice', type: t('বিক্রয়','Sales'), id: r.SIID, date: r.InvoiceDate, party: pname('Customer', r.CustomerID), amt: tot(r), st: r.Status }); });
+    d.recent.purch.forEach(function (r) { recent.push({ dt: 'PurchaseInvoice', type: t('ক্রয়','Purchase'), id: r.PIID, date: r.InvoiceDate, party: pname('Supplier', r.SupplierID), amt: tot(r), st: r.Status }); });
+    d.recent.pay.forEach(function (r) { recent.push({ dt: 'PaymentVoucher', type: t('পেমেন্ট','Payment'), id: r.PayID, date: r.Date, party: pname(r.PartyType, r.PartyID), amt: net(r), st: r.Status }); });
+    d.recent.col.forEach(function (r) { recent.push({ dt: 'CollectionVoucher', type: t('কালেকশন','Collection'), id: r.ColID, date: r.Date, party: pname(r.PartyType, r.PartyID), amt: net(r), st: r.Status }); });
     recent.sort(function (a, b) { return String(b.date || '').localeCompare(String(a.date || '')) || String(b.id).localeCompare(String(a.id)); });
     const userMap = {}; d.users.forEach(function (u) { userMap[u.UserID] = u.FullName || u.Email; });
+    const dashIcons = function (r) {
+      const b = function (act, icon, title, dis) {
+        return `<button type="button" data-qa="${act}" data-dt="${attr(r.dt)}" data-id="${attr(r.id)}" title="${attr(title)}" ${dis ? 'disabled' : ''} style="border:1px solid var(--border);background:var(--surface);border-radius:6px;padding:2px 5px;font-size:12px;cursor:pointer;line-height:1.2;margin:0 1px;${dis ? 'opacity:.4;cursor:default;' : ''}">${icon}</button>`;
+      };
+      const saved = r.st === 'Posted';
+      return b('preview', '👁️', t('প্রিভিউ','Preview')) + b('edit', '✏️', t('এডিট','Edit')) + b('delete', '🗑️', t('ডিলিট','Delete')) +
+        b('save', saved ? '✅' : '💾', saved ? t('সংরক্ষিত — হিসাবে অন্তর্ভুক্ত','Saved — in the accounts') : t('সেভ করুন (হিসাবে অন্তর্ভুক্ত)','Save (apply to accounts)'), saved) +
+        b('share', '🔗', t('শেয়ার','Share')) + b('print', '🖨️', t('প্রিন্ট','Print'));
+    };
 
     const kpi = function (cls, label, val, sub) { return `<div class="kpi ${cls}"><div class="kpi-label">${label}</div><div class="kpi-val">${val}</div><div class="kpi-sub">${sub}</div></div>`; };
     const listRows = function (arr, fmt, empty) { return arr.length ? arr.map(fmt).join('') : `<div style="color:var(--text-muted);font-size:12.5px;padding:10px 0;">${empty}</div>`; };
@@ -1669,8 +1776,8 @@ async function renderDashboard(content) {
       <div class="dash-g2">
         <div class="panel">
           <div class="panel-head"><div class="section-title" style="margin:0;">${t('সাম্প্রতিক ভাউচার','Recent Vouchers')}</div></div>
-          ${recent.length ? `<table class="data-table"><thead><tr><th>${t('ধরন','Type')}</th><th>${t('নং','No.')}</th><th>${t('তারিখ','Date')}</th><th>${t('পার্টি','Party')}</th><th>${t('টাকা','Amount')}</th><th>${t('অবস্থা','Status')}</th></tr></thead><tbody>
-            ${recent.slice(0, 8).map(function (r) { return `<tr><td style="text-align:center;">${escapeHtml(r.type)}</td><td style="text-align:center;">${escapeHtml(r.id)}</td><td style="text-align:center;">${escapeHtml(formatShortDate(r.date))}</td><td>${escapeHtml(r.party)}</td><td style="text-align:right;">${dashFmt(r.amt)}</td><td style="text-align:center;"><span class="badge ${String(r.st || '').toLowerCase()}">${r.st === 'Posted' ? t('পোস্ট','Posted') : t('খসড়া','Draft')}</span></td></tr>`; }).join('')}
+          ${recent.length ? `<table class="data-table"><thead><tr><th>${t('ধরন','Type')}</th><th>${t('নং','No.')}</th><th>${t('তারিখ','Date')}</th><th>${t('পার্টি','Party')}</th><th>${t('টাকা','Amount')}</th><th>${t('অবস্থা','Status')}</th><th></th></tr></thead><tbody>
+            ${recent.slice(0, 8).map(function (r) { return `<tr><td style="text-align:center;">${escapeHtml(r.type)}</td><td style="text-align:center;">${escapeHtml(r.id)}</td><td style="text-align:center;">${escapeHtml(formatShortDate(r.date))}</td><td>${escapeHtml(r.party)}</td><td style="text-align:right;">${dashFmt(r.amt)}</td><td style="text-align:center;"><span class="badge ${String(r.st || '').toLowerCase()}">${r.st === 'Posted' ? t('সংরক্ষিত','Saved') : t('খসড়া','Draft')}</span></td><td style="text-align:center;white-space:nowrap;">${dashIcons(r)}</td></tr>`; }).join('')}
           </tbody></table>` : `<div class="empty-state">${t('এখনো কোনো ভাউচার নেই','No vouchers yet')}</div>`}
         </div>
         <div class="panel">
@@ -1678,13 +1785,19 @@ async function renderDashboard(content) {
           <div class="dash-pad">${listRows(d.activity, function (a) { return `<div class="dash-row" style="align-items:flex-start;"><span style="min-width:0;"><b style="font-family:inherit;font-size:12.5px;">${escapeHtml(a.Action || '')}</b><br><span style="font-size:11.5px;color:var(--text-muted);">${escapeHtml(userMap[a.UserID] || a.UserID || '')} · ${escapeHtml(a.Timestamp ? new Date(a.Timestamp).toLocaleString() : '')}</span></span></div>`; }, t('কোনো কার্যকলাপ নেই','No activity'))}</div>
         </div>
       </div>
-      <div style="font-size:11px;color:var(--text-muted);text-align:center;margin-top:6px;">${t('আর্থিক সংখ্যাগুলো শুধু পোস্ট করা ভাউচারের হিসাবে; খসড়া আলাদাভাবে দেখানো হয়েছে। ফেরত ভাউচার এখানে বিয়োগ হয়নি।','Financial figures count posted vouchers only; drafts are shown separately. Returns are not netted here.')}</div>`;
+      <div style="font-size:11px;color:var(--text-muted);text-align:center;margin-top:6px;">${t('আর্থিক সংখ্যাগুলো শুধু সংরক্ষিত (হিসাবে বসা) ভাউচারের হিসাবে; পুরনো খসড়া আলাদাভাবে দেখানো হয়েছে। ফেরত ভাউচার এখানে বিয়োগ হয়নি।','Financial figures count saved vouchers only; old drafts are shown separately. Returns are not netted here.')}</div>`;
 
     body.querySelectorAll('[data-go]').forEach(function (el) { el.addEventListener('click', function () { dashGoPage(el.getAttribute('data-go')); }); });
     body.querySelectorAll('[data-do]').forEach(function (el) {
       el.addEventListener('click', function () {
         const a = el.getAttribute('data-do');
         if (a === 'newSale') openSalesVoucherForm('SalesInvoice'); else if (a === 'newPurchase') openPurchaseVoucherForm('PurchaseInvoice');
+      });
+    });
+    body.querySelectorAll('[data-qa]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        if (el.disabled) return;
+        voucherQuickAction(el.getAttribute('data-dt'), el.getAttribute('data-id'), el.getAttribute('data-qa'), function () { return refresh(false); });
       });
     });
   }
@@ -2973,7 +3086,7 @@ const DOC_CONFIGS = {
     pageKey: 'pmi', moduleBn: 'প্রোডাকশন', moduleEn: 'Production',
     headerSheet: 'ProductionMaterialIssue', idField: 'PMIID', idPrefix: 'PMI',
     linesSheet: 'PMI_Lines', lineIdField: 'PMIID',
-    titleBn: 'উৎপাদনে মালামাল ইস্যু', titleEn: 'Material Issue to Production', subBn: 'উৎপাদন আদেশ অনুযায়ী কাঁচামাল ইস্যু — পোস্ট করলে স্টক কমবে', subEn: 'Issue raw materials against a production order — posting reduces stock',
+    titleBn: 'উৎপাদনে মালামাল ইস্যু', titleEn: 'Material Issue to Production', subBn: 'উৎপাদন আদেশ অনুযায়ী কাঁচামাল ইস্যু — সেভ করলেই স্টক কমবে', subEn: 'Issue raw materials against a production order — posting reduces stock',
     headerFields: [
       { key:'POrderID', label:'উৎপাদন আদেশ', type:'select-fk', fkSheet:'ProductionOrder', fkIdField:'POrderID', fkLabel:'POrderID', required:true },
       { key:'Date', label:'তারিখ', type:'date', required:true }
@@ -2989,7 +3102,7 @@ const DOC_CONFIGS = {
     pageKey: 'fgr', moduleBn: 'প্রোডাকশন', moduleEn: 'Production',
     headerSheet: 'FinishedGoodsReceive', idField: 'FGRID', idPrefix: 'FGR',
     linesSheet: 'FGR_Lines', lineIdField: 'FGRID',
-    titleBn: 'প্রস্তুত পণ্য গ্রহণ', titleEn: 'Finished Goods Receive', subBn: 'উৎপাদন থেকে তৈরি পণ্য গুদামে গ্রহণ — পোস্ট করলে স্টক বাড়বে', subEn: 'Receive finished goods from production into the warehouse — posting increases stock',
+    titleBn: 'প্রস্তুত পণ্য গ্রহণ', titleEn: 'Finished Goods Receive', subBn: 'উৎপাদন থেকে তৈরি পণ্য গুদামে গ্রহণ — সেভ করলেই স্টক বাড়বে', subEn: 'Receive finished goods from production into the warehouse — posting increases stock',
     headerFields: [
       { key:'POrderID', label:'উৎপাদন আদেশ', type:'select-fk', fkSheet:'ProductionOrder', fkIdField:'POrderID', fkLabel:'POrderID', required:true },
       { key:'WarehouseID', label:'গুদাম', type:'select-fk', fkSheet:'Warehouses', fkIdField:'WarehouseID', fkLabel:'WarehouseName', required:true },
@@ -3008,7 +3121,7 @@ const DOC_CONFIGS = {
     pageKey: 'jv', moduleBn: 'হিসাব', moduleEn: 'Accounts',
     headerSheet: 'JournalVoucher', idField: 'JVID', idPrefix: 'JV',
     linesSheet: 'JV_Lines', lineIdField: 'JVID',
-    titleBn: 'জার্নাল ভাউচার', titleEn: 'Journal Voucher', subBn: 'সাধারণ হিসাব এন্ট্রি — পোস্ট করার আগে Debit ও Credit-এর মোট সমান হতে হবে', subEn: 'General ledger entry — Debit and Credit totals must match before posting',
+    titleBn: 'জার্নাল ভাউচার', titleEn: 'Journal Voucher', subBn: 'সাধারণ হিসাব এন্ট্রি — সেভ করার সময় Debit ও Credit-এর মোট সমান হতে হবে', subEn: 'General ledger entry — Debit and Credit totals must match before posting',
     headerFields: [
       { key:'Date', label:'তারিখ', type:'date', required:true },
       { key:'Narration', label:'বিবরণ', type:'text', required:true }
@@ -3463,7 +3576,7 @@ async function renderPartyMoneyVoucherPage(content, cfg) {
       return `<tr>
         <td>${i + 1}</td><td>${escapeHtml(formatShortDate(r.Date))}</td><td>${escapeHtml(id)}</td><td style="text-align:left;">${escapeHtml(partyNameOf(r))}</td>
         <td>${x.total.toFixed(2)}</td><td><b>${x.net.toFixed(2)}</b></td>
-        <td style="white-space:nowrap;">${ico('preview', '👁️', t('প্রিভিউ','Preview'), da)}${ico('print', '🖨️', t('প্রিন্ট','Print'), da)}${ico('share', '🔗', t('শেয়ার','Share'), da)}${ico('edit', '✏️', t('এডিট','Edit'), da, posted)}${ico('delete', '🗑️', t('ডিলিট','Delete'), da)}${ico('post', posted ? '✅' : '💾', posted ? t('পোস্ট করা হয়েছে','Posted') : t('সেভ/পোস্ট করুন (হিসাবে অন্তর্ভুক্ত)','Save/Post to accounts'), da, posted)}</td>
+        <td style="white-space:nowrap;">${ico('preview', '👁️', t('প্রিভিউ','Preview'), da)}${ico('print', '🖨️', t('প্রিন্ট','Print'), da)}${ico('share', '🔗', t('শেয়ার','Share'), da)}${ico('edit', '✏️', t('এডিট','Edit'), da)}${ico('delete', '🗑️', t('ডিলিট','Delete'), da)}${ico('post', posted ? '✅' : '💾', posted ? t('সংরক্ষিত — হিসাবে অন্তর্ভুক্ত','Saved — in the accounts') : t('সেভ করুন (হিসাবে অন্তর্ভুক্ত)','Save (apply to accounts)'), da, posted)}</td>
       </tr>`;
     }).join('');
     body.innerHTML = `<table class="data-table"><thead><tr>
@@ -3510,20 +3623,13 @@ async function renderPartyMoneyVoucherPage(content, cfg) {
     if (act === 'preview') openVoucherPrint(rec, false);
     else if (act === 'print') openVoucherPrint(rec, true);
     else if (act === 'share') shareVoucher(rec);
-    else if (act === 'edit') { closeDetail(); loadIntoForm(rec); }
+    else if (act === 'edit') {
+      if (rec.Status === 'Posted' && !(await requireAdminForSavedChange('এডিট', 'edit'))) return;
+      closeDetail(); loadIntoForm(rec);
+    }
     else if (act === 'post') { await postDocumentRecord(cfg.docType, rec[cfg.idField]); await reloadList(); }
     else if (act === 'delete') {
-      if (rec.Status === 'Posted') {
-        await deletePostedVoucherWithAdminAuth(cfg.docType, rec[cfg.idField], cfg.table, cfg.idField, null, null, reloadList);
-      } else {
-        if (!confirm(t('এই ভাউচারটা ডিলিট করতে চান?','Delete this voucher?'))) return;
-        try {
-          await api('delete', { sheet: cfg.table, idField: cfg.idField, idValue: rec[cfg.idField] });
-          showToast(t('ডিলিট হয়েছে ✅','Deleted ✅'), 'success');
-          if (editingId === rec[cfg.idField]) resetForm();
-          await reloadList();
-        } catch (err) { showToast(err.message, 'error'); }
-      }
+      await deleteSavedVoucher(cfg.docType, rec[cfg.idField], async function () { if (editingId === rec[cfg.idField]) resetForm(); await reloadList(); });
     }
   }
 
@@ -3649,7 +3755,7 @@ async function renderPartyMoneyVoucherPage(content, cfg) {
   if (pend && pend.docType === cfg.docType) {
     window.__pendingMoneyEdit = null;
     const prec = records.find(function (r) { return r[cfg.idField] === pend.id; });
-    if (prec && prec.Status !== 'Posted') loadIntoForm(prec);
+    if (prec) loadIntoForm(prec);   // এডমিন-যাচাই আগেই হয়ে এসেছে
   }
 }
 
@@ -3695,7 +3801,7 @@ async function buildMoneyVoucherPrintHtml(cfg, rec, autoPrint, embedded) {
     </tr>
     <tr><td colspan="2" class="co-addr">${escapeHtml(d.company.Address || 'আলামপুর ব্রীজঘাট বাজার, কোটচাঁদপুর রোড, মহেশপুর, ঝিনাইদহ।')}${d.company.Phone ? ' — মোবাঃ ' + escapeHtml(d.company.Phone) : ''}</td></tr>
     <tr><td class="voucher-title">${escapeHtml(cfg.titleBn)}</td><td>ভাউচার তারিখঃ ${escapeHtml(formatShortDate(rec.Date))}</td></tr>
-    <tr><td>${rec.Status === 'Posted' ? 'পোস্ট করা' : 'খসড়া'}</td><td>ভাউচার নম্বরঃ ${escapeHtml(rec[cfg.idField])}</td></tr>
+    <tr><td>${rec.Status === 'Posted' ? 'সংরক্ষিত' : 'খসড়া'}</td><td>ভাউচার নম্বরঃ ${escapeHtml(rec[cfg.idField])}</td></tr>
   </table>
   <table style="margin-top:-1px;">
     <tr><td colspan="3" style="text-align:left;">${rec.PartyType === 'Customer' ? 'গ্রাহক নামঃ' : 'সাপ্লায়ার নামঃ'} ${escapeHtml(partyName)}</td></tr>
@@ -3795,8 +3901,8 @@ async function revertPostedVoucherToDraft(docType, docId, table, idField) {
   } catch (err) { showToast(err.message, 'error'); return false; }
 }
 
-async function openVoucherViewOverlay(docType, docId, onChanged) {
-  const meta = VOUCHER_VIEW_META[docType];
+async function openVoucherViewOverlay(docType, docId, onChanged, extra) {
+  const meta = (extra && extra.meta) || VOUCHER_VIEW_META[docType];
   if (!meta) return;
   async function fetchHeader() {
     const { data, error } = await supabaseClient.from(meta.table).select('*').eq(meta.idField, docId).maybeSingle();
@@ -3807,9 +3913,10 @@ async function openVoucherViewOverlay(docType, docId, onChanged) {
   try {
     header = await fetchHeader();
     if (!header) { showToast(t('ভাউচারটা খুঁজে পাওয়া যায়নি (হয়তো ডিলিট হয়ে গেছে)।','Voucher not found (it may have been deleted).'), 'error'); return; }
-    html = meta.kind === 'money'
-      ? await buildMoneyVoucherPrintHtml(PARTY_MONEY_CONFIGS[meta.cfgKey], header, false, true)
-      : await buildPrintableVoucherHtml(docType, docId, true);
+    html = (extra && extra.buildHtml) ? await extra.buildHtml()
+      : meta.kind === 'money'
+        ? await buildMoneyVoucherPrintHtml(PARTY_MONEY_CONFIGS[meta.cfgKey], header, false, true)
+        : await buildPrintableVoucherHtml(docType, docId, true);
   } catch (err) { showToast(err.message, 'error'); return; }
 
   const posted = header.Status === 'Posted';
@@ -3821,7 +3928,7 @@ async function openVoucherViewOverlay(docType, docId, onChanged) {
   ov.innerHTML = `
     <div style="background:var(--surface);border-radius:12px;max-width:900px;width:100%;height:92vh;display:flex;flex-direction:column;">
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:10px 14px;border-bottom:1px solid var(--border);">
-        <b style="flex:1;min-width:120px;font-size:13px;">${escapeHtml(docId)} — ${posted ? t('পোস্ট করা','Posted') : t('খসড়া','Draft')}</b>
+        <b style="flex:1;min-width:120px;font-size:13px;">${escapeHtml(docId)} — ${posted ? t('সংরক্ষিত','Saved') : t('খসড়া','Draft')}</b>
         ${vbtn('print', '🖨️', t('প্রিন্ট','Print'))}${vbtn('edit', '✏️', t('এডিট','Edit'))}${vbtn('delete', '🗑️', t('ডিলিট','Delete'))}${vbtn('post', '💾', t('সেভ','Save'), posted)}${vbtn('close', '✕', t('বন্ধ','Close'))}
       </div>
       <iframe style="flex:1;border:0;width:100%;background:#fff;border-radius:0 0 12px 12px;" srcdoc="${attr(html)}"></iframe>
@@ -3850,26 +3957,14 @@ async function openVoucherViewOverlay(docType, docId, onChanged) {
       return;
     }
     if (act === 'delete') {
-      if (posted) {
-        await deletePostedVoucherWithAdminAuth(docType, docId, meta.table, meta.idField, meta.linesSheet, meta.lineIdField, async function () { closeOv(); if (onChanged) await onChanged(); });
-      } else {
-        if (!confirm(t('এই ভাউচারটা ডিলিট করতে চান?','Delete this voucher?'))) return;
-        try {
-          await api('delete', { sheet: meta.table, idField: meta.idField, idValue: docId });
-          showToast(t('ডিলিট হয়েছে ✅','Deleted ✅'), 'success');
-          closeOv(); if (onChanged) await onChanged();
-        } catch (err) { showToast(err.message, 'error'); }
-      }
+      await deleteSavedVoucher(docType, docId, async function () { closeOv(); if (onChanged) await onChanged(); }, (extra && extra.meta) ? { sheet: meta.table, idField: meta.idField } : null);
       return;
     }
     if (act === 'edit') {
-      if (posted) {
-        const ok = await revertPostedVoucherToDraft(docType, docId, meta.table, meta.idField);
-        if (!ok) return;
-        showToast(t('ভাউচার খসড়ায় ফেরত এসেছে — এডিট করে সেভ করুন, তারপর "সেভ" (পোস্ট) চাপলে আবার হিসাবে বসবে।','Voucher reverted to draft — edit and save it, then post again to restore the accounting entries.'), 'success');
-        if (onChanged) await onChanged();
-      }
+      // সেভ করা ভাউচার সরাসরি এডিট হয় — সেভ চাপলে পুরনো হিসাব উল্টে নতুন হিসাব বসে (আলাদা "খসড়ায় ফেরত" ধাপ নেই)
+      if (posted && !(await requireAdminForSavedChange('এডিট', 'edit'))) return;
       closeOv();
+      if (extra && extra.onEdit) { await extra.onEdit(); return; }
       if (meta.kind === 'purchase') openPurchaseVoucherForm(docType, docId);
       else if (meta.kind === 'sales') openSalesVoucherForm(docType, docId);
       else {
@@ -3879,6 +3974,183 @@ async function openVoucherViewOverlay(docType, docId, onChanged) {
       }
     }
   });
+}
+
+
+/* ============================================================
+   সেভ করা ভাউচারের এডিট/ডিলিট + সব তালিকার আইকন (প্রিভিউ, এডিট, ডিলিট, সেভ, শেয়ার, প্রিন্ট)
+   ============================================================ */
+/** সেভ করা (হিসাবে বসা) ভাউচার বদলাতে এডমিন + পাসওয়ার্ড; একবার দিলে ১০ মিনিট আর চায় না */
+async function requireAdminForSavedChange(actionBn, actionEn) {
+  if (window.__adminOkUntil && Date.now() < window.__adminOkUntil) return true;
+  if (!currentUser || currentUser.RoleID !== 'ROLE-ADMIN') {
+    showToast(t('সেভ করা ভাউচার ' + actionBn + ' শুধু এডমিন করতে পারবেন।', 'Only an Admin can ' + actionEn + ' a saved voucher.'), 'error');
+    return false;
+  }
+  if (!(await verifyAdminPasswordPrompt())) return false;
+  window.__adminOkUntil = Date.now() + 10 * 60 * 1000;
+  return true;
+}
+
+/** ভাউচার ডিলিট: হিসাবের এন্ট্রিও উল্টে যায় (api('delete') নিজেই সেটা করে) */
+async function deleteSavedVoucher(docType, docId, onDone, meta) {
+  const cfg = DOC_TYPE_MAP[docType];
+  const sheet = (meta && meta.sheet) || (cfg && cfg.table) || docType;
+  const idField = (meta && meta.idField) || (cfg && cfg.idField);
+  let status = null;
+  try { const r = await supabaseClient.from(sheet).select('Status').eq(idField, docId).maybeSingle(); status = r.data && r.data.Status; } catch (e) {}
+  const applied = !!cfg && status === 'Posted';
+  if (!confirm(applied
+    ? t('এই ভাউচার ডিলিট করলে এর স্টক/লেজার/ব্যাংক এন্ট্রিগুলোও উল্টে যাবে। নিশ্চিত ডিলিট করবেন?', 'Deleting this voucher will also reverse its stock/ledger/bank entries. Delete it?')
+    : t('এই ভাউচারটা ডিলিট করতে চান?', 'Delete this voucher?'))) return;
+  if (applied && !(await requireAdminForSavedChange('ডিলিট', 'delete'))) return;
+  try {
+    await api('delete', { sheet: sheet, idField: idField, idValue: docId });
+    showToast(t('ডিলিট হয়েছে ✅', 'Deleted ✅'), 'success');
+    if (onDone) await onDone();
+  } catch (err) { showToast(err.message, 'error'); }
+}
+
+/** জেনেরিক (ডকুমেন্ট/সিম্পল ভাউচার) ভাউচারের হেডার, লাইন ও লেবেল একসাথে সাজানো — ছাপার জন্য */
+async function genericVoucherModel(kind, config, id) {
+  const sheet = kind === 'doc' ? config.headerSheet : config.sheet;
+  const { data: header, error } = await supabaseClient.from(sheet).select('*').eq(config.idField, id).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!header) throw new Error(t('ভাউচারটা খুঁজে পাওয়া যায়নি।', 'Voucher not found.'));
+  let lines = [];
+  if (kind === 'doc' && config.linesSheet) {
+    const r = await supabaseClient.from(config.linesSheet).select('*').eq(config.lineIdField, id);
+    if (r.error) throw new Error(r.error.message);
+    lines = r.data || [];
+  }
+  const fieldsH = kind === 'doc' ? config.headerFields : config.fields;
+  const fieldsL = kind === 'doc' ? (config.lineFields || []) : [];
+  const fkSheets = Array.from(new Set(fieldsH.concat(fieldsL).filter(function (f) { return f.type === 'select-fk'; }).map(function (f) { return f.fkSheet; })));
+  const fkMap = fkSheets.length ? await cachedListMultiple(fkSheets) : {};
+  const show = function (f, row) {
+    const v = row[f.key];
+    if (v === null || v === undefined || v === '') return '';
+    if (f.type === 'select-fk') { const rec = (fkMap[f.fkSheet] || []).find(function (x) { return x[f.fkIdField] === v; }); return rec ? String(rec[f.fkLabel]) : String(v); }
+    if (f.type === 'date') return formatShortDate(v);
+    return String(v);
+  };
+  const pairs = fieldsH.map(function (f) { return [f.label, show(f, header)]; }).filter(function (p) { return p[1] !== ''; });
+  if (header.TotalAmount !== undefined && header.TotalAmount !== null && Number(header.TotalAmount) > 0 && !fieldsH.some(function (f) { return f.key === 'TotalAmount'; })) pairs.push([t('মোট', 'Total'), Number(header.TotalAmount).toFixed(2)]);
+  return { header: header, pairs: pairs, lineHead: fieldsL.map(function (f) { return f.label; }), lineRows: lines.map(function (l) { return fieldsL.map(function (f) { return show(f, l); }); }) };
+}
+function genericVoucherShareText(titleBn, id, model) {
+  return titleBn + ' ' + id + '\n' + model.pairs.map(function (p) { return p[0] + ': ' + p[1]; }).join('\n');
+}
+async function buildGenericVoucherHtml(titleBn, id, model, embedded) {
+  const company = await api('getSingleton', { sheet: 'CompanyProfile' });
+  const saved = model.header.Status === 'Posted';
+  const pairRows = [];
+  for (let i = 0; i < model.pairs.length; i += 2) {
+    const a = model.pairs[i], b = model.pairs[i + 1];
+    pairRows.push(`<tr><td style="text-align:left;width:50%;">${escapeHtml(a[0])}ঃ <b>${escapeHtml(a[1])}</b></td><td style="text-align:left;">${b ? escapeHtml(b[0]) + 'ঃ <b>' + escapeHtml(b[1]) + '</b>' : ''}</td></tr>`);
+  }
+  const shareText = genericVoucherShareText(titleBn, id, model);
+  return `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${escapeHtml(titleBn)} — ${escapeHtml(id)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Anek+Bangla:wght@400;500;600;700&family=Oswald:wght@600;700&display=swap" rel="stylesheet">
+<style>${VOUCHER_TABLE_CSS}${embedded ? ' .toolbar{display:none !important;}' : ''}</style></head><body>
+  <div class="toolbar"><button class="primary" onclick="window.print()">🖨️ প্রিন্ট</button><button onclick="window.print()">📄 পেজ সেটাপ</button><button id="shareBtn">🔗 শেয়ার</button></div>
+  <div class="voucher-watermark">gmetal</div>
+  <table class="head-table">
+    <tr><td rowspan="3" style="width:80px;text-align:center;">${company.LogoURL ? `<img src="${attr(company.LogoURL)}" style="max-width:100%;max-height:70px;">` : 'লোগো'}</td><td colspan="2" class="co-name">${escapeHtml(company.CompanyName || 'জি মেটাল ওয়ার্কস')}</td></tr>
+    <tr><td colspan="2" class="co-addr">${escapeHtml(company.Address || 'আলামপুর ব্রীজঘাট বাজার, কোটচাঁদপুর রোড, মহেশপুর, ঝিনাইদহ।')}${company.Phone ? ' — মোবাঃ ' + escapeHtml(company.Phone) : ''}</td></tr>
+    <tr><td class="voucher-title">${escapeHtml(titleBn)}</td><td>ভাউচার নম্বরঃ ${escapeHtml(id)} ${saved ? '' : '(খসড়া)'}</td></tr>
+  </table>
+  <table style="margin-top:-1px;">${pairRows.join('')}</table>
+  ${model.lineRows.length ? `<table class="items-table" style="margin-top:-1px;"><thead><tr><th style="width:26px;">ক্রঃ</th>${model.lineHead.map(function (h) { return '<th>' + escapeHtml(h) + '</th>'; }).join('')}</tr></thead>
+    <tbody>${model.lineRows.map(function (r, i) { return '<tr><td>' + (i + 1) + '</td>' + r.map(function (c) { return '<td>' + escapeHtml(c) + '</td>'; }).join('') + '</tr>'; }).join('')}</tbody></table>` : ''}
+  <div class="sign-row"><div>গ্রহীতার স্বাঃ</div><div>অথরাইজেশন স্বাঃ<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div><div>প্রস্তুতকারী স্বাঃ</div></div>
+  <p style="margin-top:10px;font-size:9.5px;color:#888;text-align:center;">প্রিন্টঃ${escapeHtml(formatPrintDate())}</p>
+  <script>
+    document.getElementById('shareBtn').addEventListener('click', async function () {
+      const text = ${JSON.stringify(shareText)};
+      if (navigator.share) { try { await navigator.share({ title: document.title, text: text }); } catch (e) {} }
+      else if (navigator.clipboard) { await navigator.clipboard.writeText(text); alert('তথ্য ক্লিপবোর্ডে কপি হয়েছে।'); }
+    });
+  <\/script>
+</body></html>`;
+}
+function openHtmlWindow(html, autoPrint) {
+  const win = window.open('', '_blank');
+  if (!win) { showToast(t('পপ-আপ ব্লক হয়েছে — এই সাইটের জন্য পপ-আপ অনুমতি দিন।', 'Pop-up was blocked — please allow pop-ups for this site.'), 'error'); return; }
+  win.document.write(html);
+  win.document.close();
+  if (autoPrint) setTimeout(function () { try { win.focus(); win.print(); } catch (e) {} }, 900);
+}
+
+/** একই ছয়টা আইকন সবখানে: প্রিভিউ, এডিট, ডিলিট, সেভ, শেয়ার, প্রিন্ট — সেভ শুধু হিসাবে-না-বসা পুরনো খসড়ার জন্য সক্রিয় */
+function vrowIcons(kind, id, status, cls) {
+  const b = function (act, icon, title, dis) {
+    return `<button type="button" class="${cls || 'payv-ico'}" onclick="vrowAct(event,'${kind}','${act}',${attr(JSON.stringify(id))})" title="${attr(title)}" ${dis ? 'disabled' : ''} style="border:1px solid var(--border);background:var(--surface);border-radius:6px;padding:2px 5px;font-size:12px;cursor:pointer;line-height:1.2;margin:0 1px;${dis ? 'opacity:.4;cursor:default;' : ''}">${icon}</button>`;
+  };
+  const saved = status === 'Posted';
+  return b('preview', '👁️', t('প্রিভিউ', 'Preview')) + b('edit', '✏️', t('এডিট', 'Edit')) + b('delete', '🗑️', t('ডিলিট', 'Delete')) +
+    b('save', saved ? '✅' : '💾', saved ? t('সংরক্ষিত — হিসাবে অন্তর্ভুক্ত', 'Saved — in the accounts') : t('সেভ করুন (হিসাবে অন্তর্ভুক্ত)', 'Save (apply to accounts)'), saved) +
+    b('share', '🔗', t('শেয়ার', 'Share')) + b('print', '🖨️', t('প্রিন্ট', 'Print'));
+}
+window.__vrowCtx = {};   // kind -> { getRec(id), edit(rec), refresh(), generic: {kind,config,titleBn,docType,sheet} }
+async function vrowAct(ev, kind, act, id) {
+  if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+  const ctx = window.__vrowCtx[kind]; if (!ctx) return;
+  const rec = ctx.getRec(id); if (!rec) return;
+  const g = ctx.generic;
+  try {
+    if (act === 'edit') { await ctx.edit(rec); return; }
+    if (act === 'delete') { await deleteSavedVoucher(g.docType, id, ctx.refresh, { sheet: g.sheet, idField: g.config.idField }); return; }
+    if (act === 'save') { if (DOC_TYPE_MAP[g.docType]) await postDocumentRecord(g.docType, id); return; }
+    if (act === 'preview') {
+      await openVoucherViewOverlay(g.docType, id, ctx.refresh, {
+        meta: { table: g.sheet, idField: g.config.idField, linesSheet: null, lineIdField: null, kind: 'generic' },
+        buildHtml: async function () { return buildGenericVoucherHtml(g.titleBn, id, await genericVoucherModel(g.kind, g.config, id), true); },
+        onEdit: function () { return ctx.edit(rec); }
+      });
+      return;
+    }
+    const model = await genericVoucherModel(g.kind, g.config, id);
+    if (act === 'print') openHtmlWindow(await buildGenericVoucherHtml(g.titleBn, id, model, false), true);
+    else if (act === 'share') {
+      const text = genericVoucherShareText(g.titleBn, id, model);
+      if (navigator.share) { try { await navigator.share({ title: g.titleBn, text: text }); } catch (e) {} }
+      else if (navigator.clipboard) { await navigator.clipboard.writeText(text); showToast(t('তথ্য ক্লিপবোর্ডে কপি হয়েছে।', 'Copied to clipboard.'), 'success'); }
+    }
+  } catch (err) { showToast(err.message, 'error'); }
+}
+
+/** পরিচিত ভাউচার-ধরনগুলোর (ক্রয়/বিক্রয়/পেমেন্ট/কালেকশন) জন্য ড্যাশবোর্ডের "সাম্প্রতিক" তালিকার আইকন */
+async function voucherQuickAction(docType, id, act, onChanged) {
+  const meta = VOUCHER_VIEW_META[docType]; if (!meta) return;
+  try {
+    if (act === 'preview') { await openVoucherViewOverlay(docType, id, onChanged); return; }
+    const { data: header } = await supabaseClient.from(meta.table).select('*').eq(meta.idField, id).maybeSingle();
+    if (!header) { showToast(t('ভাউচারটা খুঁজে পাওয়া যায়নি।', 'Voucher not found.'), 'error'); return; }
+    if (act === 'delete') { await deleteSavedVoucher(docType, id, onChanged); return; }
+    if (act === 'save') { await postDocumentRecord(docType, id); if (onChanged) await onChanged(); return; }
+    if (act === 'edit') {
+      if (header.Status === 'Posted' && !(await requireAdminForSavedChange('এডিট', 'edit'))) return;
+      if (meta.kind === 'purchase') openPurchaseVoucherForm(docType, id);
+      else if (meta.kind === 'sales') openSalesVoucherForm(docType, id);
+      else { window.__pendingMoneyEdit = { docType: docType, id: id }; const c = PARTY_MONEY_CONFIGS[meta.cfgKey]; navigateTo(meta.pageKey, t(meta.moduleBn, meta.moduleEn), t(c.titleBn, c.titleEn)); }
+      return;
+    }
+    if (act === 'print' || act === 'share') {
+      if (meta.kind === 'money') {
+        const cfg = PARTY_MONEY_CONFIGS[meta.cfgKey];
+        if (act === 'print') { openHtmlWindow(await buildMoneyVoucherPrintHtml(cfg, header, false, false), true); return; }
+        const d = await buildMoneyVoucherData(cfg, header);
+        const text = moneyVoucherShareText(cfg, header, d);
+        if (navigator.share) { try { await navigator.share({ title: cfg.titleBn, text: text }); } catch (e) {} } else if (navigator.clipboard) { await navigator.clipboard.writeText(text); showToast(t('তথ্য ক্লিপবোর্ডে কপি হয়েছে।', 'Copied to clipboard.'), 'success'); }
+      } else {
+        if (act === 'print') { openHtmlWindow(await buildPrintableVoucherHtml(docType, id, false), true); return; }
+        const text = docType + ' ' + id + '\nতারিখ: ' + formatShortDate(header.InvoiceDate || header.Date) + '\nমোট: ' + (Number(header.TotalAmount) || 0).toFixed(2);
+        if (navigator.share) { try { await navigator.share({ title: docType, text: text }); } catch (e) {} } else if (navigator.clipboard) { await navigator.clipboard.writeText(text); showToast(t('তথ্য ক্লিপবোর্ডে কপি হয়েছে।', 'Copied to clipboard.'), 'success'); }
+      }
+    }
+  } catch (err) { showToast(err.message, 'error'); }
 }
 
 async function renderSimpleVoucherPage(content, config) {
@@ -3905,28 +4177,35 @@ async function renderSimpleVoucherPage(content, config) {
       const cells = config.listColumns.map(function (c) {
         let v = r[c.key];
         if (c.key === 'Status') {
-          v = v === 'Posted' ? `<span class="badge active i18n" data-bn="পোস্ট করা" data-en="Posted">${t('পোস্ট করা','Posted')}</span>` : `<span class="badge draft i18n" data-bn="খসড়া" data-en="Draft">${t('খসড়া','Draft')}</span>`;
+          v = v === 'Posted' ? `<span class="badge active i18n" data-bn="সংরক্ষিত" data-en="Saved">${t('সংরক্ষিত','Saved')}</span>` : `<span class="badge draft i18n" data-bn="খসড়া" data-en="Draft">${t('খসড়া','Draft')}</span>`;
         } else v = escapeHtml(v);
         return '<td>' + v + '</td>';
       }).join('');
-      const postBtn = r.Status !== 'Posted'
-        ? `<button class="btn i18n" style="width:auto;padding:6px 12px;font-size:12px;" data-bn="পোস্ট করুন" data-en="Post" onclick='event.stopPropagation();postDocumentRecord(${JSON.stringify(config.docType)}, ${JSON.stringify(r[config.idField])})'>${t('পোস্ট করুন','Post')}</button>`
-        : '';
-      return `<tr onclick='openSimpleVoucherForm(${JSON.stringify(r).replace(/'/g,"&apos;")})' style="cursor:pointer;">${cells}<td class="row-actions">${postBtn}</td></tr>`;
+      return `<tr onclick='openSimpleVoucherForm(${JSON.stringify(r).replace(/'/g,"&apos;")})' style="cursor:pointer;">${cells}<td class="row-actions" style="white-space:nowrap;" onclick="event.stopPropagation();">${vrowIcons('simple', r[config.idField], r.Status)}</td></tr>`;
     }).join('');
     wrap.innerHTML = `<table class="data-table"><thead><tr>${headCells}<th></th></tr></thead><tbody>${bodyRows}</tbody></table>`;
   }
 
+  let simpleRecords = records;
+  const simpleRenderTable = renderTable;
+  renderTable = function (list) { simpleRecords = list; simpleRenderTable(list); };
   renderTable(records);
   document.getElementById('simpleVoucherAddBtn').addEventListener('click', function () { openSimpleVoucherForm(null); });
   window.__refreshSimpleVoucherList = async function () { renderTable(await api('list', { sheet: config.sheet })); };
   window.__activeSimpleVoucherConfig = config;
+  window.__vrowCtx.simple = {
+    getRec: function (id) { return simpleRecords.find(function (r) { return r[config.idField] === id; }); },
+    edit: async function (rec) { window.__activeSimpleVoucherConfig = config; await openSimpleVoucherForm(rec); },
+    refresh: function () { return window.__refreshSimpleVoucherList(); },
+    generic: { kind: 'simple', config: config, titleBn: config.titleBn, docType: config.docType, sheet: config.sheet }
+  };
 }
 
 async function openSimpleVoucherForm(existing) {
   const config = window.__activeSimpleVoucherConfig;
   const isEdit = !!existing;
-  const isPosted = isEdit && existing.Status === 'Posted';
+  if (isEdit && existing.Status === 'Posted' && !(await requireAdminForSavedChange('এডিট', 'edit'))) return;
+  const isPosted = false;   // সেভ করা ভাউচারও এডিট করা যায় (সেভ চাপলে হিসাব নতুন করে বসে)
 
   const fkFieldsList = config.fields.filter(function (f) { return f.type === 'select-fk'; });
   const uniqueFkSheets = Array.from(new Set(fkFieldsList.map(function (f) { return f.fkSheet; })));
@@ -4044,7 +4323,7 @@ async function renderTrialBalance(content) {
   content.innerHTML = `
     <div class="page-head"><div>
         <h1 class="i18n" data-bn="ট্রায়াল ব্যালেন্স" data-en="Trial Balance">${t('ট্রায়াল ব্যালেন্স','Trial Balance')}</h1>
-        <p class="i18n" data-bn="বর্তমানে শুধু পোস্ট করা জার্নাল ভাউচার এন্ট্রি থেকে হিসাব করা হয়েছে" data-en="Currently computed from posted Journal Voucher entries only">${t('বর্তমানে শুধু পোস্ট করা জার্নাল ভাউচার এন্ট্রি থেকে হিসাব করা হয়েছে','Currently computed from posted Journal Voucher entries only')}</p>
+        <p class="i18n" data-bn="বর্তমানে শুধু সংরক্ষিত জার্নাল ভাউচার এন্ট্রি থেকে হিসাব করা হয়েছে" data-en="Currently computed from posted Journal Voucher entries only">${t('বর্তমানে শুধু সংরক্ষিত জার্নাল ভাউচার এন্ট্রি থেকে হিসাব করা হয়েছে','Currently computed from posted Journal Voucher entries only')}</p>
       </div></div>
     <div class="panel"><div id="trialBalanceWrap"></div></div>`;
 
@@ -4052,7 +4331,7 @@ async function renderTrialBalance(content) {
   if (!wrap) return; // ব্যবহারকারী এই ফাঁকে অন্য পেজ/ট্যাবে চলে গেলে এই এলিমেন্ট আর DOM-এ থাকবে না
   const accountIds = Object.keys(totals);
   if (accountIds.length === 0) {
-    wrap.innerHTML = `<div class="empty-state i18n" data-bn="কোনো পোস্ট করা Journal Voucher নেই।" data-en="No posted Journal Vouchers yet.">${t('কোনো পোস্ট করা Journal Voucher নেই।','No posted Journal Vouchers yet.')}</div>`;
+    wrap.innerHTML = `<div class="empty-state i18n" data-bn="কোনো সংরক্ষিত Journal Voucher নেই।" data-en="No posted Journal Vouchers yet.">${t('কোনো সংরক্ষিত Journal Voucher নেই।','No posted Journal Vouchers yet.')}</div>`;
     return;
   }
 
@@ -4401,7 +4680,7 @@ window.updatePayrollNet = function (idx) {
    ============================================================ */
 /**
  * কাঁচামাল + উৎপাদন খরচ − বাই-প্রডাক্ট = নেট ফিনিশড গুডস কস্টিং।
- * কাঁচামালের দর দুই তারিখের মধ্যে GRN থেকে গড় (weighted average) করে
+ * কাঁচামালের দর দুই তারিখের মধ্যে ক্রয় ভাউচার থেকে গড় (weighted average) করে
  * অটো-বসানো হয়, ব্যবহারকারী চাইলে বদলাতে পারবেন।
  */
 async function renderProcessingPage(content) {
@@ -4433,7 +4712,7 @@ async function renderProcessingPage(content) {
     const headCells = headers.map(function (h) { return `<th class="i18n" data-bn="${h[0]}" data-en="${h[1]}">${t(h[0], h[1])}</th>`; }).join('');
     const bodyRows = active.slice().reverse().map(function (r) {
       const postBtn = r.Status !== 'Posted'
-        ? `<button class="btn" style="width:auto;padding:6px 12px;font-size:12px;" onclick='postProcessingRecord(${JSON.stringify(r.ProcessingID)})'>${t('পোস্ট করুন','Post')}</button>`
+        ? `<button class="btn" style="width:auto;padding:6px 12px;font-size:12px;" onclick='postProcessingRecord(${JSON.stringify(r.ProcessingID)})'>💾 ${t('সেভ','Save')}</button>`
         : '';
       return `<tr>
         <td>${escapeHtml(r.ProcessingID)}</td><td>${escapeHtml(r.Date)}</td>
@@ -4442,7 +4721,7 @@ async function renderProcessingPage(content) {
            ? fgByProc[r.ProcessingID].map(function (l) { return escapeHtml(itemMap[l.ItemID] || l.ItemID) + ' <span style="color:var(--text-muted);font-size:11px;">(' + (Number(l.QtyKg) ? Number(l.QtyKg).toFixed(2) + ' ' + t('কেজি','kg') : '') + (Number(l.QtyKg) && Number(l.QtyPcs) ? ' / ' : '') + (Number(l.QtyPcs) ? Number(l.QtyPcs) + ' ' + t('পিস','pcs') : '') + ')</span>'; }).join('<br>')
            : escapeHtml(itemMap[r.FinishedGoodsItemID] || r.FinishedGoodsItemID)}</td>
         <td>${escapeHtml(r.NetWeight)}</td><td>${escapeHtml(r.NetValue)}</td>
-        <td>${r.Status === 'Posted' ? `<span class="badge active">${t('পোস্ট করা','Posted')}</span>` : `<span class="badge draft">${t('খসড়া','Draft')}</span>`}</td>
+        <td>${r.Status === 'Posted' ? `<span class="badge active">${t('সংরক্ষিত','Saved')}</span>` : `<span class="badge draft">${t('খসড়া','Draft')}</span>`}</td>
         <td class="row-actions">${postBtn}</td>
       </tr>`;
     }).join('');
@@ -4455,10 +4734,10 @@ async function renderProcessingPage(content) {
 }
 
 async function postProcessingRecord(processingId) {
-  if (!confirm(t('আপনি কি নিশ্চিত এই প্রসেসিং ভাউচার পোস্ট করতে চান? পোস্ট হয়ে গেলে স্টকে এন্ট্রি পড়বে এবং এটা আর বাতিল করা যাবে না।','Are you sure you want to post this Processing Voucher? Once posted, stock entries will be created and this cannot be undone.'))) return;
+  if (!confirm(t('এই ভাউচারটা সেভ করে হিসাবে (স্টক/লেজার/ব্যাংক) অন্তর্ভুক্ত করবেন?','Are you sure you want to post this Processing Voucher? Once posted, stock entries will be created and this cannot be undone.'))) return;
   try {
     await api('postDocument', { docType: 'ProcessingVoucher', docId: processingId });
-    showToast(t('পোস্ট হয়েছে ✅','Posted ✅'), 'success');
+    showToast(t('সেভ হয়েছে ✅','Saved ✅'), 'success');
     if (window.__refreshProcessingList) await window.__refreshProcessingList();
   } catch (err) {
     showToast(err.message, 'error');
@@ -4583,7 +4862,7 @@ async function openProcessingForm() {
         headerSheet: 'ProcessingVoucher', idField: 'ProcessingID', idPrefix: 'PROC',
         requiredFields: ['RawMaterialItemID','WarehouseID','FinishedGoodsItemID'],
         linesSheet: 'ProcessingByProduct_Lines', lineIdField: 'ProcessingID',
-        headerData: headerData, lines: byProductLines
+        headerData: headerData, lines: byProductLines, noAutoPost: true   // প্রস্তুত পণ্যের লাইন বসার পরে হিসাবে বসবে
       });
       // প্রস্তুত পণ্যের লাইনগুলো আলাদা টেবিলে; না বসলে অসম্পূর্ণ ভাউচার যেন পড়ে না থাকে
       const fgRows = fgLines.map(function (l) { return { ProcessingID: newHeader.ProcessingID, ItemID: l.itemId, QtyKg: l.kg, RatePerKg: l.rateKg, QtyPcs: l.pcs, RatePerPc: l.ratePc, Value: l.value }; });
@@ -4593,6 +4872,12 @@ async function openProcessingForm() {
         throw new Error(fgErr.message + t(' — (21_processing_fg_lines.sql মাইগ্রেশন রান করা আছে কিনা দেখুন)',' — (check that migration 21_processing_fg_lines.sql has been run)'));
       }
 
+      // সেভ করলেই স্টকে বসে যাবে; কোনো ত্রুটি হলে ভাউচার অর্ধেক-সেভ হয়ে পড়ে থাকবে না
+      try { await api('postDocument', { docType: 'ProcessingVoucher', docId: newHeader.ProcessingID }); }
+      catch (postErr) {
+        await api('rollbackDocument', { docType: 'ProcessingVoucher', idValue: newHeader.ProcessingID, linesSheet: 'ProcessingByProduct_Lines', lineIdField: 'ProcessingID', extra: [{ table: 'ProcessingFG_Lines', field: 'ProcessingID' }] });
+        throw postErr;
+      }
       showToast(t('সেভ হয়েছে ✅','Saved ✅'), 'success');
       if (window.__refreshProcessingList) await window.__refreshProcessingList();
     }
@@ -4606,8 +4891,8 @@ async function openProcessingForm() {
       const result = await api('getAverageRate', { itemId: itemId, dateFrom: dateFrom, dateTo: dateTo });
       document.getElementById('pv_RMRate').value = result.averageRate.toFixed(2);
       document.getElementById('pv_RateHint').textContent = t(
-        result.grnCount + 'টা GRN থেকে মোট ' + result.totalQtyPurchased.toFixed(2) + ' কেজির গড় দর',
-        'Averaged from ' + result.grnCount + ' GRN(s), total ' + result.totalQtyPurchased.toFixed(2) + ' kg purchased'
+        result.voucherCount + 'টা ক্রয় ভাউচার থেকে মোট ' + result.totalQtyPurchased.toFixed(2) + ' কেজির গড় দর',
+        'Averaged from ' + result.voucherCount + ' purchase voucher(s), total ' + result.totalQtyPurchased.toFixed(2) + ' kg purchased'
       );
       recalcProcessing();
     } catch (err) {
@@ -4902,22 +5187,14 @@ async function renderPurchaseVoucherPage(content, defaultType) {
     const bodyRows = merged.slice().reverse().map(function (r) {
       const isPosted = r.status === 'Posted';
       const postBtn = !isPosted
-        ? `<button class="btn" style="width:auto;padding:6px 12px;font-size:12px;" onclick='postPurchaseVoucherRecord(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})'>${t('পোস্ট করুন','Post')}</button>`
+        ? `<button class="btn" style="width:auto;padding:6px 12px;font-size:12px;" onclick='postPurchaseVoucherRecord(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})'>💾 ${t('সেভ','Save')}</button>`
         : '';
-      const editBtn = !isPosted
-        ? `<button onclick='openPurchaseVoucherForm(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' title="${t('সম্পাদনা','Edit')}">
+      const editBtn = `<button onclick='openPurchaseVoucherForm(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' title="${t('সম্পাদনা','Edit')}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="m18.5 2.5 3 3L10 17l-4 1 1-4Z"/></svg>
-          </button>`
-        : '';
-      const deleteBtn = !isPosted
-        ? `<button onclick='deletePurchaseVoucherRecord(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' title="${t('ডিলিট','Delete')}">
+          </button>`;
+      const deleteBtn = `<button onclick='deletePurchaseVoucherRecord(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' title="${t('ডিলিট','Delete')}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg>
-          </button>`
-        : (currentUser && currentUser.RoleID === 'ROLE-ADMIN'
-            ? `<button onclick='deletePostedPurchaseVoucher(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' title="${t('এডমিন ডিলিট (পাসওয়ার্ড লাগবে)','Admin delete (password required)')}" style="color:var(--danger);">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-              </button>`
-            : '');
+          </button>`;
       const previewBtn = `<button onclick='openPrintableVoucherView(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' title="${t('প্রিভিউ/প্রিন্ট/শেয়ার','Preview/Print/Share')}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
         </button>`;
@@ -4925,7 +5202,7 @@ async function renderPurchaseVoucherPage(content, defaultType) {
         <td>${t(r.typeLabel[0], r.typeLabel[1])}</td><td>${escapeHtml(r.id)}</td><td>${escapeHtml(r.date)}</td>
         <td>${escapeHtml(r.supplierId === 'SUP-CASH' && r.walkInName ? ('নগদ (' + r.walkInName + ')') : (supMap[r.supplierId] || r.supplierId))}</td><td>${escapeHtml(purMap[r.purchaserId] || '—')}</td>
         <td>${r.amount !== null ? Number(r.amount).toFixed(2) : '—'}</td>
-        <td>${isPosted ? `<span class="badge active">${t('পোস্ট করা','Posted')}</span>` : `<span class="badge draft">${t('খসড়া','Draft')}</span>`}</td>
+        <td>${isPosted ? `<span class="badge active">${t('সংরক্ষিত','Saved')}</span>` : `<span class="badge draft">${t('খসড়া','Draft')}</span>`}</td>
         <td class="row-actions" onclick="event.stopPropagation();">${postBtn}${previewBtn}${editBtn}${deleteBtn}</td>
       </tr>`;
     }).join('');
@@ -4938,10 +5215,10 @@ async function renderPurchaseVoucherPage(content, defaultType) {
 }
 
 async function postPurchaseVoucherRecord(docType, docId) {
-  if (!confirm(t('আপনি কি নিশ্চিত এই ভাউচার পোস্ট করতে চান? পোস্ট হয়ে গেলে স্টক/লেজারে এন্ট্রি পড়বে এবং এটা আর বাতিল করা যাবে না।','Are you sure you want to post this voucher? Once posted, stock/ledger entries will be created and this cannot be undone.'))) return;
+  if (!confirm(t('এই ভাউচারটা সেভ করে হিসাবে (স্টক/লেজার/ব্যাংক) অন্তর্ভুক্ত করবেন?','Are you sure you want to post this voucher? Once posted, stock/ledger entries will be created and this cannot be undone.'))) return;
   try {
     await api('postDocument', { docType: docType, docId: docId });
-    showToast(t('পোস্ট হয়েছে ✅','Posted ✅'), 'success');
+    showToast(t('সেভ হয়েছে ✅','Saved ✅'), 'success');
     if (window.__refreshPurchaseVoucherList) await window.__refreshPurchaseVoucherList();
   } catch (err) {
     showToast(err.message, 'error');
@@ -4949,24 +5226,11 @@ async function postPurchaseVoucherRecord(docType, docId) {
 }
 
 async function deletePurchaseVoucherRecord(docType, docId) {
-  if (!confirm(t('আপনি কি নিশ্চিত এই ভাউচার ডিলিট করতে চান?','Are you sure you want to delete this voucher?'))) return;
-  const config = docType === 'PurchaseReturn'
-    ? { sheet:'PurchaseReturn', idField:'PRetID' }
-    : { sheet:'PurchaseInvoice', idField:'PIID' };
-  try {
-    await api('delete', { sheet: config.sheet, idField: config.idField, idValue: docId });
-    showToast(t('ডিলিট হয়েছে ✅','Deleted ✅'), 'success');
-    if (window.__refreshPurchaseVoucherList) await window.__refreshPurchaseVoucherList();
-  } catch (err) {
-    showToast(err.message, 'error');
-  }
+  await deleteSavedVoucher(docType, docId, window.__refreshPurchaseVoucherList);
 }
 
 async function deletePostedPurchaseVoucher(docType, docId) {
-  const config = docType === 'PurchaseReturn'
-    ? { sheet:'PurchaseReturn', idField:'PRetID', linesSheet:'PR_Return_Lines', lineIdField:'PRetID' }
-    : { sheet:'PurchaseInvoice', idField:'PIID', linesSheet:'PI_Lines', lineIdField:'PIID' };
-  await deletePostedVoucherWithAdminAuth(docType, docId, config.sheet, config.idField, config.linesSheet, config.lineIdField, window.__refreshPurchaseVoucherList);
+  await deleteSavedVoucher(docType, docId, window.__refreshPurchaseVoucherList);
 }
 
 /** প্রিভিউ/প্রিন্ট/শেয়ার — একটা প্রিন্ট-উপযোগী ভাউচার নতুন ট্যাবে খুলবে।
@@ -5172,10 +5436,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     }
     existingHeader = doc.header;
     existingLines = doc.lines;
-    if (existingHeader.Status === 'Posted') {
-      showToast(t('পোস্ট হয়ে যাওয়া ভাউচার এডিট করা যাবে না।','A posted voucher cannot be edited.'), 'error');
-      return;
-    }
+    if (existingHeader.Status === 'Posted' && !(await requireAdminForSavedChange('এডিট', 'edit'))) return;
   }
 
   const rec = existingHeader || {};
@@ -5986,30 +6247,22 @@ async function renderSalesVoucherPage(content, defaultType) {
     const bodyRows = merged.slice().reverse().map(function (r) {
       const isPosted = r.status === 'Posted';
       const postBtn = !isPosted
-        ? `<button class="btn" style="width:auto;padding:6px 12px;font-size:12px;" onclick='postSalesVoucherRecord(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})'>${t('পোস্ট করুন','Post')}</button>`
+        ? `<button class="btn" style="width:auto;padding:6px 12px;font-size:12px;" onclick='postSalesVoucherRecord(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})'>💾 ${t('সেভ','Save')}</button>`
         : '';
       const previewBtn = `<button onclick='openPrintableVoucherView(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' title="${t('প্রিভিউ/প্রিন্ট/শেয়ার','Preview/Print/Share')}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
         </button>`;
-      const editBtn = !isPosted
-        ? `<button onclick='openSalesVoucherForm(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' title="${t('সম্পাদনা','Edit')}">
+      const editBtn = `<button onclick='openSalesVoucherForm(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' title="${t('সম্পাদনা','Edit')}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="m18.5 2.5 3 3L10 17l-4 1 1-4Z"/></svg>
-          </button>`
-        : '';
-      const deleteBtn = !isPosted
-        ? `<button onclick='deleteSalesVoucherRecord(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' title="${t('ডিলিট','Delete')}">
+          </button>`;
+      const deleteBtn = `<button onclick='deleteSalesVoucherRecord(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' title="${t('ডিলিট','Delete')}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg>
-          </button>`
-        : (currentUser && currentUser.RoleID === 'ROLE-ADMIN'
-            ? `<button onclick='deletePostedSalesVoucher(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' title="${t('এডমিন ডিলিট (পাসওয়ার্ড লাগবে)','Admin delete (password required)')}" style="color:var(--danger);">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-              </button>`
-            : '');
+          </button>`;
       return `<tr ondblclick='openSalesVoucherForm(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' style="cursor:pointer;" title="${t('এডিট করতে ডাবল-ক্লিক করুন','Double-click to edit')}">
         <td>${t(r.typeLabel[0], r.typeLabel[1])}</td><td>${escapeHtml(r.id)}</td><td>${escapeHtml(r.date)}</td>
         <td>${escapeHtml(r.customerId === 'CUS-CASH' && r.walkInName ? ('নগদ (' + r.walkInName + ')') : (custMap[r.customerId] || r.customerId))}</td><td>${escapeHtml(slpMap[r.salespersonId] || '—')}</td>
         <td>${r.amount !== null ? Number(r.amount).toFixed(2) : '—'}</td>
-        <td>${isPosted ? `<span class="badge active">${t('পোস্ট করা','Posted')}</span>` : `<span class="badge draft">${t('খসড়া','Draft')}</span>`}</td>
+        <td>${isPosted ? `<span class="badge active">${t('সংরক্ষিত','Saved')}</span>` : `<span class="badge draft">${t('খসড়া','Draft')}</span>`}</td>
         <td class="row-actions" onclick="event.stopPropagation();">${postBtn}${previewBtn}${editBtn}${deleteBtn}</td>
       </tr>`;
     }).join('');
@@ -6022,10 +6275,10 @@ async function renderSalesVoucherPage(content, defaultType) {
 }
 
 async function postSalesVoucherRecord(docType, docId) {
-  if (!confirm(t('আপনি কি নিশ্চিত এই ভাউচার পোস্ট করতে চান? পোস্ট হয়ে গেলে স্টক/লেজারে এন্ট্রি পড়বে এবং এটা আর বাতিল করা যাবে না।','Are you sure you want to post this voucher? Once posted, stock/ledger entries will be created and this cannot be undone.'))) return;
+  if (!confirm(t('এই ভাউচারটা সেভ করে হিসাবে (স্টক/লেজার/ব্যাংক) অন্তর্ভুক্ত করবেন?','Are you sure you want to post this voucher? Once posted, stock/ledger entries will be created and this cannot be undone.'))) return;
   try {
     await api('postDocument', { docType: docType, docId: docId });
-    showToast(t('পোস্ট হয়েছে ✅','Posted ✅'), 'success');
+    showToast(t('সেভ হয়েছে ✅','Saved ✅'), 'success');
     if (window.__refreshSalesVoucherList) await window.__refreshSalesVoucherList();
   } catch (err) {
     showToast(err.message, 'error');
@@ -6033,24 +6286,11 @@ async function postSalesVoucherRecord(docType, docId) {
 }
 
 async function deleteSalesVoucherRecord(docType, docId) {
-  if (!confirm(t('আপনি কি নিশ্চিত এই ভাউচার ডিলিট করতে চান?','Are you sure you want to delete this voucher?'))) return;
-  const config = docType === 'SalesReturn'
-    ? { sheet:'SalesReturn', idField:'SRID' }
-    : { sheet:'SalesInvoice', idField:'SIID' };
-  try {
-    await api('delete', { sheet: config.sheet, idField: config.idField, idValue: docId });
-    showToast(t('ডিলিট হয়েছে ✅','Deleted ✅'), 'success');
-    if (window.__refreshSalesVoucherList) await window.__refreshSalesVoucherList();
-  } catch (err) {
-    showToast(err.message, 'error');
-  }
+  await deleteSavedVoucher(docType, docId, window.__refreshSalesVoucherList);
 }
 
 async function deletePostedSalesVoucher(docType, docId) {
-  const config = docType === 'SalesReturn'
-    ? { sheet:'SalesReturn', idField:'SRID', linesSheet:'SR_Lines', lineIdField:'SRID' }
-    : { sheet:'SalesInvoice', idField:'SIID', linesSheet:'SI_Lines', lineIdField:'SIID' };
-  await deletePostedVoucherWithAdminAuth(docType, docId, config.sheet, config.idField, config.linesSheet, config.lineIdField, window.__refreshSalesVoucherList);
+  await deleteSavedVoucher(docType, docId, window.__refreshSalesVoucherList);
 }
 
 async function openSalesVoucherForm(defaultType, existingId) {
@@ -6085,10 +6325,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
     }
     existingHeader = doc.header;
     existingLines = doc.lines;
-    if (existingHeader.Status === 'Posted') {
-      showToast(t('পোস্ট হয়ে যাওয়া ভাউচার এডিট করা যাবে না।','A posted voucher cannot be edited.'), 'error');
-      return;
-    }
+    if (existingHeader.Status === 'Posted' && !(await requireAdminForSavedChange('এডিট', 'edit'))) return;
   }
 
   const rec = existingHeader || {};
@@ -6859,27 +7096,30 @@ async function renderDocumentListPage(content, config) {
       const cells = config.listColumns.map(function (c) {
         let v = r[c.key];
         if (c.key === 'Status') {
-          v = v === 'Posted' ? `<span class="badge active i18n" data-bn="পোস্ট করা" data-en="Posted">${t('পোস্ট করা','Posted')}</span>` : `<span class="badge draft i18n" data-bn="খসড়া" data-en="Draft">${t('খসড়া','Draft')}</span>`;
+          v = v === 'Posted' ? `<span class="badge active i18n" data-bn="সংরক্ষিত" data-en="Saved">${t('সংরক্ষিত','Saved')}</span>` : `<span class="badge draft i18n" data-bn="খসড়া" data-en="Draft">${t('খসড়া','Draft')}</span>`;
         } else if (c.key === 'TotalAmount') {
           v = v ? Number(v).toFixed(2) : '—';
         } else v = escapeHtml(v);
         return '<td>' + v + '</td>';
       }).join('');
-      const editBtn = `<button onclick='openDocumentForm(${JSON.stringify(r[config.idField])})' title="${t('সম্পাদনা','Edit')}">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="m18.5 2.5 3 3L10 17l-4 1 1-4Z"/></svg>
-        </button>`;
-      const postBtn = (config.postable && r.Status !== 'Posted')
-        ? `<button class="btn" style="width:auto;padding:6px 12px;font-size:12px;" onclick='postDocumentRecord(${JSON.stringify(config.docType)}, ${JSON.stringify(r[config.idField])})'>${t('পোস্ট করুন','Post')}</button>`
-        : '';
-      return `<tr>${cells}<td class="row-actions">${postBtn}${editBtn}</td></tr>`;
+      return `<tr>${cells}<td class="row-actions" style="white-space:nowrap;" onclick="event.stopPropagation();">${vrowIcons('doc', r[config.idField], r.Status)}</td></tr>`;
     }).join('');
     wrap.innerHTML = `<table class="data-table"><thead><tr>${headCells}<th></th></tr></thead><tbody>${bodyRows}</tbody></table>`;
   }
 
+  let docRecords = records;
+  const docRenderTable = renderTable;
+  renderTable = function (list) { docRecords = list; docRenderTable(list); };
   renderTable(records);
   document.getElementById('docAddBtn').addEventListener('click', function () { openDocumentForm(null); });
   window.__activeDocConfig = config;
   window.__refreshDocTable = async function () { renderTable(await api('list', { sheet: config.headerSheet })); };
+  window.__vrowCtx.doc = {
+    getRec: function (id) { return docRecords.find(function (r) { return r[config.idField] === id; }); },
+    edit: async function (rec) { window.__activeDocConfig = config; await openDocumentForm(rec[config.idField]); },
+    refresh: function () { return window.__refreshDocTable(); },
+    generic: { kind: 'doc', config: config, titleBn: config.titleBn, docType: config.docType || config.headerSheet, sheet: config.headerSheet }
+  };
 }
 
 async function openDocumentForm(existingId) {
@@ -6891,10 +7131,7 @@ async function openDocumentForm(existingId) {
     const doc = await api('getDocument', { headerSheet: config.headerSheet, idField: config.idField, linesSheet: config.linesSheet, lineIdField: config.lineIdField, idValue: existingId });
     existingHeader = doc.header;
     existingLines = doc.lines;
-    if (existingHeader.Status === 'Posted') {
-      showToast(t('পোস্ট হয়ে যাওয়া ডকুমেন্ট এডিট করা যাবে না।','A posted document cannot be edited.'), 'error');
-      return;
-    }
+    if (existingHeader.Status === 'Posted' && !(await requireAdminForSavedChange('এডিট', 'edit'))) return;
   }
 
   // হেডার ও লাইন ফিল্ডের সব FK ড্রপডাউনের ডেটা একসাথে (parallel) আনা হচ্ছে
@@ -7007,10 +7244,10 @@ window.recalcDocTotal = function () {
 };
 
 async function postDocumentRecord(docType, docId) {
-  if (!confirm(t('আপনি কি নিশ্চিত এই ডকুমেন্ট পোস্ট করতে চান? পোস্ট হয়ে গেলে স্টক/লেজারে এন্ট্রি পড়বে এবং এটা আর বাতিল করা যাবে না।','Are you sure you want to post this document? Once posted, stock/ledger entries will be created and this cannot be undone.'))) return;
+  if (!confirm(t('এই ভাউচারটা সেভ করে হিসাবে (স্টক/লেজার/ব্যাংক) অন্তর্ভুক্ত করবেন?','Are you sure you want to post this document? Once posted, stock/ledger entries will be created and this cannot be undone.'))) return;
   try {
     await api('postDocument', { docType: docType, docId: docId });
-    showToast(t('পোস্ট হয়েছে ✅','Posted ✅'), 'success');
+    showToast(t('সেভ হয়েছে ✅','Saved ✅'), 'success');
     if (window.__refreshDocTable) await window.__refreshDocTable();
     if (window.__refreshSimpleVoucherList) await window.__refreshSimpleVoucherList();
   } catch (err) {
@@ -7354,12 +7591,12 @@ async function renderPartyLedger(content, partyTypeFilter) {
   // প্রতিটা RefModule-এর জন্য "বিবরণী" ও "ভাউচার ধরন" — ইন-অ্যাপ টেবিল ও A4 প্রিন্ট দুই জায়গাতেই ব্যবহার হয়
   function refModuleInfo(refModule) {
     const map = {
-      PurchaseInvoice: { desc:['ক্রয় ভাউচার পোস্টিং','Purchase voucher posting'], type:['ক্রয়','Purchase'] },
+      PurchaseInvoice: { desc:['ক্রয় ভাউচার','Purchase voucher'], type:['ক্রয়','Purchase'] },
       'PurchaseInvoice-Payment': { desc:['ক্রয় ভাউচারে প্রদান','Payment against purchase voucher'], type:['পেমেন্ট','Payment'] },
-      PurchaseReturn: { desc:['ক্রয় ফেরত ভাউচার পোস্টিং','Purchase return posting'], type:['ক্রয় ফেরত','Purchase Return'] },
-      SalesInvoice: { desc:['বিক্রয় ভাউচার পোস্টিং','Sales voucher posting'], type:['বিক্রয়','Sales'] },
+      PurchaseReturn: { desc:['ক্রয় ফেরত ভাউচার','Purchase return'], type:['ক্রয় ফেরত','Purchase Return'] },
+      SalesInvoice: { desc:['বিক্রয় ভাউচার','Sales voucher'], type:['বিক্রয়','Sales'] },
       'SalesInvoice-Receipt': { desc:['বিক্রয় ভাউচারে গ্রহণ','Receipt against sales voucher'], type:['রিসিট','Receipt'] },
-      SalesReturn: { desc:['বিক্রয় ফেরত ভাউচার পোস্টিং','Sales return posting'], type:['বিক্রয় ফেরত','Sales Return'] },
+      SalesReturn: { desc:['বিক্রয় ফেরত ভাউচার','Sales return'], type:['বিক্রয় ফেরত','Sales Return'] },
       ContraVoucher: { desc:['কন্ট্রা ভাউচার','Contra voucher'], type:['কন্ট্রা','Contra'] },
       PaymentVoucher: { desc:['পেমেন্ট ভাউচার','Payment voucher'], type:['পেমেন্ট','Payment'] },
       CollectionVoucher: { desc:['কালেকশন ভাউচার','Collection voucher'], type:['কালেকশন','Collection'] },
@@ -7411,7 +7648,7 @@ async function renderPartyLedger(content, partyTypeFilter) {
     rows.sort(function (a, b) { return String(a.Date || '').localeCompare(String(b.Date || '')) || ((Number(a.id) || 0) - (Number(b.id) || 0)); });
     lastRows = rows;
 
-    if (rows.length === 0) { wrap.innerHTML = `<div class="empty-state">${t('কোনো এন্ট্রি পাওয়া যায়নি। (শুধু পোস্ট করা ভাউচারের হিসাবই লেজারে আসে)','No entries found. (Only posted vouchers appear in the ledger)')}</div>`; return; }
+    if (rows.length === 0) { wrap.innerHTML = `<div class="empty-state">${t('কোনো এন্ট্রি পাওয়া যায়নি। (সেভ করা ভাউচারের হিসাবই লেজারে আসে)','No entries found. (Only posted vouchers appear in the ledger)')}</div>`; return; }
 
     // দুই দিকের (ক্রয় + বিক্রয়) এন্ট্রি একসাথে মিলিয়ে, তারিখ অনুযায়ী সাজিয়ে,
     // নতুন করে একটামাত্র চলমান ব্যালেন্স হিসাব করা হচ্ছে — টেবিলে যেটা আলাদা
