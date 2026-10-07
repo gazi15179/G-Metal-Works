@@ -4056,7 +4056,7 @@ async function renderSizeRatesPage(content) {
       @media (max-width:600px){ .srt-new{grid-template-columns:minmax(0,1fr) minmax(0,1fr);} .srt-bar{grid-template-columns:minmax(0,1fr) minmax(0,1fr);} .srt-bar .btn{grid-column:1 / -1;} .srt-scroll{max-height:calc(100vh - 250px);} }
     </style>
     <div class="panel srt">
-      <div class="srt-head"><h1>${t('সাইজ অনুযায়ী মজুরি দর','Size Wage Rates')}</h1><span>${t('প্রতি কেজি, সবার জন্য এক — এন্ট্রির সময় হাতে বদলানো যায়','Per kg, same for everyone — editable per entry')}</span></div>
+      <div class="srt-head"><h1>${t('সাইজ অনুযায়ী মজুরি দর','Size Wage Rates')}</h1><span>${t('প্রতি কেজি সার্কেল — এই সাইজ বানাতে ১ কেজি সার্কেলে কত টাকা; সবার জন্য এক, এন্ট্রির সময় হাতে বদলানো যায়','Per kg of circle — what 1 kg of circle pays when making this size; same for everyone, editable per entry')}</span></div>
       <div class="srt-bar">
         <div class="field"><label>${t('গ্রুপ','Group')}</label><select id="srtGroup"><option value="">${t('সব গ্রুপ','All groups')}</option>${gp.groups.map(function (g) { return `<option value="${attr(g.GroupID)}">${escapeHtml(g.GroupName)}</option>`; }).join('')}</select></div>
         <div class="field"><label>${t('ক্যাটাগরি','Category')}</label><select id="srtCat"></select></div>
@@ -5892,9 +5892,9 @@ async function renderProdDailyPage(content) {
       .pdl-team td.tw select{min-width:112px;max-width:136px;height:26px;font-size:11.5px;}
       .pdl-team .tamt{margin-top:3px;} .pdl-team .tamt input,.pdl-team td.cst input{width:74px;}
       .pdl-team th.cst{background:#fff4e5;color:#9a5b00;}
-      .pdl-team .fgi{position:sticky;left:40px;z-index:2;width:132px;min-width:132px;max-width:132px;box-sizing:border-box;text-align:left;white-space:normal;line-height:1.35;font-size:11.5px;}
+      .pdl-team .fgi{position:sticky;left:40px;z-index:2;width:176px;min-width:176px;max-width:176px;box-sizing:border-box;text-align:left;white-space:normal;line-height:1.35;font-size:11.5px;}
       .pdl-team .fgi small{color:var(--text-muted);}
-      .pdl-team .cir{position:sticky;left:172px;z-index:2;width:72px;min-width:72px;max-width:72px;box-sizing:border-box;text-align:right;}
+      .pdl-team .cir{position:sticky;left:216px;z-index:2;width:72px;min-width:72px;max-width:72px;box-sizing:border-box;text-align:right;}
       .pdl-team thead .fgi,.pdl-team tfoot .fgi,.pdl-team thead .cir,.pdl-team tfoot .cir{z-index:5;}
       .pdl-team .tamt{display:flex;align-items:center;justify-content:flex-end;gap:3px;min-height:26px;}
       .pdl-team .rt{font-size:10.5px;color:var(--text-muted);white-space:nowrap;}
@@ -6005,28 +6005,37 @@ async function renderProdDailyPage(content) {
 
 
   // ============ ২য় অংশঃ দৈনিক উৎপাদন ও দল — প্রতিটা লাইনের (ক্রঃ) কর্মচারী, মজুরি ও খরচ ============
-  // ঘরের টাকা নিজে = লাইনের তিন আইটেমের মোট ওজন × "সাইজ অনুযায়ী মজুরি দর" (হাতে বদলানো যায়, কমলা = হাতে লেখা)
+  // ঘরের টাকা নিজে = সার্কেলের কেজি × "সাইজ অনুযায়ী মজুরি দর" (দর = প্রতি কেজি সার্কেল)। লাইনে কয়েক সাইজ থাকলে
+  // সার্কেল ভাগ হয় যে যে তৈরী পণ্য বানানো হলো তাদের ওজনের অনুপাতে (ওজন না থাকলে পিসের অনুপাতে); হাতে বদলানো যায় (কমলা)
   // সেভ হয় আগের মতোই TeamProduction-এ (DPLineID দিয়ে লাইনের সাথে যুক্ত); দর আসে "সাইজ অনুযায়ী মজুরি দর" পেজ থেকে, না থাকলে ঘরেই "দর নেই — দিন" — তাই সেলারী ভাউচার ও প্রসেসিং ভাউচার নিজে থেকেই পায়
   const roles = gp.laborRoles, croles = gp.costRoles;
   function team(L) { return st.team[L.key] = st.team[L.key] || { tpId: null, who: {}, amt: {}, camt: {}, locked: false, dirty: false }; }
   const ovOf = function (m, r) { return m[r] !== undefined && m[r] !== ''; };
-  function calcAmt(L, r) { return L.it.reduce(function (s, x) { return s + (x.id ? itemKg(x) * gp.rateOf(x.id, r) : 0); }, 0); }
-  function breakdown(L, r) { return L.it.filter(function (x) { return x.id && itemKg(x); }).map(function (x) { return (itemName[x.id] || x.id) + ' ' + show(itemKg(x)) + ' × ' + hrMoney(gp.rateOf(x.id, r)); }).join(' + '); }
+  function circleShares(L) {   // [{x, kg}] — প্রতিটা তৈরী পণ্যের ভাগে কত কেজি সার্কেল
+    const xs = L.it.filter(function (x) { return x.id; }); if (!xs.length) return [];
+    const circle = n(L.v.raw);
+    let w = xs.map(function (x) { return itemKg(x); }), tw = w.reduce(function (a, b) { return a + b; }, 0);
+    if (!(tw > 0)) { w = xs.map(function (x) { return n(x.p); }); tw = w.reduce(function (a, b) { return a + b; }, 0); }
+    if (!(tw > 0)) { w = xs.map(function () { return 1; }); tw = xs.length; }
+    return xs.map(function (x, i) { return { x: x, kg: circle > 0 ? circle * w[i] / tw : itemKg(x) }; });
+  }
+  function calcAmt(L, r) { return circleShares(L).reduce(function (s, c) { return s + c.kg * gp.rateOf(c.x.id, r); }, 0); }
+  function breakdown(L, r) { return circleShares(L).filter(function (c) { return c.kg; }).map(function (c) { return (itemName[c.x.id] || c.x.id) + t(' সার্কেল ', ' circle ') + show(c.kg, 2) + ' × ' + hrMoney(gp.rateOf(c.x.id, r)); }).join(' + '); }
   function wageOf(L, r) { const T = team(L); return ovOf(T.amt, r) ? n(T.amt[r]) : calcAmt(L, r); }
   function costOf(L, r) { const T = team(L); return ovOf(T.camt, r) ? n(T.camt[r]) : calcAmt(L, r); }
   function lineWage(L) { const T = team(L); return roles.reduce(function (s, ro) { return s + (T.who[ro.RoleID] ? wageOf(L, ro.RoleID) : 0); }, 0); }
   function lineCost(L) { return croles.reduce(function (s, ro) { return s + costOf(L, ro.RoleID); }, 0); }
   function teamLocked(L) { return !L.id || team(L).locked; }
-  function fgiHtml(L) { const xs = L.it.filter(function (x) { return x.id; }); return xs.length ? xs.map(function (x) { return escapeHtml(itemName[x.id] || x.id) + (itemKg(x) ? ` <small>${show(itemKg(x))} ${t('কেজি', 'kg')}</small>` : ''); }).join('<br>') : '<small>—</small>'; }
+  function fgiHtml(L) { const cs = circleShares(L); return cs.length ? cs.map(function (c) { return escapeHtml(itemName[c.x.id] || c.x.id) + ` <small title="${attr(t('তৈরী পণ্য · এর ভাগে সার্কেল', 'finished · circle share'))}">${itemKg(c.x) ? show(itemKg(c.x)) + ' · ' : ''}${t('সার্কেল ', 'circle ')}${show(c.kg, 2)}</small>`; }).join('<br>') : '<small>—</small>'; }
   function itemNames(L) { return L.it.filter(function (x) { return x.id; }).map(function (x) { return itemName[x.id] || x.id; }).join(' / '); }
   function empOpts(date, sel) {
     const pres = st.present[date] || {};
     const list = base.emps.slice().sort(function (a, b) { return (pres[b.EmployeeID] ? 1 : 0) - (pres[a.EmployeeID] ? 1 : 0) || String(a.Name).localeCompare(String(b.Name)); });
     return '<option value="">—</option>' + list.map(function (e) { return `<option value="${attr(e.EmployeeID)}" ${e.EmployeeID === sel ? 'selected' : ''}>${escapeHtml(e.Name)}${pres[e.EmployeeID] ? ' ✓' : ''}</option>`; }).join('');
   }
-  function missingRate(L, r) { return L.it.filter(function (x) { return x.id && itemKg(x) > 0 && !gp.rateOf(x.id, r); }); }
-  function rateLabel(L, r) {   // "সাইজ অনুযায়ী মজুরি দর" পেজের দর — লাইনে কয়েক সাইজ থাকলে কেজি অনুযায়ী গড়
-    const kg = L.it.reduce(function (s, x) { return s + (x.id ? itemKg(x) : 0); }, 0);
+  function missingRate(L, r) { return circleShares(L).filter(function (c) { return c.kg > 0 && !gp.rateOf(c.x.id, r); }).map(function (c) { return c.x; }); }
+  function rateLabel(L, r) {   // "সাইজ অনুযায়ী মজুরি দর" পেজের দর (প্রতি কেজি সার্কেল) — কয়েক সাইজ থাকলে ভাগ অনুযায়ী গড়
+    const kg = circleShares(L).reduce(function (s, c) { return s + c.kg; }, 0);
     if (!(kg > 0)) return '';
     if (missingRate(L, r).length) return `<button type="button" class="setrate" data-tsetrate="${attr(L.key + '|' + r)}" title="${attr(t('যে সাইজের দর নেই, সেটার দর এখানেই দিন — "সাইজ অনুযায়ী মজুরি দর" পেজেও বসে যাবে', 'Set the missing size rate here — it is saved to the size rate page too'))}" ${teamLocked(L) ? 'disabled' : ''}>${t('দর নেই — দিন', 'No rate — set')}</button>`;
     return `<span class="rt">${t('দর ', 'rate ')}${hrMoney(calcAmt(L, r) / kg)} =</span>`;
@@ -6125,7 +6134,7 @@ async function renderProdDailyPage(content) {
     }
     try {
       for (const L of list) {
-        const T = team(L), kg = itemsKg(L) || n(L.v.raw);
+        const T = team(L), kg = n(L.v.raw) || itemsKg(L);   // মজুরির ভিত্তি সার্কেলের কেজি
         const mems = roles.filter(function (ro) { return T.who[ro.RoleID]; }).map(function (ro) { const a = wageOf(L, ro.RoleID); return { EmployeeID: T.who[ro.RoleID], RoleID: ro.RoleID, Rate: kg > 0 ? a / kg : 0, Amount: a }; });
         const costs = croles.map(function (ro) { if (!ovOf(T.camt, ro.RoleID) && !calcAmt(L, ro.RoleID)) return null; const a = costOf(L, ro.RoleID); return { RoleID: ro.RoleID, Rate: kg > 0 ? a / kg : 0, Amount: a }; }).filter(Boolean);
         let tp = T.tpId;
@@ -6138,7 +6147,7 @@ async function renderProdDailyPage(content) {
           tp = hd[0].TeamProdID;
         }
         T.tpId = tp;
-        const its = L.it.filter(function (x) { return x.id && itemKg(x) > 0; }).map(function (x) { return { TeamProdID: tp, ItemID: x.id, Qty: itemKg(x) }; });
+        const its = circleShares(L).filter(function (c) { return c.kg > 0; }).map(function (c) { return { TeamProdID: tp, ItemID: c.x.id, Qty: +c.kg.toFixed(4) }; });   // প্রতিটা সাইজের ভাগের সার্কেল
         if (its.length) { const { error } = await supabaseClient.from('TeamProduction_Items').insert(its); if (error) throw new Error(error.message); }
         if (mems.length) { const { error } = await supabaseClient.from('TeamProduction_Members').insert(mems.map(function (m) { return Object.assign({ TeamProdID: tp }, m); })); if (error) throw new Error(error.message); }
         if (costs.length) { const { error } = await supabaseClient.from('TeamProduction_Costs').insert(costs.map(function (c) { return Object.assign({ TeamProdID: tp }, c); })); if (error) throw new Error(error.message + t(' — (22_team_production_costs.sql রান করা আছে কিনা দেখুন)', ' — (check that 22_team_production_costs.sql has been run)')); }
@@ -6370,7 +6379,7 @@ async function renderProdDailyPage(content) {
   $('pdlMakeProc').addEventListener('click', makeProcessing);
   $('pdlGoSalary').addEventListener('click', function () { navigateTo('payroll', t('এইচআর ও পে-রোল', 'HR & Payroll'), t('সেলারী ভাউচার', 'Salary Voucher')); });
   const helpDP = $('pdlHelp').innerHTML;
-  const helpTeam = t('২য় অংশঃ প্রতিটা লাইনে (ক্রঃ) কাজ অনুযায়ী কর্মচারী বাছাই করুন — টাকা নিজে বসে = লাইনের তিন আইটেমের মোট ওজন × "সাইজ অনুযায়ী মজুরি দর" (ঘরে মাউস রাখলে হিসাব দেখায়); চাইলে হাতে বদলান (কমলা = হাতে লেখা), খালি করলে আবার হিসাবের টাকা। খরচের খাতও একইভাবে। সেভ করলে মজুরি সেলারী ভাউচারে, আর মজুরি + খরচ প্রসেসিং ভাউচারের "মজুরি ও খরচ আনুন"-এ নিজে যায়। "⚙️ প্রসেসিং ভাউচার তৈরী" চাপলে এই তারিখগুলোর সব কিছু বসিয়ে ভাউচার খোলে — শুধু কাঁচামাল আইটেম, গুদাম ও দর দেখে সেভ করুন।', 'Part 2: pick the worker for each job on each line — the amount fills itself = the line’s three items’ total weight × the size rate (hover to see the calculation); type over if needed (orange), clear to go back. Same for cost heads. Saved wages go to the salary voucher, wages + costs to the processing voucher. "⚙️ Create processing voucher" opens a voucher with everything for these dates filled in.');
+  const helpTeam = t('২য় অংশঃ প্রতিটা লাইনে (ক্রঃ) কাজ অনুযায়ী কর্মচারী বাছাই করুন — টাকা নিজে বসে = সার্কেলের কেজি × "সাইজ অনুযায়ী মজুরি দর" (দর = প্রতি কেজি সার্কেল; কয়েক সাইজ হলে সার্কেল ভাগ হয় যে যে তৈরী পণ্য হলো তাদের ওজনের অনুপাতে — "তৈরী আইটেম" কলামে প্রতিটার ভাগ দেখায়; ঘরে মাউস রাখলে হিসাব); চাইলে হাতে বদলান (কমলা = হাতে লেখা), খালি করলে আবার হিসাবের টাকা। খরচের খাতও একইভাবে। সেভ করলে মজুরি সেলারী ভাউচারে, আর মজুরি + খরচ প্রসেসিং ভাউচারের "মজুরি ও খরচ আনুন"-এ নিজে যায়। "⚙️ প্রসেসিং ভাউচার তৈরী" চাপলে এই তারিখগুলোর সব কিছু বসিয়ে ভাউচার খোলে — শুধু কাঁচামাল আইটেম, গুদাম ও দর দেখে সেভ করুন।', 'Part 2: pick the worker for each job on each line — the amount fills itself = circle kg × the size rate (rate per kg of circle; with several sizes the circle is shared by the finished weight of each — shown in the items column; hover for the calculation); type over if needed (orange), clear to go back. Same for cost heads. Saved wages go to the salary voucher, wages + costs to the processing voucher. "⚙️ Create processing voucher" opens a voucher with everything for these dates filled in.');
   document.querySelectorAll('.pdl-vbtn').forEach(function (vb) {
     vb.addEventListener('click', function () {
       st.view = vb.getAttribute('data-view');
