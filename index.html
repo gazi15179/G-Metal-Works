@@ -7183,7 +7183,7 @@ async function openProcessingPrintView(docId, autoPrint) {
     <tbody>
       <tr><td>${B(1)}</td><td class="l">উৎপাদন খরচ — ${nm(h.RawMaterialItemID)}</td><td>${B(h.RawMaterialQty)}</td><td class="r">${M(h.ProcessingRate)}</td><td class="r">${M(h.ProcessingValue)}</td></tr>
       <tr class="total-row"><td colspan="2">মোটঃ উৎপাদন খরচঃ</td><td>${B(h.RawMaterialQty)}</td><td></td><td class="r">${M(h.ProcessingValue)}</td></tr>
-      <tr class="grand"><td colspan="4">সর্বমোট (কাঁচামাল + উৎপাদন খরচ)ঃ</td><td class="r">${M(h.TotalValue)}</td></tr>
+      <tr class="grand"><td colspan="2">মোটঃ (কাঁচামাল + উৎপাদন খরচ)</td><td>${B(h.RawMaterialQty)}</td><td></td><td class="r">${M(h.TotalValue)}</td></tr>
     </tbody></table>
 
   <!-- ৩) বাই-প্রডাক্ট -->
@@ -7193,6 +7193,7 @@ async function openProcessingPrintView(docId, autoPrint) {
     <tr><th>ক্রঃ</th><th>নাম</th><th>পরিমাণ</th><th class="r">দর</th><th class="r">মূল্য</th></tr></thead>
     <tbody>${bpRows}
       <tr class="total-row"><td colspan="2">মোটঃ বাই-প্রডাক্টঃ</td><td>${B(h.ByProductQty)}</td><td></td><td class="r">${M(h.ByProductValue)}</td></tr>
+      <tr class="grand"><td colspan="2">সর্বমোটঃ (বাই-প্রডাক্ট বাদ)</td><td>${B(+(Number(h.RawMaterialQty || 0) - Number(h.ByProductQty || 0)).toFixed(3))}</td><td></td><td class="r">${M(Number(h.TotalValue || 0) - Number(h.ByProductValue || 0))}</td></tr>
     </tbody></table>` : ''}
 
   <!-- ৪) ফিনিশড গুডস -->
