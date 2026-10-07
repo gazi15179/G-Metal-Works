@@ -5813,7 +5813,8 @@ async function openLeaveForm(existing) {
    প্রোডাকশন → দৈনিক উৎপাদন
    • আজকের উৎপাদনঃ (আজকের তারিখ ডিফল্ট) — নতুন লাইন এই তারিখে যোগ হয়; উৎপাদনঃ হইতে/পর্যন্ত দিয়ে কয়েক দিনের তালিকা দেখা
    • কোন সার্কেল (কাঁচামাল আইটেম) — সেটা প্রসেসিং ভাউচারে বাছাই হয়; এখানে শুধু পরিমাণ
-   • প্রতিটা লাইন (ক্রঃ ১, ২, ৩ …): সার্কেল | কাটিং | ভাঙ্গাড়ী | অপচয় | তৈরী পণ্য (কেজি, পিস) | তৈরী আইটেম-১/২/৩
+   • প্রতিটা লাইন (ক্রঃ ১, ২, ৩ …): সার্কেল | কাটিং | ভাঙ্গাড়ী | অপচয় | তৈরী পণ্য (কেজি, পিস) | তৈরী আইটেম-১/২/৩ | = (তিন আইটেমের সমন্বয়)
+     — প্রতিটা আইটেমের নিচে তিনটা ঘরঃ ১ পিসের ওজন | মোট পিস | মোট ওজন (নিজে = ১ পিস ওজন × মোট পিস)
      — যেমন একই হাঁড়ির তিন সাইজ রাইচ/তরকারী/ডিস্কো; প্রতিটা আইটেম লাইনে ড্রপডাউনে, কেজি ও পিসসহ
    • ক্রঃ অনুযায়ী প্রসেসিং ভাউচারে প্রস্তুত পণ্যের লাইন সাজানো হয় ("দৈনিক উৎপাদন থেকে আনুন")
    • প্রসেসিং ভাউচারে ব্যবহার হওয়া লাইন লক থাকে (একই লাইন দুবার ব্যবহার হয় না)
@@ -5834,15 +5835,17 @@ async function renderProdDailyPage(content) {
   const $ = function (id) { return document.getElementById(id); };
   const dayLabel = function (d) { const wd = new Date(d + 'T00:00:00').getDay(); return formatShortDate(d) + ' ' + (currentLang === 'bn' ? dayBn[wd] : dayEn[wd]); };
 
-  function newLine(date, serial) { return { key: 'L' + (++st.seq), id: null, date: date, serial: serial, rawId: '', v: {}, fgkOv: false, fgpOv: false, it: [{ id: '', k: '', p: '' }, { id: '', k: '', p: '' }, { id: '', k: '', p: '' }], saved: false, edit: false, dirty: false, procId: '', by: '' }; }
+  function newLine(date, serial) { return { key: 'L' + (++st.seq), id: null, date: date, serial: serial, rawId: '', v: {}, fgkOv: false, fgpOv: false, it: [{ id: '', u: '', p: '', k: '', kOv: false }, { id: '', u: '', p: '', k: '', kOv: false }, { id: '', u: '', p: '', k: '', kOv: false }], saved: false, edit: false, dirty: false, procId: '', by: '' }; }
   function byKey(k) { return st.lines.find(function (l) { return l.key === k; }); }
   function locked(L) { return !!L.procId || (L.saved && !L.edit); }
   function autoFgk(L) { const raw = n(L.v.raw); if (!raw) return 0; return raw - n(L.v.cut) - n(L.v.scrap) - n(L.v.waste); }
   function fgk(L) { return L.fgkOv ? n(L.v.fgk) : autoFgk(L); }
   function itemsPcs(L) { return n(L.it[0].p) + n(L.it[1].p) + n(L.it[2].p); }
   function fgp(L) { return L.fgpOv ? n(L.v.fgp) : itemsPcs(L); }   // পিস নিজে = তিন আইটেমের পিস; হাতে বদলানো যায়
-  function itemsKg(L) { return n(L.it[0].k) + n(L.it[1].k) + n(L.it[2].k); }
-  function hasAny(L) { return NUM.some(function (k) { return n(L.v[k]) !== 0; }) || L.it.some(function (x) { return n(x.k) || n(x.p); }); }
+  // আইটেমের মোট ওজন নিজে = ১ পিসের ওজন × মোট পিস; হাতে লিখলে সেটাই
+  function itemKg(x) { return x.kOv ? n(x.k) : n(x.u) * n(x.p); }
+  function itemsKg(L) { return itemKg(L.it[0]) + itemKg(L.it[1]) + itemKg(L.it[2]); }
+  function hasAny(L) { return NUM.some(function (k) { return n(L.v[k]) !== 0; }) || L.it.some(function (x) { return itemKg(x) || n(x.p); }); }
   function warnOf(L) { const s = itemsKg(L); return s > 0 && Math.abs(s - fgk(L)) > 0.0005; }
   function sorted() { return st.lines.slice().sort(function (a, b) { return a.date.localeCompare(b.date) || a.serial - b.serial; }); }
   const opt = function (sel) { return '<option value="">—</option>' + items.map(function (i) { return `<option value="${attr(i.ItemID)}" ${sel === i.ItemID ? 'selected' : ''}>${escapeHtml(i.ItemName)}</option>`; }).join(''); };
@@ -5853,7 +5856,7 @@ async function renderProdDailyPage(content) {
       .pdl-bar .field{margin:0;} .pdl-bar .field label{font-size:11px;font-weight:600;display:block;}
       .pdl-sum{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;margin:6px 0 10px;}
       .pdl-scroll{overflow:auto;max-height:calc(100vh - 300px);border:1px solid var(--border);border-radius:10px;}
-      .pdl-tbl{border-collapse:separate;border-spacing:0;min-width:860px;width:100%;}
+      .pdl-tbl{border-collapse:separate;border-spacing:0;min-width:960px;width:100%;}
       .pdl-tbl th,.pdl-tbl td{border-bottom:1px solid var(--border);border-right:1px solid var(--border);padding:4px 5px;background:var(--surface);text-align:center;font-size:12px;white-space:nowrap;}
       .pdl-tbl thead tr.h1 th{position:sticky;top:0;z-index:3;background:var(--bg);font-weight:700;white-space:normal;line-height:1.25;font-size:11.5px;padding:5px 4px;}
       .pdl-tbl thead tr.h1 th .u{display:block;font-weight:400;}
@@ -5863,7 +5866,10 @@ async function renderProdDailyPage(content) {
       .pdl-tbl input{width:58px;height:26px;padding:2px 4px;font-size:12px;text-align:right;box-sizing:border-box;}
       .pdl-tbl input[type=number]::-webkit-outer-spin-button,.pdl-tbl input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
       .pdl-tbl input[type=number]{-moz-appearance:textfield;appearance:textfield;}
-      .pdl-tbl .pair{display:flex;gap:3px;justify-content:center;} .pdl-tbl .pair input{width:52px;}
+      .pdl-tbl .pair{display:flex;gap:3px;justify-content:center;} .pdl-tbl .pair input{width:50px;}
+      .pdl-tbl td.eq{min-width:96px;text-align:right;font-size:11.5px;line-height:1.35;}
+      .pdl-tbl td.eq.ok{color:var(--success);} .pdl-tbl td.eq.bad{color:var(--danger);}
+      .pdl-tbl th.eqh{font-size:15px;}
       .pdl-tbl select{min-width:110px;max-width:150px;height:26px;font-size:12px;}
       .pdl-tbl td{padding:3px 4px;}
       .pdl-tbl td.fgc select{width:100%;margin-bottom:3px;}
@@ -5889,7 +5895,7 @@ async function renderProdDailyPage(content) {
       </div>
       <div class="pdl-sum" id="pdlSum"></div>
       <div class="pdl-scroll" id="pdlWrap"><div class="empty-state">${t('লোড হচ্ছে...','Loading...')}</div></div>
-      <div style="font-size:11.5px;color:var(--text-muted);margin-top:8px;">${t('"আজকের উৎপাদনঃ"-এ যে দিন বাছাই, "＋ লাইন যোগ" সেই দিনে লাইন যোগ করে; নতুন লাইনে আগের লাইনের আইটেম নিজে বসে (বদলানো যায়)। তৈরী পণ্য কেজি নিজে বসে = সার্কেল − কাটিং − ভাঙ্গাড়ী − অপচয়, পিস নিজে বসে = তিন আইটেমের পিসের যোগ — দুটোই হাতে বদলানো যায় (কমলা = হাতে লেখা)। কোন সার্কেল, সেটা প্রসেসিং ভাউচারে "কাঁচামাল আইটেম"-এ বাছাই হয়। আইটেমগুলোর মোট কেজি না মিললে লাল দাগ। সেভ করা লাইন লক — ✏️ চাপলে এডিট। প্রসেসিং ভাউচারে ব্যবহার হওয়া লাইনে ভাউচার নম্বর দেখায়, সেগুলো বদলানো যায় না।','"＋ Add line" adds a line on the day picked in "Today’s production"; a new line copies the previous line’s items (changeable). Finished kg fills itself = circle − cutting − scrap − wastage and pcs = sum of the three items’ pcs — both can be typed over (orange). Which circle is picked as the raw material item in the processing voucher. A red mark means the item kg do not add up. Saved lines are locked — press ✏️ to edit. Lines used in a processing voucher show its number and cannot be changed.')}</div>
+      <div style="font-size:11.5px;color:var(--text-muted);margin-top:8px;">${t('"আজকের উৎপাদনঃ"-এ যে দিন বাছাই, "＋ লাইন যোগ" সেই দিনে লাইন যোগ করে; নতুন লাইনে আগের লাইনের আইটেম নিজে বসে (বদলানো যায়)। তৈরী পণ্য কেজি নিজে বসে = সার্কেল − কাটিং − ভাঙ্গাড়ী − অপচয়, পিস নিজে বসে = তিন আইটেমের পিসের যোগ — দুটোই হাতে বদলানো যায় (কমলা = হাতে লেখা)। কোন সার্কেল, সেটা প্রসেসিং ভাউচারে "কাঁচামাল আইটেম"-এ বাছাই হয়। প্রতিটা আইটেমের নিচে ১ পিসের ওজন ও মোট পিস দিলে মোট ওজন নিজে বসে (হাতে বদলানো যায়)। "=" কলামে তিন পণ্যের যোগফল তৈরী পণ্য পরিমাণের সাথে মেলে কিনা দেখায় (✓ মিলেছে / ✗ কত বাকি বা বেশি)। সেভ করা লাইন লক — ✏️ চাপলে এডিট। প্রসেসিং ভাউচারে ব্যবহার হওয়া লাইনে ভাউচার নম্বর দেখায়, সেগুলো বদলানো যায় না।','"＋ Add line" adds a line on the day picked in "Today’s production"; a new line copies the previous line’s items (changeable). Finished kg fills itself = circle − cutting − scrap − wastage and pcs = sum of the three items’ pcs — both can be typed over (orange). Which circle is picked as the raw material item in the processing voucher. Under each item, enter the weight of 1 piece and the pieces — total weight fills itself (can be typed over). The "=" column checks the three items against the finished qty. Saved lines are locked — press ✏️ to edit. Lines used in a processing voucher show its number and cannot be changed.')}</div>
     </div>`;
 
   // ---------- আঁকা ----------
@@ -5900,7 +5906,22 @@ async function renderProdDailyPage(content) {
   }
   function itemCell(L, i) {
     const x = L.it[i], dis = locked(L) ? 'disabled' : '';
-    return `<td class="fgc"><select data-k="${L.key}" data-ii="${i}" ${dis}>${opt(x.id)}</select><div class="pair"><input type="number" step="any" min="0" inputmode="decimal" data-k="${L.key}" data-ik="${i}" placeholder="${t('কেজি','kg')}" value="${attr(show(x.k))}" ${dis}><input type="number" step="any" min="0" inputmode="decimal" data-k="${L.key}" data-ip="${i}" placeholder="${t('পিস','pcs')}" value="${attr(show(x.p, 0))}" ${dis}></div></td>`;
+    const kv = itemKg(x);
+    return `<td class="fgc"><select data-k="${L.key}" data-ii="${i}" ${dis}>${opt(x.id)}</select><div class="pair">`
+      + `<input type="number" step="any" min="0" inputmode="decimal" data-k="${L.key}" data-iu="${i}" placeholder="${t('১ পিস','1 pc')}" title="${attr(t('১ পিসের ওজন (কেজি)', 'Weight of 1 piece (kg)'))}" value="${attr(show(x.u, 4))}" ${dis}>`
+      + `<input type="number" step="any" min="0" inputmode="decimal" data-k="${L.key}" data-ip="${i}" placeholder="${t('পিস','pcs')}" title="${attr(t('মোট পিস', 'Total pieces'))}" value="${attr(show(x.p, 0))}" ${dis}>`
+      + `<input type="number" step="any" min="0" inputmode="decimal" data-k="${L.key}" data-ik="${i}" placeholder="${t('কেজি','kg')}" title="${attr(t('মোট ওজন (কেজি) = ১ পিস × মোট পিস', 'Total weight (kg) = 1 pc × pieces'))}" value="${attr(show(kv))}" class="${x.kOv ? 'ov' : ''}" ${dis}>`
+      + `</div></td>`;
+  }
+  // "=" কলামঃ তিন আইটেমের মোট ওজন ও পিস, তৈরী পণ্য পরিমাণের সাথে মিলছে কিনা
+  function eqCell(L) {
+    const k = itemsKg(L), p = itemsPcs(L), fk = fgk(L), fp = fgp(L);
+    if (!k && !p) return `<td class="eq" data-eq="${L.key}"></td>`;
+    const dk = fk - k, dp = fp - p, ok = Math.abs(dk) <= 0.0005 && Math.abs(dp) <= 0.0005;
+    const diff = [];
+    if (Math.abs(dk) > 0.0005) diff.push((dk > 0 ? t('বাকি ', 'short ') : t('বেশি ', 'over ')) + show(Math.abs(dk)) + t(' কেজি', ' kg'));
+    if (Math.abs(dp) > 0.0005) diff.push((dp > 0 ? t('বাকি ', 'short ') : t('বেশি ', 'over ')) + show(Math.abs(dp), 0) + t(' পিস', ' pcs'));
+    return `<td class="eq ${ok ? 'ok' : 'bad'}" data-eq="${L.key}" title="${attr(t('তিন আইটেমের যোগফল বনাম তৈরী পণ্য পরিমাণ', 'Sum of the three items vs finished qty'))}"><b>${show(k) || 0}</b> ${t('কেজি', 'kg')}<br><b>${show(p, 0) || 0}</b> ${t('পিস', 'pcs')}<br>${ok ? '✓ ' + t('মিলেছে', 'matched') : '✗ ' + diff.join(', ')}</td>`;
   }
   function lineHtml(L) {
     const ico = function (act, icon, title, dis) { return `<button type="button" class="pdl-ico" data-act="${act}" data-k="${L.key}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
@@ -5910,18 +5931,19 @@ async function renderProdDailyPage(content) {
       <td>${numCell(L, 'raw')}</td><td>${numCell(L, 'cut')}</td><td>${numCell(L, 'scrap')}</td><td>${numCell(L, 'waste')}</td>
       <td class="${warn ? 'warn' : ''}" title="${warn ? attr(t('তিন আইটেমের মোট ', 'Items total ') + show(itemsKg(L)) + t(' কেজি — মিলছে না', ' kg — does not match')) : ''}">${numCell(L, 'fgk')}</td>
       <td>${numCell(L, 'fgp')}</td>
-      ${itemCell(L, 0)}${itemCell(L, 1)}${itemCell(L, 2)}
+      ${itemCell(L, 0)}${itemCell(L, 1)}${itemCell(L, 2)}${eqCell(L)}
       <td style="white-space:nowrap;">${ico('view', '👁️', t('দেখুন', 'View'), !hasAny(L))}${ico('edit', '✏️', t('এডিট', 'Edit'), !L.saved || L.edit || !!L.procId)}${ico('save', '💾', t('সেভ', 'Save'), !L.dirty)}${ico('del', '🗑️', t('মুছুন', 'Delete'), !!L.procId)}${L.procId ? `<span class="pdl-tag" title="${attr(t('এই লাইন প্রসেসিং ভাউচারে ব্যবহার হয়েছে', 'Used in a processing voucher'))}">${escapeHtml(L.procId)}</span>` : ''}</td>
     </tr>`;
   }
   function sumOf(list) {
     const s = { raw: 0, cut: 0, scrap: 0, waste: 0, fgk: 0, fgp: 0, k: [0, 0, 0], p: [0, 0, 0] };
-    list.forEach(function (L) { s.raw += n(L.v.raw); s.cut += n(L.v.cut); s.scrap += n(L.v.scrap); s.waste += n(L.v.waste); s.fgk += fgk(L); s.fgp += fgp(L); for (let i = 0; i < 3; i++) { s.k[i] += n(L.it[i].k); s.p[i] += n(L.it[i].p); } });
+    list.forEach(function (L) { s.raw += n(L.v.raw); s.cut += n(L.v.cut); s.scrap += n(L.v.scrap); s.waste += n(L.v.waste); s.fgk += fgk(L); s.fgp += fgp(L); for (let i = 0; i < 3; i++) { s.k[i] += itemKg(L.it[i]); s.p[i] += n(L.it[i].p); } });
     return s;
   }
   function sumCells(s) {
     const it = function (i) { return `${show(s.k[i]) || 0} ${t('কেজি', 'kg')}${s.p[i] ? ' / ' + show(s.p[i], 0) + ' ' + t('পিস', 'pcs') : ''}`; };
-    return `<td>${show(s.raw) || 0}</td><td>${show(s.cut) || 0}</td><td>${show(s.scrap) || 0}</td><td>${show(s.waste) || 0}</td><td>${show(s.fgk) || 0}</td><td>${show(s.fgp, 0) || 0}</td><td>${it(0)}</td><td>${it(1)}</td><td>${it(2)}</td><td></td>`;
+    const ek = s.k[0] + s.k[1] + s.k[2], ep = s.p[0] + s.p[1] + s.p[2];
+    return `<td>${show(s.raw) || 0}</td><td>${show(s.cut) || 0}</td><td>${show(s.scrap) || 0}</td><td>${show(s.waste) || 0}</td><td>${show(s.fgk) || 0}</td><td>${show(s.fgp, 0) || 0}</td><td>${it(0)}</td><td>${it(1)}</td><td>${it(2)}</td><td class="eq">= ${show(ek) || 0} ${t('কেজি', 'kg')}<br>${show(ep, 0) || 0} ${t('পিস', 'pcs')}</td><td></td>`;
   }
   function renderSum() {
     const all = st.lines, s = sumOf(all), dirty = all.filter(function (L) { return L.dirty; }).length, used = all.filter(function (L) { return L.procId; }).length;
@@ -5939,15 +5961,15 @@ async function renderProdDailyPage(content) {
     let body = '';
     dates.forEach(function (d) {
       const ls = list.filter(function (L) { return L.date === d; });
-      if (multi) body += `<tr class="grp"><td class="sl"></td><td colspan="10">${escapeHtml(dayLabel(d))}</td></tr>`;
+      if (multi) body += `<tr class="grp"><td class="sl"></td><td colspan="11">${escapeHtml(dayLabel(d))}</td></tr>`;
       body += ls.map(lineHtml).join('');
       if (multi) body += `<tr class="sub"><td class="sl">${t('দিনের মোট', 'Day')}</td>${sumCells(sumOf(ls))}</tr>`;
     });
-    if (!list.length) body = `<tr><td class="sl"></td><td colspan="10"><div class="empty-state" style="padding:16px;">${t('এই তারিখে কোনো লাইন নেই — "＋ লাইন যোগ" চাপুন।', 'No lines for these dates — press "＋ Add line".')}</div></td></tr>`;
+    if (!list.length) body = `<tr><td class="sl"></td><td colspan="11"><div class="empty-state" style="padding:16px;">${t('এই তারিখে কোনো লাইন নেই — "＋ লাইন যোগ" চাপুন।', 'No lines for these dates — press "＋ Add line".')}</div></td></tr>`;
     $('pdlWrap').innerHTML = `<table class="pdl-tbl"><thead>
         <tr class="h1"><th class="sl">${t('ক্রঃ', 'No.')}</th>${H('সার্কেল', 'Circle', '(কেজি)', '(kg)')}${H('কাটিং', 'Cutting', '(কেজি)', '(kg)')}${H('ভাঙ্গাড়ী', 'Scrap', '(কেজি)', '(kg)')}${H('অপচয়', 'Wastage', '(কেজি)', '(kg)')}
           <th colspan="2">${t('তৈরী পণ্য পরিমাণ', 'Finished qty')}<span class="u">${t('(কেজি · পিস)', '(kg · pcs)')}</span></th>
-          ${[0, 1, 2].map(function (i) { return H('তৈরী আইটেম-' + '১২৩'[i], 'Finished item-' + (i + 1), '(আইটেম · কেজি · পিস)', '(item · kg · pcs)'); }).join('')}<th></th></tr>
+          ${[0, 1, 2].map(function (i) { return H('তৈরী আইটেম-' + '১২৩'[i], 'Finished item-' + (i + 1), '(১ পিস ওজন · মোট পিস · মোট ওজন)', '(1 pc wt · pcs · total kg)'); }).join('')}<th class="eqh">=<span class="u">${t('(তিন পণ্যের সমন্বয়)', '(three items)')}</span></th><th></th></tr>
       </thead><tbody>${body}</tbody><tfoot id="pdlFoot"></tfoot></table>`;
     renderSum();
   }
@@ -5969,7 +5991,11 @@ async function renderProdDailyPage(content) {
       const L = newLine(String(x.ProdDate).slice(0, 10), n(x.SerialNo) || 1);
       L.id = x.id; L.saved = true; L.procId = x.ProcessingID || ''; L.by = x.CreatedBy || ''; L.rawId = x.RawItemID || '';
       NUM.forEach(function (k) { L.v[k] = x[COL[k]]; });
-      for (let i = 0; i < 3; i++) L.it[i] = { id: x['FG' + (i + 1) + 'ItemID'] || '', k: x['FG' + (i + 1) + 'Kg'], p: x['FG' + (i + 1) + 'Pcs'] };
+      for (let i = 0; i < 3; i++) {
+        const it = { id: x['FG' + (i + 1) + 'ItemID'] || '', u: x['FG' + (i + 1) + 'UnitKg'] || '', p: x['FG' + (i + 1) + 'Pcs'], k: x['FG' + (i + 1) + 'Kg'], kOv: false };
+        it.kOv = Math.abs(n(it.k) - n(it.u) * n(it.p)) > 0.0005;   // ১ পিস × পিস থেকে আলাদা হলে হাতে লেখা মোট ওজন
+        L.it[i] = it;
+      }
       L.fgkOv = Math.abs(n(x.FGQty) - autoFgk(L)) > 0.0005;
       L.fgpOv = Math.abs(n(x.FGPcs) - itemsPcs(L)) > 0.0005;
       st.lines.push(L);
@@ -5985,7 +6011,7 @@ async function renderProdDailyPage(content) {
     const sameDay = st.lines.filter(function (L) { return L.date === st.date; });
     const L = newLine(st.date, sameDay.reduce(function (m, x) { return Math.max(m, x.serial); }, 0) + 1);
     const prev = sorted().reverse().find(function (x) { return x.it.some(function (y) { return y.id; }); });
-    if (prev) for (let i = 0; i < 3; i++) L.it[i].id = prev.it[i].id;   // আগের লাইনের আইটেম (বদলানো যায়)
+    if (prev) for (let i = 0; i < 3; i++) { L.it[i].id = prev.it[i].id; L.it[i].u = prev.it[i].u; }   // আগের লাইনের আইটেম ও ১ পিসের ওজন (বদলানো যায়)
     L.dirty = true;
     st.lines.push(L);
     render();
@@ -5999,9 +6025,9 @@ async function renderProdDailyPage(content) {
     for (const L of todo) {   // আগে সব যাচাই
       const lbl = formatShortDate(L.date) + t(' — ক্রঃ ', ' — line ') + L.serial;
       if (!hasAny(L)) continue;
-      if (NUM.some(function (k) { return n(L.v[k]) < 0; }) || L.it.some(function (x) { return n(x.k) < 0 || n(x.p) < 0; })) { showToast(lbl + t(': ঋণাত্মক সংখ্যা চলবে না।', ': negative numbers are not allowed.'), 'error'); return; }
+      if (NUM.some(function (k) { return n(L.v[k]) < 0; }) || L.it.some(function (x) { return n(x.k) < 0 || n(x.p) < 0 || n(x.u) < 0; })) { showToast(lbl + t(': ঋণাত্মক সংখ্যা চলবে না।', ': negative numbers are not allowed.'), 'error'); return; }
       if (!(n(L.v.raw) > 0)) { showToast(lbl + t(': সার্কেলের পরিমাণ দিন।', ': enter the circle quantity.'), 'error'); return; }
-      for (let i = 0; i < 3; i++) if ((n(L.it[i].k) || n(L.it[i].p)) && !L.it[i].id) { showToast(lbl + t(': তৈরী আইটেম-' + (i + 1) + ' বাছাই করুন।', ': pick finished item-' + (i + 1) + '.'), 'error'); return; }
+      for (let i = 0; i < 3; i++) if ((itemKg(L.it[i]) || n(L.it[i].p)) && !L.it[i].id) { showToast(lbl + t(': তৈরী আইটেম-' + (i + 1) + ' বাছাই করুন।', ': pick finished item-' + (i + 1) + '.'), 'error'); return; }
     }
     try {
       for (const L of todo) {
@@ -6013,7 +6039,7 @@ async function renderProdDailyPage(content) {
         const rec = { ProdDate: L.date, SerialNo: L.serial, CreatedBy: currentUser ? (currentUser.FullName || currentUser.Email || null) : null, updated_at: new Date().toISOString() };
         if (!L.id) rec.RawItemID = L.rawId || '';   // সার্কেলের আইটেম প্রসেসিং ভাউচারে বাছাই হয়
         NUM.forEach(function (k) { rec[COL[k]] = k === 'fgk' ? fgk(L) : k === 'fgp' ? fgp(L) : n(L.v[k]); });
-        for (let i = 0; i < 3; i++) { rec['FG' + (i + 1) + 'ItemID'] = L.it[i].id || null; rec['FG' + (i + 1) + 'Kg'] = n(L.it[i].k); rec['FG' + (i + 1) + 'Pcs'] = n(L.it[i].p); }
+        for (let i = 0; i < 3; i++) { rec['FG' + (i + 1) + 'ItemID'] = L.it[i].id || null; rec['FG' + (i + 1) + 'UnitKg'] = n(L.it[i].u); rec['FG' + (i + 1) + 'Pcs'] = n(L.it[i].p); rec['FG' + (i + 1) + 'Kg'] = itemKg(L.it[i]); }
         const res = L.id ? await supabaseClient.from('DailyProduction').update(rec).eq('id', L.id).select() : await supabaseClient.from('DailyProduction').insert(rec).select();
         if (res.error) throw new Error(res.error.message + t(' — (25_daily_production_lines.sql রান করা আছে কিনা দেখুন)', ' — (check that 25_daily_production_lines.sql has been run)'));
         L.id = (res.data && res.data[0] && res.data[0].id) || L.id; L.saved = true; L.edit = false; L.dirty = false; L.by = rec.CreatedBy || '';
@@ -6044,14 +6070,18 @@ async function renderProdDailyPage(content) {
     if (!L) return;
     const f = el.getAttribute('data-f');
     if (f) { L.v[f] = el.value; if (f === 'fgk') { L.fgkOv = el.value !== ''; el.classList.toggle('ov', L.fgkOv); } if (f === 'fgp') { L.fgpOv = el.value !== ''; el.classList.toggle('ov', L.fgpOv); } }
-    else if (el.hasAttribute('data-ik')) L.it[Number(el.getAttribute('data-ik'))].k = el.value;
+    else if (el.hasAttribute('data-ik')) { const x = L.it[Number(el.getAttribute('data-ik'))]; x.k = el.value; x.kOv = el.value !== ''; el.classList.toggle('ov', x.kOv); }
+    else if (el.hasAttribute('data-iu')) L.it[Number(el.getAttribute('data-iu'))].u = el.value;
     else if (el.hasAttribute('data-ip')) L.it[Number(el.getAttribute('data-ip'))].p = el.value;
     else if (el.hasAttribute('data-ii')) L.it[Number(el.getAttribute('data-ii'))].id = el.value;
     else return;
     L.dirty = true;
     const tr = el.closest('tr'); tr.classList.add('dirty');
     if (!L.fgkOv && ['raw', 'cut', 'scrap', 'waste'].indexOf(f) !== -1) { const q = tr.querySelector('[data-f="fgk"]'); if (q) q.value = show(autoFgk(L)); }
+    const ii = el.hasAttribute('data-iu') ? el.getAttribute('data-iu') : el.hasAttribute('data-ip') ? el.getAttribute('data-ip') : null;
+    if (ii !== null && !L.it[Number(ii)].kOv) { const kk = tr.querySelector(`[data-ik="${ii}"]`); if (kk) kk.value = show(itemKg(L.it[Number(ii)])); }   // মোট ওজন = ১ পিস × পিস
     if (!L.fgpOv && el.hasAttribute('data-ip')) { const pp = tr.querySelector('[data-f="fgp"]'); if (pp) pp.value = show(fgp(L), 0); }
+    const eqc = tr.querySelector('[data-eq]'); if (eqc) eqc.outerHTML = eqCell(L);
     const fq = tr.querySelector('[data-f="fgk"]').closest('td'), w = warnOf(L);
     fq.classList.toggle('warn', w);
     fq.title = w ? t('তিন আইটেমের মোট ', 'Items total ') + show(itemsKg(L)) + t(' কেজি — মিলছে না', ' kg — does not match') : '';
@@ -6063,6 +6093,7 @@ async function renderProdDailyPage(content) {
     if (el.hasAttribute('data-ii')) { el.dispatchEvent(new Event('input', { bubbles: true })); return; }
     if (el.getAttribute('data-f') === 'fgk' && el.value === '') { const L = byKey(el.getAttribute('data-k')); if (L) { L.fgkOv = false; el.value = show(autoFgk(L)); } }
     if (el.getAttribute('data-f') === 'fgp' && el.value === '') { const L = byKey(el.getAttribute('data-k')); if (L) { L.fgpOv = false; el.value = show(fgp(L), 0); } }
+    if (el.hasAttribute('data-ik') && el.value === '') { const L = byKey(el.getAttribute('data-k')); if (L) { const x = L.it[Number(el.getAttribute('data-ik'))]; x.kOv = false; el.value = show(itemKg(x)); const tr = el.closest('tr'), eqc = tr.querySelector('[data-eq]'); if (eqc) eqc.outerHTML = eqCell(L); renderSum(); } }
   });
   wrap.addEventListener('click', async function (e) {
     const b = e.target.closest('[data-act]'); if (!b || b.disabled) return;
@@ -6089,14 +6120,15 @@ async function renderProdDailyPage(content) {
         ${line(t('সার্কেল', 'Circle'), (L.rawId && itemName[L.rawId] ? escapeHtml(itemName[L.rawId]) + ' — ' : '') + (show(raw) || 0) + ' ' + t('কেজি', 'kg'))}
         ${line(t('কাটিং', 'Cutting'), (show(L.v.cut) || 0) + ' ' + t('কেজি', 'kg'))}${line(t('ভাঙ্গাড়ী', 'Scrap'), (show(L.v.scrap) || 0) + ' ' + t('কেজি', 'kg'))}${line(t('অপচয়', 'Wastage'), (show(L.v.waste) || 0) + ' ' + t('কেজি', 'kg'))}
         ${line(t('তৈরী পণ্য', 'Finished'), (show(q) || 0) + ' ' + t('কেজি', 'kg') + ' / ' + (show(fgp(L), 0) || 0) + ' ' + t('পিস', 'pcs') + (raw ? ' (' + (q / raw * 100).toFixed(1) + '%)' : ''))}`;
-      L.it.forEach(function (x, i) { if (n(x.k) || n(x.p)) body += line(escapeHtml(itemName[x.id] || x.id || (t('আইটেম-', 'Item-') + (i + 1))), (show(x.k) || 0) + ' ' + t('কেজি', 'kg') + ' / ' + (show(x.p, 0) || 0) + ' ' + t('পিস', 'pcs')); });
+      L.it.forEach(function (x, i) { if (itemKg(x) || n(x.p)) body += line(escapeHtml(itemName[x.id] || x.id || (t('আইটেম-', 'Item-') + (i + 1))), (n(x.u) ? show(x.u, 4) + t(' কেজি × ', ' kg × ') : '') + (show(x.p, 0) || 0) + ' ' + t('পিস', 'pcs') + ' = ' + (show(itemKg(x)) || 0) + ' ' + t('কেজি', 'kg')); });
+      body += line('= ' + t('তিন পণ্যের মোট', 'Three items total'), (show(itemsKg(L)) || 0) + ' ' + t('কেজি', 'kg') + ' / ' + (show(itemsPcs(L), 0) || 0) + ' ' + t('পিস', 'pcs'));
       body += `</tbody></table>${L.procId ? `<div style="font-size:11.5px;color:#2f4fa8;margin-top:8px;">${t('প্রসেসিং ভাউচারে ব্যবহৃত', 'Used in processing voucher')}: ${escapeHtml(L.procId)}</div>` : ''}${L.by ? `<div style="font-size:11.5px;color:var(--text-muted);margin-top:4px;">${t('সেভ করেছেন', 'Saved by')}: ${escapeHtml(L.by)}</div>` : ''}`;
       openModal({ title: t('দৈনিক উৎপাদন — ', 'Daily production — ') + formatShortDate(L.date), bodyHtml: body, hideSave: true, onSave: async function () {} });
     }
   });
   wrap.addEventListener('keydown', function (e) {   // লাইনের শেষ ঘরে Enter → একই দিনে নতুন লাইন
     const el = e.target;
-    if (e.key !== 'Enter' || !el.hasAttribute || !el.hasAttribute('data-ip') || el.getAttribute('data-ip') !== '2') return;
+    if (e.key !== 'Enter' || !el.hasAttribute || !el.hasAttribute('data-ik') || el.getAttribute('data-ik') !== '2') return;
     const L = byKey(el.getAttribute('data-k')), last = sorted().filter(function (x) { return x.date === (L && L.date); }).pop();
     if (L && last === L && L.date === st.date) addLine();
   });
