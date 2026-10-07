@@ -925,7 +925,17 @@ async function deletePostedVoucherWithAdminAuth(docType, docId, sheetName, idFie
   }
 }
 
+// তারিখের ঘরে ফাঁকা লেখা ("") ডেটাবেস নেয় না ("invalid input syntax for type date") — সেভের আগে null করা হয়
+function cleanEmptyDates(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) { obj.forEach(cleanEmptyDates); return obj; }
+  Object.keys(obj).forEach(function (k) { if (obj[k] === '' && /date/i.test(k)) obj[k] = null; });
+  return obj;
+}
 async function runSupabaseAction(action, p) {
+  if (p && (action === 'create' || action === 'update' || action === 'createDocument' || action === 'updateDocument')) {
+    cleanEmptyDates(p.data); cleanEmptyDates(p.headerData); cleanEmptyDates(p.lines);
+  }
   switch (action) {
 
     case 'login': {
@@ -6891,7 +6901,7 @@ async function renderProcCostingPage(content) {
     const saleKg = n(gv('pc_SaleKg')), salePc = n(gv('pc_SalePc'));
     const header = {
       Date: gv('pc_Date') || today, RawMaterialItemID: raw, WarehouseID: wh,
-      DateFrom: st.rateSrc === 'avg' ? st.avgFrom : '', DateTo: st.rateSrc === 'avg' ? st.avgTo : '',
+      DateFrom: (st.rateSrc === 'avg' && st.avgFrom) ? st.avgFrom : null, DateTo: (st.rateSrc === 'avg' && st.avgTo) ? st.avgTo : null,
       RawMaterialQty: qty, RawMaterialRate: n(gv('pc_RMRate')), RawMaterialValue: qty * n(gv('pc_RMRate')),
       ProcessingRate: n(gv('pc_ProcRate')), ProcessingValue: qty * n(gv('pc_ProcRate')), TotalValue: total(),
       ByProductQty: bpQty(), ByProductValue: bpVal(), NetWeight: w, NetValue: v,
@@ -7666,7 +7676,7 @@ function collectProcessingForm() {
     .filter(function (l) { return l.Quantity > 0; });
   const header = {
     Date: val('pv_Date'), RawMaterialItemID: val('pv_RawMaterialItemID'),
-    DateFrom: useAvg ? val('pv_DateFrom') : '', DateTo: useAvg ? val('pv_DateTo') : '',
+    DateFrom: (useAvg && val('pv_DateFrom')) ? val('pv_DateFrom') : null, DateTo: (useAvg && val('pv_DateTo')) ? val('pv_DateTo') : null,
     WarehouseID: val('pv_WarehouseID'),
     RawMaterialQty: Number(val('pv_Qty')) || 0, RawMaterialRate: Number(val('pv_RMRate')) || 0, RawMaterialValue: Number(val('pv_RMValue')) || 0,
     ProcessingRate: Number(val('pv_ProcRate')) || 0, ProcessingValue: Number(val('pv_ProcValue')) || 0,
