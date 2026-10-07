@@ -324,7 +324,9 @@ table.data-table{width:100%;border-collapse:collapse;font-size:13px;}
           <button type="button" data-lang="bn">বাং</button><button type="button" data-lang="en">EN</button>
         </div>
         <span id="modalUserName" title=""></span>
-        <button class="modal-close" id="modalCloseBtn">✕</button>
+        <button type="button" class="modal-tool-btn modal-win-btn" id="modalMinBtn" title="মিনিমাইজ — নিচের টাস্কবারে জমা থাকবে, লেখা হারাবে না">−</button>
+        <button type="button" class="modal-tool-btn modal-win-btn" id="modalMaxBtn" title="ম্যাক্সিমাইজ / আগের মাপ">▢</button>
+        <button class="modal-close" id="modalCloseBtn" title="বন্ধ">✕</button>
       </div>
     </div>
     <div class="modal-body" id="modalBody"></div>
@@ -335,6 +337,22 @@ table.data-table{width:100%;border-collapse:collapse;font-size:13px;}
     </div>
   </div>
 </div>
+
+<!-- মিনিমাইজ করা উইন্ডোর টাস্কবার -->
+<div id="modalTaskbar" class="modal-taskbar"></div>
+<style>
+  .modal-win-btn{font-size:15px;font-weight:700;line-height:1;min-width:30px;}
+  .modal.modal-max{max-width:none !important;width:100vw !important;height:100vh !important;max-height:100vh !important;border-radius:0 !important;margin:0 !important;}
+  .modal-overlay.has-max{padding:0 !important;align-items:stretch !important;}
+  .modal.modal-max .modal-body{max-height:none !important;flex:1;}
+  .modal-head{cursor:default;}
+  .modal-taskbar{position:fixed;left:50%;transform:translateX(-50%);bottom:10px;z-index:9000;display:flex;gap:6px;flex-wrap:wrap;justify-content:center;max-width:96vw;}
+  .modal-taskbar:empty{display:none;}
+  .mtb-chip{display:flex;align-items:center;gap:6px;background:#1d2533;color:#fff;border-radius:10px;padding:6px 8px 6px 12px;font-size:12.5px;box-shadow:0 4px 16px rgba(0,0,0,.25);cursor:pointer;max-width:260px;}
+  .mtb-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .mtb-chip button{background:rgba(255,255,255,.12);border:0;color:#fff;border-radius:6px;width:22px;height:22px;cursor:pointer;line-height:1;}
+  .mtb-chip button:hover{background:#c0392b;}
+</style>
 
 <!-- ===== APP SHELL ===== -->
 <div class="app" id="app">
@@ -429,7 +447,7 @@ const MODULES = [
   ]},
   {key:'production', bn:'প্রোডাকশন', en:'Production', sub:[
     {key:'bom', bn:'বিল অফ ম্যাটেরিয়ালস (BOM)', en:'Bill of Materials'},
-    {key:'processing', bn:'প্রসেসিং', en:'Processing'},{key:'prodDaily', bn:'দৈনিক উৎপাদন', en:'Daily Production'},
+    {key:'processing', bn:'প্রসেসিং কষ্টিং', en:'Processing Costing'},{key:'prodDaily', bn:'দৈনিক উৎপাদন', en:'Daily Production'},
     {key:'pOrder', bn:'উৎপাদন আদেশ', en:'Production Order'},
     {key:'pmi', bn:'উৎপাদনে মালামাল ইস্যু', en:'Material Issue to Production'},{key:'fgr', bn:'প্রস্তুত পণ্য গ্রহণ', en:'Finished Goods Receive'},
     {key:'pReport', bn:'উৎপাদন প্রতিবেদন', en:'Production Report'},
@@ -463,7 +481,7 @@ const READY_PAGES = ['dashboard','companyProfile','userManagement','roles','acti
   'pr','po','grn','pi','pret','pvoucherList',
   'stockOverview','goodsReceive','materialIssue','stockTransfer','stockAdjust','stockLedger',
   'so','dc','si','sr','custLedger',
-  'bom','processing','prodDaily','pOrder','pmi','fgr',
+  'bom','processing','processingOld','prodDaily','procCosting','pOrder','pmi','fgr',
   'coa','bankCash','jv','cv','pv','rv','bankBook','trialBalance',
   'empCategories','empInfo','workRoles','sizeRates','attendance','dailyProduction','leave','payroll','salaryIssue','payHeads','hrReports','payslip',
   'invReport','salesReport','purReport','prodReport','finReport',
@@ -1310,8 +1328,10 @@ async function navigateTo(pageKey, moduleLabel, pageLabel) {
     else if (pageKey === 'companySettings') await renderCompanyProfile(content);
     else if (pageKey === 'backup') await renderBackupRestorePage(content);
     else if (pageKey === 'pOrder') await renderProductionOrderPage(content);
-    else if (pageKey === 'processing') await renderProcessingPage(content);
+    else if (pageKey === 'processing') await renderProcCostingPage(content);   // আগের প্রসেসিং ভাউচারের জায়গায়
+    else if (pageKey === 'processingOld') await renderProcessingPage(content);   // পুরনো পেজ (মেনুতে নেই — দরকার হলে)
     else if (pageKey === 'prodDaily') await renderProdDailyPage(content);
+    else if (pageKey === 'procCosting') await renderProcCostingPage(content);
     else if (SIMPLE_VOUCHER_CONFIGS[pageKey]) await renderSimpleVoucherPage(content, SIMPLE_VOUCHER_CONFIGS[pageKey]);
     else if (pageKey === 'bankBook') await renderBankCashBook(content);
     else if (pageKey === 'trialBalance') await renderTrialBalance(content);
@@ -6173,15 +6193,12 @@ async function renderProdDailyPage(content) {
   // এখান থেকেই প্রসেসিং ভাউচারঃ ফর্ম খুলে এই তারিখগুলোর দৈনিক উৎপাদন + মজুরি ও খরচ নিজে বসানো
   async function makeProcessing() {
     if (anyDirty() || st.lines.some(function (L) { return team(L).dirty; })) { showToast(t('আগে সেভ করুন, তারপর প্রসেসিং ভাউচার তৈরী করুন।', 'Save first, then create the processing voucher.'), 'error'); return; }
-    if (!st.lines.some(function (L) { return L.id && !L.procId; })) { showToast(t('এই তারিখে প্রসেসিং-এ ব্যবহার হয়নি এমন কোনো সেভ করা লাইন নেই।', 'No saved, unused lines for these dates.'), 'error'); return; }
-    await openProcessingForm();
-    const set = function (id, v) { const el = document.getElementById(id); if (el) el.value = v; };
-    set('pv_DPFrom', st.from); set('pv_DPTo', st.to); set('pv_WageFrom', st.from); set('pv_WageTo', st.to);
-    const hint = document.getElementById('pv_DPHint'); hint.textContent = '';
-    document.getElementById('pv_FetchDPBtn').click();
-    for (let i = 0; i < 60 && !hint.textContent; i++) await new Promise(function (r) { setTimeout(r, 100); });
-    if (Number(document.getElementById('pv_Qty').value) > 0) document.getElementById('pv_FetchWageBtn').click();
+    const ids = st.lines.filter(function (L) { return L.id && !L.procId; }).map(function (L) { return L.id; });
+    if (!ids.length) { showToast(t('এই তারিখে প্রসেসিং-এ ব্যবহার হয়নি এমন কোনো সেভ করা লাইন নেই।', 'No saved, unused lines for these dates.'), 'error'); return; }
+    window.__pcPreselect = { ids: ids, from: st.from, to: st.to };   // প্রসেসিং কষ্টিং খুলে এই লাইনগুলো নিজে বসবে
+    await navigateTo('processing', t('প্রোডাকশন', 'Production'), t('প্রসেসিং কষ্টিং', 'Processing Costing'));
   }
+
 
 
   // ---------- লোড ----------
@@ -6423,6 +6440,545 @@ async function renderProdDailyPage(content) {
   });
   wireSequentialKeyNav(wrap);
   await load();
+}
+
+/* ============================================================
+   প্রোডাকশন → প্রসেসিং কষ্টিং (আগের প্রসেসিং ভাউচারের জায়গায়)
+   • উপরেঃ দৈনিক উৎপাদনের রেকর্ড — যে লাইনগুলো এখনো কোনো প্রসেসিং ভাউচারে যায়নি (তারিখ, ক্রঃ, তৈরী পণ্য আইটেম …);
+     টিক দিয়ে "পোস্ট" করলে নিচের ভাউচার নিজে ভরে যায়
+   • ভাউচারঃ তারিখ (আজ) | নম্বর (অটো) | কাঁচামাল | গুদাম → কাঁচামাল (পরিমাণ, দর-পপআপ, মূল্য) → উৎপাদন খরচ → বাই-প্রোডাক্ট
+     → ফিনিশড গুডস (নীট ওজন/মূল্য/পিস/দর, বিক্রয় দর, লাভ) → প্রস্তুত পণ্য (স্টকে জমা হয়) → বাতিল / সেভ
+   • সেভ হয় প্রসেসিং ভাউচারের টেবিলেই (আগের সব ভাউচারও নিচের তালিকায়)
+   • নিচে সেভ করা ভাউচারের তালিকাঃ 👁️ প্রিভিউ, ✏️ এডিট, 🗑️ ডিলিট, 💾 পোস্ট (স্টকে জমা), 🖨️ প্রিন্ট, 🔗 শেয়ার
+   ============================================================ */
+async function renderProcCostingPage(content) {
+  const [allItems, allWh] = await Promise.all([cachedList('Items'), cachedList('Warehouses')]);
+  const items = allItems.filter(function (i) { return i.Status !== 'Deleted'; }).sort(function (a, b) { return String(a.ItemName).localeCompare(String(b.ItemName), 'bn'); });
+  const whs = allWh.filter(function (w) { return w.Status !== 'Deleted'; });
+  const itemName = {}; items.forEach(function (i) { itemName[i.ItemID] = i.ItemName; });
+  const n = function (x) { return Number(x) || 0; };
+  const show = function (x, dec) { const v = Number(x); if (!v) return ''; return String(+v.toFixed(dec === undefined ? 3 : dec)); };
+  const iso = function (d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+  const today = iso(new Date()), monthAgo = iso(new Date(Date.now() - 30 * 86400000));
+  const $ = function (id) { return document.getElementById(id); };
+  const gv = function (id) { const el = $(id); return el ? el.value : ''; };
+  const opt = function (list, idF, lblF, sel) { return '<option value="">—</option>' + list.map(function (r) { return `<option value="${attr(r[idF])}" ${r[idF] === sel ? 'selected' : ''}>${escapeHtml(r[lblF])}</option>`; }).join(''); };
+  const defRaw = (items.find(function (i) { return /সার্কেল/.test(i.ItemName); }) || {}).ItemID || '';
+  const st = { rec: [], recTeam: {}, dpIds: [], bp: [], fg: [], rateSrc: '', avgFrom: '', avgTo: '', editId: null, list: [] };
+  // প্রিন্ট/শেয়ারের জন্য (আগের প্রসেসিংয়ের মতোই)
+  window.__procItemMap = {}; items.forEach(function (i) { window.__procItemMap[i.ItemID] = i; });
+  window.__procWhMap = {}; whs.forEach(function (w) { window.__procWhMap[w.WarehouseID] = w.WarehouseName; });
+
+  content.innerHTML = `
+    <style>
+      .pcx .panel{padding:14px;margin-bottom:14px;}
+      .pcx-h{font-weight:700;font-size:14px;margin-bottom:8px;} .pcx-h span{font-weight:400;font-size:12px;color:var(--text-muted);}
+      .pcx-bar{display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin-bottom:8px;} .pcx-bar .field{margin:0;} .pcx-bar label{font-size:11px;font-weight:600;display:block;}
+      .pcx-scroll{overflow:auto;max-height:280px;border:1px solid var(--border);border-radius:8px;}
+      .pcx table{width:100%;border-collapse:collapse;} .pcx th,.pcx td{border-bottom:1px solid var(--border);padding:5px 6px;font-size:12.5px;text-align:center;}
+      .pcx thead th{background:var(--bg);position:sticky;top:0;z-index:1;font-weight:700;}
+      .pcx td.l{text-align:left;} .pcx td.r{text-align:right;}
+      .pcx tr.picked td{background:#eef6ff;}
+      .pcx-top{display:flex;justify-content:space-between;align-items:end;gap:10px;flex-wrap:wrap;margin-bottom:10px;}
+      .pcx-no{font-size:13px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);} .pcx-no b{font-family:monospace;}
+      .pcx-g{display:grid;gap:10px;margin-bottom:6px;} .pcx-g2{grid-template-columns:repeat(2,minmax(0,1fr));} .pcx-g3{grid-template-columns:repeat(3,minmax(0,1fr));} .pcx-g5{grid-template-columns:repeat(5,minmax(0,1fr));}
+      @media (max-width:760px){ .pcx-g5{grid-template-columns:repeat(2,minmax(0,1fr));} .pcx-g3{grid-template-columns:repeat(2,minmax(0,1fr));} }
+      .pcx .field{margin:0;} .pcx .field label{font-size:11.5px;font-weight:600;}
+      .pcx .ro{background:var(--bg);font-weight:600;}
+      .pcx-sec{margin:14px 0 6px;font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:10px;}
+      .pcx-tbl input,.pcx-tbl select{height:30px;font-size:12.5px;width:100%;min-width:70px;box-sizing:border-box;}
+      .pcx-tbl input[type=number]{text-align:right;}
+      .pcx-tbl .tot td{font-weight:700;background:var(--bg);} .pcx-tbl .grand td{font-weight:700;border-top:2px solid var(--text);}
+      .pcx-x{border:1px solid var(--border);background:var(--surface);border-radius:6px;width:26px;height:26px;cursor:pointer;line-height:1;}
+      .pcx-plus{border:1px solid var(--success);color:var(--success);background:#eefaf2;border-radius:6px;width:26px;height:26px;cursor:pointer;font-weight:700;line-height:1;margin-left:3px;}
+      .pcx-rate{cursor:pointer;background:#fffdf5;} .pcx-src{display:block;font-size:10.5px;color:var(--text-muted);margin-top:2px;text-align:left;}
+      .pcx-hint{font-size:12px;color:var(--text-muted);margin:4px 0;}
+      .pcx input.ov{border-color:#d97706;background:rgba(217,119,6,.10);font-weight:700;}
+      .pcx-recon div{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:7px 10px;border-radius:8px;margin-top:6px;font-size:12.5px;}
+      .pcx-foot{display:flex;justify-content:flex-end;gap:10px;margin-top:14px;}
+      .pcx-list th{white-space:nowrap;} .pcx-ico{border:1px solid var(--border);background:var(--surface);border-radius:6px;padding:2px 5px;font-size:12px;cursor:pointer;margin:0 1px;line-height:1.2;} .pcx-ico:disabled{opacity:.35;cursor:default;}
+      .pcx tr.editing td{background:#fff7e8;}
+      .pcx-pop{position:fixed;inset:0;background:rgba(15,20,30,.45);z-index:2000;display:flex;align-items:center;justify-content:center;padding:14px;}
+      .pcx-pop .box{background:var(--surface);border-radius:12px;max-width:520px;width:100%;padding:16px;box-shadow:0 10px 40px rgba(0,0,0,.25);}
+      .pcx-pop .opt{border:1px solid var(--border);border-radius:10px;padding:10px;margin-top:10px;}
+      .pcx-pop .opt h5{margin:0 0 6px;font-size:13px;} .pcx-pop .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+      .pcx-pop .row input[type=number]{width:120px;height:32px;text-align:right;} .pcx-pop small{color:var(--text-muted);}
+    </style>
+    <div class="pcx">
+    <div class="page-head"><div><h1>${t('প্রসেসিং কষ্টিং', 'Processing Costing')}</h1>
+      <p>${t('দৈনিক উৎপাদনের রেকর্ড থেকে লাইন বাছাই করে প্রসেসিং ভাউচার — প্রস্তুত পণ্য স্টকে জমা হয়', 'Build a processing voucher from daily production lines — finished goods go into stock')}</p></div></div>
+
+    <div class="panel">
+      <div class="pcx-h">${t('দৈনিক উৎপাদনের রেকর্ড', 'Daily production records')} <span>${t('— প্রসেসিং না হওয়া সব লাইন (যত পুরনোই হোক) এখানে থাকে, ভাউচারে না যাওয়া পর্যন্ত; টিক দিয়ে "পোস্ট" করুন', '— every line not yet processed stays here, however old, until it goes into a voucher; tick and "post"')}</span></div>
+      <div class="pcx-bar">
+        <div class="field"><label>${t('তারিখ হইতে (ঐচ্ছিক)', 'From (optional)')}</label><input type="date" id="pc_RecFrom" value=""></div>
+        <div class="field"><label>${t('তারিখ পর্যন্ত (ঐচ্ছিক)', 'To (optional)')}</label><input type="date" id="pc_RecTo" value=""></div>
+        <button type="button" class="btn" id="pc_RecLoad" style="width:auto;">↻ ${t('দেখুন', 'Load')}</button>
+        <button type="button" class="btn btn-primary" id="pc_RecPost" style="width:auto;">⬇ ${t('নির্বাচিত লাইন ভাউচারে পোস্ট', 'Post selected lines to voucher')}</button>
+        <span id="pc_RecInfo" class="pcx-hint"></span>
+      </div>
+      <div class="pcx-scroll" id="pc_RecWrap"><div class="empty-state">${t('লোড হচ্ছে...', 'Loading...')}</div></div>
+    </div>
+
+    <div class="panel" id="pc_Voucher">
+      <div class="pcx-top">
+        <div class="field"><label>${t('ভাউচার তারিখঃ', 'Voucher date:')}</label><input type="date" id="pc_Date" value="${today}"></div>
+        <div class="pcx-no">${t('ভাউচার নম্বরঃ', 'Voucher no:')} <b id="pc_No">${t('অটো (সেভে বসবে)', 'auto (on save)')}</b></div>
+      </div>
+      <div class="pcx-g pcx-g2">
+        <div class="field"><label>${t('কাঁচামালঃ', 'Raw material:')}</label><select id="pc_Raw">${opt(items, 'ItemID', 'ItemName', defRaw)}</select></div>
+        <div class="field"><label>${t('গুদামঃ', 'Warehouse:')}</label><select id="pc_Wh">${opt(whs, 'WarehouseID', 'WarehouseName', whs.length === 1 ? whs[0].WarehouseID : '')}</select></div>
+      </div>
+      <div id="pc_DPHint" class="pcx-hint"></div>
+
+      <div class="pcx-sec">${t('কাঁচামাল', 'Raw material')}</div>
+      <table class="pcx-tbl"><thead><tr><th>${t('পরিমাণ (কেজি)', 'Qty (kg)')}</th><th>${t('দর', 'Rate')}</th><th>${t('মূল্য', 'Value')}</th></tr></thead>
+        <tbody><tr><td><input type="number" step="any" min="0" id="pc_Qty"></td>
+          <td><input type="number" step="any" min="0" id="pc_RMRate" class="pcx-rate" title="${attr(t('চাপলে দর বাছাইয়ের পপআপ খুলবে', 'Click to choose the rate'))}"><span class="pcx-src" id="pc_RateSrc"></span></td>
+          <td><input id="pc_RMValue" class="ro" readonly></td></tr></tbody></table>
+
+      <div class="pcx-sec">${t('উৎপাদন খরচ', 'Processing cost')}</div>
+      <table class="pcx-tbl"><thead><tr><th>${t('দর (কেজি প্রতি)', 'Rate (per kg)')}</th><th>${t('পরিমাণ (কেজি)', 'Qty (kg)')}</th><th>${t('মূল্য', 'Value')}</th></tr></thead>
+        <tbody><tr><td><input type="number" step="any" min="0" id="pc_ProcRate"><span class="pcx-src" id="pc_ProcSrc"></span></td><td><input id="pc_ProcQty" class="ro" readonly></td><td><input id="pc_ProcValue" class="ro" readonly></td></tr>
+          <tr class="grand"><td class="l">${t('মোটঃ (কাঁচামাল + উৎপাদন খরচ)', 'Total (raw + processing)')}</td><td id="pc_TotQty"></td><td class="r" id="pc_Total"></td></tr></tbody></table>
+
+      <div class="pcx-sec">${t('বাই-প্রোডাক্ট', 'By-products')}</div>
+      <div id="pc_BPWrap"></div>
+
+      <div class="pcx-sec">${t('ফিনিশড গুডস', 'Finished goods')}</div>
+      <div class="pcx-g pcx-g5">
+        <div class="field"><label>${t('নীট ওজন', 'Net weight')}</label><input id="pc_NetW" class="ro" readonly></div>
+        <div class="field"><label>${t('নীট মূল্য', 'Net value')}</label><input id="pc_NetV" class="ro" readonly></div>
+        <div class="field"><label>${t('মোট পিস', 'Total pcs')}</label><input id="pc_Pcs" class="ro" readonly></div>
+        <div class="field"><label>${t('প্রতি কেজি দর', 'Rate / kg')}</label><input id="pc_RateKg" class="ro" readonly></div>
+        <div class="field"><label>${t('প্রতি পিস দর', 'Rate / pc')}</label><input id="pc_RatePc" class="ro" readonly></div>
+      </div>
+      <div class="pcx-g pcx-g3">
+        <div class="field"><label>${t('প্রতি কেজি বিক্রয় দর', 'Sale rate / kg')}</label><input type="number" step="any" min="0" id="pc_SaleKg"></div>
+        <div class="field"><label>${t('প্রতি পিস বিক্রয় দর', 'Sale rate / pc')}</label><input type="number" step="any" min="0" id="pc_SalePc"></div>
+        <div class="field"><label>${t('লাভ', 'Profit')}</label><input id="pc_Profit" class="ro" readonly></div>
+      </div>
+
+      <div class="pcx-sec">${t('প্রস্তুত পণ্য (একই সার্কেল থেকে একাধিক পণ্য) — এটাই স্টকে জমা হবে', 'Finished products (several from one circle) — these go into stock')}</div>
+      <div id="pc_FGWrap"></div>
+      <div class="pcx-recon" id="pc_Recon"></div>
+
+      <div class="pcx-foot">
+        <button type="button" class="btn" id="pc_Cancel" style="width:auto;">${t('বাতিল', 'Cancel')}</button>
+        <button type="button" class="btn btn-primary" id="pc_Save" style="width:auto;">💾 ${t('সেভ', 'Save')}</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="pcx-h">${t('সেভ করা ভাউচার', 'Saved vouchers')} <span>${t('— 💾 পোস্ট করলে প্রস্তুত পণ্য স্টকে জমা হয়', '— 💾 post puts the finished goods into stock')}</span></div>
+      <div class="pcx-bar">
+        <div class="field"><label>${t('তারিখ হইতে', 'From')}</label><input type="date" id="pc_ListFrom" value="${iso(new Date(Date.now() - 60 * 86400000))}"></div>
+        <div class="field"><label>${t('তারিখ পর্যন্ত', 'To')}</label><input type="date" id="pc_ListTo" value="${today}"></div>
+        <button type="button" class="btn" id="pc_ListLoad" style="width:auto;">↻ ${t('দেখুন', 'Load')}</button>
+        <span id="pc_ListInfo" class="pcx-hint"></span>
+      </div>
+      <div class="pcx-scroll pcx-list" id="pc_ListWrap" style="max-height:420px;"><div class="empty-state">${t('লোড হচ্ছে...', 'Loading...')}</div></div>
+    </div>
+    </div>`;
+
+  // ---------- রেকর্ড (দৈনিক উৎপাদন) ----------
+  function recItems(r) { const out = []; for (let i = 1; i <= 3; i++) if (r['FG' + i + 'ItemID']) out.push(escapeHtml(itemName[r['FG' + i + 'ItemID']] || r['FG' + i + 'ItemID']) + (n(r['FG' + i + 'Kg']) ? ` <small style="color:var(--text-muted)">${show(r['FG' + i + 'Kg'])}${t('কেজি', 'kg')}${n(r['FG' + i + 'Pcs']) ? '/' + show(r['FG' + i + 'Pcs'], 0) + t('পিস', 'pc') : ''}</small>` : '')); return out.join('<br>') || '—'; }
+  function renderRec() {
+    const wrap = $('pc_RecWrap');
+    if (!st.rec.length) { wrap.innerHTML = `<div class="empty-state" style="padding:14px;">${t('প্রসেসিং বাকি এমন কোনো লাইন নেই।', 'No lines waiting for processing.')}</div>`; return; }
+    wrap.innerHTML = `<table><thead><tr><th><input type="checkbox" id="pc_RecAll" title="${attr(t('সব', 'All'))}"></th><th>${t('তারিখ', 'Date')}</th><th>${t('ক্রঃ', 'No.')}</th><th>${t('তৈরী পণ্য আইটেম', 'Finished items')}</th><th>${t('সার্কেল (কেজি)', 'Circle (kg)')}</th><th>${t('তৈরী (কেজি / পিস)', 'Finished (kg / pcs)')}</th><th>${t('মজুরি + খরচ', 'Wages + costs')}</th></tr></thead>
+      <tbody>${st.rec.map(function (r) {
+        const tm = st.recTeam[String(r.id)];
+        return `<tr data-rid="${attr(r.id)}" class="${st.dpIds.indexOf(r.id) !== -1 ? 'picked' : ''}"><td><input type="checkbox" data-rec="${attr(r.id)}" ${st.dpIds.indexOf(r.id) !== -1 ? 'checked' : ''}></td>
+          <td>${escapeHtml(formatShortDate(r.ProdDate))}</td><td><b>${escapeHtml(r.SerialNo || 1)}</b></td><td class="l">${recItems(r)}</td>
+          <td class="r">${show(r.RawQty) || 0}</td><td class="r">${show(r.FGQty) || 0} / ${show(r.FGPcs, 0) || 0}</td><td class="r">${tm ? hrMoney(tm) : '—'}</td></tr>`;
+      }).join('')}</tbody></table>`;
+  }
+  async function loadRec() {
+    // প্রসেসিং না হওয়া সব লাইন — তারিখ-সীমা ছাড়াই (তারিখ দিলে শুধু ছাঁকা); এডিটের সময় এই ভাউচারের লাইনগুলোও
+    const from = gv('pc_RecFrom'), to = gv('pc_RecTo');
+    const [ra, rb] = await Promise.all([
+      supabaseClient.from('DailyProduction').select('*').is('ProcessingID', null),
+      st.editId ? supabaseClient.from('DailyProduction').select('*').eq('ProcessingID', st.editId) : Promise.resolve({ data: [] })]);
+    const error = ra.error || rb.error;
+    if (error) { $('pc_RecWrap').innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`; return; }
+    const data = (ra.data || []).concat(rb.data || []);
+    st.rec = data.filter(function (r) { const d = String(r.ProdDate).slice(0, 10); return (!from || d >= from) && (!to || d <= to); }).sort(function (a, b) { return String(a.ProdDate).localeCompare(String(b.ProdDate)) || (n(a.SerialNo) - n(b.SerialNo)); });
+    st.recTeam = {};
+    const ids = st.rec.map(function (r) { return r.id; });
+    if (ids.length) {
+      try {   // ২য় অংশে (দৈনিক উৎপাদন ও দল) সেভ করা মজুরি + খরচ, লাইন ধরে
+        const hr = await supabaseClient.from('TeamProduction').select('*').in('DPLineID', ids);
+        const heads = (hr && !hr.error && hr.data) || [];
+        if (heads.length) {
+          const tids = heads.map(function (h) { return h.TeamProdID; });
+          const [rm, rc] = await Promise.all([supabaseClient.from('TeamProduction_Members').select('*').in('TeamProdID', tids), supabaseClient.from('TeamProduction_Costs').select('*').in('TeamProdID', tids)]);
+          const byTp = {}; heads.forEach(function (h) { byTp[String(h.TeamProdID)] = String(h.DPLineID); });
+          ((rm && rm.data) || []).concat((rc && !rc.error && rc.data) || []).forEach(function (m) { const k = byTp[String(m.TeamProdID)]; if (k) st.recTeam[k] = (st.recTeam[k] || 0) + n(m.Amount); });
+        }
+      } catch (e) { /* দলের রেকর্ড না থাকলে মজুরি দেখাবে না */ }
+    }
+    $('pc_RecInfo').textContent = st.rec.length + t('টা লাইন প্রসেসিং বাকি', ' lines waiting') + (st.rec.length ? t(' — সবচেয়ে পুরনো ', ' — oldest ') + formatShortDate(st.rec[0].ProdDate) : '') + (from || to ? t(' (তারিখে ছাঁকা)', ' (filtered)') : '');
+    renderRec();
+  }
+
+  // ---------- সেভ করা ভাউচারের তালিকা ----------
+  async function voucherData(id) {   // সেভ করা ভাউচার → প্রিন্ট/শেয়ারের তথ্য (ফর্মের মতো একই আকারে)
+    const [hr, br, fr] = await Promise.all([
+      supabaseClient.from('ProcessingVoucher').select('*').eq('ProcessingID', id).maybeSingle(),
+      supabaseClient.from('ProcessingByProduct_Lines').select('*').eq('ProcessingID', id),
+      supabaseClient.from('ProcessingFG_Lines').select('*').eq('ProcessingID', id)]);
+    if (hr.error || !hr.data) throw new Error((hr.error && hr.error.message) || t('ভাউচার পাওয়া যায়নি।', 'Voucher not found.'));
+    const h0 = hr.data, header = {};
+    ['RawMaterialQty', 'RawMaterialRate', 'RawMaterialValue', 'ProcessingRate', 'ProcessingValue', 'TotalValue', 'ByProductQty', 'ByProductValue', 'NetWeight', 'NetValue', 'Pieces', 'RatePerKg', 'RatePerPiece', 'SaleRatePerKg', 'SaleRatePerPiece', 'Profit'].forEach(function (k) { header[k] = n(h0[k]); });
+    ['Date', 'RawMaterialItemID', 'WarehouseID', 'FinishedGoodsItemID', 'DateFrom', 'DateTo'].forEach(function (k) { header[k] = h0[k] || ''; });
+    const lines = ((br && br.data) || []).map(function (l) { return { ByProductName: l.ByProductName || '', ItemID: l.ItemID || '', Quantity: n(l.Quantity), Rate: n(l.Rate), Value: n(l.Value) || n(l.Quantity) * n(l.Rate) }; });
+    let fgLines = ((fr && !fr.error && fr.data) || []).map(function (l) { return { itemId: l.ItemID, kg: n(l.QtyKg), pcs: n(l.QtyPcs), rateKg: n(l.RatePerKg), ratePc: n(l.RatePerPc), value: n(l.Value) }; });
+    if (!fgLines.length && h0.FinishedGoodsItemID) fgLines = [{ itemId: h0.FinishedGoodsItemID, kg: n(h0.NetWeight), pcs: n(h0.Pieces), rateKg: n(h0.RatePerKg), ratePc: n(h0.RatePerPiece), value: n(h0.NetValue) }];
+    return { header: header, lines: lines, fgLines: fgLines, status: h0.Status };
+  }
+  async function loadList() {
+    const from = gv('pc_ListFrom'), to = gv('pc_ListTo') || today;
+    const [rec, fr] = await Promise.all([api('list', { sheet: 'ProcessingVoucher' }), supabaseClient.from('ProcessingFG_Lines').select('ProcessingID,ItemID,QtyKg,QtyPcs')]);
+    const fgBy = {}; ((fr && !fr.error && fr.data) || []).forEach(function (l) { (fgBy[l.ProcessingID] = fgBy[l.ProcessingID] || []).push(l); });
+    st.list = rec.filter(function (r) { const d = String(r.Date || '').slice(0, 10); return r.Status !== 'Deleted' && (!from || d >= from) && (!to || d <= to); })
+      .sort(function (a, b) { return String(b.Date).localeCompare(String(a.Date)) || String(b.ProcessingID).localeCompare(String(a.ProcessingID)); });
+    $('pc_ListInfo').textContent = st.list.length + t('টা ভাউচার', ' vouchers');
+    const wrap = $('pc_ListWrap');
+    if (!st.list.length) { wrap.innerHTML = `<div class="empty-state" style="padding:14px;">${t('এই তারিখে কোনো ভাউচার নেই।', 'No vouchers for these dates.')}</div>`; return; }
+    const ico = function (act, id, icon, title, dis) { return `<button type="button" class="pcx-ico" data-lact="${act}" data-lid="${attr(id)}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
+    wrap.innerHTML = `<table><thead><tr><th>${t('ক্রঃ', 'No.')}</th><th>${t('ভাউচার নং', 'Voucher')}</th><th>${t('তারিখ', 'Date')}</th><th>${t('কাঁচামাল', 'Raw')}</th><th>${t('প্রস্তুত পণ্য', 'Finished goods')}</th><th>${t('নীট ওজন', 'Net wt')}</th><th>${t('নীট মূল্য', 'Net value')}</th><th>${t('অবস্থা', 'Status')}</th><th></th></tr></thead>
+      <tbody>${st.list.map(function (r, i) {
+        const posted = r.Status === 'Posted', fgs = fgBy[r.ProcessingID] || [];
+        return `<tr class="${st.editId === r.ProcessingID ? 'editing' : ''}"><td>${i + 1}</td><td><b>${escapeHtml(r.ProcessingID)}</b></td><td>${escapeHtml(formatShortDate(r.Date))}</td>
+          <td class="l">${escapeHtml(itemName[r.RawMaterialItemID] || r.RawMaterialItemID || '')} <small style="color:var(--text-muted)">${show(r.RawMaterialQty)} ${t('কেজি', 'kg')}</small></td>
+          <td class="l">${fgs.length ? fgs.map(function (l) { return escapeHtml(itemName[l.ItemID] || l.ItemID) + ` <small style="color:var(--text-muted)">${show(l.QtyKg)}${t('কেজি', 'kg')}${n(l.QtyPcs) ? '/' + show(l.QtyPcs, 0) + t('পিস', 'pc') : ''}</small>`; }).join('<br>') : escapeHtml(itemName[r.FinishedGoodsItemID] || r.FinishedGoodsItemID || '—')}</td>
+          <td class="r">${show(r.NetWeight)}</td><td class="r">${n(r.NetValue).toFixed(2)}</td>
+          <td>${posted ? `<span class="badge active">${t('পোস্ট করা', 'Posted')}</span>` : `<span class="badge draft">${t('খসড়া', 'Draft')}</span>`}</td>
+          <td style="white-space:nowrap;">${ico('view', r.ProcessingID, '👁️', t('প্রিভিউ', 'Preview'))}${ico('edit', r.ProcessingID, '✏️', posted ? t('পোস্ট করা ভাউচার এডিট করা যায় না', 'Posted — cannot edit') : t('এডিট', 'Edit'), posted)}${ico('del', r.ProcessingID, '🗑️', posted ? t('ডিলিট (এডমিন — স্টক ফেরত যাবে)', 'Delete (admin — stock reversed)') : t('ডিলিট', 'Delete'))}${ico('post', r.ProcessingID, '💾', posted ? t('পোস্ট হয়ে গেছে', 'Already posted') : t('পোস্ট করুন — স্টকে জমা', 'Post — into stock'), posted)}${ico('print', r.ProcessingID, '🖨️', t('প্রিন্ট', 'Print'))}${ico('share', r.ProcessingID, '🔗', t('শেয়ার', 'Share'))}</td></tr>`;
+      }).join('')}</tbody></table>`;
+  }
+  window.__refreshProcessingList = async function () { await loadList(); };
+  async function unlinkDP(id) { try { await supabaseClient.from('DailyProduction').update({ ProcessingID: null }).eq('ProcessingID', id); } catch (e) {} }
+  async function listAction(act, id) {
+    const r = st.list.find(function (x) { return x.ProcessingID === id; }); if (!r) return;
+    try {
+      if (act === 'view' || act === 'print') { await openProcessingPrintView(id, act === 'print', await voucherData(id)); return; }
+      if (act === 'share') { await shareProcessingVoucher(id, await voucherData(id)); return; }
+      if (act === 'post') { await postProcessingRecord(id); return; }
+      if (act === 'edit') { await loadIntoForm(id); return; }
+      if (act === 'del') {
+        if (r.Status === 'Posted') {
+          await deletePostedVoucherWithAdminAuth('ProcessingVoucher', id, 'ProcessingVoucher', 'ProcessingID', 'ProcessingByProduct_Lines', 'ProcessingID', async function () { await unlinkDP(id); if (st.editId === id) resetVoucher(); await loadList(); await loadRec(); });
+          return;
+        }
+        if (!confirm(t('ভাউচার ', 'Delete voucher ') + id + t(' ডিলিট করবেন? এর দৈনিক উৎপাদনের লাইনগুলো আবার রেকর্ডে ফিরে আসবে।', '? Its daily production lines go back to the records.'))) return;
+        try { await supabaseClient.from('ProcessingFG_Lines').delete().eq('ProcessingID', id); } catch (e) {}
+        await supabaseClient.from('ProcessingByProduct_Lines').delete().eq('ProcessingID', id);
+        const { error } = await supabaseClient.from('ProcessingVoucher').delete().eq('ProcessingID', id);
+        if (error) throw new Error(error.message);
+        await unlinkDP(id);
+        showToast(t('ডিলিট হয়েছে ✅', 'Deleted ✅'), 'success');
+        if (st.editId === id) resetVoucher();
+        await loadList(); await loadRec();
+      }
+    } catch (err) { showToast(err.message, 'error'); }
+  }
+  // সেভ করা (খসড়া) ভাউচার উপরের ফর্মে — দৈনিক উৎপাদনের লাইন টিকসহ
+  async function loadIntoForm(id) {
+    const d = await voucherData(id);
+    if (d.status === 'Posted') { showToast(t('পোস্ট করা ভাউচার এডিট করা যায় না।', 'A posted voucher cannot be edited.'), 'error'); return; }
+    const h = d.header;
+    st.editId = id;
+    $('pc_Date').value = String(h.Date).slice(0, 10) || today; $('pc_Raw').value = h.RawMaterialItemID; $('pc_Wh').value = h.WarehouseID;
+    $('pc_Qty').value = show(h.RawMaterialQty); $('pc_RMRate').value = h.RawMaterialRate ? String(+h.RawMaterialRate.toFixed(4)) : ''; $('pc_ProcRate').value = h.ProcessingRate ? String(+h.ProcessingRate.toFixed(8)) : '';
+    st.rateSrc = h.DateFrom ? 'avg' : 'saved'; st.avgFrom = h.DateFrom || ''; st.avgTo = h.DateTo || '';
+    $('pc_RateSrc').textContent = h.DateFrom ? t('গড় দরঃ ', 'Average: ') + formatShortDate(h.DateFrom) + ' — ' + formatShortDate(h.DateTo) : t('সেভ করা দর', 'saved rate');
+    $('pc_ProcSrc').textContent = t('সেভ করা দর', 'saved rate');
+    $('pc_SaleKg').value = h.SaleRatePerKg || ''; $('pc_SalePc').value = h.SaleRatePerPiece || '';
+    st.bp = d.lines.map(function (l) { return { name: l.ByProductName, qty: show(l.Quantity), rate: l.Rate ? String(l.Rate) : '' }; });
+    st.fg = d.fgLines.map(function (l) { return { itemId: l.itemId, kg: show(l.kg), pcs: l.pcs ? String(l.pcs) : '', rateKg: l.rateKg ? l.rateKg.toFixed(2) : '', ratePc: l.ratePc ? l.ratePc.toFixed(2) : '', driver: 'kg', auto: false }; });
+    renderBP(); renderFG(); recalc();
+    const dr = defRate(); st.fg.forEach(function (r) { if (dr > 0 && Math.abs(n(r.rateKg) - dr) < 0.005) r.auto = true; });   // দর নীট থেকে আসা হলে আবার অটো
+    renderFG(); recalc();
+    const lr = await supabaseClient.from('DailyProduction').select('id,ProdDate').eq('ProcessingID', id);
+    st.dpIds = ((lr && !lr.error && lr.data) || []).map(function (x) { return x.id; });
+    if (st.dpIds.length) { const ds = lr.data.map(function (x) { return String(x.ProdDate).slice(0, 10); }).sort(); if (ds[0] < gv('pc_RecFrom')) $('pc_RecFrom').value = ds[0]; if (ds[ds.length - 1] > gv('pc_RecTo')) $('pc_RecTo').value = ds[ds.length - 1]; }
+    $('pc_DPHint').textContent = st.dpIds.length ? t('দৈনিক উৎপাদনের ', '') + st.dpIds.length + t('টা লাইন এই ভাউচারে যুক্ত (উপরে টিক দেওয়া)', ' daily production line(s) linked (ticked above)') : '';
+    $('pc_No').textContent = id + t(' — এডিট হচ্ছে', ' — editing'); $('pc_Save').innerHTML = '💾 ' + t('আপডেট', 'Update');
+    await loadRec(); await loadList();
+    $('pc_Voucher').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // ---------- বাই-প্রোডাক্ট ও প্রস্তুত পণ্যের টেবিল ----------
+  function renderBP() {
+    if (!st.bp.length) st.bp.push({ name: '', qty: '', rate: '' });
+    $('pc_BPWrap').innerHTML = `<table class="pcx-tbl"><thead><tr><th>${t('নাম', 'Name')}</th><th>${t('পরিমাণ (কেজি)', 'Qty (kg)')}</th><th>${t('দর', 'Rate')}</th><th>${t('মূল্য', 'Value')}</th><th style="width:70px;"></th></tr></thead><tbody>
+      ${st.bp.map(function (b, i) {
+        return `<tr><td><input data-bp="${i}" data-f="name" value="${attr(b.name)}" placeholder="${attr(t('কাটিং / ভাঙ্গাড়ী / অপচয়', 'cutting / scrap / wastage'))}"></td>
+          <td><input type="number" step="any" min="0" data-bp="${i}" data-f="qty" value="${attr(b.qty)}"></td><td><input type="number" step="any" min="0" data-bp="${i}" data-f="rate" value="${attr(b.rate)}"></td>
+          <td class="r" id="pc_bp_${i}_val">0.00</td><td style="white-space:nowrap;"><button type="button" class="pcx-x" data-bpdel="${i}" title="${attr(t('মুছুন', 'Remove'))}">✕</button>${i === st.bp.length - 1 ? `<button type="button" class="pcx-plus" data-bpadd="1" title="${attr(t('লাইন যোগ', 'Add line'))}">＋</button>` : ''}</td></tr>`;
+      }).join('')}
+      <tr class="tot"><td class="l">${t('মোটঃ বাই-প্রোডাক্ট', 'By-products total')}</td><td id="pc_BPQty"></td><td></td><td class="r" id="pc_BPVal"></td><td></td></tr>
+      <tr class="grand"><td class="l">${t('সর্বমোটঃ (বাই-প্রডাক্ট বাদ)', 'Grand total (by-products deducted)')}</td><td id="pc_GQty"></td><td></td><td class="r" id="pc_GVal"></td><td></td></tr>
+      </tbody></table>`;
+  }
+  function defRate() { const w = netW(); return w > 0 ? netV() / w : 0; }
+  function fgValue(r) { const kg = n(r.kg), pcs = n(r.pcs); if (r.auto !== false) return kg * defRate(); return r.driver === 'pc' ? pcs * n(r.ratePc) : kg * n(r.rateKg); }
+  function renderFG() {
+    if (!st.fg.length) st.fg.push({ itemId: '', kg: '', pcs: '', rateKg: '', ratePc: '', driver: 'kg', auto: true });
+    $('pc_FGWrap').innerHTML = `<table class="pcx-tbl"><thead><tr><th>${t('প্রস্তুত পণ্য আইটেম', 'Item')}</th><th>${t('পরিমাণ (কেজি)', 'Qty (kg)')}</th><th>${t('প্রতি কেজি দর', 'Rate / kg')}</th><th>${t('পরিমাণ (পিস)', 'Qty (pcs)')}</th><th>${t('প্রতি পিস দর', 'Rate / pc')}</th><th>${t('মূল্য', 'Value')}</th><th style="width:70px;"></th></tr></thead><tbody>
+      ${st.fg.map(function (r, i) {
+        return `<tr><td><select data-fg="${i}" data-f="itemId" style="min-width:140px;">${opt(items, 'ItemID', 'ItemName', r.itemId)}</select></td>
+          <td><input type="number" step="any" min="0" data-fg="${i}" data-f="kg" value="${attr(r.kg)}"></td>
+          <td><input type="number" step="any" min="0" data-fg="${i}" data-f="rateKg" id="pc_fg_${i}_rk" value="${attr(r.rateKg)}" class="${r.auto === false && r.driver === 'kg' ? 'ov' : ''}"></td>
+          <td><input type="number" step="any" min="0" data-fg="${i}" data-f="pcs" value="${attr(r.pcs)}"></td>
+          <td><input type="number" step="any" min="0" data-fg="${i}" data-f="ratePc" id="pc_fg_${i}_rp" value="${attr(r.ratePc)}" class="${r.auto === false && r.driver === 'pc' ? 'ov' : ''}"></td>
+          <td class="r"><b id="pc_fg_${i}_val">0.00</b></td>
+          <td style="white-space:nowrap;"><button type="button" class="pcx-x" data-fgdel="${i}" title="${attr(t('মুছুন', 'Remove'))}">✕</button>${i === st.fg.length - 1 ? `<button type="button" class="pcx-plus" data-fgadd="1" title="${attr(t('লাইন যোগ', 'Add line'))}">＋</button>` : ''}</td></tr>`;
+      }).join('')}
+      <tr class="tot"><td class="l">${t('মোট', 'Total')}</td><td id="pc_FGKg"></td><td></td><td id="pc_FGPcs"></td><td></td><td class="r" id="pc_FGVal"></td><td></td></tr></tbody></table>`;
+  }
+
+  // ---------- হিসাব ----------
+  function bpQty() { return st.bp.reduce(function (s, b) { return s + n(b.qty); }, 0); }
+  function bpVal() { return st.bp.reduce(function (s, b) { return s + n(b.qty) * n(b.rate); }, 0); }
+  function total() { return n(gv('pc_Qty')) * (n(gv('pc_RMRate')) + n(gv('pc_ProcRate'))); }
+  function netW() { return n(gv('pc_Qty')) - bpQty(); }
+  function netV() { return total() - bpVal(); }
+  function recalc() {
+    const qty = n(gv('pc_Qty')), rm = qty * n(gv('pc_RMRate')), pv = qty * n(gv('pc_ProcRate'));
+    $('pc_RMValue').value = rm.toFixed(2); $('pc_ProcQty').value = show(qty) || ''; $('pc_ProcValue').value = pv.toFixed(2);
+    $('pc_TotQty').textContent = show(qty) || '0'; $('pc_Total').textContent = (rm + pv).toFixed(2);
+    st.bp.forEach(function (b, i) { const el = $('pc_bp_' + i + '_val'); if (el) el.textContent = (n(b.qty) * n(b.rate)).toFixed(2); });
+    $('pc_BPQty').textContent = show(bpQty()) || '0'; $('pc_BPVal').textContent = bpVal().toFixed(2);
+    $('pc_GQty').textContent = show(netW()) || '0'; $('pc_GVal').textContent = netV().toFixed(2);
+    const w = netW(), v = netV(), pcs = st.fg.reduce(function (s, r) { return s + n(r.pcs); }, 0), dr = defRate();
+    $('pc_NetW').value = w.toFixed(3); $('pc_NetV').value = v.toFixed(2); $('pc_Pcs').value = pcs ? String(pcs) : '';
+    $('pc_RateKg').value = w > 0 ? (v / w).toFixed(2) : '0.00'; $('pc_RatePc').value = pcs > 0 ? (v / pcs).toFixed(2) : '0.00';
+    let fk = 0, fv = 0;
+    st.fg.forEach(function (r, i) {
+      const value = fgValue(r), kg = n(r.kg), p = n(r.pcs);
+      if (r.auto !== false) { r.rateKg = dr > 0 && kg ? dr.toFixed(2) : ''; r.ratePc = p > 0 && value > 0 ? (value / p).toFixed(2) : ''; const a = $('pc_fg_' + i + '_rk'), b = $('pc_fg_' + i + '_rp'); if (a && document.activeElement !== a) a.value = r.rateKg; if (b && document.activeElement !== b) b.value = r.ratePc; }
+      else if (r.driver === 'pc') { const a = $('pc_fg_' + i + '_rk'); r.rateKg = kg > 0 && value > 0 ? (value / kg).toFixed(2) : ''; if (a && document.activeElement !== a) a.value = r.rateKg; }
+      else { const b = $('pc_fg_' + i + '_rp'); r.ratePc = p > 0 && value > 0 ? (value / p).toFixed(2) : ''; if (b && document.activeElement !== b) b.value = r.ratePc; }
+      const ve = $('pc_fg_' + i + '_val'); if (ve) ve.textContent = value.toFixed(2);
+      fk += kg; fv += value;
+    });
+    $('pc_FGKg').textContent = show(fk) || '0'; $('pc_FGPcs').textContent = show(pcs, 0) || '0'; $('pc_FGVal').textContent = fv.toFixed(2);
+    const saleKg = n(gv('pc_SaleKg')), salePc = n(gv('pc_SalePc'));
+    const profit = saleKg > 0 ? saleKg * w - v : salePc > 0 ? salePc * pcs - v : 0;
+    $('pc_Profit').value = profit.toFixed(2); $('pc_Profit').style.color = profit < 0 ? 'var(--danger)' : '';
+    const row = function (lbl, net, got, unit, dec, tol) {
+      const d = net - got, ok = Math.abs(d) <= tol;
+      return `<div style="background:${ok ? '#e5f5ec' : '#fdf3e3'};color:${ok ? 'var(--success)' : 'var(--amber-dim)'};"><span>${lbl}: ${t('নীট', 'Net')} <b>${net.toFixed(dec)}</b> ${unit} — ${t('প্রস্তুত পণ্যের মোট', 'finished total')} <b>${got.toFixed(dec)}</b> ${unit}</span><b>${ok ? '✓ ' + t('মিলেছে', 'matched') : t('অমিল', 'Difference') + ': ' + (d > 0 ? '+' : '') + d.toFixed(dec)}</b></div>`;
+    };
+    $('pc_Recon').innerHTML = row(t('ওজন', 'Weight'), w, fk, t('কেজি', 'kg'), 3, 0.0005) + row(t('মূল্য', 'Value'), v, fv, '৳', 2, 0.5);
+  }
+
+  // ---------- দৈনিক উৎপাদনের লাইন ভাউচারে ----------
+  async function postSelected() {
+    const ids = Array.from(document.querySelectorAll('[data-rec]:checked')).map(function (c) { return st.rec.find(function (r) { return String(r.id) === c.getAttribute('data-rec'); }); }).filter(Boolean);
+    if (!ids.length) { showToast(t('আগে রেকর্ড থেকে লাইন টিক দিন।', 'Tick some lines first.'), 'error'); return; }
+    const rows = ids.slice().sort(function (a, b) { return String(a.ProdDate).localeCompare(String(b.ProdDate)) || (n(a.SerialNo) - n(b.SerialNo)); });
+    st.dpIds = rows.map(function (r) { return r.id; });
+    const sum = function (f) { return rows.reduce(function (s, r) { return s + n(r[f]); }, 0); };
+    const qty = sum('RawQty');
+    $('pc_Qty').value = String(+qty.toFixed(3));
+    // বাই-প্রোডাক্ট — আগে লেখা দর থাকলে থাকে
+    const oldRate = {}; st.bp.forEach(function (b) { if (b.name) oldRate[String(b.name).trim()] = b.rate; });
+    st.bp = [['কাটিং', sum('CuttingQty')], ['ভাঙ্গাড়ী', sum('ScrapQty')], ['অপচয়', sum('WasteQty')]].filter(function (x) { return x[1] > 0; }).map(function (x) { return { name: x[0], qty: String(+x[1].toFixed(3)), rate: oldRate[x[0]] || '' }; });
+    // প্রস্তুত পণ্য — তারিখ ও ক্রঃ অনুযায়ী, আইটেম ধরে যোগ
+    const order = [], agg = {};
+    rows.forEach(function (r) { for (let i = 1; i <= 3; i++) { const id = r['FG' + i + 'ItemID'], k = n(r['FG' + i + 'Kg']), p = n(r['FG' + i + 'Pcs']); if (!id || (!k && !p)) continue; if (!agg[id]) { agg[id] = { k: 0, p: 0 }; order.push(id); } agg[id].k += k; agg[id].p += p; } });
+    st.fg = order.map(function (id) { return { itemId: id, kg: String(+agg[id].k.toFixed(3)), pcs: agg[id].p ? String(agg[id].p) : '', rateKg: '', ratePc: '', driver: 'kg', auto: true }; });
+    // উৎপাদন খরচ — ওই লাইনগুলোর মজুরি + খরচ (দৈনিক উৎপাদন ও দল)
+    const wc = rows.reduce(function (s, r) { return s + (st.recTeam[String(r.id)] || 0); }, 0);
+    if (wc > 0 && qty > 0) { $('pc_ProcRate').value = String(+(wc / qty).toFixed(8)); $('pc_ProcSrc').textContent = t('দৈনিক উৎপাদন থেকেঃ মজুরি + খরচ ৳', 'From daily production: wages + costs ৳') + wc.toFixed(2) + ' ÷ ' + show(qty) + t(' কেজি', ' kg'); }
+    else { $('pc_ProcSrc').textContent = t('এই লাইনগুলোর মজুরি এখনো সেভ হয়নি (দৈনিক উৎপাদন ও দল) — দর নিজে লিখুন', 'No wages saved for these lines yet — type the rate'); }
+    // কাঁচামালের দর ফাঁকা থাকলে সর্বশেষ ক্রয় দর
+    if (!gv('pc_RMRate') && gv('pc_Raw')) { const lp = await lastPurchaseRate(gv('pc_Raw')); if (lp.rate > 0) { $('pc_RMRate').value = String(+lp.rate.toFixed(4)); st.rateSrc = 'last'; $('pc_RateSrc').textContent = t('সর্বশেষ ক্রয়ঃ ', 'Last purchase: ') + lp.info; } }
+    const dates = rows.map(function (r) { return String(r.ProdDate).slice(0, 10); });
+    $('pc_DPHint').textContent = t('দৈনিক উৎপাদন থেকেঃ ', 'From daily production: ') + rows.length + t('টা লাইন (', ' lines (') + formatShortDate(dates[0]) + (dates[0] !== dates[dates.length - 1] ? ' — ' + formatShortDate(dates[dates.length - 1]) : '') + t(') — সার্কেল ', ') — circle ') + show(qty) + t(' কেজি → তৈরী পণ্য ', ' kg → finished ') + show(sum('FGQty')) + t(' কেজি / ', ' kg / ') + (show(sum('FGPcs'), 0) || 0) + t(' পিস', ' pcs');
+    renderBP(); renderFG(); renderRec(); recalc();
+    $('pc_Voucher').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    showToast(t('ভাউচারে বসানো হয়েছে ✅ — দর দেখে সেভ করুন', 'Filled ✅ — check the rates and save'), 'success');
+  }
+
+  // ---------- কাঁচামালের দর ----------
+  async function lastPurchaseRate(itemId) {
+    const { data: lines } = await supabaseClient.from('PI_Lines').select('*').eq('ItemID', itemId);
+    if (!lines || !lines.length) return { rate: 0, info: '' };
+    const ids = Array.from(new Set(lines.map(function (l) { return l.PIID; })));
+    const { data: heads } = await supabaseClient.from('PurchaseInvoice').select('PIID, InvoiceDate, Status').in('PIID', ids);
+    const hm = {}; (heads || []).forEach(function (h) { if (h.Status === 'Posted') hm[h.PIID] = h; });
+    const ok = lines.filter(function (l) { return hm[l.PIID] && n(l.Quantity) > 0; }).sort(function (a, b) { return String(hm[b.PIID].InvoiceDate).localeCompare(String(hm[a.PIID].InvoiceDate)) || String(b.PIID).localeCompare(String(a.PIID)); });
+    if (!ok.length) return { rate: 0, info: '' };
+    const l = ok[0], val = (l.NetAmount !== null && l.NetAmount !== undefined && l.NetAmount !== '') ? n(l.NetAmount) : (l.Amount !== null && l.Amount !== undefined && l.Amount !== '') ? n(l.Amount) : n(l.Quantity) * n(l.Rate);
+    return { rate: val / n(l.Quantity), info: l.PIID + ', ' + formatShortDate(hm[l.PIID].InvoiceDate) };
+  }
+  async function openRatePopup() {
+    const raw = gv('pc_Raw');
+    if (!raw) { showToast(t('আগে কাঁচামাল বাছাই করুন।', 'Pick the raw material first.'), 'error'); return; }
+    const pop = document.createElement('div'); pop.className = 'pcx-pop';
+    const af = st.avgFrom || monthAgo, at = st.avgTo || today;
+    pop.innerHTML = `<div class="box" role="dialog">
+      <div style="display:flex;justify-content:space-between;align-items:center;"><b>${t('কাঁচামালের দর — ', 'Raw material rate — ')}${escapeHtml(itemName[raw] || raw)}</b><button type="button" class="pcx-x" data-pop="close">✕</button></div>
+      <div class="opt"><h5>① ${t('সর্বশেষ ক্রয় ভাউচার অনুযায়ী', 'From the last purchase voucher')}</h5>
+        <div class="row"><input type="number" step="any" id="pcr_Last"><button type="button" class="btn" data-pop="last" style="width:auto;">${t('এটা নিন', 'Use this')}</button><small id="pcr_LastInfo">${t('খোঁজা হচ্ছে...', 'Looking...')}</small></div></div>
+      <div class="opt"><h5>② ${t('তারিখ রেঞ্জের গড় দর', 'Average rate over a date range')}</h5>
+        <div class="row" style="margin-bottom:6px;"><input type="date" id="pcr_From" value="${af}"><span>—</span><input type="date" id="pcr_To" value="${at}"><button type="button" class="btn" data-pop="calc" style="width:auto;">↻</button></div>
+        <div class="row"><input type="number" step="any" id="pcr_Avg"><button type="button" class="btn" data-pop="avg" style="width:auto;">${t('এটা নিন', 'Use this')}</button><small id="pcr_AvgInfo"></small></div></div>
+      <div class="pcx-hint" style="margin-top:8px;">${t('দুটো দরই হাতে বদলানো যায়; "এটা নিন" চাপলে ভাউচারে বসে।', 'Both rates are editable; "Use this" puts it in the voucher.')}</div></div>`;
+    document.body.appendChild(pop);
+    const close = function () { pop.remove(); $('pc_RMRate').focus(); };
+    const calcAvg = async function () {
+      const f = pop.querySelector('#pcr_From').value, to = pop.querySelector('#pcr_To').value;
+      try { const r = await api('getAverageRate', { itemId: raw, dateFrom: f, dateTo: to }); pop.querySelector('#pcr_Avg').value = r.averageRate > 0 ? String(+r.averageRate.toFixed(4)) : ''; pop.querySelector('#pcr_AvgInfo').textContent = r.averageRate > 0 ? (r.voucherCount !== undefined ? r.voucherCount : r.grnCount) + t('টা ক্রয় ভাউচার, ', ' purchase vouchers, ') + show(r.totalQtyPurchased) + t(' কেজি', ' kg') : t('এই সময়ে ক্রয় নেই', 'no purchases in range'); }
+      catch (e) { pop.querySelector('#pcr_AvgInfo').textContent = e.message; }
+    };
+    pop.addEventListener('click', function (e) {
+      if (e.target === pop) { close(); return; }
+      const b = e.target.closest('[data-pop]'); if (!b) return;
+      const a = b.getAttribute('data-pop');
+      if (a === 'close') close();
+      else if (a === 'calc') calcAvg();
+      else if (a === 'last' || a === 'avg') {
+        const v = pop.querySelector(a === 'last' ? '#pcr_Last' : '#pcr_Avg').value;
+        if (!(Number(v) > 0)) { showToast(t('দর ফাঁকা — আগে দর দিন।', 'The rate is empty.'), 'error'); return; }
+        $('pc_RMRate').value = v; st.rateSrc = a;
+        if (a === 'avg') { st.avgFrom = pop.querySelector('#pcr_From').value; st.avgTo = pop.querySelector('#pcr_To').value; }
+        $('pc_RateSrc').textContent = a === 'last' ? t('সর্বশেষ ক্রয়ঃ ', 'Last purchase: ') + pop.querySelector('#pcr_LastInfo').textContent : t('গড় দরঃ ', 'Average: ') + formatShortDate(st.avgFrom) + ' — ' + formatShortDate(st.avgTo);
+        recalc(); close();
+      }
+    });
+    pop.addEventListener('keydown', function (e) { if (e.key === 'Escape') { e.stopPropagation(); close(); } });
+    const lp = await lastPurchaseRate(raw);
+    pop.querySelector('#pcr_Last').value = lp.rate > 0 ? String(+lp.rate.toFixed(4)) : '';
+    pop.querySelector('#pcr_LastInfo').textContent = lp.rate > 0 ? lp.info : t('পোস্ট করা কোনো ক্রয় নেই', 'no posted purchase');
+    calcAvg();
+    pop.querySelector('#pcr_Last').focus();
+  }
+
+  // ---------- সেভ / বাতিল ----------
+  function resetVoucher() {
+    const wasEdit = !!st.editId;
+    st.dpIds = []; st.bp = []; st.fg = []; st.rateSrc = ''; st.avgFrom = st.avgTo = ''; st.editId = null;
+    $('pc_No').textContent = t('অটো (সেভে বসবে)', 'auto (on save)'); $('pc_Save').innerHTML = '💾 ' + t('সেভ', 'Save');
+    if (wasEdit) { loadRec(); loadList(); }
+    ['pc_Qty', 'pc_RMRate', 'pc_ProcRate', 'pc_SaleKg', 'pc_SalePc'].forEach(function (id) { $(id).value = ''; });
+    $('pc_Date').value = today; $('pc_RateSrc').textContent = ''; $('pc_ProcSrc').textContent = ''; $('pc_DPHint').textContent = '';
+    renderBP(); renderFG(); renderRec(); recalc();
+  }
+  async function save() {
+    const raw = gv('pc_Raw'), wh = gv('pc_Wh'), qty = n(gv('pc_Qty'));
+    if (!raw) { showToast(t('কাঁচামাল বাছাই করুন।', 'Pick the raw material.'), 'error'); return; }
+    if (!wh) { showToast(t('গুদাম বাছাই করুন।', 'Pick the warehouse.'), 'error'); return; }
+    if (!(qty > 0)) { showToast(t('কাঁচামালের পরিমাণ দিন।', 'Enter the raw material quantity.'), 'error'); return; }
+    if (!(n(gv('pc_RMRate')) > 0)) { showToast(t('কাঁচামালের দর দিন (ঘরে চাপলে দর বাছাইয়ের পপআপ)।', 'Enter the raw material rate (click the field for options).'), 'error'); return; }
+    const fg = [];
+    for (let i = 0; i < st.fg.length; i++) {
+      const r = st.fg[i], kg = n(r.kg), pcs = n(r.pcs), value = fgValue(r);
+      if (!r.itemId && !kg && !pcs) continue;
+      if (!r.itemId) { showToast(t('প্রস্তুত পণ্য লাইন ', 'Finished line ') + (i + 1) + t(': আইটেম বাছাই করুন।', ': pick the item.'), 'error'); return; }
+      if (!(kg > 0) && !(pcs > 0)) { showToast(t('প্রস্তুত পণ্য লাইন ', 'Finished line ') + (i + 1) + t(': কেজি বা পিস দিন।', ': enter kg or pcs.'), 'error'); return; }
+      fg.push({ itemId: r.itemId, kg: kg, pcs: pcs, value: value, rateKg: kg > 0 ? value / kg : n(r.rateKg), ratePc: pcs > 0 ? value / pcs : n(r.ratePc) });
+    }
+    if (!fg.length) { showToast(t('অন্তত একটা প্রস্তুত পণ্য লাইন দিন।', 'Add at least one finished line.'), 'error'); return; }
+    const w = netW(), v = netV(), fk = fg.reduce(function (s, l) { return s + l.kg; }, 0), fv = fg.reduce(function (s, l) { return s + l.value; }, 0), pcs = fg.reduce(function (s, l) { return s + l.pcs; }, 0);
+    if ((Math.abs(w - fk) > 0.0005 || Math.abs(v - fv) > 0.5) && !confirm(t('প্রস্তুত পণ্যের মোট নীট ওজন/মূল্যের সাথে মিলছে না। তবুও সেভ করবেন?', 'Finished totals do not match net weight/value. Save anyway?'))) return;
+    const bpl = st.bp.filter(function (b) { return n(b.qty) > 0; }).map(function (b) { return { ByProductName: b.name || '', ItemID: '', Quantity: n(b.qty), Rate: n(b.rate), Value: n(b.qty) * n(b.rate) }; });
+    const saleKg = n(gv('pc_SaleKg')), salePc = n(gv('pc_SalePc'));
+    const header = {
+      Date: gv('pc_Date') || today, RawMaterialItemID: raw, WarehouseID: wh,
+      DateFrom: st.rateSrc === 'avg' ? st.avgFrom : '', DateTo: st.rateSrc === 'avg' ? st.avgTo : '',
+      RawMaterialQty: qty, RawMaterialRate: n(gv('pc_RMRate')), RawMaterialValue: qty * n(gv('pc_RMRate')),
+      ProcessingRate: n(gv('pc_ProcRate')), ProcessingValue: qty * n(gv('pc_ProcRate')), TotalValue: total(),
+      ByProductQty: bpQty(), ByProductValue: bpVal(), NetWeight: w, NetValue: v,
+      FinishedGoodsItemID: fg[0].itemId, Pieces: pcs, RatePerKg: w > 0 ? v / w : 0, RatePerPiece: pcs > 0 ? v / pcs : 0,
+      SaleRatePerKg: saleKg, SaleRatePerPiece: salePc, Profit: saleKg > 0 ? saleKg * w - v : salePc > 0 ? salePc * pcs - v : 0
+    };
+    const btn = $('pc_Save'); btn.disabled = true;
+    try {
+      const fgRows = function (id) { return fg.map(function (l) { return { ProcessingID: id, ItemID: l.itemId, QtyKg: l.kg, RatePerKg: l.rateKg, QtyPcs: l.pcs, RatePerPc: l.ratePc, Value: l.value }; }); };
+      if (st.editId) {   // সেভ করা (খসড়া) ভাউচার হালনাগাদ
+        const pid = st.editId;
+        await api('updateDocument', { headerSheet: 'ProcessingVoucher', idField: 'ProcessingID', idValue: pid, linesSheet: 'ProcessingByProduct_Lines', lineIdField: 'ProcessingID', headerData: header, lines: bpl });
+        const del = await supabaseClient.from('ProcessingFG_Lines').delete().eq('ProcessingID', pid); if (del.error) throw new Error(del.error.message);
+        const ins = await supabaseClient.from('ProcessingFG_Lines').insert(fgRows(pid)); if (ins.error) throw new Error(ins.error.message);
+        await unlinkDP(pid);
+        if (st.dpIds.length) { const u = await supabaseClient.from('DailyProduction').update({ ProcessingID: pid }).in('id', st.dpIds); if (u.error) showToast(u.error.message, 'error'); }
+        showToast(t('আপডেট হয়েছে ✅ ', 'Updated ✅ ') + pid, 'success');
+        listCache = {}; resetVoucher(); $('pc_No').textContent = t('অটো (সেভে বসবে) — শেষ সেভঃ ', 'auto — last saved: ') + pid;
+        await loadRec(); await loadList(); btn.disabled = false; return;
+      }
+      const created = await api('createDocument', { headerSheet: 'ProcessingVoucher', idField: 'ProcessingID', idPrefix: 'PROC', requiredFields: ['RawMaterialItemID', 'WarehouseID', 'FinishedGoodsItemID'], linesSheet: 'ProcessingByProduct_Lines', lineIdField: 'ProcessingID', headerData: header, lines: bpl });
+      const pid = created && created.ProcessingID;
+      const { error: fgErr } = await supabaseClient.from('ProcessingFG_Lines').insert(fgRows(pid));
+      if (fgErr) {
+        await supabaseClient.from('ProcessingByProduct_Lines').delete().eq('ProcessingID', pid);
+        await supabaseClient.from('ProcessingVoucher').delete().eq('ProcessingID', pid);
+        throw new Error(fgErr.message + t(' — (21_processing_fg_lines.sql রান করা আছে কিনা দেখুন)', ' — (check migration 21)'));
+      }
+      if (st.dpIds.length) { const u = await supabaseClient.from('DailyProduction').update({ ProcessingID: pid }).in('id', st.dpIds); if (u.error) showToast(t('সেভ হয়েছে, কিন্তু দৈনিক উৎপাদনের লাইনে নম্বর বসেনি: ', 'Saved, but daily lines were not marked: ') + u.error.message, 'error'); }
+      showToast(t('সেভ হয়েছে ✅ ', 'Saved ✅ ') + pid + t(' — নিচের তালিকা থেকে 💾 পোস্ট করলে প্রস্তুত পণ্য স্টকে জমা হবে', ' — post it (💾) in the list below to put the goods into stock'), 'success');
+      listCache = {};
+      resetVoucher(); $('pc_No').textContent = t('অটো (সেভে বসবে) — শেষ সেভঃ ', 'auto — last saved: ') + pid;
+      await loadRec(); await loadList();
+    } catch (err) { showToast(err.message, 'error'); }
+    btn.disabled = false;
+  }
+
+  // ---------- ঘটনা ----------
+  const root = content.querySelector('.pcx');
+  root.addEventListener('input', function (e) {
+    const el = e.target;
+    if (el.hasAttribute('data-bp')) { st.bp[Number(el.getAttribute('data-bp'))][el.getAttribute('data-f')] = el.value; recalc(); return; }
+    if (el.hasAttribute('data-fg')) {
+      const r = st.fg[Number(el.getAttribute('data-fg'))], f = el.getAttribute('data-f');
+      r[f] = el.value;
+      if (f === 'rateKg') { r.driver = 'kg'; r.auto = el.value === ''; el.classList.toggle('ov', !r.auto); }
+      if (f === 'ratePc') { r.driver = 'pc'; r.auto = el.value === ''; el.classList.toggle('ov', !r.auto); }
+      recalc(); return;
+    }
+    if (['pc_Qty', 'pc_RMRate', 'pc_ProcRate', 'pc_SaleKg', 'pc_SalePc'].indexOf(el.id) !== -1) {
+      if (el.id === 'pc_RMRate') { st.rateSrc = el.value ? 'manual' : ''; $('pc_RateSrc').textContent = el.value ? t('হাতে লেখা', 'typed') : ''; }
+      if (el.id === 'pc_ProcRate') $('pc_ProcSrc').textContent = el.value ? t('হাতে লেখা', 'typed') : '';
+      recalc();
+    }
+  });
+  root.addEventListener('change', function (e) {
+    const el = e.target;
+    if (el.hasAttribute('data-fg') && el.getAttribute('data-f') === 'itemId') { st.fg[Number(el.getAttribute('data-fg'))].itemId = el.value; return; }
+    if (el.id === 'pc_RecAll') { document.querySelectorAll('[data-rec]').forEach(function (c) { c.checked = el.checked; }); return; }
+    if (el.id === 'pc_Raw') { st.rateSrc = ''; $('pc_RMRate').value = ''; $('pc_RateSrc').textContent = ''; recalc(); }
+  });
+  root.addEventListener('click', function (e) {
+    const el = e.target;
+    if (el.id === 'pc_RMRate') { openRatePopup(); return; }
+    const b = el.closest('button'); if (!b) return;
+    if (b.hasAttribute('data-bpadd')) { st.bp.push({ name: '', qty: '', rate: '' }); renderBP(); recalc(); const q = root.querySelector(`[data-bp="${st.bp.length - 1}"][data-f="name"]`); if (q) q.focus(); }
+    else if (b.hasAttribute('data-bpdel')) { st.bp.splice(Number(b.getAttribute('data-bpdel')), 1); renderBP(); recalc(); }
+    else if (b.hasAttribute('data-fgadd')) { st.fg.push({ itemId: '', kg: '', pcs: '', rateKg: '', ratePc: '', driver: 'kg', auto: true }); renderFG(); recalc(); const q = root.querySelector(`[data-fg="${st.fg.length - 1}"][data-f="itemId"]`); if (q) q.focus(); }
+    else if (b.hasAttribute('data-fgdel')) { st.fg.splice(Number(b.getAttribute('data-fgdel')), 1); renderFG(); recalc(); }
+  });
+  $('pc_RMRate').addEventListener('keydown', function (e) { if (e.key === 'F2' || (e.key === 'Enter' && !this.value)) { e.preventDefault(); openRatePopup(); } });
+  $('pc_RecLoad').addEventListener('click', loadRec);
+  $('pc_RecPost').addEventListener('click', postSelected);
+  $('pc_Save').addEventListener('click', save);
+  $('pc_Cancel').addEventListener('click', function () { if (confirm(st.editId ? t('এডিট বাতিল করে নতুন ভাউচারে ফিরবেন? (সেভ করা ভাউচার যেমন ছিল থাকবে)', 'Cancel editing? (the saved voucher stays as it was)') : t('ভাউচারের সব লেখা মুছে নতুন করে শুরু করবেন?', 'Clear the voucher and start again?'))) resetVoucher(); });
+  $('pc_ListLoad').addEventListener('click', loadList);
+  $('pc_ListWrap').addEventListener('click', function (e) { const b = e.target.closest('[data-lact]'); if (b && !b.disabled) listAction(b.getAttribute('data-lact'), b.getAttribute('data-lid')); });
+  wireSequentialKeyNav($('pc_Voucher'));
+  renderBP(); renderFG(); recalc();
+  const pre = window.__pcPreselect; window.__pcPreselect = null;
+  if (pre && pre.ids && pre.ids.length) { $('pc_RecFrom').value = pre.from; $('pc_RecTo').value = pre.to; }
+  await loadRec();
+  await loadList();
+  if (pre && pre.ids && pre.ids.length) {   // দৈনিক উৎপাদনের "⚙️ প্রসেসিং ভাউচার তৈরী" থেকে আসা — লাইনগুলো টিক দিয়ে ভাউচারে বসানো
+    document.querySelectorAll('[data-rec]').forEach(function (c) { c.checked = pre.ids.map(String).indexOf(c.getAttribute('data-rec')) !== -1; });
+    await postSelected();
+  }
 }
 
 async function renderProcessingPage(content) {
@@ -7128,8 +7684,8 @@ function collectProcessingForm() {
 
 /** প্রসেসিং ভাউচারের A5 প্রিন্ট — ক্রয়/বিক্রয় ভাউচারের একই হেডার ডিজাইন।
  *  autoPrint=true হলে খোলার সাথে সাথে প্রিন্ট ডায়ালগ আসে। লাভ শুধু স্ক্রিনে, প্রিন্টে আসে না। */
-async function openProcessingPrintView(docId, autoPrint) {
-  const d = collectProcessingForm();
+async function openProcessingPrintView(docId, autoPrint, dIn) {
+  const d = dIn || collectProcessingForm();   // dIn: সেভ করা ভাউচারের তথ্য (প্রসেসিং কষ্টিং-এর তালিকা থেকে)
   const h = d.header;
   // পপ-আপ ব্লক এড়াতে ক্লিকের সাথে সাথেই উইন্ডো খোলা হচ্ছে
   const win = window.open('', '_blank');
@@ -7243,14 +7799,15 @@ async function openProcessingPrintView(docId, autoPrint) {
 }
 
 /** প্রসেসিং ভাউচারের সারাংশ শেয়ার — মোবাইলে শেয়ার শিট, ডেস্কটপে ক্লিপবোর্ডে কপি */
-async function shareProcessingVoucher(docId) {
-  const h = collectProcessingForm().header;
+async function shareProcessingVoucher(docId, dIn) {
+  const dd = dIn || collectProcessingForm();
+  const h = dd.header;
   const itemMap = window.__procItemMap || {};
   const nm = function (id) { return (itemMap[id] && itemMap[id].ItemName) || id || '—'; };
   const text = 'প্রসেসিং ভাউচার' + (docId ? ' ' + docId : ' (খসড়া)') + '\n' +
     'তারিখ: ' + formatShortDate(h.Date) + '\n' +
     'কাঁচামাল: ' + nm(h.RawMaterialItemID) + ' — ' + h.RawMaterialQty + ' কেজি @ ' + h.RawMaterialRate.toFixed(2) + '\n' +
-    'প্রস্তুত পণ্য:\n' + collectProcessingForm().fgLines.map(function (l) { return '  • ' + nm(l.itemId) + ' — ' + (l.kg ? l.kg.toFixed(3) + ' কেজি' : '') + (l.kg && l.pcs ? ', ' : '') + (l.pcs ? l.pcs + ' পিস' : '') + ' = ' + l.value.toFixed(2); }).join('\n') + '\n' +
+    'প্রস্তুত পণ্য:\n' + dd.fgLines.map(function (l) { return '  • ' + nm(l.itemId) + ' — ' + (l.kg ? l.kg.toFixed(3) + ' কেজি' : '') + (l.kg && l.pcs ? ', ' : '') + (l.pcs ? l.pcs + ' পিস' : '') + ' = ' + l.value.toFixed(2); }).join('\n') + '\n' +
     'মোট: ' + h.NetWeight.toFixed(3) + ' কেজি, ' + h.Pieces + ' পিস | প্রতি কেজি দর: ' + h.RatePerKg.toFixed(2) + '\n' +
     'নেট মূল্য: ' + h.NetValue.toFixed(2);
   if (navigator.share) {
@@ -10334,7 +10891,84 @@ async function renderBackupRestorePage(content) {
    ============================================================ */
 let modalOnSaveHandler = null;
 
+/* ===== উইন্ডো ব্যবস্থাপক: প্রতিটা উইন্ডোতে − (মিনিমাইজ) ▢ (ম্যাক্সিমাইজ) ✕ (বন্ধ) =====
+   • মিনিমাইজ করলে উইন্ডোর লেখা/ঘর যেমন ছিল তেমনই নিচের টাস্কবারে জমা থাকে (DOM সরিয়ে রাখা হয়, মোছা হয় না)
+   • খোলা উইন্ডো থাকা অবস্থায় নতুন উইন্ডো খুললে আগেরটা নিজে মিনিমাইজ হয়
+   • পিছনের ফাঁকা জায়গায় ক্লিক করলে বন্ধ নয় — মিনিমাইজ হয় (ভুল ক্লিকে লেখা হারাবে না) */
+let modalWindows = [], modalSeq = 0, modalCurrentTitle = '', modalCurrentKey = '', modalPendingKey = '';
+function modalIsOpen() { return document.getElementById('modalOverlay').classList.contains('show'); }
+function setModalMax(on) {
+  document.getElementById('modalBox').classList.toggle('modal-max', !!on);
+  document.getElementById('modalOverlay').classList.toggle('has-max', !!on);
+  const b = document.getElementById('modalMaxBtn'); if (b) { b.textContent = on ? '❐' : '▢'; b.title = on ? 'আগের মাপ' : 'ম্যাক্সিমাইজ'; }
+}
+function minimizeModal() {
+  if (!modalIsOpen()) return;
+  const body = document.getElementById('modalBody'), acts = document.getElementById('modalHeaderActions');
+  const holder = document.createElement('div'), actHolder = document.createElement('div');
+  while (body.firstChild) holder.appendChild(body.firstChild);
+  while (acts.firstChild) actHolder.appendChild(acts.firstChild);
+  const err = document.getElementById('modalError');
+  modalWindows.push({
+    id: ++modalSeq, key: modalCurrentKey, title: modalCurrentTitle || document.getElementById('modalTitle').textContent,
+    holder: holder, actHolder: actHolder, actShow: acts.style.display, onSave: modalOnSaveHandler,
+    wide: document.getElementById('modalBox').classList.contains('modal-wide'),
+    max: document.getElementById('modalBox').classList.contains('modal-max'),
+    hideSave: document.getElementById('modalSaveBtn').style.display === 'none',
+    errText: err.textContent, errShow: err.classList.contains('show'), scroll: body.scrollTop
+  });
+  document.getElementById('modalOverlay').classList.remove('show');
+  acts.style.display = 'none'; modalOnSaveHandler = null; setModalMax(false);
+  renderModalTaskbar();
+}
+function restoreModal(id) {
+  const w = modalWindows.find(function (x) { return x.id === id; }); if (!w) return;
+  if (modalIsOpen()) minimizeModal();
+  modalWindows = modalWindows.filter(function (x) { return x.id !== id; });
+  const body = document.getElementById('modalBody'), acts = document.getElementById('modalHeaderActions');
+  body.innerHTML = ''; acts.innerHTML = '';
+  while (w.holder.firstChild) body.appendChild(w.holder.firstChild);
+  while (w.actHolder.firstChild) acts.appendChild(w.actHolder.firstChild);
+  acts.style.display = w.actShow || (acts.children.length ? 'flex' : 'none');
+  document.getElementById('modalTitle').textContent = w.title; modalCurrentTitle = w.title; modalCurrentKey = w.key || '';
+  document.getElementById('modalBox').classList.toggle('modal-wide', !!w.wide);
+  setModalMax(w.max);
+  document.getElementById('modalSaveBtn').style.display = w.hideSave ? 'none' : '';
+  const err = document.getElementById('modalError'); err.textContent = w.errText || ''; err.classList.toggle('show', !!w.errShow);
+  modalOnSaveHandler = w.onSave;
+  document.getElementById('modalOverlay').classList.add('show');
+  body.scrollTop = w.scroll || 0;
+  renderModalTaskbar();
+}
+function discardModalWindow(id) {
+  if (!confirm('এই উইন্ডোটা বন্ধ করবেন? সেভ না করা লেখা হারিয়ে যাবে।')) return;
+  modalWindows = modalWindows.filter(function (x) { return x.id !== id; });
+  renderModalTaskbar();
+}
+// একই ধরনের ফর্ম (যেমন ক্রয় ভাউচার) একসাথে দুটো নয় — নিচে মিনিমাইজ করা থাকলে সেটাই ফেরত আসে (ফর্মগুলোর কিছু তথ্য এক জায়গায় থাকে)
+function singleWindowForm(fnName) {
+  const orig = window[fnName]; if (typeof orig !== 'function' || orig.__single) return;
+  const wrapped = async function () {
+    const w = modalWindows.find(function (x) { return x.key === fnName; });
+    if (w) { restoreModal(w.id); showToast('এই ধরনের একটা উইন্ডো নিচে মিনিমাইজ করা ছিল — সেটাই খোলা হলো। নতুনটা খুলতে আগে এটা সেভ বা বন্ধ করুন।', 'error'); return; }
+    if (modalIsOpen() && modalCurrentKey === fnName) closeModal();   // একই ধরনের খোলা ফর্ম আগের মতোই বদলে যায় (তথ্য গুলিয়ে না যায়)
+    modalPendingKey = fnName;
+    try { return await orig.apply(this, arguments); } finally { modalPendingKey = ''; }
+  };
+  wrapped.__single = true;
+  window[fnName] = wrapped;
+}
+function renderModalTaskbar() {
+  const bar = document.getElementById('modalTaskbar'); if (!bar) return;
+  bar.innerHTML = modalWindows.map(function (w) {
+    return `<div class="mtb-chip" data-mtb="${w.id}" title="${attr('খুলুন: ' + w.title)}"><span>🗖 ${escapeHtml(w.title)}</span><button type="button" data-mtbx="${w.id}" title="বন্ধ">✕</button></div>`;
+  }).join('');
+}
+
 function openModal(opts) {
+  if (modalIsOpen()) minimizeModal();   // খোলা উইন্ডো হারাবে না — নিচের টাস্কবারে যাবে
+  setModalMax(!!opts.maximized);
+  modalCurrentTitle = opts.title; modalCurrentKey = opts.winKey || modalPendingKey || ''; modalPendingKey = '';
   document.getElementById('modalTitle').textContent = opts.title;
   document.getElementById('modalBody').innerHTML = opts.bodyHtml;
   document.getElementById('modalError').classList.remove('show');
@@ -10352,6 +10986,7 @@ function openModal(opts) {
 }
 
 function closeModal() {
+  setModalMax(false);
   document.getElementById('modalOverlay').classList.remove('show');
   document.getElementById('modalBody').innerHTML = '';
   const actWrap = document.getElementById('modalHeaderActions');
@@ -10362,7 +10997,15 @@ function closeModal() {
 
 document.getElementById('modalCloseBtn').addEventListener('click', closeModal);
 document.getElementById('modalCancelBtn').addEventListener('click', closeModal);
-document.getElementById('modalOverlay').addEventListener('click', function (e) { if (e.target === this) closeModal(); });
+document.getElementById('modalOverlay').addEventListener('click', function (e) { if (e.target === this) minimizeModal(); });   // ভুল ক্লিকে লেখা হারাবে না
+document.getElementById('modalMinBtn').addEventListener('click', minimizeModal);
+['openDocumentForm','openItemForm','openLeaveForm','openPartyForm','openProcessingForm','openProductionOrderForm','openPurchaseVoucherForm','openSalesVoucherForm','openSimpleVoucherForm'].forEach(singleWindowForm);
+document.getElementById('modalMaxBtn').addEventListener('click', function () { setModalMax(!document.getElementById('modalBox').classList.contains('modal-max')); });
+document.querySelector('#modalBox .modal-head').addEventListener('dblclick', function (e) { if (e.target.closest('button,select,input')) return; setModalMax(!document.getElementById('modalBox').classList.contains('modal-max')); });
+document.getElementById('modalTaskbar').addEventListener('click', function (e) {
+  const x = e.target.closest('[data-mtbx]'); if (x) { e.stopPropagation(); discardModalWindow(Number(x.getAttribute('data-mtbx'))); return; }
+  const c = e.target.closest('[data-mtb]'); if (c) restoreModal(Number(c.getAttribute('data-mtb')));
+});
 
 document.getElementById('modalSaveBtn').addEventListener('click', async function () {
   if (!modalOnSaveHandler) return;
