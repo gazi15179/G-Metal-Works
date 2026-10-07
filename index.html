@@ -5900,6 +5900,18 @@ async function renderProdDailyPage(content) {
       .pdl-team .rt{font-size:10.5px;color:var(--text-muted);white-space:nowrap;}
       .pdl-team .setrate{font-size:10.5px;border:1px dashed #d97706;color:#b45309;background:#fff8eb;border-radius:5px;padding:1px 5px;cursor:pointer;white-space:nowrap;}
       .pdl-team .ttot{min-width:120px;text-align:right;font-weight:700;}
+      .pdl-team .sl .slc{display:none;font-size:10px;font-weight:400;color:var(--text-muted);line-height:1.2;}
+      .pdl-nofreeze .pdl-tbl .sl,.pdl-nofreeze .pdl-team .fgi,.pdl-nofreeze .pdl-team .cir{position:static !important;}
+      .pdl-nofreeze .pdl-team .sl .slc{display:block;}
+      @media (max-width: 768px) {
+        /* মোবাইলে শুধু ক্রঃ স্থির — তৈরী আইটেম ও সার্কেল বাকিদের সাথে স্ক্রল করে; ক্রঃ এর নিচে সার্কেলের কেজি */
+        .pdl-team .fgi,.pdl-team .cir{position:static !important;}
+        .pdl-team .fgi{width:auto;min-width:118px;max-width:150px;font-size:11px;}
+        .pdl-tbl .sl{width:36px;min-width:36px;padding:3px 2px;}
+        .pdl-team .sl .slc{display:block;}
+        .pdl-scroll{max-height:74vh;}
+        .pdl-views .pdl-vbtn{font-size:12px;padding:4px 8px;}
+      }
     </style>
     <div class="page-head"><div><h1>${t('দৈনিক উৎপাদন','Daily Production')}</h1>
       <p>${t('সার্কেল থেকে প্রতিদিন কী তৈরি হলো — এই তালিকা দিয়েই প্রসেসিং ভাউচার তৈরি হয়','What was made from the circle each day — processing vouchers are built from this list')}</p></div></div>
@@ -5914,6 +5926,7 @@ async function renderProdDailyPage(content) {
         <button type="button" class="btn" id="pdlAdd" style="width:auto;">＋ ${t('লাইন যোগ','Add line')}</button>
         <button type="button" class="btn btn-primary" id="pdlSaveAll" style="width:auto;">💾 ${t('সেভ','Save')}</button>
         <button type="button" class="btn" id="pdlMakeProc" style="width:auto;" title="${attr(t('এই তারিখগুলোর দৈনিক উৎপাদন, মজুরি ও খরচ দিয়ে প্রসেসিং ভাউচার','Processing voucher from these dates’ production, wages and costs'))}">⚙️ ${t('প্রসেসিং ভাউচার তৈরী','Create processing voucher')}</button>
+        <button type="button" class="btn" id="pdlFreeze" style="width:auto;" title="${attr(t('বাঁয়ের কলাম (ক্রঃ, তৈরী আইটেম, সার্কেল) স্ক্রল করলেও স্থির থাকবে কিনা','Keep the left columns fixed while scrolling'))}">📌 ${t('ফ্রিজ','Freeze')}</button>
         <button type="button" class="btn" id="pdlGoSalary" style="width:auto;" title="${attr(t('২য় অংশের মজুরি সেলারী ভাউচারে নিজে আসে','Wages from part 2 come into the salary voucher automatically'))}">💵 ${t('সেলারী ভাউচার','Salary voucher')}</button>
       </div>
       <div class="pdl-sum" id="pdlSum"></div>
@@ -6056,7 +6069,7 @@ async function renderProdDailyPage(content) {
     const tag = !L.id ? `<span class="pdl-tag" style="background:#fdecea;color:#b42318;" title="${attr(t('১ম অংশে (দৈনিক উৎপাদন) লাইনটা আগে সেভ করুন', 'Save this line in part 1 first'))}">${t('আগে সেভ', 'save first')}</span>`
       : T.locked ? `<span class="pdl-tag" title="${attr(t('এই লাইনের মজুরি সেলারী ভাউচারে উঠে গেছে — বদলানো যায় না', 'Already in a salary voucher — locked'))}">${t('বেতনে উঠেছে', 'in salary')}</span>` : '';
     return `<tr data-tk="${L.key}" class="${T.dirty ? 'dirty' : T.tpId ? 'saved' : ''}">
-      <td class="sl">${L.serial}</td><td class="fgi">${fgiHtml(L)}</td><td class="cir"><b>${show(L.v.raw) || 0}</b></td>
+      <td class="sl">${L.serial}<span class="slc">${show(L.v.raw) || ''}</span></td><td class="fgi">${fgiHtml(L)}</td><td class="cir"><b>${show(L.v.raw) || 0}</b></td>
       ${roles.map(function (ro) { return wageCell(L, ro); }).join('')}${croles.map(function (ro) { return costCell(L, ro); }).join('')}${totCell(L)}
       <td style="white-space:nowrap;"><button type="button" class="pdl-ico" data-tact="save" data-tk="${L.key}" title="${attr(t('সেভ', 'Save'))}" ${T.dirty ? '' : 'disabled'}>💾</button>${tag}</td></tr>`;
   }
@@ -6377,6 +6390,12 @@ async function renderProdDailyPage(content) {
   $('pdlAdd').addEventListener('click', addLine);
   $('pdlSaveAll').addEventListener('click', function () { if (st.view === 'team') saveTeam(null); else saveLines(st.lines); });
   $('pdlMakeProc').addEventListener('click', makeProcessing);
+  // 📌 ফ্রিজ চালু/বন্ধ — পছন্দ এই ব্রাউজারে মনে থাকে
+  const panel = $('pdlWrap').parentElement;
+  const applyFreeze = function (on) { panel.classList.toggle('pdl-nofreeze', !on); $('pdlFreeze').innerHTML = (on ? '📌 ' : '📍 ') + t(on ? 'ফ্রিজ: চালু' : 'ফ্রিজ: বন্ধ', on ? 'Freeze: on' : 'Freeze: off'); };
+  let freezeOn = true; try { freezeOn = localStorage.getItem('gmw.pdlFreeze') !== 'off'; } catch (e) {}
+  applyFreeze(freezeOn);
+  $('pdlFreeze').addEventListener('click', function () { freezeOn = !freezeOn; applyFreeze(freezeOn); try { localStorage.setItem('gmw.pdlFreeze', freezeOn ? 'on' : 'off'); } catch (e) {} });
   $('pdlGoSalary').addEventListener('click', function () { navigateTo('payroll', t('এইচআর ও পে-রোল', 'HR & Payroll'), t('সেলারী ভাউচার', 'Salary Voucher')); });
   const helpDP = $('pdlHelp').innerHTML;
   const helpTeam = t('২য় অংশঃ প্রতিটা লাইনে (ক্রঃ) কাজ অনুযায়ী কর্মচারী বাছাই করুন — টাকা নিজে বসে = সার্কেলের কেজি × "সাইজ অনুযায়ী মজুরি দর" (দর = প্রতি কেজি সার্কেল; কয়েক সাইজ হলে সার্কেল ভাগ হয় যে যে তৈরী পণ্য হলো তাদের ওজনের অনুপাতে — "তৈরী আইটেম" কলামে প্রতিটার ভাগ দেখায়; ঘরে মাউস রাখলে হিসাব); চাইলে হাতে বদলান (কমলা = হাতে লেখা), খালি করলে আবার হিসাবের টাকা। খরচের খাতও একইভাবে। সেভ করলে মজুরি সেলারী ভাউচারে, আর মজুরি + খরচ প্রসেসিং ভাউচারের "মজুরি ও খরচ আনুন"-এ নিজে যায়। "⚙️ প্রসেসিং ভাউচার তৈরী" চাপলে এই তারিখগুলোর সব কিছু বসিয়ে ভাউচার খোলে — শুধু কাঁচামাল আইটেম, গুদাম ও দর দেখে সেভ করুন।', 'Part 2: pick the worker for each job on each line — the amount fills itself = circle kg × the size rate (rate per kg of circle; with several sizes the circle is shared by the finished weight of each — shown in the items column; hover for the calculation); type over if needed (orange), clear to go back. Same for cost heads. Saved wages go to the salary voucher, wages + costs to the processing voucher. "⚙️ Create processing voucher" opens a voucher with everything for these dates filled in.');
