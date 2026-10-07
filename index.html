@@ -5892,8 +5892,13 @@ async function renderProdDailyPage(content) {
       .pdl-team td.tw select{min-width:112px;max-width:136px;height:26px;font-size:11.5px;}
       .pdl-team .tamt{margin-top:3px;} .pdl-team .tamt input,.pdl-team td.cst input{width:74px;}
       .pdl-team th.cst{background:#fff4e5;color:#9a5b00;}
-      .pdl-team .cir{position:sticky;left:40px;z-index:2;min-width:96px;max-width:150px;text-align:right;white-space:normal;}
-      .pdl-team thead .cir,.pdl-team tfoot .cir{z-index:5;}
+      .pdl-team .fgi{position:sticky;left:40px;z-index:2;width:132px;min-width:132px;max-width:132px;box-sizing:border-box;text-align:left;white-space:normal;line-height:1.35;font-size:11.5px;}
+      .pdl-team .fgi small{color:var(--text-muted);}
+      .pdl-team .cir{position:sticky;left:172px;z-index:2;width:72px;min-width:72px;max-width:72px;box-sizing:border-box;text-align:right;}
+      .pdl-team thead .fgi,.pdl-team tfoot .fgi,.pdl-team thead .cir,.pdl-team tfoot .cir{z-index:5;}
+      .pdl-team .tamt{display:flex;align-items:center;justify-content:flex-end;gap:3px;min-height:26px;}
+      .pdl-team .rt{font-size:10.5px;color:var(--text-muted);white-space:nowrap;}
+      .pdl-team .setrate{font-size:10.5px;border:1px dashed #d97706;color:#b45309;background:#fff8eb;border-radius:5px;padding:1px 5px;cursor:pointer;white-space:nowrap;}
       .pdl-team .ttot{min-width:120px;text-align:right;font-weight:700;}
     </style>
     <div class="page-head"><div><h1>${t('দৈনিক উৎপাদন','Daily Production')}</h1>
@@ -6001,7 +6006,7 @@ async function renderProdDailyPage(content) {
 
   // ============ ২য় অংশঃ দৈনিক উৎপাদন ও দল — প্রতিটা লাইনের (ক্রঃ) কর্মচারী, মজুরি ও খরচ ============
   // ঘরের টাকা নিজে = লাইনের তিন আইটেমের মোট ওজন × "সাইজ অনুযায়ী মজুরি দর" (হাতে বদলানো যায়, কমলা = হাতে লেখা)
-  // সেভ হয় আগের মতোই TeamProduction-এ (DPLineID দিয়ে লাইনের সাথে যুক্ত) — তাই সেলারী ভাউচার ও প্রসেসিং ভাউচার নিজে থেকেই পায়
+  // সেভ হয় আগের মতোই TeamProduction-এ (DPLineID দিয়ে লাইনের সাথে যুক্ত); দর আসে "সাইজ অনুযায়ী মজুরি দর" পেজ থেকে, না থাকলে ঘরেই "দর নেই — দিন" — তাই সেলারী ভাউচার ও প্রসেসিং ভাউচার নিজে থেকেই পায়
   const roles = gp.laborRoles, croles = gp.costRoles;
   function team(L) { return st.team[L.key] = st.team[L.key] || { tpId: null, who: {}, amt: {}, camt: {}, locked: false, dirty: false }; }
   const ovOf = function (m, r) { return m[r] !== undefined && m[r] !== ''; };
@@ -6012,21 +6017,29 @@ async function renderProdDailyPage(content) {
   function lineWage(L) { const T = team(L); return roles.reduce(function (s, ro) { return s + (T.who[ro.RoleID] ? wageOf(L, ro.RoleID) : 0); }, 0); }
   function lineCost(L) { return croles.reduce(function (s, ro) { return s + costOf(L, ro.RoleID); }, 0); }
   function teamLocked(L) { return !L.id || team(L).locked; }
+  function fgiHtml(L) { const xs = L.it.filter(function (x) { return x.id; }); return xs.length ? xs.map(function (x) { return escapeHtml(itemName[x.id] || x.id) + (itemKg(x) ? ` <small>${show(itemKg(x))} ${t('কেজি', 'kg')}</small>` : ''); }).join('<br>') : '<small>—</small>'; }
   function itemNames(L) { return L.it.filter(function (x) { return x.id; }).map(function (x) { return itemName[x.id] || x.id; }).join(' / '); }
   function empOpts(date, sel) {
     const pres = st.present[date] || {};
     const list = base.emps.slice().sort(function (a, b) { return (pres[b.EmployeeID] ? 1 : 0) - (pres[a.EmployeeID] ? 1 : 0) || String(a.Name).localeCompare(String(b.Name)); });
     return '<option value="">—</option>' + list.map(function (e) { return `<option value="${attr(e.EmployeeID)}" ${e.EmployeeID === sel ? 'selected' : ''}>${escapeHtml(e.Name)}${pres[e.EmployeeID] ? ' ✓' : ''}</option>`; }).join('');
   }
+  function missingRate(L, r) { return L.it.filter(function (x) { return x.id && itemKg(x) > 0 && !gp.rateOf(x.id, r); }); }
+  function rateLabel(L, r) {   // "সাইজ অনুযায়ী মজুরি দর" পেজের দর — লাইনে কয়েক সাইজ থাকলে কেজি অনুযায়ী গড়
+    const kg = L.it.reduce(function (s, x) { return s + (x.id ? itemKg(x) : 0); }, 0);
+    if (!(kg > 0)) return '';
+    if (missingRate(L, r).length) return `<button type="button" class="setrate" data-tsetrate="${attr(L.key + '|' + r)}" title="${attr(t('যে সাইজের দর নেই, সেটার দর এখানেই দিন — "সাইজ অনুযায়ী মজুরি দর" পেজেও বসে যাবে', 'Set the missing size rate here — it is saved to the size rate page too'))}" ${teamLocked(L) ? 'disabled' : ''}>${t('দর নেই — দিন', 'No rate — set')}</button>`;
+    return `<span class="rt">${t('দর ', 'rate ')}${hrMoney(calcAmt(L, r) / kg)} =</span>`;
+  }
   function tipOf(L, r) { const b = breakdown(L, r), c = calcAmt(L, r); return b && c ? t('হিসাবঃ ', 'Calc: ') + b + ' = ' + hrMoney(c) + t(' — নিজে লিখে বদলানো যায়', ' — type to override') : t('দর নেই — টাকা নিজে লিখুন', 'No rate — type the amount'); }
   function wageCell(L, ro) {
     const T = team(L), r = ro.RoleID, dis = teamLocked(L) ? 'disabled' : '', who = T.who[r] || '', ov = ovOf(T.amt, r), c = calcAmt(L, r);
     const amt = who ? `<input type="number" step="any" min="0" inputmode="decimal" data-tk="${L.key}" data-tamt="${r}" class="${ov ? 'ov' : ''}" value="${attr(ov ? T.amt[r] : (c ? c.toFixed(2) : ''))}" placeholder="${t('টাকা', 'Amt')}" title="${attr(tipOf(L, r))}" ${dis}>` : '';
-    return `<td class="tw"><select data-tk="${L.key}" data-trole="${r}" ${dis}>${empOpts(L.date, who)}</select><div class="tamt">${amt}</div></td>`;
+    return `<td class="tw"><select data-tk="${L.key}" data-trole="${r}" ${dis}>${empOpts(L.date, who)}</select><div class="tamt">${rateLabel(L, r)}${amt}</div></td>`;
   }
   function costCell(L, ro) {
     const T = team(L), r = ro.RoleID, dis = teamLocked(L) ? 'disabled' : '', ov = ovOf(T.camt, r), c = calcAmt(L, r);
-    return `<td class="cst"><input type="number" step="any" min="0" inputmode="decimal" data-tk="${L.key}" data-tcamt="${r}" class="${ov ? 'ov' : ''}" value="${attr(ov ? T.camt[r] : (c ? c.toFixed(2) : ''))}" placeholder="${t('টাকা', 'Amt')}" title="${attr(tipOf(L, r))}" ${dis}></td>`;
+    return `<td class="cst"><div class="tamt">${rateLabel(L, r)}<input type="number" step="any" min="0" inputmode="decimal" data-tk="${L.key}" data-tcamt="${r}" class="${ov ? 'ov' : ''}" value="${attr(ov ? T.camt[r] : (c ? c.toFixed(2) : ''))}" placeholder="${t('টাকা', 'Amt')}" title="${attr(tipOf(L, r))}" ${dis}></div></td>`;
   }
   function totCell(L) { const w = lineWage(L), c = lineCost(L); return `<td class="ttot" data-ttot="${L.key}">${hrMoney(w + c)}<div class="u">${t('মজুরি ', 'wages ')}${hrMoney(w)} · ${t('খরচ ', 'costs ')}${hrMoney(c)}</div></td>`; }
   function teamRowHtml(L) {
@@ -6034,7 +6047,7 @@ async function renderProdDailyPage(content) {
     const tag = !L.id ? `<span class="pdl-tag" style="background:#fdecea;color:#b42318;" title="${attr(t('১ম অংশে (দৈনিক উৎপাদন) লাইনটা আগে সেভ করুন', 'Save this line in part 1 first'))}">${t('আগে সেভ', 'save first')}</span>`
       : T.locked ? `<span class="pdl-tag" title="${attr(t('এই লাইনের মজুরি সেলারী ভাউচারে উঠে গেছে — বদলানো যায় না', 'Already in a salary voucher — locked'))}">${t('বেতনে উঠেছে', 'in salary')}</span>` : '';
     return `<tr data-tk="${L.key}" class="${T.dirty ? 'dirty' : T.tpId ? 'saved' : ''}">
-      <td class="sl">${L.serial}</td><td class="cir"><b>${show(L.v.raw) || 0}</b><div class="u">${escapeHtml(itemNames(L))}</div></td>
+      <td class="sl">${L.serial}</td><td class="fgi">${fgiHtml(L)}</td><td class="cir"><b>${show(L.v.raw) || 0}</b></td>
       ${roles.map(function (ro) { return wageCell(L, ro); }).join('')}${croles.map(function (ro) { return costCell(L, ro); }).join('')}${totCell(L)}
       <td style="white-space:nowrap;"><button type="button" class="pdl-ico" data-tact="save" data-tk="${L.key}" title="${attr(t('সেভ', 'Save'))}" ${T.dirty ? '' : 'disabled'}>💾</button>${tag}</td></tr>`;
   }
@@ -6042,7 +6055,7 @@ async function renderProdDailyPage(content) {
     const w = function (r) { return list.reduce(function (s, L) { return s + (team(L).who[r] ? wageOf(L, r) : 0); }, 0); };
     const c = function (r) { return list.reduce(function (s, L) { return s + costOf(L, r); }, 0); };
     const tw = list.reduce(function (s, L) { return s + lineWage(L); }, 0), tc = list.reduce(function (s, L) { return s + lineCost(L); }, 0);
-    return `<td class="cir">${show(list.reduce(function (s, L) { return s + n(L.v.raw); }, 0)) || 0}</td>${roles.map(function (ro) { return `<td>${hrMoney(w(ro.RoleID))}</td>`; }).join('')}${croles.map(function (ro) { return `<td class="cst">${hrMoney(c(ro.RoleID))}</td>`; }).join('')}<td class="ttot">${hrMoney(tw + tc)}<div class="u">${t('মজুরি ', 'wages ')}${hrMoney(tw)} · ${t('খরচ ', 'costs ')}${hrMoney(tc)}</div></td><td></td>`;
+    return `<td class="fgi"></td><td class="cir">${show(list.reduce(function (s, L) { return s + n(L.v.raw); }, 0)) || 0}</td>${roles.map(function (ro) { return `<td>${hrMoney(w(ro.RoleID))}</td>`; }).join('')}${croles.map(function (ro) { return `<td class="cst">${hrMoney(c(ro.RoleID))}</td>`; }).join('')}<td class="ttot">${hrMoney(tw + tc)}<div class="u">${t('মজুরি ', 'wages ')}${hrMoney(tw)} · ${t('খরচ ', 'costs ')}${hrMoney(tc)}</div></td><td></td>`;
   }
   function renderTeamSum() {
     const all = st.lines, tw = all.reduce(function (s, L) { return s + lineWage(L); }, 0), tc = all.reduce(function (s, L) { return s + lineCost(L); }, 0);
@@ -6052,18 +6065,18 @@ async function renderProdDailyPage(content) {
     const foot = $('pdlFoot'); if (foot) foot.innerHTML = `<tr><td class="sl">${t('মোট', 'Total')}</td>${teamSumCells(st.lines)}</tr>`;
   }
   function renderTeam() {
-    const cols = 4 + roles.length + croles.length;
+    const cols = 5 + roles.length + croles.length;
     if (st.teamErr) { $('pdlWrap').innerHTML = `<div class="empty-state">${escapeHtml(st.teamErr)}<br>${t('(Supabase-এ 27_team_production_dp_link.sql রান করা আছে কিনা দেখুন)', '(check that 27_team_production_dp_link.sql has been run)')}</div>`; renderTeamSum(); return; }
     const list = sorted(), dates = Array.from(new Set(list.map(function (L) { return L.date; }))), multi = dates.length > 1 || st.from !== st.to;
     let body = '';
     dates.forEach(function (d) {
       const ls = list.filter(function (L) { return L.date === d; });
-      if (multi) body += `<tr class="grp"><td class="sl"></td><td class="cir" style="text-align:left;">${escapeHtml(dayLabel(d))}</td><td colspan="${cols - 2}"></td></tr>`;
+      if (multi) body += `<tr class="grp"><td class="sl"></td><td class="fgi">${escapeHtml(dayLabel(d))}</td><td class="cir"></td><td colspan="${cols - 3}"></td></tr>`;
       body += ls.map(teamRowHtml).join('');
       if (multi) body += `<tr class="sub"><td class="sl">${t('দিনের মোট', 'Day')}</td>${teamSumCells(ls)}</tr>`;
     });
     if (!list.length) body = `<tr><td class="sl"></td><td colspan="${cols - 1}"><div class="empty-state" style="padding:16px;">${t('এই তারিখে কোনো লাইন নেই — ১ম অংশে (দৈনিক উৎপাদন) লাইন যোগ করুন।', 'No lines — add lines in part 1 (daily production).')}</div></td></tr>`;
-    $('pdlWrap').innerHTML = `<table class="pdl-tbl pdl-team"><thead><tr class="h1"><th class="sl">${t('ক্রঃ', 'No.')}</th><th class="cir">${t('সার্কেল', 'Circle')}<span class="u">${t('(কেজি)', '(kg)')}</span></th>
+    $('pdlWrap').innerHTML = `<table class="pdl-tbl pdl-team"><thead><tr class="h1"><th class="sl">${t('ক্রঃ', 'No.')}</th><th class="fgi">${t('তৈরী আইটেম', 'Finished items')}</th><th class="cir">${t('সার্কেল', 'Circle')}<span class="u">${t('(কেজি)', '(kg)')}</span></th>
         ${roles.map(function (ro) { return `<th>${escapeHtml(ro.RoleName)}</th>`; }).join('')}${croles.map(function (ro) { return `<th class="cst" title="${attr(t('খরচের খাত — প্রসেসিং ভাউচারে যায়', 'Cost head — goes to processing'))}">${escapeHtml(ro.RoleName)}</th>`; }).join('')}
         <th>${t('মোট', 'Total')}<span class="u">${t('(মজুরি + খরচ)', '(wages + costs)')}</span></th><th></th></tr></thead><tbody>${body}</tbody><tfoot id="pdlFoot"></tfoot></table>`;
     renderTeamSum();
@@ -6293,6 +6306,25 @@ async function renderProdDailyPage(content) {
     if (el.hasAttribute('data-ik') && el.value === '') { const L = byKey(el.getAttribute('data-k')); if (L) { const x = L.it[Number(el.getAttribute('data-ik'))]; x.kOv = false; el.value = show(itemKg(x)); const tr = el.closest('tr'), eqc = tr.querySelector('[data-eq]'); if (eqc) eqc.outerHTML = eqCell(L); renderSum(); } }
   });
   wrap.addEventListener('click', async function (e) {
+    const sr = e.target.closest('[data-tsetrate]');
+    if (sr) {
+      if (sr.disabled) return;
+      const p = sr.getAttribute('data-tsetrate').split('|'), L = byKey(p[0]), r = p[1]; if (!L) return;
+      for (const x of missingRate(L, r)) {
+        const v = prompt((itemName[x.id] || x.id) + ' — ' + (gp.roleMap[r] || '') + t(' এর দর (প্রতি কেজি):', ' rate (per kg):'), '');
+        if (v === null) return;
+        const rate = Number(String(v).replace(/[০-৯]/g, function (dg) { return '০১২৩৪৫৬৭৮৯'.indexOf(dg); }));
+        if (!(rate > 0)) { showToast(t('সঠিক দর লিখুন।', 'Enter a valid rate.'), 'error'); return; }
+        const { error } = await supabaseClient.from('SizeRates').upsert({ ItemID: x.id, RoleID: r, Rate: rate }, { onConflict: 'ItemID,RoleID' });
+        if (error) { showToast(error.message, 'error'); return; }
+        gp.rate[x.id + '|' + r] = rate; listCache = {};
+      }
+      showToast(t('দর সেভ হয়েছে — "সাইজ অনুযায়ী মজুরি দর" পেজেও বসে গেছে ✅', 'Rate saved — also in the size rate page ✅'), 'success');
+      // এই দরের সব লাইনের হিসাব বদলাতে পারে — সেভ করা লাইনগুলো "সেভ হয়নি" ধরা হয়
+      st.lines.forEach(function (x) { if (x.id && team(x).tpId && !team(x).locked && x.it.some(function (y) { return y.id && itemKg(y) > 0; })) team(x).dirty = true; });
+      const sc = $('pdlWrap'), top = sc.scrollTop, left = sc.scrollLeft; renderTeam(); sc.scrollTop = top; sc.scrollLeft = left;
+      return;
+    }
     const tb = e.target.closest('[data-tact]');
     if (tb) { if (!tb.disabled) await saveTeam([tb.getAttribute('data-tk')]); return; }
     const b = e.target.closest('[data-act]'); if (!b || b.disabled) return;
