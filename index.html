@@ -4350,7 +4350,7 @@ async function renderDailyProductionPage(content) {
     try {
       const [att, heads] = await Promise.all([hrQueryRange('Attendance', 'Date', st.date, st.date), hrQueryRange('TeamProduction', 'WorkDate', st.date, st.date)]);
       st.present = {}; att.forEach(function (a) { if (HR_ATT_CODE[a.Status] === 'P') st.present[a.EmployeeID] = true; });
-      const own = heads.filter(function (h) { return !h.ProcessingID; });
+      const own = heads.filter(function (h) { return !h.ProcessingID && !h.DPLineID; });   // প্রোডাকশন → দৈনিক উৎপাদনের ২য় অংশের রেকর্ড এখানে নয়
       if (own.length) {
         const ids = own.map(function (h) { return h.TeamProdID; });
         const [{ data: its }, { data: mems }, costRes] = await Promise.all([
@@ -5818,16 +5818,19 @@ async function openLeaveForm(existing) {
      — যেমন একই হাঁড়ির তিন সাইজ রাইচ/তরকারী/ডিস্কো; প্রতিটা আইটেম লাইনে ড্রপডাউনে, কেজি ও পিসসহ
    • ক্রঃ অনুযায়ী প্রসেসিং ভাউচারে প্রস্তুত পণ্যের লাইন সাজানো হয় ("দৈনিক উৎপাদন থেকে আনুন")
    • প্রসেসিং ভাউচারে ব্যবহার হওয়া লাইন লক থাকে (একই লাইন দুবার ব্যবহার হয় না)
+   • দুই অংশ, উপরের 👁️ দিয়ে বদলায়ঃ ১ম অংশ দৈনিক উৎপাদন; ২য় অংশ দৈনিক উৎপাদন ও দল (ক্রঃ ও সার্কেলের পর শেপ … শেষ পর্যন্ত)
+     — ২য় অংশের মজুরি সেলারী ভাউচারে আর মজুরি+খরচ প্রসেসিং ভাউচারে নিজে যায়; এখান থেকেই প্রসেসিং ভাউচার তৈরী
    • শিরোনাম (ইউনিটসহ এক সারি), ক্রঃ কলাম আর নিচের মোট — স্ক্রল করলেও স্থির (ফ্রিজ); ঘরগুলো চিকন, তীর-চিহ্ন ছাড়া
    ============================================================ */
 async function renderProdDailyPage(content) {
+  const gp = await hrLoadGroups(), base = await hrLoadBase();   // ২য় অংশের জন্যঃ কাজের কলাম, দর, কর্মচারী
   const items = (await cachedList('Items')).filter(function (i) { return i.Status !== 'Deleted'; })
     .sort(function (a, b) { return String(a.ItemName).localeCompare(String(b.ItemName), 'bn'); });
   const itemName = {}; items.forEach(function (i) { itemName[i.ItemID] = i.ItemName; });
   const dayBn = ['রবি', 'সোম', 'মঙ্গল', 'বুধ', 'বৃহঃ', 'শুক্র', 'শনি'], dayEn = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const now = new Date();
   const todayIso = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
-  const st = { date: todayIso, from: todayIso, to: todayIso, lines: [], seq: 0 };
+  const st = { date: todayIso, from: todayIso, to: todayIso, lines: [], seq: 0, view: 'dp', team: {}, present: {}, teamErr: '' };
   const NUM = ['raw', 'cut', 'scrap', 'waste', 'fgk', 'fgp'];
   const COL = { raw: 'RawQty', cut: 'CuttingQty', scrap: 'ScrapQty', waste: 'WasteQty', fgk: 'FGQty', fgp: 'FGPcs' };
   const n = function (x) { return Number(x) || 0; };
@@ -5883,19 +5886,34 @@ async function renderProdDailyPage(content) {
       .pdl-tag{display:inline-block;font-size:10px;background:#e8eefc;color:#2f4fa8;border-radius:5px;padding:1px 5px;margin-left:2px;}
       .pdl-ico{border:1px solid var(--border);background:var(--surface);border-radius:6px;padding:2px 5px;font-size:12px;cursor:pointer;margin:0 1px;line-height:1.2;}
       .pdl-ico:disabled{opacity:.35;cursor:default;}
+      .pdl-views{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+      .pdl-vbtn{border:1px solid var(--border);background:var(--surface);border-radius:8px;padding:4px 10px;font-size:12.5px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;}
+      .pdl-vbtn.on{background:var(--text);color:#fff;border-color:var(--text);}
+      .pdl-team td.tw select{min-width:112px;max-width:136px;height:26px;font-size:11.5px;}
+      .pdl-team .tamt{margin-top:3px;} .pdl-team .tamt input,.pdl-team td.cst input{width:74px;}
+      .pdl-team th.cst{background:#fff4e5;color:#9a5b00;}
+      .pdl-team .cir{position:sticky;left:40px;z-index:2;min-width:96px;max-width:150px;text-align:right;white-space:normal;}
+      .pdl-team thead .cir,.pdl-team tfoot .cir{z-index:5;}
+      .pdl-team .ttot{min-width:120px;text-align:right;font-weight:700;}
     </style>
     <div class="page-head"><div><h1>${t('দৈনিক উৎপাদন','Daily Production')}</h1>
       <p>${t('সার্কেল থেকে প্রতিদিন কী তৈরি হলো — এই তালিকা দিয়েই প্রসেসিং ভাউচার তৈরি হয়','What was made from the circle each day — processing vouchers are built from this list')}</p></div></div>
     <div class="panel" style="padding:14px;">
+      <div class="pdl-views">
+        <button type="button" class="pdl-vbtn on" data-view="dp" title="${attr(t('দৈনিক উৎপাদন দেখুন','View daily production'))}">👁️ ${t('দৈনিক উৎপাদন','Daily production')}</button>
+        <button type="button" class="pdl-vbtn" data-view="team" style="margin-left:auto;" title="${attr(t('দৈনিক উৎপাদন ও দল দেখুন','View daily production & team'))}">👁️ ${t('দৈনিক উৎপাদন ও দল','Daily production & team')}</button>
+      </div>
       <div class="pdl-bar">
         <div class="field"><label>${t('আজকের উৎপাদনঃ','Today’s production:')}</label><input type="date" id="pdlDate" value="${st.date}"></div>
         <div class="field"><label>${t('উৎপাদনঃ','Production:')}</label><div style="display:flex;gap:6px;align-items:center;"><input type="date" id="pdlFrom" value="${st.from}" title="${attr(t('হইতে','from'))}"><span>—</span><input type="date" id="pdlTo" value="${st.to}" title="${attr(t('পর্যন্ত','to'))}"></div></div>
         <button type="button" class="btn" id="pdlAdd" style="width:auto;">＋ ${t('লাইন যোগ','Add line')}</button>
         <button type="button" class="btn btn-primary" id="pdlSaveAll" style="width:auto;">💾 ${t('সেভ','Save')}</button>
+        <button type="button" class="btn" id="pdlMakeProc" style="width:auto;" title="${attr(t('এই তারিখগুলোর দৈনিক উৎপাদন, মজুরি ও খরচ দিয়ে প্রসেসিং ভাউচার','Processing voucher from these dates’ production, wages and costs'))}">⚙️ ${t('প্রসেসিং ভাউচার তৈরী','Create processing voucher')}</button>
+        <button type="button" class="btn" id="pdlGoSalary" style="width:auto;" title="${attr(t('২য় অংশের মজুরি সেলারী ভাউচারে নিজে আসে','Wages from part 2 come into the salary voucher automatically'))}">💵 ${t('সেলারী ভাউচার','Salary voucher')}</button>
       </div>
       <div class="pdl-sum" id="pdlSum"></div>
       <div class="pdl-scroll" id="pdlWrap"><div class="empty-state">${t('লোড হচ্ছে...','Loading...')}</div></div>
-      <div style="font-size:11.5px;color:var(--text-muted);margin-top:8px;">${t('"আজকের উৎপাদনঃ"-এ যে দিন বাছাই, "＋ লাইন যোগ" সেই দিনে লাইন যোগ করে; নতুন লাইনে আগের লাইনের আইটেম নিজে বসে (বদলানো যায়)। তৈরী পণ্য কেজি নিজে বসে = সার্কেল − কাটিং − ভাঙ্গাড়ী − অপচয়, পিস নিজে বসে = তিন আইটেমের পিসের যোগ — দুটোই হাতে বদলানো যায় (কমলা = হাতে লেখা)। কোন সার্কেল, সেটা প্রসেসিং ভাউচারে "কাঁচামাল আইটেম"-এ বাছাই হয়। প্রতিটা আইটেমের নিচে ১ পিসের ওজন ও মোট পিস দিলে মোট ওজন নিজে বসে (হাতে বদলানো যায়)। "=" কলামে তিন পণ্যের যোগফল তৈরী পণ্য পরিমাণের সাথে মেলে কিনা দেখায় (✓ মিলেছে / ✗ কত বাকি বা বেশি)। সেভ করা লাইন লক — ✏️ চাপলে এডিট। প্রসেসিং ভাউচারে ব্যবহার হওয়া লাইনে ভাউচার নম্বর দেখায়, সেগুলো বদলানো যায় না।','"＋ Add line" adds a line on the day picked in "Today’s production"; a new line copies the previous line’s items (changeable). Finished kg fills itself = circle − cutting − scrap − wastage and pcs = sum of the three items’ pcs — both can be typed over (orange). Which circle is picked as the raw material item in the processing voucher. Under each item, enter the weight of 1 piece and the pieces — total weight fills itself (can be typed over). The "=" column checks the three items against the finished qty. Saved lines are locked — press ✏️ to edit. Lines used in a processing voucher show its number and cannot be changed.')}</div>
+      <div id="pdlHelp" style="font-size:11.5px;color:var(--text-muted);margin-top:8px;">${t('"আজকের উৎপাদনঃ"-এ যে দিন বাছাই, "＋ লাইন যোগ" সেই দিনে লাইন যোগ করে; নতুন লাইনে আগের লাইনের আইটেম নিজে বসে (বদলানো যায়)। তৈরী পণ্য কেজি নিজে বসে = সার্কেল − কাটিং − ভাঙ্গাড়ী − অপচয়, পিস নিজে বসে = তিন আইটেমের পিসের যোগ — দুটোই হাতে বদলানো যায় (কমলা = হাতে লেখা)। কোন সার্কেল, সেটা প্রসেসিং ভাউচারে "কাঁচামাল আইটেম"-এ বাছাই হয়। প্রতিটা আইটেমের নিচে ১ পিসের ওজন ও মোট পিস দিলে মোট ওজন নিজে বসে (হাতে বদলানো যায়)। "=" কলামে তিন পণ্যের যোগফল তৈরী পণ্য পরিমাণের সাথে মেলে কিনা দেখায় (✓ মিলেছে / ✗ কত বাকি বা বেশি)। সেভ করা লাইন লক — ✏️ চাপলে এডিট। প্রসেসিং ভাউচারে ব্যবহার হওয়া লাইনে ভাউচার নম্বর দেখায়, সেগুলো বদলানো যায় না।','"＋ Add line" adds a line on the day picked in "Today’s production"; a new line copies the previous line’s items (changeable). Finished kg fills itself = circle − cutting − scrap − wastage and pcs = sum of the three items’ pcs — both can be typed over (orange). Which circle is picked as the raw material item in the processing voucher. Under each item, enter the weight of 1 piece and the pieces — total weight fills itself (can be typed over). The "=" column checks the three items against the finished qty. Saved lines are locked — press ✏️ to edit. Lines used in a processing voucher show its number and cannot be changed.')}</div>
     </div>`;
 
   // ---------- আঁকা ----------
@@ -5954,7 +5972,8 @@ async function renderProdDailyPage(content) {
       ${used ? `<span style="color:#2f4fa8;">${used} ${t('লাইন প্রসেসিংয়ে ব্যবহৃত', 'line(s) used in processing')}</span>` : ''}${dirty ? `<span style="color:#d97706;">● ${dirty} ${t('লাইন সেভ হয়নি', 'line(s) unsaved')}</span>` : ''}`;
     const foot = $('pdlFoot'); if (foot) foot.innerHTML = `<tr><td class="sl">${t('মোট', 'Total')}</td>${sumCells(s)}</tr>`;
   }
-  function render() {
+  function render() { if (st.view === 'team') renderTeam(); else renderDP(); }
+  function renderDP() {
     const H = function (bn, en, ubn, uen) { return `<th>${t(bn, en)}<span class="u">${t(ubn, uen)}</span></th>`; };
     const list = sorted(), dates = Array.from(new Set(list.map(function (L) { return L.date; })));
     const multi = dates.length > 1 || st.from !== st.to;
@@ -5979,6 +5998,157 @@ async function renderProdDailyPage(content) {
     renderSum();
   }
 
+
+  // ============ ২য় অংশঃ দৈনিক উৎপাদন ও দল — প্রতিটা লাইনের (ক্রঃ) কর্মচারী, মজুরি ও খরচ ============
+  // ঘরের টাকা নিজে = লাইনের তিন আইটেমের মোট ওজন × "সাইজ অনুযায়ী মজুরি দর" (হাতে বদলানো যায়, কমলা = হাতে লেখা)
+  // সেভ হয় আগের মতোই TeamProduction-এ (DPLineID দিয়ে লাইনের সাথে যুক্ত) — তাই সেলারী ভাউচার ও প্রসেসিং ভাউচার নিজে থেকেই পায়
+  const roles = gp.laborRoles, croles = gp.costRoles;
+  function team(L) { return st.team[L.key] = st.team[L.key] || { tpId: null, who: {}, amt: {}, camt: {}, locked: false, dirty: false }; }
+  const ovOf = function (m, r) { return m[r] !== undefined && m[r] !== ''; };
+  function calcAmt(L, r) { return L.it.reduce(function (s, x) { return s + (x.id ? itemKg(x) * gp.rateOf(x.id, r) : 0); }, 0); }
+  function breakdown(L, r) { return L.it.filter(function (x) { return x.id && itemKg(x); }).map(function (x) { return (itemName[x.id] || x.id) + ' ' + show(itemKg(x)) + ' × ' + hrMoney(gp.rateOf(x.id, r)); }).join(' + '); }
+  function wageOf(L, r) { const T = team(L); return ovOf(T.amt, r) ? n(T.amt[r]) : calcAmt(L, r); }
+  function costOf(L, r) { const T = team(L); return ovOf(T.camt, r) ? n(T.camt[r]) : calcAmt(L, r); }
+  function lineWage(L) { const T = team(L); return roles.reduce(function (s, ro) { return s + (T.who[ro.RoleID] ? wageOf(L, ro.RoleID) : 0); }, 0); }
+  function lineCost(L) { return croles.reduce(function (s, ro) { return s + costOf(L, ro.RoleID); }, 0); }
+  function teamLocked(L) { return !L.id || team(L).locked; }
+  function itemNames(L) { return L.it.filter(function (x) { return x.id; }).map(function (x) { return itemName[x.id] || x.id; }).join(' / '); }
+  function empOpts(date, sel) {
+    const pres = st.present[date] || {};
+    const list = base.emps.slice().sort(function (a, b) { return (pres[b.EmployeeID] ? 1 : 0) - (pres[a.EmployeeID] ? 1 : 0) || String(a.Name).localeCompare(String(b.Name)); });
+    return '<option value="">—</option>' + list.map(function (e) { return `<option value="${attr(e.EmployeeID)}" ${e.EmployeeID === sel ? 'selected' : ''}>${escapeHtml(e.Name)}${pres[e.EmployeeID] ? ' ✓' : ''}</option>`; }).join('');
+  }
+  function tipOf(L, r) { const b = breakdown(L, r), c = calcAmt(L, r); return b && c ? t('হিসাবঃ ', 'Calc: ') + b + ' = ' + hrMoney(c) + t(' — নিজে লিখে বদলানো যায়', ' — type to override') : t('দর নেই — টাকা নিজে লিখুন', 'No rate — type the amount'); }
+  function wageCell(L, ro) {
+    const T = team(L), r = ro.RoleID, dis = teamLocked(L) ? 'disabled' : '', who = T.who[r] || '', ov = ovOf(T.amt, r), c = calcAmt(L, r);
+    const amt = who ? `<input type="number" step="any" min="0" inputmode="decimal" data-tk="${L.key}" data-tamt="${r}" class="${ov ? 'ov' : ''}" value="${attr(ov ? T.amt[r] : (c ? c.toFixed(2) : ''))}" placeholder="${t('টাকা', 'Amt')}" title="${attr(tipOf(L, r))}" ${dis}>` : '';
+    return `<td class="tw"><select data-tk="${L.key}" data-trole="${r}" ${dis}>${empOpts(L.date, who)}</select><div class="tamt">${amt}</div></td>`;
+  }
+  function costCell(L, ro) {
+    const T = team(L), r = ro.RoleID, dis = teamLocked(L) ? 'disabled' : '', ov = ovOf(T.camt, r), c = calcAmt(L, r);
+    return `<td class="cst"><input type="number" step="any" min="0" inputmode="decimal" data-tk="${L.key}" data-tcamt="${r}" class="${ov ? 'ov' : ''}" value="${attr(ov ? T.camt[r] : (c ? c.toFixed(2) : ''))}" placeholder="${t('টাকা', 'Amt')}" title="${attr(tipOf(L, r))}" ${dis}></td>`;
+  }
+  function totCell(L) { const w = lineWage(L), c = lineCost(L); return `<td class="ttot" data-ttot="${L.key}">${hrMoney(w + c)}<div class="u">${t('মজুরি ', 'wages ')}${hrMoney(w)} · ${t('খরচ ', 'costs ')}${hrMoney(c)}</div></td>`; }
+  function teamRowHtml(L) {
+    const T = team(L);
+    const tag = !L.id ? `<span class="pdl-tag" style="background:#fdecea;color:#b42318;" title="${attr(t('১ম অংশে (দৈনিক উৎপাদন) লাইনটা আগে সেভ করুন', 'Save this line in part 1 first'))}">${t('আগে সেভ', 'save first')}</span>`
+      : T.locked ? `<span class="pdl-tag" title="${attr(t('এই লাইনের মজুরি সেলারী ভাউচারে উঠে গেছে — বদলানো যায় না', 'Already in a salary voucher — locked'))}">${t('বেতনে উঠেছে', 'in salary')}</span>` : '';
+    return `<tr data-tk="${L.key}" class="${T.dirty ? 'dirty' : T.tpId ? 'saved' : ''}">
+      <td class="sl">${L.serial}</td><td class="cir"><b>${show(L.v.raw) || 0}</b><div class="u">${escapeHtml(itemNames(L))}</div></td>
+      ${roles.map(function (ro) { return wageCell(L, ro); }).join('')}${croles.map(function (ro) { return costCell(L, ro); }).join('')}${totCell(L)}
+      <td style="white-space:nowrap;"><button type="button" class="pdl-ico" data-tact="save" data-tk="${L.key}" title="${attr(t('সেভ', 'Save'))}" ${T.dirty ? '' : 'disabled'}>💾</button>${tag}</td></tr>`;
+  }
+  function teamSumCells(list) {
+    const w = function (r) { return list.reduce(function (s, L) { return s + (team(L).who[r] ? wageOf(L, r) : 0); }, 0); };
+    const c = function (r) { return list.reduce(function (s, L) { return s + costOf(L, r); }, 0); };
+    const tw = list.reduce(function (s, L) { return s + lineWage(L); }, 0), tc = list.reduce(function (s, L) { return s + lineCost(L); }, 0);
+    return `<td class="cir">${show(list.reduce(function (s, L) { return s + n(L.v.raw); }, 0)) || 0}</td>${roles.map(function (ro) { return `<td>${hrMoney(w(ro.RoleID))}</td>`; }).join('')}${croles.map(function (ro) { return `<td class="cst">${hrMoney(c(ro.RoleID))}</td>`; }).join('')}<td class="ttot">${hrMoney(tw + tc)}<div class="u">${t('মজুরি ', 'wages ')}${hrMoney(tw)} · ${t('খরচ ', 'costs ')}${hrMoney(tc)}</div></td><td></td>`;
+  }
+  function renderTeamSum() {
+    const all = st.lines, tw = all.reduce(function (s, L) { return s + lineWage(L); }, 0), tc = all.reduce(function (s, L) { return s + lineCost(L); }, 0);
+    const dirty = all.filter(function (L) { return team(L).dirty; }).length, noWho = all.filter(function (L) { return L.id && !roles.some(function (ro) { return team(L).who[ro.RoleID]; }); }).length;
+    $('pdlSum').innerHTML = `<span>${t('লাইন', 'Lines')} <b>${all.length}</b></span><span>${t('মজুরি', 'Wages')} <b>${hrMoney(tw)}</b></span><span>${t('খরচ', 'Costs')} <b>${hrMoney(tc)}</b></span><span>${t('মোট', 'Total')} <b>${hrMoney(tw + tc)}</b></span>
+      <span style="color:var(--text-muted);">✓ = ${t('ওই দিন হাজিরায় P', 'present that day')}</span>${noWho ? `<span style="color:var(--text-muted);">${noWho} ${t('লাইনে এখনো কর্মচারী বাছাই হয়নি', 'line(s) without workers yet')}</span>` : ''}${dirty ? `<span style="color:#d97706;">● ${dirty} ${t('লাইন সেভ হয়নি', 'line(s) unsaved')}</span>` : ''}`;
+    const foot = $('pdlFoot'); if (foot) foot.innerHTML = `<tr><td class="sl">${t('মোট', 'Total')}</td>${teamSumCells(st.lines)}</tr>`;
+  }
+  function renderTeam() {
+    const cols = 4 + roles.length + croles.length;
+    if (st.teamErr) { $('pdlWrap').innerHTML = `<div class="empty-state">${escapeHtml(st.teamErr)}<br>${t('(Supabase-এ 27_team_production_dp_link.sql রান করা আছে কিনা দেখুন)', '(check that 27_team_production_dp_link.sql has been run)')}</div>`; renderTeamSum(); return; }
+    const list = sorted(), dates = Array.from(new Set(list.map(function (L) { return L.date; }))), multi = dates.length > 1 || st.from !== st.to;
+    let body = '';
+    dates.forEach(function (d) {
+      const ls = list.filter(function (L) { return L.date === d; });
+      if (multi) body += `<tr class="grp"><td class="sl"></td><td class="cir" style="text-align:left;">${escapeHtml(dayLabel(d))}</td><td colspan="${cols - 2}"></td></tr>`;
+      body += ls.map(teamRowHtml).join('');
+      if (multi) body += `<tr class="sub"><td class="sl">${t('দিনের মোট', 'Day')}</td>${teamSumCells(ls)}</tr>`;
+    });
+    if (!list.length) body = `<tr><td class="sl"></td><td colspan="${cols - 1}"><div class="empty-state" style="padding:16px;">${t('এই তারিখে কোনো লাইন নেই — ১ম অংশে (দৈনিক উৎপাদন) লাইন যোগ করুন।', 'No lines — add lines in part 1 (daily production).')}</div></td></tr>`;
+    $('pdlWrap').innerHTML = `<table class="pdl-tbl pdl-team"><thead><tr class="h1"><th class="sl">${t('ক্রঃ', 'No.')}</th><th class="cir">${t('সার্কেল', 'Circle')}<span class="u">${t('(কেজি)', '(kg)')}</span></th>
+        ${roles.map(function (ro) { return `<th>${escapeHtml(ro.RoleName)}</th>`; }).join('')}${croles.map(function (ro) { return `<th class="cst" title="${attr(t('খরচের খাত — প্রসেসিং ভাউচারে যায়', 'Cost head — goes to processing'))}">${escapeHtml(ro.RoleName)}</th>`; }).join('')}
+        <th>${t('মোট', 'Total')}<span class="u">${t('(মজুরি + খরচ)', '(wages + costs)')}</span></th><th></th></tr></thead><tbody>${body}</tbody><tfoot id="pdlFoot"></tfoot></table>`;
+    renderTeamSum();
+  }
+  function refreshTeamRow(L) { const tr = $('pdlWrap').querySelector(`tr[data-tk="${L.key}"]`); if (tr) tr.outerHTML = teamRowHtml(L); renderTeamSum(); }
+  async function loadTeam() {
+    st.team = {}; st.present = {}; st.teamErr = '';
+    try {
+      const att = await hrQueryRange('Attendance', 'Date', st.from, st.to);
+      att.forEach(function (a) { if (HR_ATT_CODE[a.Status] === 'P') { const d = String(a.Date).slice(0, 10); (st.present[d] = st.present[d] || {})[a.EmployeeID] = true; } });
+    } catch (e) { /* হাজিরা না থাকলে ✓ দেখাবে না */ }
+    const ids = st.lines.filter(function (L) { return L.id; }).map(function (L) { return L.id; });
+    if (!ids.length) return;
+    const hr = await supabaseClient.from('TeamProduction').select('*').in('DPLineID', ids);
+    if (hr.error) { st.teamErr = hr.error.message; return; }
+    const heads = hr.data || []; if (!heads.length) return;
+    const tids = heads.map(function (h) { return h.TeamProdID; });
+    const [rm, rc] = await Promise.all([supabaseClient.from('TeamProduction_Members').select('*').in('TeamProdID', tids), supabaseClient.from('TeamProduction_Costs').select('*').in('TeamProdID', tids)]);
+    heads.forEach(function (h) {
+      const L = st.lines.find(function (x) { return String(x.id) === String(h.DPLineID); }); if (!L) return;
+      const T = team(L); T.tpId = h.TeamProdID;
+      ((rm && rm.data) || []).filter(function (m) { return String(m.TeamProdID) === String(h.TeamProdID) && m.RoleID; }).forEach(function (m) {
+        T.who[m.RoleID] = m.EmployeeID;
+        if (Math.abs(n(m.Amount) - calcAmt(L, m.RoleID)) > 0.004) T.amt[m.RoleID] = String(n(m.Amount));
+        if (m.BilledIn) T.locked = true;
+      });
+      ((rc && !rc.error && rc.data) || []).filter(function (c) { return String(c.TeamProdID) === String(h.TeamProdID) && c.RoleID; }).forEach(function (c) {
+        if (Math.abs(n(c.Amount) - calcAmt(L, c.RoleID)) > 0.004) T.camt[c.RoleID] = String(n(c.Amount));
+      });
+    });
+  }
+  async function delTeamOf(L) {   // লাইনের দল-রেকর্ড মুছে ফেলা
+    const tp = team(L).tpId; if (!tp) return;
+    for (const tb of ['TeamProduction_Members', 'TeamProduction_Costs', 'TeamProduction_Items']) { const { error } = await supabaseClient.from(tb).delete().eq('TeamProdID', tp); if (error && tb !== 'TeamProduction_Costs') throw new Error(error.message); }
+    const { error } = await supabaseClient.from('TeamProduction').delete().eq('TeamProdID', tp); if (error) throw new Error(error.message);
+    team(L).tpId = null;
+  }
+  async function saveTeam(keys, quiet) {
+    const list = st.lines.filter(function (L) { return (!keys || keys.indexOf(L.key) !== -1) && team(L).dirty && !team(L).locked; });
+    if (!list.length) { if (!quiet) showToast(t('সেভ করার মতো কোনো পরিবর্তন নেই।', 'Nothing to save.'), 'success'); return; }
+    for (const L of list) {
+      const T = team(L), lbl = formatShortDate(L.date) + t(' — ক্রঃ ', ' — line ') + L.serial;
+      if (!L.id) { showToast(lbl + t(': ১ম অংশে (দৈনিক উৎপাদন) লাইনটা আগে সেভ করুন।', ': save this line in part 1 first.'), 'error'); return; }
+      for (const ro of roles) if (T.who[ro.RoleID] && !(wageOf(L, ro.RoleID) > 0)) { showToast(lbl + ': ' + ro.RoleName + t(' এর টাকা দিন (দর নেই)।', ': enter the amount (no rate).'), 'error'); return; }
+      if (Object.keys(T.amt).concat(Object.keys(T.camt)).some(function (k) { return (ovOf(T.amt, k) && n(T.amt[k]) < 0) || (ovOf(T.camt, k) && n(T.camt[k]) < 0); })) { showToast(lbl + t(': ঋণাত্মক টাকা চলবে না।', ': negative amounts are not allowed.'), 'error'); return; }
+    }
+    try {
+      for (const L of list) {
+        const T = team(L), kg = itemsKg(L) || n(L.v.raw);
+        const mems = roles.filter(function (ro) { return T.who[ro.RoleID]; }).map(function (ro) { const a = wageOf(L, ro.RoleID); return { EmployeeID: T.who[ro.RoleID], RoleID: ro.RoleID, Rate: kg > 0 ? a / kg : 0, Amount: a }; });
+        const costs = croles.map(function (ro) { if (!ovOf(T.camt, ro.RoleID) && !calcAmt(L, ro.RoleID)) return null; const a = costOf(L, ro.RoleID); return { RoleID: ro.RoleID, Rate: kg > 0 ? a / kg : 0, Amount: a }; }).filter(Boolean);
+        let tp = T.tpId;
+        if (tp) { for (const tb of ['TeamProduction_Members', 'TeamProduction_Costs', 'TeamProduction_Items']) { const { error } = await supabaseClient.from(tb).delete().eq('TeamProdID', tp); if (error && tb !== 'TeamProduction_Costs') throw new Error(error.message); } }
+        if (!mems.length && !costs.length) { if (tp) await delTeamOf(L); T.dirty = false; continue; }
+        if (tp) { const { error } = await supabaseClient.from('TeamProduction').update({ WorkDate: L.date, TotalKg: kg }).eq('TeamProdID', tp); if (error) throw new Error(error.message); }
+        else {
+          const { data: hd, error } = await supabaseClient.from('TeamProduction').insert({ WorkDate: L.date, GroupID: null, TotalKg: kg, TargetKg: 0, ExtraKg: 0, IsHoliday: false, DPLineID: L.id }).select();
+          if (error) throw new Error(error.message + t(' — (27_team_production_dp_link.sql রান করা আছে কিনা দেখুন)', ' — (check that 27_team_production_dp_link.sql has been run)'));
+          tp = hd[0].TeamProdID;
+        }
+        T.tpId = tp;
+        const its = L.it.filter(function (x) { return x.id && itemKg(x) > 0; }).map(function (x) { return { TeamProdID: tp, ItemID: x.id, Qty: itemKg(x) }; });
+        if (its.length) { const { error } = await supabaseClient.from('TeamProduction_Items').insert(its); if (error) throw new Error(error.message); }
+        if (mems.length) { const { error } = await supabaseClient.from('TeamProduction_Members').insert(mems.map(function (m) { return Object.assign({ TeamProdID: tp }, m); })); if (error) throw new Error(error.message); }
+        if (costs.length) { const { error } = await supabaseClient.from('TeamProduction_Costs').insert(costs.map(function (c) { return Object.assign({ TeamProdID: tp }, c); })); if (error) throw new Error(error.message + t(' — (22_team_production_costs.sql রান করা আছে কিনা দেখুন)', ' — (check that 22_team_production_costs.sql has been run)')); }
+        T.dirty = false;
+      }
+      if (!quiet) showToast(t('সেভ হয়েছে ✅ — মজুরি সেলারী ভাউচারে ও প্রসেসিংয়ে যাবে', 'Saved ✅ — wages go to the salary voucher and processing'), 'success');
+    } catch (err) { showToast(err.message, 'error'); }
+    if (st.view === 'team') renderTeam();
+  }
+  // এখান থেকেই প্রসেসিং ভাউচারঃ ফর্ম খুলে এই তারিখগুলোর দৈনিক উৎপাদন + মজুরি ও খরচ নিজে বসানো
+  async function makeProcessing() {
+    if (anyDirty() || st.lines.some(function (L) { return team(L).dirty; })) { showToast(t('আগে সেভ করুন, তারপর প্রসেসিং ভাউচার তৈরী করুন।', 'Save first, then create the processing voucher.'), 'error'); return; }
+    if (!st.lines.some(function (L) { return L.id && !L.procId; })) { showToast(t('এই তারিখে প্রসেসিং-এ ব্যবহার হয়নি এমন কোনো সেভ করা লাইন নেই।', 'No saved, unused lines for these dates.'), 'error'); return; }
+    await openProcessingForm();
+    const set = function (id, v) { const el = document.getElementById(id); if (el) el.value = v; };
+    set('pv_DPFrom', st.from); set('pv_DPTo', st.to); set('pv_WageFrom', st.from); set('pv_WageTo', st.to);
+    const hint = document.getElementById('pv_DPHint'); hint.textContent = '';
+    document.getElementById('pv_FetchDPBtn').click();
+    for (let i = 0; i < 60 && !hint.textContent; i++) await new Promise(function (r) { setTimeout(r, 100); });
+    if (Number(document.getElementById('pv_Qty').value) > 0) document.getElementById('pv_FetchWageBtn').click();
+  }
+
+
   // ---------- লোড ----------
   async function load() {
     st.lines = [];
@@ -6000,10 +6170,11 @@ async function renderProdDailyPage(content) {
       L.fgpOv = Math.abs(n(x.FGPcs) - itemsPcs(L)) > 0.0005;
       st.lines.push(L);
     });
+    await loadTeam();
     render();
   }
   function anyDirty() { return st.lines.some(function (L) { return L.dirty; }); }
-  function okToLeave() { return !anyDirty() || confirm(t('কিছু লাইন সেভ হয়নি — সেগুলো বাদ দিয়ে চালিয়ে যাবেন?', 'Some lines are not saved — discard them and continue?')); }
+  function okToLeave() { return !(anyDirty() || st.lines.some(function (L) { return st.team[L.key] && st.team[L.key].dirty; })) || confirm(t('কিছু লাইন সেভ হয়নি — সেগুলো বাদ দিয়ে চালিয়ে যাবেন?', 'Some lines are not saved — discard them and continue?')); }
 
   // ---------- লাইন যোগ ----------
   async function addLine() {
@@ -6045,6 +6216,8 @@ async function renderProdDailyPage(content) {
         L.id = (res.data && res.data[0] && res.data[0].id) || L.id; L.saved = true; L.edit = false; L.dirty = false; L.by = rec.CreatedBy || '';
       }
       await renumber();
+      const sync = todo.filter(function (L) { return L.id && team(L).tpId && !team(L).locked; }).map(function (L) { team(L).dirty = true; return L.key; });
+      if (sync.length) await saveTeam(sync, true);   // কেজি/আইটেম বদলালে ২য় অংশের হিসাবও সাথে সাথে
       showToast(t('সেভ হয়েছে ✅', 'Saved ✅'), 'success');
     } catch (err) { showToast(err.message, 'error'); }
     render();
@@ -6066,6 +6239,17 @@ async function renderProdDailyPage(content) {
   // ---------- ঘটনা ----------
   const wrap = $('pdlWrap');
   wrap.addEventListener('input', function (e) {
+    if (st.view === 'team') {
+      const el = e.target, L = byKey(el.getAttribute('data-tk')); if (!L) return;
+      const T = team(L), r = el.getAttribute('data-tamt') || el.getAttribute('data-tcamt'); if (!r) return;
+      const m = el.hasAttribute('data-tamt') ? T.amt : T.camt;
+      if (el.value === '') delete m[r]; else m[r] = el.value;
+      el.classList.toggle('ov', el.value !== '');
+      T.dirty = true; const tr = el.closest('tr'); tr.classList.add('dirty');
+      const tc = tr.querySelector('[data-ttot]'); if (tc) tc.outerHTML = totCell(L);
+      const sb = tr.querySelector('[data-tact="save"]'); if (sb) sb.disabled = false;
+      renderTeamSum(); return;
+    }
     const el = e.target, L = byKey(el.getAttribute('data-k'));
     if (!L) return;
     const f = el.getAttribute('data-f');
@@ -6089,6 +6273,19 @@ async function renderProdDailyPage(content) {
     renderSum();
   });
   wrap.addEventListener('change', function (e) {
+    if (st.view === 'team') {
+      const el = e.target, L = byKey(el.getAttribute('data-tk')); if (!L) return;
+      const T = team(L);
+      if (el.hasAttribute('data-trole')) {
+        const r = el.getAttribute('data-trole');
+        if (el.value) T.who[r] = el.value; else { delete T.who[r]; delete T.amt[r]; }
+        T.dirty = true; refreshTeamRow(L);
+        const ni = $('pdlWrap').querySelector(`tr[data-tk="${L.key}"] [data-tamt="${r}"]`); if (ni) ni.focus();
+        return;
+      }
+      if ((el.hasAttribute('data-tamt') || el.hasAttribute('data-tcamt')) && el.value === '') refreshTeamRow(L);   // খালি = আবার হিসাবের টাকা
+      return;
+    }
     const el = e.target;
     if (el.hasAttribute('data-ii')) { el.dispatchEvent(new Event('input', { bubbles: true })); return; }
     if (el.getAttribute('data-f') === 'fgk' && el.value === '') { const L = byKey(el.getAttribute('data-k')); if (L) { L.fgkOv = false; el.value = show(autoFgk(L)); } }
@@ -6096,6 +6293,8 @@ async function renderProdDailyPage(content) {
     if (el.hasAttribute('data-ik') && el.value === '') { const L = byKey(el.getAttribute('data-k')); if (L) { const x = L.it[Number(el.getAttribute('data-ik'))]; x.kOv = false; el.value = show(itemKg(x)); const tr = el.closest('tr'), eqc = tr.querySelector('[data-eq]'); if (eqc) eqc.outerHTML = eqCell(L); renderSum(); } }
   });
   wrap.addEventListener('click', async function (e) {
+    const tb = e.target.closest('[data-tact]');
+    if (tb) { if (!tb.disabled) await saveTeam([tb.getAttribute('data-tk')]); return; }
     const b = e.target.closest('[data-act]'); if (!b || b.disabled) return;
     const L = byKey(b.getAttribute('data-k')), act = b.getAttribute('data-act');
     if (!L) return;
@@ -6103,7 +6302,9 @@ async function renderProdDailyPage(content) {
     else if (act === 'save') await saveLines([L]);
     else if (act === 'del') {
       if (L.saved) {
-        if (!confirm(t('এই লাইনটা মুছে ফেলবেন?', 'Delete this line?'))) return;
+        if (team(L).locked) { showToast(t('এই লাইনের মজুরি সেলারী ভাউচারে উঠে গেছে — আগে সেলারী ভাউচার থেকে সরান।', 'This line’s wages are in a salary voucher — remove them there first.'), 'error'); return; }
+        if (!confirm(t('এই লাইনটা মুছে ফেলবেন?', 'Delete this line?') + (team(L).tpId ? t(' (২য় অংশের কর্মচারী/মজুরিও মুছে যাবে)', ' (its team wages will be deleted too)') : ''))) return;
+        try { await delTeamOf(L); } catch (err) { showToast(err.message, 'error'); return; }
         const { error } = await supabaseClient.from('DailyProduction').delete().eq('id', L.id);
         if (error) { showToast(error.message, 'error'); return; }
         showToast(t('মুছে ফেলা হয়েছে ✅', 'Deleted ✅'), 'success');
@@ -6133,7 +6334,20 @@ async function renderProdDailyPage(content) {
     if (L && last === L && L.date === st.date) addLine();
   });
   $('pdlAdd').addEventListener('click', addLine);
-  $('pdlSaveAll').addEventListener('click', function () { saveLines(st.lines); });
+  $('pdlSaveAll').addEventListener('click', function () { if (st.view === 'team') saveTeam(null); else saveLines(st.lines); });
+  $('pdlMakeProc').addEventListener('click', makeProcessing);
+  $('pdlGoSalary').addEventListener('click', function () { navigateTo('payroll', t('এইচআর ও পে-রোল', 'HR & Payroll'), t('সেলারী ভাউচার', 'Salary Voucher')); });
+  const helpDP = $('pdlHelp').innerHTML;
+  const helpTeam = t('২য় অংশঃ প্রতিটা লাইনে (ক্রঃ) কাজ অনুযায়ী কর্মচারী বাছাই করুন — টাকা নিজে বসে = লাইনের তিন আইটেমের মোট ওজন × "সাইজ অনুযায়ী মজুরি দর" (ঘরে মাউস রাখলে হিসাব দেখায়); চাইলে হাতে বদলান (কমলা = হাতে লেখা), খালি করলে আবার হিসাবের টাকা। খরচের খাতও একইভাবে। সেভ করলে মজুরি সেলারী ভাউচারে, আর মজুরি + খরচ প্রসেসিং ভাউচারের "মজুরি ও খরচ আনুন"-এ নিজে যায়। "⚙️ প্রসেসিং ভাউচার তৈরী" চাপলে এই তারিখগুলোর সব কিছু বসিয়ে ভাউচার খোলে — শুধু কাঁচামাল আইটেম, গুদাম ও দর দেখে সেভ করুন।', 'Part 2: pick the worker for each job on each line — the amount fills itself = the line’s three items’ total weight × the size rate (hover to see the calculation); type over if needed (orange), clear to go back. Same for cost heads. Saved wages go to the salary voucher, wages + costs to the processing voucher. "⚙️ Create processing voucher" opens a voucher with everything for these dates filled in.');
+  document.querySelectorAll('.pdl-vbtn').forEach(function (vb) {
+    vb.addEventListener('click', function () {
+      st.view = vb.getAttribute('data-view');
+      document.querySelectorAll('.pdl-vbtn').forEach(function (x) { x.classList.toggle('on', x === vb); });
+      $('pdlAdd').style.display = st.view === 'team' ? 'none' : '';
+      $('pdlHelp').innerHTML = st.view === 'team' ? helpTeam : helpDP;
+      render();
+    });
+  });
   $('pdlDate').addEventListener('change', function () {
     if (!this.value) { this.value = st.date; return; }
     if (!okToLeave()) { this.value = st.date; return; }
@@ -6548,7 +6762,8 @@ async function openProcessingForm(existingId) {
     if (from > to) { showToast(t('"তারিখ হইতে" অবশ্যই "তারিখ পর্যন্ত"-এর আগে হতে হবে।','Date From must be before Date To.'), 'error'); return; }
     if (!(qty > 0)) { showToast(t('আগে কাঁচামালের পরিমাণ (কেজি) দিন — মজুরি প্রতি কেজিতে ভাগ হয়ে উৎপাদন খরচে বসবে।','Enter the raw material quantity first — wages are spread per kg into the processing cost.'), 'error'); return; }
     const onlyFG = document.getElementById('pv_WageOnlyFG').checked;
-    const fgIds = onlyFG && window.__procFGCollect ? window.__procFGCollect(false).map(function (l) { return l.itemId; }) : [];
+    // প্রস্তুত পণ্যের লাইনে যে আইটেমগুলো বাছাই করা (দর তখনো না থাকলেও চলবে — যেমন দৈনিক উৎপাদন থেকে সবে আনা)
+    const fgIds = onlyFG ? Array.from(new Set(Array.from(document.querySelectorAll('#pv_FGWrap select[data-f="item"]')).map(function (s) { return s.value; }).filter(Boolean))) : [];
     if (onlyFG && !fgIds.length) { showToast(t('আগে প্রস্তুত পণ্যের লাইন দিন, অথবা "শুধু এই ভাউচারের প্রস্তুত পণ্য" টিক তুলে দিন।','Add finished goods lines first, or untick "only this voucher’s finished goods".'), 'error'); return; }
     try {
       const heads = await hrQueryRange('TeamProduction', 'WorkDate', from, to);
@@ -6590,7 +6805,7 @@ async function openProcessingForm(existingId) {
         document.getElementById('pv_WageHint').textContent = range + ': ' + t('কোনো মজুরি বা খরচ পাওয়া যায়নি।','no wages or costs found.');
         showToast(t('এই তারিখে দৈনিক উৎপাদনে কোনো মজুরি বা খরচ পাওয়া যায়নি।','No daily-production wages or costs found for these dates.'), 'error'); return;
       }
-      document.getElementById('pv_ProcRate').value = (total / qty).toFixed(4);
+      document.getElementById('pv_ProcRate').value = String(+(total / qty).toFixed(8));   // পুরো মান — যাতে উৎপাদন খরচ মূল্য ঠিক মজুরি+খরচের সমান হয়
       recalcProcessing();
       document.getElementById('pv_WageHint').textContent = range + ': ' + Object.keys(itemsSeen).length + t('টা আইটেম, ',' items, ') + hrNum(kg) + t(' কেজি — মজুরি ৳',' kg — wages ৳') + wage.toFixed(2) +
         t(' + খরচ ৳',' + costs ৳') + cost.toFixed(2) + ' = ৳' + total.toFixed(2) +
