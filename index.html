@@ -925,11 +925,11 @@ async function deletePostedVoucherWithAdminAuth(docType, docId, sheetName, idFie
   }
 }
 
-// তারিখের ঘরে ফাঁকা লেখা ("") ডেটাবেস নেয় না ("invalid input syntax for type date") — সেভের আগে null করা হয়
+// তারিখ ও আইটেমের ঘরে ফাঁকা লেখা ("") ডেটাবেস নেয় না ("invalid input syntax for type date" / foreign key) — সেভের আগে null করা হয়
 function cleanEmptyDates(obj) {
   if (!obj || typeof obj !== 'object') return obj;
   if (Array.isArray(obj)) { obj.forEach(cleanEmptyDates); return obj; }
-  Object.keys(obj).forEach(function (k) { if (obj[k] === '' && /date/i.test(k)) obj[k] = null; });
+  Object.keys(obj).forEach(function (k) { if (obj[k] === '' && (/date/i.test(k) || /ItemID$/.test(k))) obj[k] = null; });   // আইটেমের ঘরে "" = আইটেম তালিকায় নেই এমন আইটেম — তাই null
   return obj;
 }
 async function runSupabaseAction(action, p) {
@@ -1010,7 +1010,10 @@ async function runSupabaseAction(action, p) {
       if (p.lines && p.lines.length > 0) {
         const linesWithId = p.lines.map(function (l) { const row = Object.assign({}, l); row[p.lineIdField] = header[p.idField]; return row; });
         const { error: lErr } = await supabaseClient.from(p.linesSheet).insert(linesWithId);
-        if (lErr) throw new Error(lErr.message);
+        if (lErr) {   // লাইন বসেনি — অসম্পূর্ণ (খালি) ভাউচার যেন পড়ে না থাকে
+          try { await supabaseClient.from(p.headerSheet).delete().eq(p.idField, header[p.idField]); } catch (e) {}
+          throw new Error(lErr.message);
+        }
       }
       return header;
     }
@@ -6897,7 +6900,7 @@ async function renderProcCostingPage(content) {
     if (!fg.length) { showToast(t('অন্তত একটা প্রস্তুত পণ্য লাইন দিন।', 'Add at least one finished line.'), 'error'); return; }
     const w = netW(), v = netV(), fk = fg.reduce(function (s, l) { return s + l.kg; }, 0), fv = fg.reduce(function (s, l) { return s + l.value; }, 0), pcs = fg.reduce(function (s, l) { return s + l.pcs; }, 0);
     if ((Math.abs(w - fk) > 0.0005 || Math.abs(v - fv) > 0.5) && !confirm(t('প্রস্তুত পণ্যের মোট নীট ওজন/মূল্যের সাথে মিলছে না। তবুও সেভ করবেন?', 'Finished totals do not match net weight/value. Save anyway?'))) return;
-    const bpl = st.bp.filter(function (b) { return n(b.qty) > 0; }).map(function (b) { return { ByProductName: b.name || '', ItemID: '', Quantity: n(b.qty), Rate: n(b.rate), Value: n(b.qty) * n(b.rate) }; });
+    const bpl = st.bp.filter(function (b) { return n(b.qty) > 0; }).map(function (b) { return { ByProductName: b.name || '', ItemID: null, Quantity: n(b.qty), Rate: n(b.rate), Value: n(b.qty) * n(b.rate) }; });
     const saleKg = n(gv('pc_SaleKg')), salePc = n(gv('pc_SalePc'));
     const header = {
       Date: gv('pc_Date') || today, RawMaterialItemID: raw, WarehouseID: wh,
@@ -7671,7 +7674,7 @@ function collectProcessingForm() {
   const lines = (window.__procByProductRows || [])
     .map(function (_, idx) {
       const q = Number(val('pv_bp_' + idx + '_qty')) || 0, r = Number(val('pv_bp_' + idx + '_rate')) || 0;
-      return { ByProductName: val('pv_bp_' + idx + '_name'), ItemID: val('pv_bp_' + idx + '_item'), Quantity: q, Rate: r, Value: q * r };
+      return { ByProductName: val('pv_bp_' + idx + '_name'), ItemID: val('pv_bp_' + idx + '_item') || null, Quantity: q, Rate: r, Value: q * r };
     })
     .filter(function (l) { return l.Quantity > 0; });
   const header = {
