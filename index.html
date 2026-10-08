@@ -4361,7 +4361,7 @@ async function renderDailyProductionPage(content) {
       if (q > 0) { kg += q; n++; roles.forEach(function (ro) { if (r.who[ro.RoleID]) wage += rowAmount(id, ro.RoleID); }); croles.forEach(function (ro) { cost += costAmount(id, ro.RoleID); }); }
     });
     if (st.bonusDirty) dirty++;
-    document.getElementById('dpgSum').innerHTML = `<span>${hrDayLabel(st.date)}</span><span>${t('আইটেম ','Items ')}<b>${n}</b></span><span>${t('মোট ','Total ')}<b>${hrNum(kg)}</b> ${t('কেজি','kg')}</span><span>${t('মজুরি ','Wages ')}<b>${hrMoney(wage)}</b></span>${croles.length ? `<span>${t('খরচ ','Costs ')}<b>${hrMoney(cost)}</b></span><span>${t('মজুরি + খরচ ','Wages + costs ')}<b>${hrMoney(wage + cost)}</b></span>` : ''}${dirty ? `<span style="color:#d97706;">● ${dirty} ${t('টা সারি সেভ হয়নি','row(s) unsaved')}</span>` : ''}
+    document.getElementById('dpgSum').innerHTML = `<span>${hrDayLabel(st.date)}</span><span>${t('আইটেম ','Items ')}<b>${n}</b></span><span>${t('মোট ','Total ')}<b>${hrNum(kg)}</b> ${t('কেজি','kg')}</span><span>${t('মজুরি ','Wages ')}<b>${hrMoney(wage)}</b></span>${croles.length ? `<span>${t('খরচ ','Costs ')}<b>${hrMoney(cost)}</b></span><span>${t('মজুরি + খরচ ','Wages + costs ')}<b>${hrMoney(wage + cost)}</b></span>` : ''}${dirty ? `<span style="color:#d97706;">● ${dirty} ${t('টা সারি সেভ হয়নি','row(s) unsaved')}</span>` : ''}${st.newPageHeads ? `<span style="color:#b42318;font-weight:700;">⚠️ ${t('এই দিনের মজুরি নতুন "দৈনিক উৎপাদন" পেজেও আছে — এখানে দিলে দুবার উঠবে','This day also has wages on the new "Daily production" page — entering here counts them twice')}</span>` : ''}
       <span style="color:var(--text-muted);">✓ = ${t('আজ হাজিরায় P','present today')}</span><span style="color:var(--text-muted);">✎ ${t('টাকার ঘর হাতে বদলানো যায় (কমলা = হাতে লেখা)','Amounts can be edited (orange = typed)')}</span>`;
   }
 
@@ -4384,6 +4384,7 @@ async function renderDailyProductionPage(content) {
       const [att, heads] = await Promise.all([hrQueryRange('Attendance', 'Date', st.date, st.date), hrQueryRange('TeamProduction', 'WorkDate', st.date, st.date)]);
       st.present = {}; att.forEach(function (a) { if (HR_ATT_CODE[a.Status] === 'P') st.present[a.EmployeeID] = true; });
       const own = heads.filter(function (h) { return !h.ProcessingID && !h.DPLineID; });   // প্রোডাকশন → দৈনিক উৎপাদনের ২য় অংশের রেকর্ড এখানে নয়
+    st.newPageHeads = heads.filter(function (h) { return h.DPLineID; }).length;   // নতুন পেজে এই দিনের মজুরি — দুই জায়গায় দিলে বেতনে দুবার উঠবে
       if (own.length) {
         const ids = own.map(function (h) { return h.TeamProdID; });
         const [{ data: its }, { data: mems }, costRes] = await Promise.all([
@@ -4483,6 +4484,7 @@ async function renderDailyProductionPage(content) {
   });
 
   document.getElementById('dpgSave').addEventListener('click', async function () {
+    if (st.newPageHeads && !confirm(t('এই তারিখের মজুরি নতুন "দৈনিক উৎপাদন" পেজে (২য় অংশ) আগেই দেওয়া আছে। এখানেও দিলে সেলারী ভাউচারে একই মজুরি দুবার উঠবে। তবুও সেভ করবেন?', 'Wages for this date already exist on the new "Daily production" page. Saving here too will count them twice in the salary voucher. Save anyway?'))) return;
     const dirty = Object.keys(st.rows).filter(function (k) { return st.rows[k].dirty && !st.rows[k].locked; });
     if (!dirty.length && !st.bonusDirty) { showToast(t('সেভ করার মতো কোনো পরিবর্তন নেই।','Nothing to save.'), 'error'); return; }
     for (const b of st.bonus) {
@@ -4634,6 +4636,9 @@ async function renderPayrollPage(content) {
       .sv-list{margin-top:16px;border-top:1px solid var(--border);padding-top:10px;}
       .sv-li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px 4px;border-bottom:1px solid var(--border);font-size:13px;}
       .sv-li .meta{font-size:11.5px;color:var(--text-muted);} .sv-li .ic{display:flex;gap:6px;align-items:center;}
+      .sv-src{display:block;font-size:10.5px;color:var(--text-muted);} .sv-src.warn{color:#b45309;font-weight:700;}
+      .sv-tbl tr.dupw td{background:#fff3e0 !important;}
+      .sv-dupwarn{background:#fff3e0;border:1px solid #f0b46a;color:#7a4300;border-radius:8px;padding:9px 12px;font-size:12.5px;margin-bottom:10px;line-height:1.5;}
       .sv-li .ic button{width:34px;height:34px;border:1px solid var(--border);border-radius:8px;background:var(--surface);cursor:pointer;font-size:15px;padding:0;}
       .sv-badge{font-size:11px;padding:2px 8px;border-radius:10px;background:#fef3c7;color:#92400e;margin-left:6px;}
       @media (max-width:760px){
@@ -4696,10 +4701,16 @@ async function renderPayrollPage(content) {
   }
   function lineCellsDesktop(d, r, di, ri) {
     const manual = r.kind === 'manual', bonus = r.kind === 'bonus';
-    const item = manual ? `<select class="itm" data-di="${di}" data-ri="${ri}" data-f="itemId">${itemOptions(r.itemId)}</select>` : `<span>${escapeHtml(r.item)}</span>`;
+    const item = manual ? `<select class="itm" data-di="${di}" data-ri="${ri}" data-f="itemId">${itemOptions(r.itemId)}</select>` : `<span>${escapeHtml(r.item)}</span>${srcTag(r)}`;
     const qty = manual ? `<input type="number" step="any" min="0" class="num" data-di="${di}" data-ri="${ri}" data-f="qty" value="${attr(r.qty)}">` : (bonus || !r.qty ? '' : hrNum(r.qty));
     const rate = manual ? `<input type="number" step="any" min="0" class="num" data-di="${di}" data-ri="${ri}" data-f="rate" value="${attr(r.rate)}">` : (bonus || !r.rate ? '' : hrMoney(r.rate));
     return { item: item, qty: qty, rate: rate, wage: (bonus ? '' : `<span data-rw="${di}|${ri}">${hrMoney(rowWage(r))}</span>`) };
+  }
+  function srcTag(r) { return r.srcLbl ? `<small class="sv-src ${r.dupWarn ? 'warn' : ''}" title="${attr(r.dupWarn ? t('সম্ভাব্য ডবল এন্ট্রি', 'Possible double entry') : '')}">${r.dupWarn ? '⚠️ ' : ''}${escapeHtml(r.srcLbl)}</small>` : ''; }
+  function dupDays() { return st.days.filter(function (d) { return d.rows.some(function (r) { return r.dupWarn; }); }); }
+  function dupBanner() {
+    const ds = dupDays(); if (!ds.length) return '';
+    return `<div class="sv-dupwarn">⚠️ <b>${t('সম্ভাব্য ডবল এন্ট্রিঃ ', 'Possible double entry: ')}${ds.map(function (d) { return dd(d.date); }).join(', ')}</b> — ${t('এই দিনের মজুরি দুই জায়গা থেকে এসেছে (নতুন "দৈনিক উৎপাদন" আর পুরনো "দৈনিক উৎপাদন ও দল" পেজ), অথবা একই আইটেম ও কাজ দুবার। কমলা সারিগুলো দেখুন। যে পেজের এন্ট্রিটা ভুল, সেখানে ওই দিনের লাইন মুছে (বা কর্মচারী সরিয়ে) সেভ করুন, তারপর এই ভাউচার আবার খুলুন।', 'Wages for these days come from both the new and the old page, or the same item and job twice. Check the orange rows, remove the wrong entry on its page and reopen this voucher.')}</div>`;
   }
   function renderBody() {
     const body = document.getElementById('svBody');
@@ -4712,7 +4723,7 @@ async function renderPayrollPage(content) {
       return d.rows.map(function (r, ri) {
         const first = ri === 0, cells = lineCellsDesktop(d, r, di, ri);
         const rt = rowWage(r) + rowOther(r) + (first && d.hajOn ? (Number(d.haj) || 0) : 0);
-        return `<tr class="${first ? 'first' : ''} ${hrIsFriday(d.date) ? 'fri' : ''}">
+        return `<tr class="${first ? 'first' : ''} ${hrIsFriday(d.date) ? 'fri' : ''} ${r.dupWarn ? 'dupw' : ''}">
           <td class="l">${first ? dd(d.date) : ''}</td>
           <td class="l">${cells.item}</td><td>${cells.qty}</td><td>${cells.rate}</td><td>${cells.wage}</td>
           <td class="l">${first ? `<label class="sv-day"><input type="checkbox" data-di="${di}" data-f="hajOn" ${d.hajOn ? 'checked' : ''}>${dayName(d.date)}</label>${d.att ? `<span class="sv-att ${d.att}">${d.att}</span>` : ''}` : ''}</td>
@@ -4735,7 +4746,7 @@ async function renderPayrollPage(content) {
           return `<div class="sv-line">
             ${manual ? `<div class="mrow"><select data-di="${di}" data-ri="${ri}" data-f="itemId">${itemOptions(r.itemId)}</select><input type="number" step="any" min="0" placeholder="${t('কেজি','kg')}" data-di="${di}" data-ri="${ri}" data-f="qty" value="${attr(r.qty)}"><input type="number" step="any" min="0" placeholder="${t('দর','rate')}" data-di="${di}" data-ri="${ri}" data-f="rate" value="${attr(r.rate)}"></div>
                 <div class="calc" style="margin-top:4px;">${t('মুজুরী ','Wage ')}<span data-rw="${di}|${ri}">${hrMoney(rowWage(r))}</span></div>`
-              : `<div class="top"><span>${escapeHtml(r.item)}</span>${bonus ? '' : `<b>${hrMoney(rowWage(r))}</b>`}</div>${bonus || !r.qty ? '' : `<div class="calc">${hrNum(r.qty)} ${t('কেজি','kg')} × ${hrMoney(r.rate)}</div>`}`}
+              : `<div class="top"><span>${escapeHtml(r.item)}${srcTag(r)}</span>${bonus ? '' : `<b>${hrMoney(rowWage(r))}</b>`}</div>${bonus || !r.qty ? '' : `<div class="calc">${hrNum(r.qty)} ${t('কেজি','kg')} × ${hrMoney(r.rate)}</div>`}`}
             <div class="row2"><select data-di="${di}" data-ri="${ri}" data-f="head">${headOptions(r.head)}</select>
               <input type="number" step="any" min="0" placeholder="(৳)" data-di="${di}" data-ri="${ri}" data-f="oth" value="${attr(r.oth)}">
               <span style="display:flex;gap:4px;">${manual && d.rows.length > 1 ? `<button type="button" class="sv-x" data-del="${di}|${ri}" aria-label="${t('সারি মুছুন','Remove row')}">✕</button>` : ''}<button type="button" class="sv-plus" data-add="${di}|${ri}" aria-label="${t('সারি যোগ','Add row')}">+</button></span></div>
@@ -4743,7 +4754,7 @@ async function renderPayrollPage(content) {
         }).join('')}
       </div>`;
     }).join('');
-    body.innerHTML = `
+    body.innerHTML = `${dupBanner()}
       <div class="sv-tbl-wrap"><table class="sv-tbl"><thead><tr>
         <th class="l">${t('তারিখ','Date')}</th><th class="l">${t('আইটেম','Item')}</th><th>${t('পরিমান কেজি','Qty kg')}</th><th>${t('দর','Rate')}</th><th>${t('মুজুরী','Wage')}</th>
         <th class="l">${t('দিন','Day')}</th><th>${t('হাজিরা','Attendance')}</th><th class="l">${t('অন্যান্য','Other')}</th><th>(৳)</th><th>${t('মোট','Total')}</th><th></th></tr></thead>
@@ -4775,6 +4786,13 @@ async function renderPayrollPage(content) {
       hrQueryRange('DailyBonus', 'WorkDate', st.from, st.to).catch(function () { return []; })
     ]);
     let mems = [], tpi = [];
+    // প্রতিটা মজুরি-রেকর্ড কোথা থেকে — নতুন "দৈনিক উৎপাদন" (ক্রঃ সহ) নাকি পুরনো "দৈনিক উৎপাদন ও দল" পেজ
+    const srcOf = {};
+    tp.forEach(function (h) { srcOf[String(h.TeamProdID)] = h.DPLineID ? { k: 'dp', dp: h.DPLineID } : { k: 'old' }; });
+    const dpIds = tp.filter(function (h) { return h.DPLineID; }).map(function (h) { return h.DPLineID; });
+    if (dpIds.length) {
+      try { const dr = await supabaseClient.from('DailyProduction').select('id,SerialNo').in('id', dpIds); const sn = {}; ((dr && dr.data) || []).forEach(function (x) { sn[String(x.id)] = x.SerialNo; }); Object.keys(srcOf).forEach(function (k) { if (srcOf[k].k === 'dp') srcOf[k].sn = sn[String(srcOf[k].dp)]; }); } catch (e) {}
+    }
     if (tp.length) {
       const ids = tp.map(function (h) { return h.TeamProdID; });
       const [r1, r2] = await Promise.all([supabaseClient.from('TeamProduction_Members').select('*').in('TeamProdID', ids), supabaseClient.from('TeamProduction_Items').select('*').in('TeamProdID', ids)]);
@@ -4793,8 +4811,16 @@ async function renderPayrollPage(content) {
         r.memIds = [m.MemberID]; r.itemId = its.length === 1 ? its[0].ItemID : '';
         r.item = its.map(function (x) { return itemName[x.ItemID] || x.ItemID; }).join(', ') + (m.RoleID && gp.roleMap[m.RoleID] ? ' · ' + gp.roleMap[m.RoleID] : '');
         r.qty = its.reduce(function (s, x) { return s + (Number(x.Qty) || 0); }, 0); r.rate = Number(m.Rate) || 0; r.wage = Number(m.Amount) || 0;
+        const so = srcOf[String(m.TeamProdID)] || { k: 'old' };
+        r.src = so.k; r.srcLbl = so.k === 'dp' ? t('দৈনিক উৎপাদন', 'Daily production') + (so.sn ? t(' ক্রঃ ', ' line ') + so.sn : '') : t('পুরনো পেজ "দৈনিক উৎপাদন ও দল"', 'old "Daily production & team" page');
+        r.dupKey = its.map(function (x) { return x.ItemID; }).sort().join('+') + '|' + (m.RoleID || '');
         rows.push(r);
       });
+      // একই দিনে দুই জায়গার মজুরি, অথবা একই আইটেম+কাজ দুবার → সম্ভাব্য ডবল এন্ট্রি
+      const prod = rows.filter(function (r) { return r.kind === 'prod'; });
+      const mixed = prod.some(function (r) { return r.src === 'dp'; }) && prod.some(function (r) { return r.src === 'old'; });
+      const cnt = {}; prod.forEach(function (r) { cnt[r.dupKey] = (cnt[r.dupKey] || 0) + 1; });
+      prod.forEach(function (r) { r.dupWarn = mixed || cnt[r.dupKey] > 1; });
       bon.filter(function (b) { return b.EmployeeID === st.emp && !b.BilledIn && String(b.WorkDate).slice(0, 10) === d; }).forEach(function (b) {
         const r = newRow('bonus'); r.bonusIds = [b.BonusID]; r.item = t('বোনাস','Bonus') + (b.Note ? ' — ' + b.Note : '');
         r.head = bonusHead ? bonusHead.HeadID : ''; r.oth = Number(b.Amount) || 0; rows.push(r);
@@ -4837,6 +4863,7 @@ async function renderPayrollPage(content) {
   }
   async function save() {
     if (!st.emp) throw new Error(t('কর্মচারী বাছাই করুন।','Select an employee.'));
+    if (!st.id && dupDays().length && !confirm(t('সম্ভাব্য ডবল এন্ট্রি আছে (', 'Possible double entry (') + dupDays().map(function (d) { return dd(d.date); }).join(', ') + t(') — একই মজুরি দুবার উঠতে পারে। তবুও সেভ করবেন?', ') — the same wage may be counted twice. Save anyway?'))) throw new Error(t('সেভ বাতিল — ডবল এন্ট্রি আগে ঠিক করুন।', 'Save cancelled — fix the double entry first.'));
     if (st.from > st.to) throw new Error(t('তারিখ রেঞ্জ ঠিক নেই।','Invalid date range.'));
     for (const d of st.days) for (const r of d.rows) {
       if (r.kind === 'manual' && (Number(r.qty) || 0) > 0 && !(Number(r.rate) > 0)) throw new Error(dd(d.date) + t(' — বাড়তি সারির দর লিখুন।',' — enter the rate.'));
@@ -6116,7 +6143,7 @@ async function renderProdDailyPage(content) {
     const all = st.lines, tw = all.reduce(function (s, L) { return s + lineWage(L); }, 0), tc = all.reduce(function (s, L) { return s + lineCost(L); }, 0);
     const dirty = all.filter(function (L) { return team(L).dirty; }).length, noWho = all.filter(function (L) { return L.id && !roles.some(function (ro) { return team(L).who[ro.RoleID]; }); }).length;
     $('pdlSum').innerHTML = `<span>${t('লাইন', 'Lines')} <b>${all.length}</b></span><span>${t('মজুরি', 'Wages')} <b>${hrMoney(tw)}</b></span><span>${t('খরচ', 'Costs')} <b>${hrMoney(tc)}</b></span><span>${t('মোট', 'Total')} <b>${hrMoney(tw + tc)}</b></span>
-      <span style="color:var(--text-muted);">✓ = ${t('ওই দিন হাজিরায় P', 'present that day')}</span>${noWho ? `<span style="color:var(--text-muted);">${noWho} ${t('লাইনে এখনো কর্মচারী বাছাই হয়নি', 'line(s) without workers yet')}</span>` : ''}${dirty ? `<span style="color:#d97706;">● ${dirty} ${t('লাইন সেভ হয়নি', 'line(s) unsaved')}</span>` : ''}`;
+      <span style="color:var(--text-muted);">✓ = ${t('ওই দিন হাজিরায় P', 'present that day')}</span>${noWho ? `<span style="color:var(--text-muted);">${noWho} ${t('লাইনে এখনো কর্মচারী বাছাই হয়নি', 'line(s) without workers yet')}</span>` : ''}${dirty ? `<span style="color:#d97706;">● ${dirty} ${t('লাইন সেভ হয়নি', 'line(s) unsaved')}</span>` : ''}${Object.keys(st.oldDates || {}).length ? `<span style="color:#b42318;font-weight:700;">⚠️ ${t('পুরনো "দৈনিক উৎপাদন ও দল" পেজেও মজুরি আছেঃ ', 'Old page also has wages on: ')}${Object.keys(st.oldDates).sort().map(formatShortDate).join(', ')} — ${t('দুই জায়গায় দিলে দুবার উঠবে', 'entering both counts twice')}</span>` : ''}`;
     const foot = $('pdlFoot'); if (foot) foot.innerHTML = `<tr><td class="sl">${t('মোট', 'Total')}</td>${teamSumCells(st.lines)}</tr>`;
   }
   function renderTeam() {
@@ -6138,7 +6165,11 @@ async function renderProdDailyPage(content) {
   }
   function refreshTeamRow(L) { const tr = $('pdlWrap').querySelector(`tr[data-tk="${L.key}"]`); if (tr) tr.outerHTML = teamRowHtml(L); renderTeamSum(); }
   async function loadTeam() {
-    st.team = {}; st.present = {}; st.teamErr = '';
+    st.team = {}; st.present = {}; st.teamErr = ''; st.oldDates = {};
+    try {   // পুরনো "দৈনিক উৎপাদন ও দল" পেজে এই তারিখগুলোর মজুরি — দুই জায়গায় দিলে বেতনে দুবার উঠবে
+      const oh = await hrQueryRange('TeamProduction', 'WorkDate', st.from, st.to);
+      oh.filter(function (h) { return !h.DPLineID && !h.ProcessingID; }).forEach(function (h) { st.oldDates[String(h.WorkDate).slice(0, 10)] = true; });
+    } catch (e) {}
     try {
       const att = await hrQueryRange('Attendance', 'Date', st.from, st.to);
       att.forEach(function (a) { if (HR_ATT_CODE[a.Status] === 'P') { const d = String(a.Date).slice(0, 10); (st.present[d] = st.present[d] || {})[a.EmployeeID] = true; } });
@@ -6172,6 +6203,8 @@ async function renderProdDailyPage(content) {
   async function saveTeam(keys, quiet) {
     const list = st.lines.filter(function (L) { return (!keys || keys.indexOf(L.key) !== -1) && team(L).dirty && !team(L).locked; });
     if (!list.length) { if (!quiet) showToast(t('সেভ করার মতো কোনো পরিবর্তন নেই।', 'Nothing to save.'), 'success'); return; }
+    const clash = Array.from(new Set(list.filter(function (L) { return (st.oldDates || {})[L.date] && roles.some(function (ro) { return team(L).who[ro.RoleID]; }); }).map(function (L) { return formatShortDate(L.date); })));
+    if (clash.length && !quiet && !confirm(t('এই তারিখে (', 'On these dates (') + clash.join(', ') + t(') পুরনো "দৈনিক উৎপাদন ও দল" পেজেও মজুরি দেওয়া আছে। এখানেও দিলে সেলারী ভাউচারে একই মজুরি দুবার উঠবে। তবুও সেভ করবেন?', ') wages also exist on the old "Daily production & team" page. Saving here too counts them twice. Save anyway?'))) return;
     for (const L of list) {
       const T = team(L), lbl = formatShortDate(L.date) + t(' — ক্রঃ ', ' — line ') + L.serial;
       if (!L.id) { showToast(lbl + t(': ১ম অংশে (দৈনিক উৎপাদন) লাইনটা আগে সেভ করুন।', ': save this line in part 1 first.'), 'error'); return; }
