@@ -461,7 +461,7 @@ const MODULES = [
   {key:'hr', bn:'এইচআর ও পে-রোল', en:'HR & Payroll', sub:[
     {key:'empCategories', bn:'কর্মচারীর ধরন', en:'Employee Types'},{key:'empInfo', bn:'কর্মচারী তথ্য', en:'Employee Info'},
     {key:'workRoles', bn:'দরের কলাম', en:'Rate Columns'},{key:'sizeRates', bn:'সাইজ অনুযায়ী মজুরি দর', en:'Size Wage Rates'},{key:'attendance', bn:'হাজিরা', en:'Attendance'},
-    {key:'dailyProduction', bn:'দৈনিক উৎপাদন ও দল', en:'Daily Production & Team'},{key:'leave', bn:'ছুটি ব্যবস্থাপনা', en:'Leave Management'},
+    {key:'leave', bn:'ছুটি ব্যবস্থাপনা', en:'Leave Management'},
     {key:'payroll', bn:'সেলারী ভাউচার', en:'Salary Voucher'},{key:'salaryIssue', bn:'সেলারী ইস্যু', en:'Salary Issue'},{key:'payHeads', bn:'অন্যান্য খাত (বেতন)', en:'Pay Heads'},{key:'hrReports', bn:'বেতন ও উৎপাদন রিপোর্ট', en:'Salary & Production Reports'},
   ]},
   {key:'reports', bn:'রিপোর্ট', en:'Reports', sub:[
@@ -579,6 +579,19 @@ async function api(action, payload) {
  *  পরিবর্তন বসিয়ে দেয়। kgDelta/piecesDelta পজিটিভ হলে স্টক বাড়বে,
  *  নেগেটিভ হলে কমবে। এটাই সব ধরনের স্টক-মুভমেন্টের একমাত্র কেন্দ্রবিন্দু —
  *  যাতে CurrentStock ও StockLedger কখনো একে অপরের থেকে আলাদা (out of sync) না হয়ে যায়। */
+/** শুধু current_stock বদলায় (লেজারে সারি নয়) — ভাউচার ডিলিট/এডিটে স্টক ফেরতের জন্য */
+async function adjustCurrentStock(itemId, warehouseId, kgDelta, piecesDelta) {
+  if (!itemId || !warehouseId) return;
+  kgDelta = Number(kgDelta) || 0; piecesDelta = Number(piecesDelta) || 0;
+  const { data: ex } = await supabaseClient.from('current_stock').select('*').eq('ItemID', itemId).eq('WarehouseID', warehouseId).maybeSingle();
+  if (ex) {
+    const { error } = await supabaseClient.from('current_stock').update({ QtyOnHand: (Number(ex.QtyOnHand) || 0) + kgDelta, QtyPieces: (Number(ex.QtyPieces) || 0) + piecesDelta }).eq('ItemID', itemId).eq('WarehouseID', warehouseId);
+    if (error) throw new Error(error.message);
+  } else {
+    const { error } = await supabaseClient.from('current_stock').insert({ ItemID: itemId, WarehouseID: warehouseId, QtyOnHand: kgDelta, QtyPieces: piecesDelta });
+    if (error) throw new Error(error.message);
+  }
+}
 async function postStockMovement(itemId, warehouseId, date, transactionType, refModule, refId, kgDelta, piecesDelta) {
   if (!itemId || !warehouseId) throw new Error('আইটেম বা গুদাম উল্লেখ করা নেই — স্টক পোস্ট করা যায়নি।');
   kgDelta = Number(kgDelta) || 0;
@@ -662,7 +675,7 @@ async function runPostingLogic(docType, header, docId) {
     const { data: lines, error } = await supabaseClient.from('PI_Lines').select('*').eq('PIID', docId);
     if (error) throw new Error(error.message);
     for (const line of (lines || [])) {
-      await postStockMovement(line.ItemID, header.WarehouseID, header.InvoiceDate || today, 'PurchaseInvoice', 'PurchaseInvoice', docId, Number(line.Quantity) || 0, 0);
+      await postSalesStock(line.ItemID, header.WarehouseID, header.InvoiceDate || today, 'PurchaseInvoice', 'PurchaseInvoice', docId, line.Quantity, 1);   // পিসের আইটেমে পিসের ঘরে
     }
     if (header.SupplierID === 'SUP-CASH') {
       // নগদ ক্রয় — কোনো দেনা তৈরি হবে না, সরাসরি ক্যাশ অ্যাকাউন্ট থেকে টাকা বের হয়ে যাবে
@@ -696,7 +709,7 @@ async function runPostingLogic(docType, header, docId) {
     if (error) throw new Error(error.message);
     let returnTotal = 0;
     for (const line of (lines || [])) {
-      await postStockMovement(line.ItemID, warehouseId, header.Date || today, 'PurchaseReturn', 'PurchaseReturn', docId, -(Number(line.Quantity) || 0), 0);
+      await postSalesStock(line.ItemID, warehouseId, header.Date || today, 'PurchaseReturn', 'PurchaseReturn', docId, line.Quantity, -1);
       returnTotal += (Number(line.Quantity) || 0) * (Number(line.Rate) || 0);
     }
     if (header.SupplierID === 'SUP-CASH') {
@@ -713,7 +726,7 @@ async function runPostingLogic(docType, header, docId) {
     const { data: lines, error } = await supabaseClient.from('MI_Lines').select('*').eq('MIID', docId);
     if (error) throw new Error(error.message);
     for (const line of (lines || [])) {
-      await postStockMovement(line.ItemID, header.WarehouseID, header.Date || today, 'MaterialIssue', 'MaterialIssue', docId, -(Number(line.Quantity) || 0), 0);
+      await postSalesStock(line.ItemID, header.WarehouseID, header.Date || today, 'MaterialIssue', 'MaterialIssue', docId, line.Quantity, -1);
     }
     return;
   }
@@ -724,8 +737,10 @@ async function runPostingLogic(docType, header, docId) {
     if (error) throw new Error(error.message);
     for (const line of (lines || [])) {
       const qty = Number(line.Quantity) || 0;
-      await postStockMovement(line.ItemID, header.FromWarehouseID, header.Date || today, 'StockTransfer-Out', 'StockTransfer', docId, -qty, 0);
-      await postStockMovement(line.ItemID, header.ToWarehouseID, header.Date || today, 'StockTransfer-In', 'StockTransfer', docId, qty, 0);
+      const trPiece = await itemIsPiece(line.ItemID);   // পিসের আইটেমঃ পিস আর (পিস × উৎস-গুদামের গড় ওজন) কেজি দুটোই সরে
+      const trKg = trPiece ? qty * (await avgKgPerPiece(line.ItemID, header.FromWarehouseID)) : qty, trPc = trPiece ? qty : 0;
+      await postStockMovement(line.ItemID, header.FromWarehouseID, header.Date || today, 'StockTransfer-Out', 'StockTransfer', docId, -trKg, -trPc);
+      await postStockMovement(line.ItemID, header.ToWarehouseID, header.Date || today, 'StockTransfer-In', 'StockTransfer', docId, trKg, trPc);
     }
     return;
   }
@@ -735,7 +750,7 @@ async function runPostingLogic(docType, header, docId) {
     const { data: lines, error } = await supabaseClient.from('Adjustment_Lines').select('*').eq('AdjID', docId);
     if (error) throw new Error(error.message);
     for (const line of (lines || [])) {
-      await postStockMovement(line.ItemID, header.WarehouseID, header.Date || today, 'StockAdjustment', 'StockAdjustment', docId, Number(line.QtyChange) || 0, 0);
+      await postSalesStock(line.ItemID, header.WarehouseID, header.Date || today, 'StockAdjustment', 'StockAdjustment', docId, Math.abs(Number(line.QtyChange) || 0), (Number(line.QtyChange) || 0) < 0 ? -1 : 1);
     }
     return;
   }
@@ -806,9 +821,13 @@ async function runPostingLogic(docType, header, docId) {
     await postStockMovement(header.RawMaterialItemID, header.WarehouseID, header.Date || today, 'ProcessingVoucher-RM', 'ProcessingVoucher', docId, -(Number(header.RawMaterialQty) || 0), 0);
     // বাই-প্রডাক্ট (ভাঙারি/কাটিং) — স্টকে যোগ হবে
     const { data: byProducts } = await supabaseClient.from('ProcessingByProduct_Lines').select('*').eq('ProcessingID', docId);
+    const bpItems = await cachedList('Items');
     for (const bp of (byProducts || [])) {
-      if (bp.ItemID) {
-        await postStockMovement(bp.ItemID, header.WarehouseID, header.Date || today, 'ProcessingVoucher-ByProduct', 'ProcessingVoucher', docId, Number(bp.Quantity) || 0, 0);
+      // আইটেম বাছাই না থাকলে একই নামের আইটেম (যেমন "কাটিং", "ভাঙ্গাড়ী", "অপচয়") — তাতে স্টকে যোগ
+      let bpItem = bp.ItemID;
+      if (!bpItem && bp.ByProductName) { const nm = String(bp.ByProductName).trim(); const hit = bpItems.find(function (i) { return i.Status !== 'Deleted' && String(i.ItemName || '').trim() === nm; }); if (hit) bpItem = hit.ItemID; }
+      if (bpItem && (Number(bp.Quantity) || 0) > 0) {
+        await postStockMovement(bpItem, header.WarehouseID, header.Date || today, 'ProcessingVoucher-ByProduct', 'ProcessingVoucher', docId, Number(bp.Quantity) || 0, 0);
       }
     }
     // প্রস্তুত পণ্য — প্রতিটা লাইন নিজ নিজ আইটেমে, কেজি ও পিস দুটোই স্টকে যোগ হবে
@@ -867,11 +886,13 @@ async function runPostingLogic(docType, header, docId) {
 async function reversePostedDocumentStock(docType, docId) {
   const nowDate = new Date().toISOString().slice(0,10);
 
+  // স্টক ফেরতঃ এই ভাউচারের লেজার-সারিগুলো মুছে current_stock সমন্বয় — আলাদা "উল্টো সারি" বসানো হয় না।
+  // (আগে উল্টো সারি বসিয়ে আসলটা মুছে ফেলা হতো; লেজারে শুধু মাইনাস সারি থেকে যেত আর স্টক ওভারভিউ মাইনাস দেখাত)
   const { data: entries } = await supabaseClient.from('stock_ledger').select('*').eq('RefModule', docType).eq('RefID', docId);
   for (const e of (entries || [])) {
     const kgDelta = (Number(e.QtyOut) || 0) - (Number(e.QtyIn) || 0);
     const piecesDelta = (Number(e.PiecesOut) || 0) - (Number(e.PiecesIn) || 0);
-    await postStockMovement(e.ItemID, e.WarehouseID, nowDate, docType + '-Reversal', docType + '-Reversal', docId, kgDelta, piecesDelta);
+    await adjustCurrentStock(e.ItemID, e.WarehouseID, kgDelta, piecesDelta);
   }
   await supabaseClient.from('stock_ledger').delete().eq('RefModule', docType).eq('RefID', docId);
 
@@ -1051,7 +1072,7 @@ async function runSupabaseAction(action, p) {
     }
 
     case 'postOpeningStock': {
-      await postStockMovement(p.itemId, p.warehouseId, new Date().toISOString().slice(0,10), 'Opening', 'Items', p.itemId, p.quantity, 0);
+      await postSalesStock(p.itemId, p.warehouseId, new Date().toISOString().slice(0,10), 'Opening', 'Items', p.itemId, p.quantity, 1);
       return {};
     }
 
@@ -1329,7 +1350,7 @@ async function navigateTo(pageKey, moduleLabel, pageLabel) {
     else if (pageKey === 'payslip') await renderPayrollPage(content);
     else if (pageKey === 'salaryIssue') await renderSalaryIssuePage(content);
     else if (pageKey === 'hrReports') await renderHrReportsPage(content);
-    else if (pageKey === 'dailyProduction') await renderDailyProductionPage(content);
+    else if (pageKey === 'dailyProduction') await renderProdDailyPage(content);   // পুরনো "দৈনিক উৎপাদন ও দল" বাদ — এখন প্রোডাকশন → দৈনিক উৎপাদনের ২য় অংশ
     else if (pageKey === 'sizeRates') await renderSizeRatesPage(content);
     else if (pageKey === 'invReport') await renderInventoryReport(content);
     else if (pageKey === 'salesReport') await renderSalesReport(content);
@@ -4707,10 +4728,31 @@ async function renderPayrollPage(content) {
     return { item: item, qty: qty, rate: rate, wage: (bonus ? '' : `<span data-rw="${di}|${ri}">${hrMoney(rowWage(r))}</span>`) };
   }
   function srcTag(r) { return r.srcLbl ? `<small class="sv-src ${r.dupWarn ? 'warn' : ''}" title="${attr(r.dupWarn ? t('সম্ভাব্য ডবল এন্ট্রি', 'Possible double entry') : '')}">${r.dupWarn ? '⚠️ ' : ''}${escapeHtml(r.srcLbl)}</small>` : ''; }
+  function oldDupRows() { const out = []; st.days.forEach(function (d) { d.rows.forEach(function (r) { if (r.dupWarn && r.src === 'old' && r.memIds && r.memIds.length) out.push(r); }); }); return out; }
+  async function delOldDups() {   // পুরনো পেজের ডবল মজুরি মোছা — রেকর্ড খালি হলে রেকর্ডটাও
+    const rows = oldDupRows(); if (!rows.length) return;
+    const sum = rows.reduce(function (s, r) { return s + (Number(r.wage) || 0); }, 0);
+    if (!confirm(t('পুরনো পেজের ', 'Delete ') + rows.length + t('টা ডবল সারি (মোট ৳', ' old-page duplicate rows (total ৳') + hrMoney(sum) + t(') মুছে ফেলবেন? শুধু এই কর্মচারীর; নতুন "দৈনিক উৎপাদন" পেজের এন্ট্রি থাকবে।', ')? Only this employee’s; new page entries stay.'))) return;
+    try {
+      const memIds = [].concat.apply([], rows.map(function (r) { return r.memIds; }));
+      const { data: ms } = await supabaseClient.from('TeamProduction_Members').select('MemberID,TeamProdID').in('MemberID', memIds);
+      const tps = Array.from(new Set((ms || []).map(function (m) { return m.TeamProdID; })));
+      const { error } = await supabaseClient.from('TeamProduction_Members').delete().in('MemberID', memIds);
+      if (error) throw new Error(error.message);
+      for (const tp of tps) {
+        const { data: left } = await supabaseClient.from('TeamProduction_Members').select('MemberID').eq('TeamProdID', tp);
+        if (!left || !left.length) { try { await supabaseClient.from('TeamProduction_Costs').delete().eq('TeamProdID', tp); } catch (e) {} await supabaseClient.from('TeamProduction_Items').delete().eq('TeamProdID', tp); await supabaseClient.from('TeamProduction').delete().eq('TeamProdID', tp); }
+      }
+      showToast(t('পুরনো পেজের ডবল সারি মুছে ফেলা হয়েছে ✅', 'Old-page duplicates deleted ✅'), 'success');
+      await loadFresh();
+    } catch (err) { showToast(err.message, 'error'); }
+  }
   function dupDays() { return st.days.filter(function (d) { return d.rows.some(function (r) { return r.dupWarn; }); }); }
   function dupBanner() {
     const ds = dupDays(); if (!ds.length) return '';
-    return `<div class="sv-dupwarn">⚠️ <b>${t('সম্ভাব্য ডবল এন্ট্রিঃ ', 'Possible double entry: ')}${ds.map(function (d) { return dd(d.date); }).join(', ')}</b> — ${t('এই দিনের মজুরি দুই জায়গা থেকে এসেছে (নতুন "দৈনিক উৎপাদন" আর পুরনো "দৈনিক উৎপাদন ও দল" পেজ), অথবা একই আইটেম ও কাজ দুবার। কমলা সারিগুলো দেখুন। যে পেজের এন্ট্রিটা ভুল, সেখানে ওই দিনের লাইন মুছে (বা কর্মচারী সরিয়ে) সেভ করুন, তারপর এই ভাউচার আবার খুলুন।', 'Wages for these days come from both the new and the old page, or the same item and job twice. Check the orange rows, remove the wrong entry on its page and reopen this voucher.')}</div>`;
+    const oldN = oldDupRows().length;
+    return `<div class="sv-dupwarn">⚠️ <b>${t('সম্ভাব্য ডবল এন্ট্রিঃ ', 'Possible double entry: ')}${ds.map(function (d) { return dd(d.date); }).join(', ')}</b> — ${t('এই দিনের মজুরি দুই জায়গা থেকে এসেছে (নতুন "দৈনিক উৎপাদন" আর পুরনো, এখন বাদ দেওয়া "দৈনিক উৎপাদন ও দল" পেজ), অথবা একই আইটেম ও কাজ দুবার। কমলা সারিগুলো দেখুন।', 'Wages for these days come from both the new page and the removed old page, or the same item and job twice. Check the orange rows.')}
+      ${oldN ? `<div style="margin-top:7px;"><button type="button" class="btn btn-outline" id="svDelOldDup" style="width:auto;color:#b42318;border-color:#e8a29b;">🗑️ ${t('পুরনো পেজের ডবল সারিগুলো মুছুন', 'Delete the old-page duplicate rows')} (${oldN})</button> <span style="font-size:11.5px;">${t('— শুধু এই কর্মচারীর পুরনো পেজের কমলা সারি; নতুন "দৈনিক উৎপাদন"-এর এন্ট্রি থাকবে। নতুনটা ভুল হলে প্রোডাকশন → দৈনিক উৎপাদন → ২য় অংশে ঠিক করুন।', '— only this employee’s old-page orange rows; the new page entries stay.')}</span></div>` : ''}</div>`;
   }
   function renderBody() {
     const body = document.getElementById('svBody');
@@ -5117,6 +5159,7 @@ async function renderPayrollPage(content) {
     try {
       if (b.id === 'svSave') { b.disabled = true; await save(); showToast(t('সেলারী ভাউচার সেভ হয়েছে ✅ ','Salary voucher saved ✅ ') + st.no, 'success'); renderBody(); await renderList(); }
       else if (b.id === 'svView') await printVoucher();
+      else if (b.id === 'svDelOldDup') await delOldDups();
       else if (b.id === 'svDel') await del();
       else if (b.id === 'svNew') { if (!guard()) return; st.emp = ''; document.getElementById('svEmp').value = ''; showEmpInfo(); await loadFresh(); }
     } catch (err) { showToast(err.message, 'error'); }
@@ -5672,7 +5715,7 @@ async function renderHrReportsPage(content) {
       return;
     }
     if (kind === 'pi' || kind === 'pe') {
-      if (act === 'edit') { window.__dpgOpen = { date: st.pTo }; await navigateTo('dailyProduction', HR_MOD(), t('দৈনিক উৎপাদন ও দল','Daily Production & Team')); return; }
+      if (act === 'edit') { window.__dpgOpen = { date: st.pTo }; await navigateTo('prodDaily', t('প্রোডাকশন','Production'), t('দৈনিক উৎপাদন','Daily Production')); return; }
       await prodDetails(kind, id, act === 'pdf');
     }
   }
@@ -5711,7 +5754,7 @@ async function renderHrReportsPage(content) {
     const mb = document.getElementById('modalBody');
     mb.addEventListener('click', async function (ev) {
       const e = ev.target.closest('[data-pde]'), d = ev.target.closest('[data-pdd]');
-      if (e) { closeModal(); window.__dpgOpen = { date: e.dataset.pde }; await navigateTo('dailyProduction', HR_MOD(), t('দৈনিক উৎপাদন ও দল','Daily Production & Team')); }
+      if (e) { closeModal(); window.__dpgOpen = { date: e.dataset.pde }; await navigateTo('prodDaily', t('প্রোডাকশন','Production'), t('দৈনিক উৎপাদন','Daily Production')); }
       else if (d && !d.disabled) {
         if (!confirm(t('এই উৎপাদন এন্ট্রি (ওই দিনের ওই আইটেমের সব কাজ) ডিলিট করবেন?','Delete this production entry?'))) return;
         const tp = d.dataset.pdd;
@@ -6143,7 +6186,7 @@ async function renderProdDailyPage(content) {
     const all = st.lines, tw = all.reduce(function (s, L) { return s + lineWage(L); }, 0), tc = all.reduce(function (s, L) { return s + lineCost(L); }, 0);
     const dirty = all.filter(function (L) { return team(L).dirty; }).length, noWho = all.filter(function (L) { return L.id && !roles.some(function (ro) { return team(L).who[ro.RoleID]; }); }).length;
     $('pdlSum').innerHTML = `<span>${t('লাইন', 'Lines')} <b>${all.length}</b></span><span>${t('মজুরি', 'Wages')} <b>${hrMoney(tw)}</b></span><span>${t('খরচ', 'Costs')} <b>${hrMoney(tc)}</b></span><span>${t('মোট', 'Total')} <b>${hrMoney(tw + tc)}</b></span>
-      <span style="color:var(--text-muted);">✓ = ${t('ওই দিন হাজিরায় P', 'present that day')}</span>${noWho ? `<span style="color:var(--text-muted);">${noWho} ${t('লাইনে এখনো কর্মচারী বাছাই হয়নি', 'line(s) without workers yet')}</span>` : ''}${dirty ? `<span style="color:#d97706;">● ${dirty} ${t('লাইন সেভ হয়নি', 'line(s) unsaved')}</span>` : ''}${Object.keys(st.oldDates || {}).length ? `<span style="color:#b42318;font-weight:700;">⚠️ ${t('পুরনো "দৈনিক উৎপাদন ও দল" পেজেও মজুরি আছেঃ ', 'Old page also has wages on: ')}${Object.keys(st.oldDates).sort().map(formatShortDate).join(', ')} — ${t('দুই জায়গায় দিলে দুবার উঠবে', 'entering both counts twice')}</span>` : ''}`;
+      <span style="color:var(--text-muted);">✓ = ${t('ওই দিন হাজিরায় P', 'present that day')}</span>${noWho ? `<span style="color:var(--text-muted);">${noWho} ${t('লাইনে এখনো কর্মচারী বাছাই হয়নি', 'line(s) without workers yet')}</span>` : ''}${dirty ? `<span style="color:#d97706;">● ${dirty} ${t('লাইন সেভ হয়নি', 'line(s) unsaved')}</span>` : ''}${Object.keys(st.oldDates || {}).length ? `<span style="color:#b42318;font-weight:700;">⚠️ ${t('পুরনো (বাদ দেওয়া) "দৈনিক উৎপাদন ও দল" পেজের মজুরিও আছেঃ ', 'The removed old page also has wages on: ')}${Object.keys(st.oldDates).sort().map(formatShortDate).join(', ')} — ${t('এখানেও দিলে দুবার উঠবে; ডবল হলে সেলারী ভাউচারের সতর্কবার্তা থেকে পুরনো সারি মুছুন', 'entering here too counts twice; remove the old rows from the salary voucher warning')}</span>` : ''}`;
     const foot = $('pdlFoot'); if (foot) foot.innerHTML = `<tr><td class="sl">${t('মোট', 'Total')}</td>${teamSumCells(st.lines)}</tr>`;
   }
   function renderTeam() {
@@ -6485,7 +6528,10 @@ async function renderProdDailyPage(content) {
     });
   });
   wireSequentialKeyNav(wrap);
+  const dpgPre = window.__dpgOpen; window.__dpgOpen = null;   // রিপোর্ট থেকে "এই দিনের উৎপাদন" — সেই তারিখ, ২য় অংশ
+  if (dpgPre && dpgPre.date) { st.date = st.from = st.to = String(dpgPre.date).slice(0, 10); $('pdlDate').value = $('pdlFrom').value = $('pdlTo').value = st.date; }
   await load();
+  if (dpgPre && dpgPre.date) { const tb = document.querySelector('.pdl-vbtn[data-view="team"]'); if (tb) tb.click(); }
 }
 
 /* ============================================================
@@ -6933,7 +6979,7 @@ async function renderProcCostingPage(content) {
     if (!fg.length) { showToast(t('অন্তত একটা প্রস্তুত পণ্য লাইন দিন।', 'Add at least one finished line.'), 'error'); return; }
     const w = netW(), v = netV(), fk = fg.reduce(function (s, l) { return s + l.kg; }, 0), fv = fg.reduce(function (s, l) { return s + l.value; }, 0), pcs = fg.reduce(function (s, l) { return s + l.pcs; }, 0);
     if ((Math.abs(w - fk) > 0.0005 || Math.abs(v - fv) > 0.5) && !confirm(t('প্রস্তুত পণ্যের মোট নীট ওজন/মূল্যের সাথে মিলছে না। তবুও সেভ করবেন?', 'Finished totals do not match net weight/value. Save anyway?'))) return;
-    const bpl = st.bp.filter(function (b) { return n(b.qty) > 0; }).map(function (b) { return { ByProductName: b.name || '', ItemID: null, Quantity: n(b.qty), Rate: n(b.rate), Value: n(b.qty) * n(b.rate) }; });
+    const bpl = st.bp.filter(function (b) { return n(b.qty) > 0; }).map(function (b) { return { ByProductName: b.name || '', ItemID: ((items.find(function (i) { return String(i.ItemName || '').trim() === String(b.name || '').trim(); }) || {}).ItemID) || null, Quantity: n(b.qty), Rate: n(b.rate), Value: n(b.qty) * n(b.rate) }; });
     const saleKg = n(gv('pc_SaleKg')), salePc = n(gv('pc_SalePc'));
     const header = {
       Date: gv('pc_Date') || today, RawMaterialItemID: raw, WarehouseID: wh,
@@ -10243,213 +10289,174 @@ async function postDocumentRecord(docType, docId) {
 /* ============================================================
    ১৩.৫) ইনভেন্টরি — Stock Overview, Stock Ledger, Party Ledger
    ============================================================ */
-async function renderStockOverview(content) {
-  const [items, warehouses, units, ledger] = await Promise.all([
-    cachedList('Items'), cachedList('Warehouses'), cachedList('UOM'), api('list', { sheet:'StockLedger' })
-  ]);
+/* ============================================================
+   স্টক ওভারভিউ — ইন / আউট / ব্যালান্স, প্রতিটায় কেজি · পিস · দর/কেজি · দর/পিস · মূল্য
+   • কেজি ও পিস দুটোই আলাদা হিসাব (লেজারের QtyIn/QtyOut = কেজি, PiecesIn/PiecesOut = পিস)
+   • "মূল একক" = যে এককে আইটেম কেনা-বেচা হয় (আইটেমের একক); মূল্য সেই এককের দরে, ঘরে মোটা করে দেখানো
+   • দরঃ সর্বশেষ পোস্ট করা প্রসেসিং (প্রস্তুত পণ্যের কেজি-দর ও পিস-দর) → না থাকলে সর্বশেষ পোস্ট করা ক্রয় → না থাকলে স্ট্যান্ডার্ড কস্ট;
+     একটা দর না থাকলে গড় ওজন (কেজি ÷ পিস) দিয়ে অন্যটা থেকে
+   • মাইনাস ব্যালান্স লাল; পোস্ট না করা ক্রয় চালান/প্রসেসিং থাকলে উপরে সতর্কবার্তা
+   ============================================================ */
+async function stockOverviewData() {
+  const [items, warehouses, units, ledger] = await Promise.all([cachedList('Items'), cachedList('Warehouses'), cachedList('UOM'), api('list', { sheet: 'StockLedger' })]);
+  const safe = async function (q) { try { const r = await q; return (r && !r.error && r.data) || []; } catch (e) { return []; } };
+  const [fg, pv, pil, pih] = await Promise.all([
+    safe(supabaseClient.from('ProcessingFG_Lines').select('*')), safe(supabaseClient.from('ProcessingVoucher').select('ProcessingID,Date,Status')),
+    safe(supabaseClient.from('PI_Lines').select('*')), safe(supabaseClient.from('PurchaseInvoice').select('PIID,InvoiceDate,Status'))]);
   const itemMap = {}; items.forEach(function (i) { itemMap[i.ItemID] = i; });
   const whMap = {}; warehouses.forEach(function (w) { whMap[w.WarehouseID] = w.WarehouseName; });
+  const pvMap = {}; pv.forEach(function (h) { pvMap[h.ProcessingID] = h; });
+  const piMap = {}; pih.forEach(function (h) { piMap[h.PIID] = h; });
+  const rates = {};   // ItemID → { kg, pc, src }
+  fg.filter(function (l) { const h = pvMap[l.ProcessingID]; return h && h.Status === 'Posted'; })
+    .sort(function (a, b) { return String(pvMap[a.ProcessingID].Date).localeCompare(String(pvMap[b.ProcessingID].Date)); })
+    .forEach(function (l) { rates[l.ItemID] = { kg: Number(l.RatePerKg) || 0, pc: Number(l.RatePerPc) || 0, src: t('প্রসেসিং', 'processing') }; });
+  pil.filter(function (l) { const h = piMap[l.PIID]; return h && h.Status === 'Posted' && Number(l.Quantity) > 0 && !rates[l.ItemID]; })
+    .sort(function (a, b) { return String(piMap[a.PIID].InvoiceDate).localeCompare(String(piMap[b.PIID].InvoiceDate)); })
+    .forEach(function (l) {
+      const val = (l.NetAmount !== null && l.NetAmount !== undefined && l.NetAmount !== '') ? Number(l.NetAmount) : (l.Amount !== null && l.Amount !== undefined && l.Amount !== '') ? Number(l.Amount) : Number(l.Quantity) * Number(l.Rate);
+      const r = (Number(val) || 0) / Number(l.Quantity), piece = isPieceUOM((itemMap[l.ItemID] || {}).UOMID, units);
+      rates['__pi__' + l.ItemID] = { kg: piece ? 0 : r, pc: piece ? r : 0, src: t('ক্রয়', 'purchase') };
+    });
+  const drafts = { pi: pih.filter(function (h) { return h.Status === 'Draft'; }).length, pv: pv.filter(function (h) { return h.Status === 'Draft'; }).length };
+  return { items: items, units: units, ledger: ledger, itemMap: itemMap, whMap: whMap, rates: rates, drafts: drafts };
+}
+function stockOverviewRows(D, fromDate, toDate) {
+  const combos = {};
+  D.ledger.forEach(function (l) {
+    const key = l.ItemID + '::' + l.WarehouseID;
+    const c = combos[key] = combos[key] || { ItemID: l.ItemID, WarehouseID: l.WarehouseID, inKg: 0, inPc: 0, outKg: 0, outPc: 0, balKg: 0, balPc: 0 };
+    const d = String(l.Date || '').slice(0, 10);
+    if (d <= toDate) { c.balKg += (Number(l.QtyIn) || 0) - (Number(l.QtyOut) || 0); c.balPc += (Number(l.PiecesIn) || 0) - (Number(l.PiecesOut) || 0); }
+    if (d >= fromDate && d <= toDate) { c.inKg += Number(l.QtyIn) || 0; c.inPc += Number(l.PiecesIn) || 0; c.outKg += Number(l.QtyOut) || 0; c.outPc += Number(l.PiecesOut) || 0; }
+  });
+  const near0 = function (x) { return Math.abs(x) < 0.0005; };
+  return Object.values(combos).filter(function (c) { return !(near0(c.inKg) && near0(c.inPc) && near0(c.outKg) && near0(c.outPc) && near0(c.balKg) && near0(c.balPc)); })
+    .map(function (c) {
+      const item = D.itemMap[c.ItemID] || {}, piece = isPieceUOM(item.UOMID, D.units);
+      const u = D.units.find(function (x) { return x.UOMID === item.UOMID; });
+      let r = D.rates[c.ItemID] || D.rates['__pi__' + c.ItemID] || null;
+      r = r ? { kg: r.kg, pc: r.pc, src: r.src } : { kg: piece ? 0 : (Number(item.StandardCost) || 0), pc: piece ? (Number(item.StandardCost) || 0) : 0, src: t('স্ট্যান্ডার্ড কস্ট', 'standard cost') };
+      const avg = (c.balKg > 0 && c.balPc > 0) ? c.balKg / c.balPc : ((c.inKg > 0 && c.inPc > 0) ? c.inKg / c.inPc : 0);   // গড় ওজন (কেজি/পিস)
+      if (!r.kg && r.pc && avg) r.kg = r.pc / avg;
+      if (!r.pc && r.kg && avg) r.pc = r.kg * avg;
+      const val = function (kg, pc) { return piece ? (pc && r.pc ? pc * r.pc : kg * r.kg) : (kg && r.kg ? kg * r.kg : pc * r.pc); };
+      return { c: c, item: item, piece: piece, unit: u ? u.UOMName : '', wh: D.whMap[c.WarehouseID] || c.WarehouseID, r: r, val: val };
+    }).sort(function (a, b) { return String(a.item.ItemName || '').localeCompare(String(b.item.ItemName || ''), 'bn'); });
+}
+function stockOverviewTableHtml(rows, fromDate, toDate, forPrint) {
+  const q3 = function (x) { return Math.abs(x) < 0.0005 ? '—' : (+x.toFixed(3)).toLocaleString('en-IN', { maximumFractionDigits: 3 }); };
+  const m2 = function (x) { return x ? x.toFixed(2) : '—'; };
+  const neg = function (x) { return x < -0.0005; };
+  const grp = function (R, kg, pc, isBal) {
+    const v = R.val(kg, pc), bad = isBal && (neg(kg) || neg(pc));
+    const cell = function (x, main) { return `<td class="r ${main ? 'mu' : ''} ${isBal && neg(x) ? 'neg' : ''}">${q3(x)}</td>`; };
+    return cell(kg, !R.piece) + cell(pc, R.piece) + `<td class="r">${m2(R.r.kg)}</td><td class="r">${m2(R.r.pc)}</td><td class="r ${bad ? 'neg' : ''}"><b>${v ? v.toFixed(2) : '0.00'}</b>${bad && !forPrint ? ` <span title="${attr(t('স্টক মাইনাস — বিক্রি/খরচ বেশি হয়েছে, অথবা ক্রয় চালান/প্রসেসিং এখনো পোস্ট হয়নি', 'Negative stock — more sold/used than received, or a purchase/processing is not posted yet'))}">⚠️</span>` : ''}</td>`;
+  };
+  const sub = `<th>${t('কেজি', 'kg')}</th><th>${t('পিস', 'pcs')}</th><th>${t('দর/কেজি', 'rate/kg')}</th><th>${t('দর/পিস', 'rate/pc')}</th><th>${t('মূল্য', 'value')}</th>`;
+  let tIn = 0, tOut = 0, tBal = 0;
+  const body = rows.map(function (R) {
+    const c = R.c; tIn += R.val(c.inKg, c.inPc); tOut += R.val(c.outKg, c.outPc); tBal += R.val(c.balKg, c.balPc);
+    return `<tr><td class="l">${escapeHtml(R.item.ItemName || c.ItemID)}</td><td title="${attr(t('দরের উৎসঃ ', 'Rate from: ') + R.r.src)}">${escapeHtml(R.unit)}</td><td>${escapeHtml(R.wh)}</td>
+      ${grp(R, c.inKg, c.inPc, false)}${grp(R, c.outKg, c.outPc, false)}${grp(R, c.balKg, c.balPc, true)}
+      ${forPrint ? '' : `<td><button class="btn btn-outline" style="width:auto;padding:5px 10px;font-size:12px;" onclick='openStockItemVouchers(${JSON.stringify(c.ItemID)}, ${JSON.stringify(c.WarehouseID)}, ${JSON.stringify(fromDate)}, ${JSON.stringify(toDate)})'>${t('ভিউ', 'View')}</button></td>`}</tr>`;
+  }).join('');
+  return `<table class="data-table so-tbl"><thead>
+      <tr><th rowspan="2">${t('আইটেম', 'Item')}</th><th rowspan="2" title="${attr(t('যে এককে কেনা-বেচা হয়; মূল্য এই এককের দরে — ঘরে মোটা করে দেখানো', 'The unit it is bought/sold in; value uses this unit’s rate — shown in bold'))}">${t('মূল একক', 'Main unit')}</th><th rowspan="2">${t('ওয়্যারহাউজ', 'Warehouse')}</th>
+        <th colspan="5">${t('স্টক ইন', 'Stock in')}</th><th colspan="5">${t('স্টক আউট', 'Stock out')}</th><th colspan="5">${t('স্টক ব্যালান্স', 'Stock balance')}</th>${forPrint ? '' : `<th rowspan="2">${t('ভিউ', 'View')}</th>`}</tr>
+      <tr>${sub}${sub}${sub}</tr></thead>
+    <tbody>${body}</tbody>
+    <tfoot><tr><td class="l" colspan="3">${t('মোট মূল্য', 'Total value')}</td><td colspan="4"></td><td class="r"><b>${tIn.toFixed(2)}</b></td><td colspan="4"></td><td class="r"><b>${tOut.toFixed(2)}</b></td><td colspan="4"></td><td class="r"><b>${tBal.toFixed(2)}</b></td>${forPrint ? '' : '<td></td>'}</tr></tfoot></table>`;
+}
+const STOCK_OV_CSS = `.so-tbl{font-size:12px;} .so-tbl th{text-align:center;white-space:nowrap;} .so-tbl td{text-align:center;white-space:nowrap;} .so-tbl td.l{text-align:left;} .so-tbl td.r{text-align:right;}
+  .so-tbl td.mu{font-weight:700;} .so-tbl td.neg{color:#c0392b;font-weight:700;} .so-tbl tfoot td{font-weight:700;background:var(--bg,#f4f5f7);}`;
 
-  const today = new Date().toISOString().slice(0,10);
-  const monthStart = today.slice(0,8) + '01';
-
+async function renderStockOverview(content) {
+  const today = new Date().toISOString().slice(0, 10);
+  const monthStart = today.slice(0, 8) + '01';
   content.innerHTML = `
+    <style>${STOCK_OV_CSS} .so-warn{background:#fff3e0;border:1px solid #f0b46a;color:#7a4300;border-radius:8px;padding:9px 12px;font-size:12.5px;margin-bottom:10px;} .so-legend{font-size:11.5px;color:var(--text-muted);margin-top:8px;}</style>
     <div class="page-head"><div>
-        <h1 class="i18n" data-bn="স্টক ওভারভিউ" data-en="Stock Overview">${t('স্টক ওভারভিউ','Stock Overview')}</h1>
-        <p class="i18n" data-bn="নির্বাচিত সময়ের স্টক ইন/আউট এবং সামগ্রিক স্টক ব্যালেন্স" data-en="Stock in/out for the selected period and overall stock balance">${t('নির্বাচিত সময়ের স্টক ইন/আউট এবং সামগ্রিক স্টক ব্যালেন্স','Stock in/out for the selected period and overall stock balance')}</p>
+        <h1 class="i18n" data-bn="স্টক ওভারভিউ" data-en="Stock Overview">${t('স্টক ওভারভিউ', 'Stock Overview')}</h1>
+        <p>${t('নির্বাচিত সময়ের স্টক ইন/আউট এবং সামগ্রিক স্টক ব্যালান্স — কেজি ও পিস আলাদা', 'Stock in/out for the period and overall balance — kg and pcs separately')}</p>
       </div>
       <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;">
-        <div class="field" style="margin:0;"><label>${t('তারিখ থেকে','Date From')}</label><input type="date" id="so_DateFrom" value="${monthStart}"></div>
-        <div class="field" style="margin:0;"><label>${t('তারিখ পর্যন্ত','Date To')}</label><input type="date" id="so_DateTo" value="${today}"></div>
-        <button class="btn btn-primary" style="width:auto;" id="so_ApplyBtn">${t('প্রয়োগ করুন','Apply')}</button>
-        <button class="btn btn-outline" style="width:auto;" id="so_PrintBtn">🖨️ ${t('A4 প্রিন্ট','A4 Print')}</button>
+        <div class="field" style="margin:0;"><label>${t('তারিখ থেকে', 'Date From')}</label><input type="date" id="so_DateFrom" value="${monthStart}"></div>
+        <div class="field" style="margin:0;"><label>${t('তারিখ পর্যন্ত', 'Date To')}</label><input type="date" id="so_DateTo" value="${today}"></div>
+        <button class="btn btn-primary" style="width:auto;" id="so_ApplyBtn">${t('প্রয়োগ করুন', 'Apply')}</button>
+        <button class="btn btn-outline" style="width:auto;" id="so_PrintBtn">🖨️ ${t('A4 প্রিন্ট', 'A4 Print')}</button>
       </div>
     </div>
-    <div class="panel"><div id="stockOverviewWrap" style="overflow-x:auto;"></div></div>`;
-
-  const REF_LABEL = {
-    'PurchaseInvoice': ['ক্রয় চালান','Purchase Invoice'], 'PurchaseReturn': ['ক্রয় ফেরত','Purchase Return'],
-    'ProcessingVoucher-FG': ['প্রসেসিং (তৈরি পণ্য)','Processing (Finished Goods)'],
-    'ProcessingVoucher-RM': ['প্রসেসিং (কাঁচামাল)','Processing (Raw Material)'],
-    'ProcessingVoucher-ByProduct': ['প্রসেসিং (বাই-প্রডাক্ট)','Processing (By-Product)'],
-    'SalesInvoice': ['বিক্রয় চালান','Sales Invoice'], 'SalesReturn': ['বিক্রয় ফেরত','Sales Return'],
-    'MaterialIssue': ['মালামাল ইস্যু','Material Issue'],
-    'StockTransfer-In': ['স্টক ট্রান্সফার (আগমন)','Stock Transfer (In)'], 'StockTransfer-Out': ['স্টক ট্রান্সফার (বহির্গমন)','Stock Transfer (Out)'],
-    'StockAdjustment': ['স্টক সমন্বয়','Stock Adjustment'], 'Opening': ['ওপেনিং স্টক','Opening Stock']
-  };
-
+    <div id="so_Warn"></div>
+    <div class="panel"><div id="stockOverviewWrap" style="overflow-x:auto;"><div class="empty-state">${t('লোড হচ্ছে...', 'Loading...')}</div></div>
+      <div class="so-legend">${t('মূল একক = যে এককে আইটেম কেনা-বেচা হয়; মূল্য সেই এককের দরে, পরিমাণ মোটা করে দেখানো। দরঃ সর্বশেষ পোস্ট করা প্রসেসিং বা ক্রয় থেকে (না থাকলে স্ট্যান্ডার্ড কস্ট) — এককের ঘরে মাউস রাখলে উৎস দেখায়। লাল = মাইনাস ব্যালান্স।', 'Main unit = the unit it is traded in; value uses that unit’s rate (bold). Rates come from the latest posted processing or purchase (else standard cost). Red = negative balance.')}</div></div>`;
+  const D = await stockOverviewData();
+  window.__stockOverviewLedger = D.ledger;
+  window.__stockOverviewData = D;
+  const warn = [];
+  if (D.drafts.pi) warn.push(D.drafts.pi + t('টা ক্রয় চালান', ' purchase invoice(s)'));
+  if (D.drafts.pv) warn.push(D.drafts.pv + t('টা প্রসেসিং ভাউচার', ' processing voucher(s)'));
+  document.getElementById('so_Warn').innerHTML = warn.length ? `<div class="so-warn">⚠️ ${warn.join(t(' আর ', ' and '))} ${t('এখনো পোস্ট হয়নি — এগুলোর স্টক এখানে যোগ হয়নি। মাইনাস দেখালে আগে এগুলো পোস্ট করুন।', 'not posted yet — their stock is not counted here. Post them first if you see negatives.')}</div>` : '';
   function renderReport(fromDate, toDate) {
-    const wrap = document.getElementById('stockOverviewWrap');
-    if (!wrap) return;
-    if (ledger.length === 0) {
-      wrap.innerHTML = `<div class="empty-state i18n" data-bn="এখনো কোনো স্টক মুভমেন্ট নেই।" data-en="No stock movement yet.">${t('এখনো কোনো স্টক মুভমেন্ট নেই।','No stock movement yet.')}</div>`;
-      return;
-    }
-
-    // প্রতিটা আইটেম+গুদামের জন্য: রেঞ্জের ভেতরের ইন/আউট, আর "তারিখ পর্যন্ত" মোট ব্যালেন্স (শুরু থেকে হিসাব করে)
-    // — এখন শুধু একটামাত্র পরিমাণ (আইটেমের নিজের এককে), কোনো আলাদা পিস-হিসাব নেই
-    const combos = {};
-    function comboKey(itemId, whId) { return itemId + '::' + whId; }
-    ledger.forEach(function (l) {
-      const key = comboKey(l.ItemID, l.WarehouseID);
-      if (!combos[key]) combos[key] = { ItemID: l.ItemID, WarehouseID: l.WarehouseID, inQty:0, outQty:0, balQty:0 };
-      const c = combos[key];
-      if (l.Date <= toDate) { c.balQty += (Number(l.QtyIn)||0) - (Number(l.QtyOut)||0); }
-      if (l.Date >= fromDate && l.Date <= toDate) {
-        c.inQty += Number(l.QtyIn)||0;
-        c.outQty += Number(l.QtyOut)||0;
-      }
-    });
-
-    const rows = Object.values(combos).filter(function (c) { return c.inQty || c.outQty || c.balQty; });
-    if (rows.length === 0) {
-      wrap.innerHTML = `<div class="empty-state i18n" data-bn="এই সময়ে কোনো স্টক মুভমেন্ট নেই।" data-en="No stock movement in this period.">${t('এই সময়ে কোনো স্টক মুভমেন্ট নেই।','No stock movement in this period.')}</div>`;
-      return;
-    }
-
-    function group(qty, rate) {
-      const value = qty * rate;
-      return `<td style="text-align:center;">${qty ? qty.toFixed(3) : '—'}</td><td style="text-align:center;">${rate ? rate.toFixed(2) : '—'}</td>
-        <td style="text-align:center;"><b>${value.toFixed(2)}</b></td>`;
-    }
-
-    const headHtml = `<tr>
-        <th rowspan="2" style="text-align:center;vertical-align:middle;">${t('আইটেম','Item')}</th>
-        <th rowspan="2" style="text-align:center;vertical-align:middle;">${t('একক','Unit')}</th>
-        <th rowspan="2" style="text-align:center;vertical-align:middle;">${t('ওয়ারহাউজ','Warehouse')}</th>
-        <th colspan="3" style="text-align:center;">${t('স্টক ইন','Stock In')}</th>
-        <th colspan="3" style="text-align:center;">${t('স্টক আউট','Stock Out')}</th>
-        <th colspan="3" style="text-align:center;">${t('স্টক ব্যালেন্স','Stock Balance')}</th>
-        <th rowspan="2" style="text-align:center;vertical-align:middle;">${t('ভিউ','View')}</th>
-      </tr>
-      <tr>
-        <th style="text-align:center;">${t('পরিমাণ','Quantity')}</th><th style="text-align:center;">${t('দর','Rate')}</th><th style="text-align:center;">${t('মূল্য','Value')}</th>
-        <th style="text-align:center;">${t('পরিমাণ','Quantity')}</th><th style="text-align:center;">${t('দর','Rate')}</th><th style="text-align:center;">${t('মূল্য','Value')}</th>
-        <th style="text-align:center;">${t('পরিমাণ','Quantity')}</th><th style="text-align:center;">${t('দর','Rate')}</th><th style="text-align:center;">${t('মূল্য','Value')}</th>
-      </tr>`;
-
-    const bodyRows = rows.map(function (c) {
-      const item = itemMap[c.ItemID] || {};
-      const rate = Number(item.StandardCost) || 0;
-      const unitLabel = units.find(function (u) { return u.UOMID === item.UOMID; });
-      return `<tr>
-        <td>${escapeHtml(item.ItemName || c.ItemID)}</td><td>${escapeHtml(unitLabel ? unitLabel.UOMName : '')}</td><td>${escapeHtml(whMap[c.WarehouseID] || c.WarehouseID)}</td>
-        ${group(c.inQty, rate)}
-        ${group(c.outQty, rate)}
-        ${group(c.balQty, rate)}
-        <td style="text-align:center;"><button class="btn btn-outline" style="width:auto;padding:6px 12px;font-size:12px;" onclick='openStockItemVouchers(${JSON.stringify(c.ItemID)}, ${JSON.stringify(c.WarehouseID)}, ${JSON.stringify(fromDate)}, ${JSON.stringify(toDate)})'>${t('ভিউ','View')}</button></td>
-      </tr>`;
-    }).join('');
-
-    wrap.innerHTML = `<table class="data-table" style="font-size:12px;"><thead>${headHtml}</thead><tbody>${bodyRows}</tbody></table>`;
+    const wrap = document.getElementById('stockOverviewWrap'); if (!wrap) return;
+    const rows = stockOverviewRows(D, fromDate, toDate);
+    wrap.innerHTML = rows.length ? stockOverviewTableHtml(rows, fromDate, toDate, false) : `<div class="empty-state">${t('এই সময়ে কোনো স্টক মুভমেন্ট নেই।', 'No stock movement in this period.')}</div>`;
   }
-
-  window.__stockOverviewLedger = ledger;
-  window.__stockOverviewRefLabel = REF_LABEL;
-
   renderReport(monthStart, today);
-  document.getElementById('so_ApplyBtn').addEventListener('click', function () {
-    renderReport(val('so_DateFrom'), val('so_DateTo'));
-  });
-  document.getElementById('so_PrintBtn').addEventListener('click', function () {
-    openStockReportPrintView(val('so_DateFrom') || monthStart, val('so_DateTo') || today);
-  });
+  document.getElementById('so_ApplyBtn').addEventListener('click', function () { renderReport(val('so_DateFrom') || monthStart, val('so_DateTo') || today); });
+  document.getElementById('so_PrintBtn').addEventListener('click', function () { openStockReportPrintView(val('so_DateFrom') || monthStart, val('so_DateTo') || today); });
 }
 
-/** নির্দিষ্ট আইটেম+গুদামের সব ভাউচার (উৎস মডিউলসহ) — "ভিউ" বাটনে ক্লিক করলে দেখাবে */
 function openStockItemVouchers(itemId, warehouseId, fromDate, toDate) {
-  const ledger = window.__stockOverviewLedger || [];
-  const REF_LABEL = window.__stockOverviewRefLabel || {};
-  const rows = ledger.filter(function (l) { return l.ItemID === itemId && l.WarehouseID === warehouseId && l.Date >= fromDate && l.Date <= toDate; })
+  const D = window.__stockOverviewData || { ledger: window.__stockOverviewLedger || [], itemMap: {} };
+  const LBL = {
+    'PurchaseInvoice': 'ক্রয় চালান', 'PurchaseReturn': 'ক্রয় ফেরত', 'SalesInvoice': 'বিক্রয় চালান', 'SalesReturn': 'বিক্রয় ফেরত', 'MaterialIssue': 'মালামাল ইস্যু',
+    'ProcessingVoucher-FG': 'প্রসেসিং (প্রস্তুত পণ্য)', 'ProcessingVoucher-RM': 'প্রসেসিং (কাঁচামাল)', 'ProcessingVoucher-ByProduct': 'প্রসেসিং (বাই-প্রোডাক্ট)',
+    'StockTransfer-In': 'স্টক ট্রান্সফার (আগমন)', 'StockTransfer-Out': 'স্টক ট্রান্সফার (বহির্গমন)', 'StockAdjustment': 'স্টক সমন্বয়', 'Opening': 'ওপেনিং স্টক' };
+  const q3 = function (x) { x = Number(x) || 0; return x ? String(+x.toFixed(3)) : '—'; };
+  const rows = D.ledger.filter(function (l) { const d = String(l.Date || '').slice(0, 10); return l.ItemID === itemId && l.WarehouseID === warehouseId && d >= fromDate && d <= toDate; })
     .sort(function (a, b) { return String(a.Date).localeCompare(String(b.Date)); });
-
-  const bodyHtml = rows.length === 0
-    ? `<div class="empty-state">${t('এই সময়ে কোনো ভাউচার নেই।','No vouchers in this period.')}</div>`
-    : `<table class="data-table"><thead><tr>
-        <th>${t('তারিখ','Date')}</th><th>${t('উৎস','Source')}</th><th>${t('রেফারেন্স','Reference')}</th>
-        <th>${t('ইন','In')}</th><th>${t('আউট','Out')}</th>
-      </tr></thead><tbody>
-        ${rows.map(function (l) {
-          const lbl = REF_LABEL[l.TransactionType] || [l.TransactionType, l.TransactionType];
-          const inTxt = (Number(l.QtyIn)||0) ? (Number(l.QtyIn)||0) : '—';
-          const outTxt = (Number(l.QtyOut)||0) ? (Number(l.QtyOut)||0) : '—';
-          return `<tr><td>${escapeHtml(l.Date)}</td><td>${t(lbl[0],lbl[1])}</td><td>${escapeHtml(l.RefID)}</td><td>${inTxt}</td><td>${outTxt}</td></tr>`;
-        }).join('')}
-      </tbody></table>`;
-
-  openModal({ title: t('ভাউচারের তালিকা','Voucher List'), bodyHtml: bodyHtml, wide: true, onSave: null });
-  // এই ভিউ শুধু দেখার জন্য — সেভ বাটনের দরকার নেই, তাই লুকিয়ে দেওয়া হচ্ছে
-  const saveBtn = document.getElementById('modalSaveBtn');
-  if (saveBtn) saveBtn.style.display = 'none';
-  document.getElementById('modalCloseBtn').addEventListener('click', function () { if (saveBtn) saveBtn.style.display = ''; }, { once: true });
+  const it = (D.itemMap || {})[itemId] || {};
+  const bodyHtml = rows.length === 0 ? `<div class="empty-state">${t('এই সময়ে কোনো ভাউচার নেই।', 'No vouchers in this period.')}</div>`
+    : `<div style="overflow-x:auto;"><table class="data-table"><thead><tr><th>${t('তারিখ', 'Date')}</th><th>${t('উৎস', 'Source')}</th><th>${t('রেফারেন্স', 'Reference')}</th>
+        <th>${t('ইন (কেজি)', 'In (kg)')}</th><th>${t('ইন (পিস)', 'In (pcs)')}</th><th>${t('আউট (কেজি)', 'Out (kg)')}</th><th>${t('আউট (পিস)', 'Out (pcs)')}</th></tr></thead><tbody>
+      ${rows.map(function (l) { return `<tr><td>${escapeHtml(formatShortDate(l.Date))}</td><td>${escapeHtml(LBL[l.TransactionType] || l.TransactionType || '')}</td><td>${escapeHtml(l.RefID || '')}</td>
+        <td>${q3(l.QtyIn)}</td><td>${q3(l.PiecesIn)}</td><td>${q3(l.QtyOut)}</td><td>${q3(l.PiecesOut)}</td></tr>`; }).join('')}</tbody></table></div>`;
+  openModal({ title: t('ভাউচারের তালিকা — ', 'Vouchers — ') + (it.ItemName || itemId), bodyHtml: bodyHtml, wide: true, hideSave: true, onSave: async function () {} });
 }
 
-/** A4 প্রিন্ট-উপযোগী ভার্সন — নতুন ট্যাবে খুলবে */
 async function openStockReportPrintView(fromDate, toDate) {
-  const [items, warehouses] = await Promise.all([cachedList('Items'), cachedList('Warehouses')]);
-  const ledger = window.__stockOverviewLedger || await api('list', { sheet:'StockLedger' });
-  const itemMap = {}; items.forEach(function (i) { itemMap[i.ItemID] = i; });
-  const whMap = {}; warehouses.forEach(function (w) { whMap[w.WarehouseID] = w.WarehouseName; });
-
-  const combos = {};
-  ledger.forEach(function (l) {
-    const key = l.ItemID + '::' + l.WarehouseID;
-    if (!combos[key]) combos[key] = { ItemID: l.ItemID, WarehouseID: l.WarehouseID, inQty:0, outQty:0, balQty:0 };
-    const c = combos[key];
-    if (l.Date <= toDate) { c.balQty += (Number(l.QtyIn)||0) - (Number(l.QtyOut)||0); }
-    if (l.Date >= fromDate && l.Date <= toDate) {
-      c.inQty += Number(l.QtyIn)||0;
-      c.outQty += Number(l.QtyOut)||0;
-    }
-  });
-  const rows = Object.values(combos).filter(function (c) { return c.inQty || c.outQty || c.balQty; });
-
-  function grp(qty, rate) {
-    const value = qty * rate;
-    return `<td>${qty ? qty.toFixed(3) : '—'}</td><td>${rate ? rate.toFixed(2) : '—'}</td><td>${value.toFixed(2)}</td>`;
-  }
-  const bodyRows = rows.map(function (c) {
-    const item = itemMap[c.ItemID] || {};
-    const rate = Number(item.StandardCost) || 0;
-    return `<tr><td>${escapeHtml(item.ItemName || c.ItemID)}</td><td>${escapeHtml(whMap[c.WarehouseID] || c.WarehouseID)}</td>${grp(c.inQty,rate)}${grp(c.outQty,rate)}${grp(c.balQty,rate)}</tr>`;
-  }).join('');
-
-  const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+  const D = window.__stockOverviewData || await stockOverviewData();
+  const rows = stockOverviewRows(D, fromDate, toDate);
+  const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>স্টক রিপোর্ট ${escapeHtml(fromDate)} - ${escapeHtml(toDate)}</title>
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  @page { size: A4 landscape; margin: 10mm; }
-  body{font-family:'Hind Siliguri',sans-serif;font-size:10.5px;color:#1b1f27;}
-  h1{font-size:16px;margin:0 0 4px;} p{margin:0 0 14px;color:#555;font-size:11px;}
-  table{width:100%;border-collapse:collapse;}
-  th,td{border:1px solid #ccc;padding:4px 5px;text-align:center;}
+  @page { size: A4 landscape; margin: 8mm; }
+  body{font-family:'Hind Siliguri',sans-serif;font-size:9.5px;color:#1b1f27;}
+  h1{font-size:15px;margin:0 0 3px;} p{margin:0 0 10px;color:#555;font-size:10.5px;}
+  table{width:100%;border-collapse:collapse;} th,td{border:1px solid #bbb;padding:3px 4px;}
   th{background:#1a2029;color:#f2a33c;}
-  .toolbar{margin-bottom:14px;}
-  .toolbar button{font-size:13px;padding:8px 16px;border-radius:8px;border:1px solid #1a2029;background:#1a2029;color:#f2a33c;cursor:pointer;}
+  ${STOCK_OV_CSS}
+  .so-tbl{font-size:9.5px;}
+  .toolbar{margin-bottom:12px;} .toolbar button{font-size:13px;padding:8px 16px;border-radius:8px;border:1px solid #1a2029;background:#1a2029;color:#f2a33c;cursor:pointer;}
   @media print { .toolbar{display:none;} }
 </style></head><body>
   <div class="toolbar"><button onclick="window.print()">🖨️ প্রিন্ট করুন</button></div>
-  <h1>স্টক ইন/আউট/ব্যালেন্স রিপোর্ট</h1>
-  <p>সময়কাল: ${escapeHtml(fromDate)} থেকে ${escapeHtml(toDate)}</p>
-  <table>
-    <thead>
-      <tr><th rowspan="2">আইটেম</th><th rowspan="2">ওয়ারহাউজ</th><th colspan="3">স্টক ইন</th><th colspan="3">স্টক আউট</th><th colspan="3">স্টক ব্যালেন্স</th></tr>
-      <tr>
-        <th>পরিমাণ</th><th>দর</th><th>মূল্য</th>
-        <th>পরিমাণ</th><th>দর</th><th>মূল্য</th>
-        <th>পরিমাণ</th><th>দর</th><th>মূল্য</th>
-      </tr>
-    </thead>
-    <tbody>${bodyRows}</tbody>
-  </table>
+  <h1>স্টক ইন/আউট/ব্যালান্স রিপোর্ট</h1>
+  <p>সময়কালঃ ${escapeHtml(formatShortDate(fromDate))} থেকে ${escapeHtml(formatShortDate(toDate))} · কেজি ও পিস আলাদা · মূল এককের পরিমাণ মোটা · লাল = মাইনাস</p>
+  ${rows.length ? stockOverviewTableHtml(rows, fromDate, toDate, true) : '<p>এই সময়ে কোনো স্টক মুভমেন্ট নেই।</p>'}
 </body></html>`;
-
   const win = window.open('', '_blank');
-  if (!win) { showToast(t('পপ-আপ ব্লক হয়েছে — এই সাইটের জন্য পপ-আপ অনুমতি দিন।','Pop-up was blocked — please allow pop-ups for this site.'), 'error'); return; }
+  if (!win) { showToast(t('পপ-আপ ব্লক হয়েছে — এই সাইটের জন্য পপ-আপ অনুমতি দিন।', 'Pop-up was blocked — please allow pop-ups for this site.'), 'error'); return; }
   win.document.write(html);
   win.document.close();
 }
+
+
+/** নির্দিষ্ট আইটেম+গুদামের সব ভাউচার (উৎস মডিউলসহ) — "ভিউ" বাটনে ক্লিক করলে দেখাবে */
+
+/** A4 প্রিন্ট-উপযোগী ভার্সন — নতুন ট্যাবে খুলবে */
 
 /** স্টক লেজার — একটা আইটেম বাছাই করলে সেই আইটেমের সব স্টক মুভমেন্ট (ইন/আউট) দেখাবে, চলমান ব্যালেন্সসহ */
 async function renderStockLedger(content) {
@@ -11440,7 +11447,7 @@ async function avgKgPerPiece(itemId, warehouseId) {
   const kg = data ? Number(data.QtyOnHand) || 0 : 0, pcs = data ? Number(data.QtyPieces) || 0 : 0;
   return pcs > 0 && kg > 0 ? kg / pcs : 0;
 }
-/** বিক্রয়/বিক্রয় ফেরতের স্টক পোস্ট — পিসের আইটেমে পিস ও (পিস × গড় ওজন) কেজি, কেজির আইটেমে শুধু কেজি */
+/** একক-সচেতন স্টক পোস্ট (বিক্রয়, ক্রয়, ফেরত, ইস্যু, সমন্বয়, ওপেনিং) — পিসের আইটেমে পিস ও (পিস × গড় ওজন) কেজি, কেজির আইটেমে শুধু কেজি */
 async function postSalesStock(itemId, warehouseId, date, txType, refModule, refId, qty, sign) {
   qty = Number(qty) || 0;
   if (await itemIsPiece(itemId)) {
