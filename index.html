@@ -10353,24 +10353,31 @@ function stockOverviewTableHtml(rows, fromDate, toDate, forPrint) {
   const grp = function (R, kg, pc, isBal, g) {   // g: gi = ইন (সবুজ), go = আউট (লালচে), gb = ব্যালান্স (নীল)
     const v = R.val(kg, pc), bad = isBal && (neg(kg) || neg(pc));
     const cell = function (x, main) { return `<td class="r ${g} ${main ? 'mu' : ''} ${isBal && neg(x) ? 'neg' : ''}">${q3(x)}</td>`; };
-    return cell(kg, !R.piece) + cell(pc, R.piece) + `<td class="r ${g}">${m2(R.r.kg)}</td><td class="r ${g}">${m2(R.r.pc)}</td><td class="r ${g} gend ${bad ? 'neg' : ''}"><b>${v ? v.toFixed(2) : '0.00'}</b>${bad && !forPrint ? ` <span title="${attr(t('স্টক মাইনাস — বিক্রি/খরচ বেশি হয়েছে, অথবা ক্রয় চালান/প্রসেসিং এখনো পোস্ট হয়নি', 'Negative stock — more sold/used than received, or a purchase/processing is not posted yet'))}">⚠️</span>` : ''}</td>`;
+    const cell1 = function (x, main) { return `<td class="r ${g} ${g === 'gi' ? 'gstart' : ''} ${main ? 'mu' : ''} ${isBal && neg(x) ? 'neg' : ''}">${q3(x)}</td>`; };
+    return cell1(kg, !R.piece) + cell(pc, R.piece) + `<td class="r ${g}">${m2(R.r.kg)}</td><td class="r ${g}">${m2(R.r.pc)}</td><td class="r ${g} gend ${bad ? 'neg' : ''}"><b>${v ? v.toFixed(2) : '0.00'}</b>${bad && !forPrint ? ` <span title="${attr(t('স্টক মাইনাস — বিক্রি/খরচ বেশি হয়েছে, অথবা ক্রয় চালান/প্রসেসিং এখনো পোস্ট হয়নি', 'Negative stock — more sold/used than received, or a purchase/processing is not posted yet'))}">⚠️</span>` : ''}</td>`;
   };
-  const sub = function (g) { return `<th class="${g}">${t('কেজি', 'kg')}</th><th class="${g}">${t('পিস', 'pcs')}</th><th class="${g}">${t('দর/কেজি', 'rate/kg')}</th><th class="${g}">${t('দর/পিস', 'rate/pc')}</th><th class="${g} gend">${t('মূল্য', 'value')}</th>`; };
+  const sub = function (g) { return `<th class="${g} ${g === 'gi' ? 'gstart' : ''}">${t('কেজি', 'kg')}</th><th class="${g}">${t('পিস', 'pcs')}</th><th class="${g}">${t('দর/কেজি', 'rate/kg')}</th><th class="${g}">${t('দর/পিস', 'rate/pc')}</th><th class="${g} gend">${t('মূল্য', 'value')}</th>`; };
   let tIn = 0, tOut = 0, tBal = 0;
   const body = rows.map(function (R) {
     const c = R.c; tIn += R.val(c.inKg, c.inPc); tOut += R.val(c.outKg, c.outPc); tBal += R.val(c.balKg, c.balPc);
     return `<tr><td class="l fz">${escapeHtml(R.item.ItemName || c.ItemID)}</td><td title="${attr(t('দরের উৎসঃ ', 'Rate from: ') + R.r.src)}">${escapeHtml(R.unit)}</td><td>${escapeHtml(R.wh)}</td>
       ${grp(R, c.inKg, c.inPc, false, 'gi')}${grp(R, c.outKg, c.outPc, false, 'go')}${grp(R, c.balKg, c.balPc, true, 'gb')}
-      ${forPrint ? '' : `<td><button class="btn btn-outline" style="width:auto;padding:5px 10px;font-size:12px;" onclick='openStockItemVouchers(${JSON.stringify(c.ItemID)}, ${JSON.stringify(c.WarehouseID)}, ${JSON.stringify(fromDate)}, ${JSON.stringify(toDate)})'>${t('ভিউ', 'View')}</button></td>`}</tr>`;
+      ${forPrint ? '' : `<td class="vw"><button type="button" class="so-eye" title="${attr(t('ভাউচার দেখুন — এডিট, ডিলিট, পোস্ট', 'Vouchers — edit, delete, post'))}" aria-label="${attr(t('দেখুন', 'View'))}" onclick='openStockItemVouchers(${JSON.stringify(c.ItemID)}, ${JSON.stringify(c.WarehouseID)}, ${JSON.stringify(fromDate)}, ${JSON.stringify(toDate)})'>👁️</button></td>`}</tr>`;
   }).join('');
   return `<table class="data-table so-tbl"><thead>
       <tr class="h1"><th rowspan="2" class="fz">${t('আইটেম', 'Item')}</th><th rowspan="2" title="${attr(t('যে এককে কেনা-বেচা হয়; মূল্য এই এককের দরে — ঘরে মোটা করে দেখানো', 'The unit it is bought/sold in; value uses this unit’s rate — shown in bold'))}">${t('মূল একক', 'Main unit')}</th><th rowspan="2">${t('ওয়্যারহাউজ', 'Warehouse')}</th>
-        <th colspan="5" class="hi gend">⬇ ${t('স্টক ইন', 'Stock in')}</th><th colspan="5" class="ho gend">⬆ ${t('স্টক আউট', 'Stock out')}</th><th colspan="5" class="hb gend">= ${t('স্টক ব্যালান্স', 'Stock balance')}</th>${forPrint ? '' : `<th rowspan="2">${t('ভিউ', 'View')}</th>`}</tr>
+        <th colspan="5" class="hi gend gstart">⬇ ${t('স্টক ইন', 'Stock in')}</th><th colspan="5" class="ho gend">⬆ ${t('স্টক আউট', 'Stock out')}</th><th colspan="5" class="hb gend">= ${t('স্টক ব্যালান্স', 'Stock balance')}</th>${forPrint ? '' : `<th rowspan="2" class="vw">👁️</th>`}</tr>
       <tr class="h2">${sub('gi')}${sub('go')}${sub('gb')}</tr></thead>
     <tbody>${body}</tbody>
-    <tfoot><tr><td class="l fz">${t('মোট মূল্য', 'Total value')}</td><td colspan="2"></td><td colspan="4" class="gi"></td><td class="r gi gend"><b>${tIn.toFixed(2)}</b></td><td colspan="4" class="go"></td><td class="r go gend"><b>${tOut.toFixed(2)}</b></td><td colspan="4" class="gb"></td><td class="r gb gend"><b>${tBal.toFixed(2)}</b></td>${forPrint ? '' : '<td></td>'}</tr></tfoot></table>`;
+    <tfoot><tr><td class="l fz">${t('মোট মূল্য', 'Total value')}</td><td colspan="2"></td><td colspan="4" class="gi gstart"></td><td class="r gi gend"><b>${tIn.toFixed(2)}</b></td><td colspan="4" class="go"></td><td class="r go gend"><b>${tOut.toFixed(2)}</b></td><td colspan="4" class="gb"></td><td class="r gb gend"><b>${tBal.toFixed(2)}</b></td>${forPrint ? '' : '<td></td>'}</tr></tfoot></table>`;
 }
-const STOCK_OV_CSS = `.so-tbl{font-size:12px;border-collapse:separate !important;border-spacing:0;} .so-tbl th{text-align:center;white-space:nowrap;} .so-tbl td{text-align:center;white-space:nowrap;} .so-tbl td.l{text-align:left;} .so-tbl td.r{text-align:right;}
+const STOCK_OV_CSS = `.so-tbl{font-size:12px;border-collapse:separate !important;border-spacing:0;width:auto !important;min-width:100%;}
+  .so-tbl th,.so-tbl td{padding:3px 6px !important;line-height:1.25;height:auto !important;}
+  .so-tbl thead th{font-size:11px;padding:4px 5px !important;}
+  .so-tbl td.r{min-width:52px;} .so-tbl .gstart{border-left:2px solid #8a94a3 !important;}
+  .so-tbl td.vw,.so-tbl th.vw{width:34px;padding:2px 4px !important;}
+  .so-eye{border:1px solid var(--border,#d6dae1);background:var(--surface,#fff);border-radius:6px;padding:1px 6px;font-size:13px;line-height:1.3;cursor:pointer;}
+  .so-eye:hover{background:#eef3fb;} .so-tbl th{text-align:center;white-space:nowrap;} .so-tbl td{text-align:center;white-space:nowrap;} .so-tbl td.l{text-align:left;} .so-tbl td.r{text-align:right;}
   .so-tbl td.mu{font-weight:700;} .so-tbl td.neg{color:#c0392b !important;font-weight:700;} .so-tbl tfoot td{font-weight:700;background:#eef0f3;}
   /* তিন রংঃ ইন = সবুজ, আউট = লালচে-কমলা, ব্যালান্স = নীল (হেডারে গাঢ়, ঘরে হালকা) */
   .so-tbl th.hi{background:#1f7a4d !important;color:#fff !important;} .so-tbl th.ho{background:#b5482a !important;color:#fff !important;} .so-tbl th.hb{background:#1f5fa8 !important;color:#fff !important;}
@@ -10380,22 +10387,31 @@ const STOCK_OV_CSS = `.so-tbl{font-size:12px;border-collapse:separate !important
   .so-tbl .gend{border-right:2px solid #8a94a3 !important;}
   .so-tbl th,.so-tbl td{-webkit-print-color-adjust:exact;print-color-adjust:exact;}`;
 /* ফ্রিজ — শুধু পর্দায় (প্রিন্টে নয়): আইটেম কলাম বাঁয়ে, দুই সারির হেডার উপরে, মোট নিচে */
-const STOCK_OV_FREEZE_CSS = `#stockOverviewWrap{overflow:auto !important;max-height:calc(100vh - 250px);border-radius:8px;}
+const STOCK_OV_FREEZE_CSS = `#stockOverviewWrap{overflow:auto !important;max-height:calc(100vh - 250px);border-radius:8px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-x pan-y;contain:paint;}
+  #stockOverviewWrap .so-tbl thead th,#stockOverviewWrap .so-tbl .fz,#stockOverviewWrap .so-tbl tfoot td{will-change:transform;backface-visibility:hidden;}
   #stockOverviewWrap .so-tbl thead th{position:sticky;z-index:3;}
-  #stockOverviewWrap .so-tbl thead tr.h1 th{top:0;height:38px;box-sizing:border-box;}
-  #stockOverviewWrap .so-tbl thead tr.h2 th{top:38px;}
+  #stockOverviewWrap .so-tbl thead tr.h1 th{top:0;height:28px;box-sizing:border-box;}
+  #stockOverviewWrap .so-tbl thead tr.h2 th{top:28px;}
   #stockOverviewWrap .so-tbl thead tr.h1 th:not(.hi):not(.ho):not(.hb){background:var(--surface,#fff);}
-  #stockOverviewWrap .so-tbl .fz{position:sticky;left:0;z-index:2;background:var(--surface,#fff);min-width:150px;max-width:220px;white-space:normal;box-shadow:2px 0 0 #c9ced6;}
+  #stockOverviewWrap .so-tbl .fz{position:sticky;left:0;z-index:2;background:var(--surface,#fff);min-width:120px;max-width:180px;white-space:normal;box-shadow:2px 0 0 #c9ced6;}
   #stockOverviewWrap .so-tbl thead th.fz{z-index:5;}
   #stockOverviewWrap .so-tbl tfoot td{position:sticky;bottom:0;z-index:2;}
   #stockOverviewWrap .so-tbl tfoot td.fz{z-index:4;background:#eef0f3;}
-  @media (max-width:760px){ #stockOverviewWrap{max-height:72vh;} #stockOverviewWrap .so-tbl .fz{min-width:110px;max-width:140px;font-size:11.5px;} }`;
+  @media (max-width:760px){
+    #stockOverviewWrap{max-height:74vh;}
+    #stockOverviewWrap .so-tbl{font-size:11px;}
+    #stockOverviewWrap .so-tbl th,#stockOverviewWrap .so-tbl td{padding:2px 4px !important;}
+    #stockOverviewWrap .so-tbl thead th{font-size:10px;}
+    #stockOverviewWrap .so-tbl td.r{min-width:42px;}
+    #stockOverviewWrap .so-tbl .fz{min-width:92px;max-width:118px;font-size:11px;box-shadow:1px 0 0 #c9ced6;}
+    #stockOverviewWrap .so-tbl thead tr.h1 th{height:24px;} #stockOverviewWrap .so-tbl thead tr.h2 th{top:24px;}
+  }`;
 
 async function renderStockOverview(content) {
   const today = new Date().toISOString().slice(0, 10);
   const monthStart = today.slice(0, 8) + '01';
   content.innerHTML = `
-    <style>${STOCK_OV_CSS} ${STOCK_OV_FREEZE_CSS} .so-warn{background:#fff3e0;border:1px solid #f0b46a;color:#7a4300;border-radius:8px;padding:9px 12px;font-size:12.5px;margin-bottom:10px;} .so-legend{font-size:11.5px;color:var(--text-muted);margin-top:8px;}</style>
+    <style>${STOCK_OV_CSS} ${STOCK_OV_FREEZE_CSS} .so-warn{background:#fff3e0;border:1px solid #f0b46a;color:#7a4300;border-radius:8px;padding:9px 12px;font-size:12.5px;margin-bottom:10px;} .so-legend{font-size:11.5px;color:var(--text-muted);margin-top:6px;} @media (max-width:760px){ .so-legend{font-size:10.5px;} }</style>
     <div class="page-head"><div>
         <h1 class="i18n" data-bn="স্টক ওভারভিউ" data-en="Stock Overview">${t('স্টক ওভারভিউ', 'Stock Overview')}</h1>
         <p>${t('নির্বাচিত সময়ের স্টক ইন/আউট এবং সামগ্রিক স্টক ব্যালান্স — কেজি ও পিস আলাদা', 'Stock in/out for the period and overall balance — kg and pcs separately')}</p>
@@ -10421,6 +10437,10 @@ async function renderStockOverview(content) {
     const wrap = document.getElementById('stockOverviewWrap'); if (!wrap) return;
     const rows = stockOverviewRows(D, fromDate, toDate);
     wrap.innerHTML = rows.length ? stockOverviewTableHtml(rows, fromDate, toDate, false) : `<div class="empty-state">${t('এই সময়ে কোনো স্টক মুভমেন্ট নেই।', 'No stock movement in this period.')}</div>`;
+    // দ্বিতীয় হেডার-সারি ঠিক প্রথম সারির নিচে স্থির — প্রথম সারির আসল উচ্চতা মেপে (কম্পিউটার/মোবাইল দুটোতেই মেলে)
+    const fitHead = function () { const h1 = wrap.querySelector('.so-tbl thead tr.h1'); if (!h1) return; const hh = Math.round(h1.getBoundingClientRect().height); wrap.querySelectorAll('.so-tbl thead tr.h2 th').forEach(function (th) { th.style.top = hh + 'px'; }); };
+    fitHead(); requestAnimationFrame(fitHead);
+    if (!window.__soFitWired) { window.__soFitWired = true; window.addEventListener('resize', function () { const w2 = document.getElementById('stockOverviewWrap'); if (w2) { const h1 = w2.querySelector('.so-tbl thead tr.h1'); if (h1) { const hh = Math.round(h1.getBoundingClientRect().height); w2.querySelectorAll('.so-tbl thead tr.h2 th').forEach(function (th) { th.style.top = hh + 'px'; }); } } }); }
   }
   renderReport(monthStart, today);
   window.__stockOverviewRerender = function () { const Dn = window.__stockOverviewData; if (Dn) { D.ledger = Dn.ledger; D.rates = Dn.rates; D.drafts = Dn.drafts; } if (document.getElementById('stockOverviewWrap')) renderReport(val('so_DateFrom') || monthStart, val('so_DateTo') || today); };
