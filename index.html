@@ -276,6 +276,28 @@ table.data-table{width:100%;border-collapse:collapse;font-size:13px;}
 /* চওড়া টেবিলে (অনেক কলাম/বাটন থাকলে) মোবাইলে যাতে ডানদিকের বাটনগুলো
    কেটে না যায়, প্যানেলে পাশে স্ক্রল করা যাবে — বড় স্ক্রিনে এটা প্রভাব ফেলে না */
 .panel{overflow-x:auto;}
+
+/* ===== মোবাইলঃ পেজ যেন পর্দার চেয়ে চওড়া না হয় (হেডার ছোট পর্দায় এঁটে যায়) ===== */
+@media (max-width: 760px) {
+  html, body { max-width: 100%; overflow-x: hidden; }
+  .topbar { padding: 0 10px !important; gap: 8px !important; }
+  .topbar .crumb { min-width: 0; flex: 1 1 auto; overflow: hidden; }
+  .topbar .crumb #crumbTitle, .topbar .crumb small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .topbar-actions { gap: 6px !important; flex-shrink: 0; }
+  #digitalClock { display: none !important; }
+  .lang-switch button { padding: 5px 8px !important; font-size: 11.5px !important; }
+  .acct-chev { display: none !important; }
+  .icon-btn { width: 34px !important; height: 34px !important; }
+}
+
+/* ===== সব তারিখের ঘরঃ দিন-মাস-বছর (সাধারণ ব্যবস্থা) ===== */
+.dmy-wrap{position:relative;display:inline-flex;align-items:center;}
+.dmy-auto{display:flex;width:100%;max-width:100%;}
+.dmy-in{height:34px;padding:4px 30px 4px 9px;font-size:12.5px;border:1px solid var(--border,#d6dae1);border-radius:8px;background:var(--surface,#fff);letter-spacing:.3px;}
+.dmy-auto .dmy-in-auto{width:100% !important;max-width:100% !important;min-width:0;box-sizing:border-box;}
+.dmy-in.bad{border-color:#c0392b !important;background:#fdf0ef !important;}
+.dmy-cal{position:absolute;right:3px;top:50%;transform:translateY(-50%);border:0;background:transparent;cursor:pointer;font-size:13px;padding:2px 4px;line-height:1;}
+.dmy-native,.dmy-shadow{position:absolute !important;right:0;bottom:0;width:1px !important;height:1px !important;min-width:0 !important;opacity:0 !important;pointer-events:none;border:0 !important;padding:0 !important;margin:0 !important;}
 </style>
 </head>
 <body>
@@ -675,7 +697,7 @@ async function runPostingLogic(docType, header, docId) {
     const { data: lines, error } = await supabaseClient.from('PI_Lines').select('*').eq('PIID', docId);
     if (error) throw new Error(error.message);
     for (const line of (lines || [])) {
-      await postSalesStock(line.ItemID, header.WarehouseID, header.InvoiceDate || today, 'PurchaseInvoice', 'PurchaseInvoice', docId, line.Quantity, 1);   // পিসের আইটেমে পিসের ঘরে
+      await postSalesStock(line.ItemID, header.WarehouseID, header.InvoiceDate || today, 'PurchaseInvoice', 'PurchaseInvoice', docId, line.Quantity, 1, { kg: line.QtyKg, pcs: line.QtyPcs });   // পিসের আইটেমে পিসের ঘরে
     }
     if (header.SupplierID === 'SUP-CASH') {
       // নগদ ক্রয় — কোনো দেনা তৈরি হবে না, সরাসরি ক্যাশ অ্যাকাউন্ট থেকে টাকা বের হয়ে যাবে
@@ -709,7 +731,7 @@ async function runPostingLogic(docType, header, docId) {
     if (error) throw new Error(error.message);
     let returnTotal = 0;
     for (const line of (lines || [])) {
-      await postSalesStock(line.ItemID, warehouseId, header.Date || today, 'PurchaseReturn', 'PurchaseReturn', docId, line.Quantity, -1);
+      await postSalesStock(line.ItemID, warehouseId, header.Date || today, 'PurchaseReturn', 'PurchaseReturn', docId, line.Quantity, -1, { kg: line.QtyKg, pcs: line.QtyPcs });
       returnTotal += (Number(line.Quantity) || 0) * (Number(line.Rate) || 0);
     }
     if (header.SupplierID === 'SUP-CASH') {
@@ -765,7 +787,7 @@ async function runPostingLogic(docType, header, docId) {
     const { data: lines, error } = await supabaseClient.from('SI_Lines').select('*').eq('SIID', docId);
     if (error) throw new Error(error.message);
     for (const line of (lines || [])) {
-      await postSalesStock(line.ItemID, header.WarehouseID, header.InvoiceDate || today, 'SalesInvoice', 'SalesInvoice', docId, line.Quantity, -1);
+      await postSalesStock(line.ItemID, header.WarehouseID, header.InvoiceDate || today, 'SalesInvoice', 'SalesInvoice', docId, line.Quantity, -1, { kg: line.QtyKg, pcs: line.QtyPcs });
     }
     if (header.CustomerID === 'CUS-CASH') {
       // নগদ বিক্রয় — কোনো পাওনা তৈরি হবে না, সরাসরি ক্যাশ অ্যাকাউন্টে টাকা জমা হবে
@@ -794,7 +816,7 @@ async function runPostingLogic(docType, header, docId) {
     if (error) throw new Error(error.message);
     let salesReturnTotal = 0;
     for (const line of (lines || [])) {
-      await postSalesStock(line.ItemID, header.WarehouseID, header.Date || today, 'SalesReturn', 'SalesReturn', docId, line.Quantity, 1);
+      await postSalesStock(line.ItemID, header.WarehouseID, header.Date || today, 'SalesReturn', 'SalesReturn', docId, line.Quantity, 1, { kg: line.QtyKg, pcs: line.QtyPcs });
       salesReturnTotal += (Number(line.Quantity) || 0) * (Number(line.Rate) || 0);
     }
     if (header.CustomerID === 'CUS-CASH') {
@@ -1030,12 +1052,16 @@ async function runSupabaseAction(action, p) {
       if (hErr) throw new Error(hErr.message);
       if (p.lines && p.lines.length > 0) {
         const linesWithId = p.lines.map(function (l) { const row = Object.assign({}, l); row[p.lineIdField] = header[p.idField]; return row; });
-        const { error: lErr } = await supabaseClient.from(p.linesSheet).insert(linesWithId);
+        let { error: lErr } = await supabaseClient.from(p.linesSheet).insert(linesWithId);
+        if (lErr && /QtyKg|QtyPcs/.test(lErr.message || '')) {   // 30_voucher_kg_pcs.sql এখনো চালানো হয়নি — কেজি/পিসের বাড়তি ঘর ছাড়া সেভ
+          ({ error: lErr } = await supabaseClient.from(p.linesSheet).insert(linesWithId.map(function (r) { const c = Object.assign({}, r); delete c.QtyKg; delete c.QtyPcs; return c; })));
+        }
         if (lErr) {   // লাইন বসেনি — অসম্পূর্ণ (খালি) ভাউচার যেন পড়ে না থাকে
           try { await supabaseClient.from(p.headerSheet).delete().eq(p.idField, header[p.idField]); } catch (e) {}
           throw new Error(lErr.message);
         }
       }
+      window.__lastCreatedDoc = { sheet: p.headerSheet, id: header[p.idField] };   // ভাউচার তালিকায় "এইমাত্র সেভ" চিহ্নের জন্য
       return header;
     }
     case 'updateDocument': {
@@ -1044,7 +1070,10 @@ async function runSupabaseAction(action, p) {
       await supabaseClient.from(p.linesSheet).delete().eq(p.lineIdField, p.idValue);
       if (p.lines && p.lines.length > 0) {
         const linesWithId = p.lines.map(function (l) { const row = Object.assign({}, l); row[p.lineIdField] = p.idValue; return row; });
-        const { error: lErr } = await supabaseClient.from(p.linesSheet).insert(linesWithId);
+        let { error: lErr } = await supabaseClient.from(p.linesSheet).insert(linesWithId);
+        if (lErr && /QtyKg|QtyPcs/.test(lErr.message || '')) {   // 30_voucher_kg_pcs.sql এখনো চালানো হয়নি — কেজি/পিসের বাড়তি ঘর ছাড়া সেভ
+          ({ error: lErr } = await supabaseClient.from(p.linesSheet).insert(linesWithId.map(function (r) { const c = Object.assign({}, r); delete c.QtyKg; delete c.QtyPcs; return c; })));
+        }
         if (lErr) throw new Error(lErr.message);
       }
       return {};
@@ -8074,7 +8103,8 @@ async function deletePostedPurchaseVoucher(docType, docId) {
 /** প্রিভিউ/প্রিন্ট/শেয়ার — একটা প্রিন্ট-উপযোগী ভাউচার নতুন ট্যাবে খুলবে।
  *  "পেজ সেটাপ" ব্রাউজারের নিজস্ব প্রিন্ট ডায়ালগেই থাকে (কাগজের সাইজ/মার্জিন) —
  *  আলাদা করে কাস্টম বানানো সম্ভব না, তাই সেই বাটনও প্রিন্ট ডায়ালগেই নিয়ে যায়। */
-async function openPrintableVoucherView(docType, docId) {
+async function openPrintableVoucherView(docType, docId, opts) {
+  opts = opts || {};   // { challan: দর ও মূল্য ছাড়া চালান, autoPrint: খুলেই প্রিন্ট }
   const isSales = docType === 'SalesInvoice' || docType === 'SalesReturn';
   const isReturn = docType === 'PurchaseReturn' || docType === 'SalesReturn';
 
@@ -8176,6 +8206,38 @@ async function openPrintableVoucherView(docType, docId) {
     } catch (e) { prevBalance = 0; }
   }
 
+  if (opts.challan) {   // চালানঃ আইটেম ও পরিমাণ (কেজি/পিস) — দর, মূল্য আর টাকার কোনো হিসাব নেই
+    let tKg = 0, tPc = 0;
+    const cRows = lines.map(function (l, i) {
+      const it = itemMap[l.ItemID] || {}, piece = /পিস|pcs|piece/i.test(unitMap[it.UOMID] || ''), q = Number(l.Quantity) || 0;
+      const kg = piece ? (Number(l.QtyKg) || 0) : q, pc = piece ? q : (Number(l.QtyPcs) || 0); tKg += kg; tPc += pc;
+      return `<tr><td>${bn(i + 1)}</td><td style="text-align:left;">${escapeHtml(it.ItemName || l.ItemID)}</td><td>${kg ? bn(+kg.toFixed(3)) : '—'}</td><td>${pc ? bn(pc) : '—'}</td></tr>`;
+    }).join('');
+    const cName = (company && (company.CompanyName || company.Name)) || 'জি মেটাল ওয়ার্কস';
+    const ch = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>চালান — ${escapeHtml(docId)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Anek+Bangla:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>body{font-family:'Anek Bangla',sans-serif;color:#1b1f27;max-width:780px;margin:16px auto;padding:0 12px;font-size:13px;}
+  .toolbar{display:flex;gap:8px;margin-bottom:14px;} .toolbar button{padding:9px 16px;border-radius:9px;border:1px solid #c9ced6;background:#fff;font-weight:700;cursor:pointer;font-family:inherit;} .toolbar .primary{background:#1a2029;color:#f2a33c;border-color:#1a2029;}
+  .head{border:1.5px solid #1a2029;border-radius:10px;padding:10px 14px;text-align:center;} .head h1{margin:0;font-size:22px;} .head .sub{font-size:12px;color:#444;margin-top:3px;}
+  .badge{display:inline-block;margin-top:8px;background:#1a2029;color:#fff;border-radius:7px;padding:4px 16px;font-weight:700;}
+  .meta{display:grid;grid-template-columns:1fr 1fr;gap:4px 14px;border:1px solid #c9ced6;border-radius:9px;padding:9px 12px;margin:10px 0;font-size:13px;}
+  table{width:100%;border-collapse:collapse;} th,td{border:1px solid #9aa2ad;padding:6px 8px;text-align:center;} th{background:#eef0f3;} tfoot td{font-weight:700;background:#f6f7f9;}
+  .signs{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:60px;text-align:center;font-size:12px;} .signs div{border-top:1px solid #333;padding-top:4px;}
+  @media print { .toolbar{display:none;} body{margin:0 auto;} }</style></head><body>
+  <div class="toolbar"><button class="primary" onclick="window.print()">🖨️ প্রিন্ট</button></div>
+  <div class="head"><h1>${escapeHtml(cName)}</h1><div class="sub">${escapeHtml((company && company.Address) || '')}${company && (company.Phone || company.Mobile) ? ' · মোবাইলঃ ' + escapeHtml(company.Phone || company.Mobile) : ''}</div><div class="badge">চালান — ${escapeHtml(titleBn)}</div></div>
+  <div class="meta"><div>চালান নংঃ <b>${escapeHtml(docId)}</b></div><div style="text-align:right;">তারিখঃ <b>${bn(formatShortDate(voucherDate))}</b></div>
+    <div>${escapeHtml(partyLabelBn)}ঃ <b>${escapeHtml(String(partyName || ''))}</b></div><div style="text-align:right;">${escapeHtml(partyZone || '')}${partyPhone ? ' · ' + escapeHtml(partyPhone) : ''}</div></div>
+  <table><thead><tr><th>ক্রঃ</th><th>আইটেম</th><th>পরিমাণ (কেজি)</th><th>পরিমাণ (পিস)</th></tr></thead><tbody>${cRows}</tbody>
+    <tfoot><tr><td colspan="2" style="text-align:right;">মোটঃ</td><td>${tKg ? bn(+tKg.toFixed(3)) : '—'}</td><td>${tPc ? bn(tPc) : '—'}</td></tr></tfoot></table>
+  <div class="signs"><div>${isSales ? 'গ্রহণকারীর স্বাঃ' : 'প্রেরকের স্বাঃ'}</div><div>বাহকের স্বাঃ</div><div>গুদাম রক্ষকের স্বাঃ</div></div>
+  ${opts.autoPrint ? '<script>window.addEventListener("load",function(){setTimeout(function(){window.print();},400);});<\/script>' : ''}
+</body></html>`;
+    const cw = window.open('', '_blank');
+    if (!cw) { showToast(t('পপ-আপ ব্লক হয়েছে — এই সাইটের জন্য পপ-আপ অনুমতি দিন।','Pop-up was blocked — please allow pop-ups for this site.'), 'error'); return; }
+    cw.document.write(ch); cw.document.close(); return;
+  }
+
   const voucherTableBody = buildVoucherTableBody({
     vatRate: Number(header.VatRate) || 0, vatAmount: Number(header.VatAmount) || 0,
     isCashParty: isCashParty, prevDue: isSales ? prevBalance : -prevBalance,
@@ -8207,6 +8269,7 @@ async function openPrintableVoucherView(docType, docId) {
   </div>
   ${voucherTableBody}
   <p style="margin-top:10px;font-size:9.5px;color:#888;text-align:center;">${person ? escapeHtml(person.Email || '') : ''}</p>
+  ${opts.autoPrint ? '<script>window.addEventListener("load",function(){setTimeout(function(){window.print();},400);});<\/script>' : ''}
   <script>
     document.getElementById('shareBtn').addEventListener('click', async function () {
       const text = ${JSON.stringify(titleBn)} + ' ' + ${JSON.stringify(docId)} + '\\n' +
@@ -8282,7 +8345,7 @@ function wireSequentialKeyNav(container) {
   container.dataset.keynav = '1'; // এই অংশের নিজস্ব নিয়ম আছে — সাধারণ নিয়ম এখানে কাজ করবে না
   function focusable() {
     return Array.from(container.querySelectorAll('input, select, textarea')).filter(function (el) {
-      return !el.disabled && el.type !== 'checkbox' && el.offsetParent !== null;
+      return !el.disabled && el.type !== 'checkbox' && el.offsetParent !== null && !el.classList.contains('dmy-shadow');   // লুকানো আসল তারিখ-ঘর বাদ
     });
   }
   function handler(e) {
@@ -8304,6 +8367,228 @@ function wireSequentialKeyNav(container) {
   }
   document.addEventListener('keydown', handler, true);
 }
+
+/* ===== ক্রয়/বিক্রয় ভাউচারের নিচের অংশঃ লাইভ প্রিভিউ · ভাউচার তালিকা · চালান তালিকা =====
+   • লাইভ প্রিভিউঃ এন্ট্রি যা হচ্ছে ঠিক তাই, লাইন যোগ বা ঘর বদলালেই হালনাগাদ
+   • সেভ করলে নতুন খালি ভাউচার খোলে আর নিচে ভাউচার তালিকা (সদ্য সেভ করাটা চিহ্নিত)
+   • ভাউচার তালিকাঃ টাকা সহ · চালান তালিকাঃ দর ও মূল্য ছাড়া (শুধু পরিমাণ কেজি/পিস)
+   • প্রতিটা সারিতেঃ 👁️ দেখুন · ✏️ এডিট · 🗑️ ডিলিট · 💾 পোস্ট · 🔗 শেয়ার · 🖨️ প্রিন্ট */
+const VOUCHER_KINDS = {
+  purchase: { types: [['PurchaseInvoice', 'PIID', 'InvoiceDate', 'PI_Lines', 'ক্রয়'], ['PurchaseReturn', 'PRetID', 'Date', 'PR_Return_Lines', 'ক্রয় ফেরত']], partySheet: 'Suppliers', partyId: 'SupplierID',
+    open: function (dt, id) { return openPurchaseVoucherForm(dt, id); }, post: function (dt, id) { return postPurchaseVoucherRecord(dt, id); },
+    del: function (dt, id) { return deletePurchaseVoucherRecord(dt, id); }, delPosted: function (dt, id) { return deletePostedPurchaseVoucher(dt, id); } },
+  sales: { types: [['SalesInvoice', 'SIID', 'InvoiceDate', 'SI_Lines', 'বিক্রয়'], ['SalesReturn', 'SRID', 'Date', 'SR_Lines', 'বিক্রয় ফেরত']], partySheet: 'Customers', partyId: 'CustomerID',
+    open: function (dt, id) { return openSalesVoucherForm(dt, id); }, post: function (dt, id) { return postSalesVoucherRecord(dt, id); },
+    del: function (dt, id) { return deleteSalesVoucherRecord(dt, id); }, delPosted: function (dt, id) { return deletePostedSalesVoucher(dt, id); } }
+};
+const VOUCHER_BOTTOM_CSS = `
+  .vbottom{margin-top:16px;border-top:2px solid var(--border);padding-top:12px;}
+  .vbtabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-bottom:10px;}
+  .vbtabs button{min-height:42px;border:1px solid var(--border);background:var(--surface);border-radius:9px;font-weight:700;font-size:12.5px;cursor:pointer;color:var(--text-muted);-webkit-tap-highlight-color:transparent;}
+  .vbtabs button.on{background:var(--ink-900);color:var(--amber);border-color:var(--ink-900);}
+  .vlist{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--border);border-radius:8px;}
+  .vlist table{width:100%;border-collapse:collapse;font-size:12px;} .vlist th,.vlist td{padding:5px 6px;border-bottom:1px solid var(--border);text-align:center;white-space:nowrap;}
+  .vlist th{background:var(--bg);font-size:11px;} .vlist td.l{text-align:left;} .vlist td.r{text-align:right;}
+  .vlist tr.vnew td{background:#fff6e0;} .vlist tr.vnew td:first-child{box-shadow:inset 3px 0 0 #c27a12;}
+  .vlist .vic{border:1px solid var(--border);background:var(--surface);border-radius:7px;min-width:32px;height:32px;font-size:14px;cursor:pointer;margin:0 1px;line-height:1;}
+  .vlist .vic:disabled{opacity:.3;cursor:default;}
+  .vlist-note{font-size:11px;color:var(--text-muted);margin-top:6px;}
+  .vcards{display:none;}
+  @media (max-width:600px){
+    .vlist{display:none;} .vcards{display:flex;flex-direction:column;gap:8px;}
+    .vcard{border:1px solid var(--border);border-radius:10px;padding:8px 10px;background:var(--surface);}
+    .vcard.vnew{background:#fff6e0;border-color:#e3b75c;box-shadow:inset 3px 0 0 #c27a12;}
+    .vcard .vc1{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;font-size:13px;} .vcard .vc1 b:first-child{font-size:14px;}
+    .vcard .vc2{font-size:12px;color:var(--text-muted);margin:3px 0 7px;}
+    .vcard .vc3{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:5px;}
+    .vcard .vc3 .vic{width:100%;height:40px;font-size:16px;margin:0;}
+  }`;
+
+async function voucherListRender(P, kind, mode, highlight) {
+  const el = document.getElementById(P + '_VBList'); if (!el) return;
+  el.innerHTML = `<div class="empty-state" style="padding:12px;">${t('লোড হচ্ছে...', 'Loading...')}</div>`;
+  const K = VOUCHER_KINDS[kind];
+  const safe = async function (q) { try { const r = await q; return (r && !r.error && r.data) || []; } catch (e) { return []; } };
+  const [parties, items, units] = await Promise.all([cachedList(K.partySheet), cachedList('Items'), cachedList('UOM')]);
+  const pName = {}; parties.forEach(function (p) { pName[p[K.partyId]] = p.CompanyName || p.Name; });
+  const itemMap = {}; items.forEach(function (i) { itemMap[i.ItemID] = i; });
+  let rows = [];
+  for (const ty of K.types) {
+    const hs = (await safe(supabaseClient.from(ty[0]).select('*'))).filter(function (h) { return h.Status !== 'Deleted'; });
+    hs.forEach(function (h) { rows.push({ dt: ty[0], id: h[ty[1]], date: h[ty[2]] || h.Date || h.InvoiceDate || '', party: h.WalkInPartyName ? t('নগদ', 'Cash') + ' (' + h.WalkInPartyName + ')' : (pName[h[K.partyId]] || h[K.partyId] || ''), total: Number(h.TotalAmount) || 0, posted: h.Status === 'Posted', label: ty[4], linesSheet: ty[3], idf: ty[1] }); });
+  }
+  rows.sort(function (a, b) { return String(b.date).localeCompare(String(a.date)) || String(b.id).localeCompare(String(a.id), undefined, { numeric: true }); });
+  rows = rows.slice(0, 40);
+  if (mode === 'challan') {   // চালানঃ পরিমাণ (কেজি/পিস)
+    for (const ty of K.types) {
+      const ids = rows.filter(function (r) { return r.dt === ty[0]; }).map(function (r) { return r.id; });
+      if (!ids.length) continue;
+      const ls = await safe(supabaseClient.from(ty[3]).select('*').in(ty[1], ids));
+      rows.forEach(function (r) {
+        if (r.dt !== ty[0]) return;
+        let kg = 0, pc = 0;
+        ls.filter(function (l) { return l[ty[1]] === r.id; }).forEach(function (l) {
+          const it = itemMap[l.ItemID] || {}, piece = isPieceUOM(it.UOMID, units);
+          if (piece) { pc += Number(l.Quantity) || 0; kg += Number(l.QtyKg) || 0; } else { kg += Number(l.Quantity) || 0; pc += Number(l.QtyPcs) || 0; }
+        });
+        r.kg = kg; r.pc = pc;
+      });
+    }
+  }
+  const hiId = highlight && highlight.editId ? highlight.editId : (highlight && rows[0] ? rows[0].id : null);
+  const ico = function (act, icon, title, r, dis) { return `<button type="button" class="vic" data-va="${act}" data-dt="${attr(r.dt)}" data-id="${attr(r.id)}" data-posted="${r.posted ? 1 : 0}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
+  if (!rows.length) { el.innerHTML = `<div class="empty-state" style="padding:12px;">${t('এখনো কোনো ভাউচার সেভ হয়নি।', 'No vouchers saved yet.')}</div>`; return; }
+  const f3 = function (x) { return x ? String(+x.toFixed(3)) : '—'; };
+  const cards = rows.map(function (r) {
+    return `<div class="vcard ${r.id === hiId ? 'vnew' : ''}"><div class="vc1"><b>${escapeHtml(r.id)}</b><span>${escapeHtml(formatShortDate(r.date))}</span>
+        ${mode === 'challan' ? `<span>${f3(r.kg)} ${t('কেজি', 'kg')} / ${f3(r.pc)} ${t('পিস', 'pcs')}</span>` : `<b>৳${r.total.toFixed(2)}</b>`}
+        ${r.posted ? `<span class="badge active">${t('পোস্ট করা', 'Posted')}</span>` : `<span class="badge draft">${t('খসড়া', 'Draft')}</span>`}</div>
+      <div class="vc2">${escapeHtml(r.party)} <small>· ${escapeHtml(r.label)}${r.id === hiId ? ' · ' + t('এইমাত্র সেভ', 'just saved') : ''}</small></div>
+      <div class="vc3">${ico('view', '👁️', t('দেখুন', 'View'), r)}${ico('edit', '✏️', t('এডিট', 'Edit'), r)}${ico('del', '🗑️', t('ডিলিট', 'Delete'), r)}${ico('post', r.posted ? '✅' : '💾', r.posted ? t('পোস্ট হয়ে গেছে', 'Posted') : t('পোস্ট করুন', 'Post'), r, r.posted)}${ico('share', '🔗', t('শেয়ার', 'Share'), r)}${ico('print', '🖨️', t('প্রিন্ট', 'Print'), r)}</div></div>`;
+  }).join('');
+  el.innerHTML = `<div class="vcards">${cards}</div><div class="vlist"><table><thead><tr><th>${t('ক্রঃ', 'No.')}</th><th>${mode === 'challan' ? t('চালান নং', 'Challan') : t('ভাউচার নং', 'Voucher')}</th><th>${t('তারিখ', 'Date')}</th><th>${t('পার্টি', 'Party')}</th>
+      ${mode === 'challan' ? `<th>${t('কেজি', 'kg')}</th><th>${t('পিস', 'pcs')}</th>` : `<th>${t('মোট টাকা', 'Total')}</th>`}<th>${t('অবস্থা', 'Status')}</th><th></th></tr></thead><tbody>
+    ${rows.map(function (r, i) {
+      return `<tr class="${r.id === hiId ? 'vnew' : ''}"><td>${i + 1}</td><td><b>${escapeHtml(r.id)}</b><div style="font-size:10px;color:var(--text-muted);">${escapeHtml(r.label)}${r.id === hiId ? ' · ' + t('এইমাত্র সেভ', 'just saved') : ''}</div></td><td>${escapeHtml(formatShortDate(r.date))}</td><td class="l">${escapeHtml(r.party)}</td>
+        ${mode === 'challan' ? `<td class="r">${f3(r.kg)}</td><td class="r">${f3(r.pc)}</td>` : `<td class="r"><b>${r.total.toFixed(2)}</b></td>`}
+        <td>${r.posted ? `<span class="badge active">${t('পোস্ট করা', 'Posted')}</span>` : `<span class="badge draft">${t('খসড়া', 'Draft')}</span>`}</td>
+        <td style="white-space:nowrap;">${ico('view', '👁️', t('দেখুন', 'View'), r)}${ico('edit', '✏️', r.posted ? t('এডিট (এডমিন — আগে আনপোস্ট হবে)', 'Edit (admin — unposts first)') : t('এডিট', 'Edit'), r)}${ico('del', '🗑️', r.posted ? t('ডিলিট (এডমিন — স্টক ও হিসাব ফেরত)', 'Delete (admin)') : t('ডিলিট', 'Delete'), r)}${ico('post', r.posted ? '✅' : '💾', r.posted ? t('পোস্ট হয়ে গেছে', 'Posted') : t('পোস্ট করুন — স্টক ও হিসাবে যাবে', 'Post'), r, r.posted)}${ico('share', '🔗', t('শেয়ার', 'Share'), r)}${ico('print', '🖨️', t('প্রিন্ট', 'Print'), r)}</td></tr>`;
+    }).join('')}</tbody></table></div>
+    <div class="vlist-note">${mode === 'challan' ? t('চালান = একই ভাউচার, দর ও মূল্য ছাড়া — মাল পাঠানো/নেওয়ার কাগজ।', 'Challan = the same voucher without rates and amounts.') : t('সর্বশেষ ৪০টা ভাউচার।', 'Latest 40 vouchers.')}</div>`;
+}
+
+async function voucherShare(docType, docId, mode) {
+  const isSales = docType === 'SalesInvoice' || docType === 'SalesReturn', isReturn = docType === 'PurchaseReturn' || docType === 'SalesReturn';
+  const cfg = isSales ? { headerSheet: isReturn ? 'SalesReturn' : 'SalesInvoice', idField: isReturn ? 'SRID' : 'SIID', linesSheet: isReturn ? 'SR_Lines' : 'SI_Lines', lineIdField: isReturn ? 'SRID' : 'SIID' }
+    : { headerSheet: isReturn ? 'PurchaseReturn' : 'PurchaseInvoice', idField: isReturn ? 'PRetID' : 'PIID', linesSheet: isReturn ? 'PR_Return_Lines' : 'PI_Lines', lineIdField: isReturn ? 'PRetID' : 'PIID' };
+  const [doc, items, units, parties] = await Promise.all([api('getDocument', Object.assign({ idValue: docId }, cfg)), cachedList('Items'), cachedList('UOM'), cachedList(isSales ? 'Customers' : 'Suppliers')]);
+  const h = doc.header, itemMap = {}; items.forEach(function (i) { itemMap[i.ItemID] = i; });
+  const party = parties.find(function (p) { return p[isSales ? 'CustomerID' : 'SupplierID'] === h[isSales ? 'CustomerID' : 'SupplierID']; });
+  const title = (mode === 'challan' ? 'চালান — ' : '') + ({ PurchaseInvoice: 'ক্রয় ভাউচার', PurchaseReturn: 'ক্রয় ফেরত', SalesInvoice: 'বিক্রয় ভাউচার', SalesReturn: 'বিক্রয় ফেরত' })[docType];
+  const lines = doc.lines.map(function (l, i) {
+    const it = itemMap[l.ItemID] || {}, piece = isPieceUOM(it.UOMID, units), q = Number(l.Quantity) || 0;
+    const kg = piece ? (Number(l.QtyKg) || 0) : q, pc = piece ? q : (Number(l.QtyPcs) || 0);
+    const qty = [kg ? +kg.toFixed(3) + ' কেজি' : '', pc ? pc + ' পিস' : ''].filter(Boolean).join(' / ');
+    return (i + 1) + '. ' + (it.ItemName || l.ItemID) + ' — ' + qty + (mode === 'challan' ? '' : ' × ' + (Number(l.Rate) || 0) + ' = ' + (q * (Number(l.Rate) || 0)).toFixed(2));
+  });
+  const text = title + ' ' + docId + '\nতারিখঃ ' + formatShortDate(h.InvoiceDate || h.Date) + '\n' + (isSales ? 'গ্রাহকঃ ' : 'সাপ্লায়ারঃ ') + ((party && (party.CompanyName || party.Name)) || h.WalkInPartyName || '') + '\n' + lines.join('\n') + (mode === 'challan' ? '' : '\nমোটঃ ৳' + (Number(h.TotalAmount) || 0).toFixed(2));
+  if (navigator.share) { try { await navigator.share({ title: title + ' ' + docId, text: text }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
+  if (navigator.clipboard) { try { await navigator.clipboard.writeText(text); showToast(t('কপি হয়েছে — WhatsApp/মেসেজে পেস্ট করুন', 'Copied — paste it in WhatsApp/message'), 'success'); return; } catch (e) {} }
+  window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+}
+
+async function voucherListAction(P, kind, act, dt, id, posted, mode, refresh) {
+  const K = VOUCHER_KINDS[kind];
+  try {
+    if (act === 'view' || act === 'print') { await openPrintableVoucherView(dt, id, { challan: mode === 'challan', autoPrint: act === 'print' }); return; }
+    if (act === 'share') { await voucherShare(dt, id, mode); return; }
+    if (act === 'post') { await K.post(dt, id); await refresh(); return; }
+    if (act === 'del') { if (posted) await K.delPosted(dt, id); else await K.del(dt, id); await refresh(); return; }
+    if (act === 'edit') {
+      const unsaved = (window['__' + P + (kind === 'purchase' ? 'PurchaseLines' : 'SaleLines')] || []).length + (window['__' + P + 'ReturnLines'] || []).length;
+      if (unsaved && !confirm(t('উপরের ভাউচারে সেভ না করা লাইন আছে — সেগুলো বাদ দিয়ে ', 'The voucher above has unsaved lines — drop them and edit ') + id + t(' এডিট করবেন?', '?'))) return;
+      if (posted && !(await unpostVoucherWithAdminAuth(dt, id))) return;
+      closeModal();
+      await K.open(dt, id);
+    }
+  } catch (err) { showToast(err.message, 'error'); }
+}
+
+/** ফর্মের নিচের অংশ চালু — tabs, স্বয়ংক্রিয় প্রিভিউ, তালিকার বোতাম; সেভের পর খুললে তালিকা দেখায় */
+function voucherBottomWire(P, kind, renderPreview) {
+  const box = document.getElementById(P + '_TabPreviewPanel'); if (!box) return;
+  box.style.display = '';   // নিচের অংশ সবসময় দেখা যায়
+  let mode = 'preview', timer = null;
+  const panes = { preview: document.getElementById(P + '_VBPreview'), list: document.getElementById(P + '_VBList') };
+  const show = async function (m, hl) {
+    mode = m;
+    box.querySelectorAll('[data-vb]').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-vb') === m); });
+    panes.preview.style.display = m === 'preview' ? '' : 'none'; panes.list.style.display = m === 'preview' ? 'none' : '';
+    if (m === 'preview') await renderPreview(); else await voucherListRender(P, kind, m === 'challan' ? 'challan' : 'voucher', hl);
+  };
+  box.querySelectorAll('[data-vb]').forEach(function (b) { b.addEventListener('click', function () { show(b.getAttribute('data-vb')); }); });
+  window['__' + P + 'SchedulePreview'] = function () { if (mode !== 'preview') return; clearTimeout(timer); timer = setTimeout(function () { renderPreview(); }, 350); };
+  const entry = document.getElementById(P + '_TabEntryPanel');
+  if (entry) entry.addEventListener('change', function () { window['__' + P + 'SchedulePreview'](); });
+  panes.list.addEventListener('click', function (e) {
+    const b = e.target.closest('[data-va]'); if (!b || b.disabled) return;
+    voucherListAction(P, kind, b.getAttribute('data-va'), b.getAttribute('data-dt'), b.getAttribute('data-id'), b.getAttribute('data-posted') === '1', mode === 'challan' ? 'challan' : 'voucher', function () { return show(mode); });
+  });
+  const after = window.__vAfterSave;
+  if (after && after.kind === kind && Date.now() - after.at < 15000) { window.__vAfterSave = null; show('list', after); }
+  else show('preview');
+}
+
+/* ===== ক্রয়/বিক্রয় ভাউচারঃ পরিমাণ কেজি ও পিস দুই ঘরে =====
+   • দর ও মূল্য আইটেমের মূল এককে (কেজির আইটেমে কেজি, পিসের আইটেমে পিস) — মূল এককের ঘর ★ চিহ্নিত
+   • অন্য এককও লিখলে লাইনে সেভ হয় (QtyKg/QtyPcs) আর স্টকে ঠিক সেটাই যায়; না লিখলে গড় ওজন দিয়ে
+   • স্টক আইটেমঃ কেজি / পিস দুটোই; আঃ দর (কেজি/পিস) স্টক থেকে */
+function voucherIsPieceUnit(name) { const s = String(name || '').trim(); return /পিস|pcs|piece/i.test(s) || /^pc$/i.test(s); }
+async function voucherDualRefresh(p, kind) {
+  const $ = function (id) { return document.getElementById(id); };
+  if (!$(p + '_QtyKg')) return;
+  const im = window['__' + p + 'ItemMap'] || {}, um = window['__' + p + 'UnitMap'] || {};
+  const itemId = val(p + '_ItemID'), wh = val(p + '_WarehouseID'), item = im[itemId];
+  const uname = item ? ((um[item.UOMID] || {}).UOMName || '') : '';
+  const piece = item ? voucherIsPieceUnit(uname) : false;
+  window['__' + p + 'Piece'] = piece;
+  $(p + '_LblKg').classList.toggle('vmain', !!item && !piece); $(p + '_LblPcs').classList.toggle('vmain', !!item && piece);
+  let kg = 0, pcs = 0, has = false;
+  if (item && wh) {
+    try { const r = await supabaseClient.from('current_stock').select('QtyOnHand,QtyPieces').eq('ItemID', itemId).eq('WarehouseID', wh).maybeSingle(); if (r && r.data) { has = true; kg = Number(r.data.QtyOnHand) || 0; pcs = Number(r.data.QtyPieces) || 0; } } catch (e) {}
+  }
+  const f3 = function (x) { return String(+(Number(x) || 0).toFixed(3)); };
+  const txt = (!item || !wh) ? '' : (!has ? t('কোনো স্টক নেই', 'No stock') : f3(kg) + ' ' + t('কেজি', 'kg') + ((pcs || piece) ? ' / ' + f3(pcs) + ' ' + t('পিস', 'pcs') : ''));
+  window['__' + p + 'LastStockQty'] = txt; $(p + '_PreviewStockQty').value = txt;
+  const avg = (kg > 0 && pcs > 0) ? kg / pcs : 0; window['__' + p + 'AvgKgPc'] = avg;
+  let main = 0;   // মূল এককের দর
+  if (item) {
+    if (kind === 'purchase') {   // পোস্ট করা ক্রয়ের গড় দর (না থাকলে স্ট্যান্ডার্ড কস্ট)
+      main = Number(item.StandardCost) || 0;
+      try {
+        const ls = ((await supabaseClient.from('PI_Lines').select('PIID,Quantity,Amount,NetAmount').eq('ItemID', itemId)).data) || [];
+        if (ls.length) {
+          const hs = ((await supabaseClient.from('PurchaseInvoice').select('PIID,Status').in('PIID', Array.from(new Set(ls.map(function (l) { return l.PIID; }))))).data) || [];
+          const ok = {}; hs.forEach(function (h) { if (h.Status === 'Posted') ok[h.PIID] = true; });
+          let q = 0, v = 0;
+          ls.forEach(function (l) { if (ok[l.PIID] && Number(l.Quantity) > 0) { q += Number(l.Quantity); v += (l.NetAmount !== null && l.NetAmount !== undefined && l.NetAmount !== '') ? Number(l.NetAmount) : (Number(l.Amount) || 0); } });
+          if (q > 0 && v > 0) main = v / q;
+        }
+      } catch (e) {}
+    } else main = Number(item.SalesPrice) || 0;   // বিক্রয়ঃ স্ট্যান্ডার্ড বিক্রয় দর
+  }
+  const rKg = piece ? (avg ? main / avg : 0) : main, rPc = piece ? main : (avg ? main * avg : 0);
+  $(p + '_AvgRateKg').value = rKg ? rKg.toFixed(2) : ''; $(p + '_AvgRatePc').value = rPc ? rPc.toFixed(2) : '';
+  voucherDualSync(p);
+}
+function voucherDualSync(p) {
+  const kgEl = document.getElementById(p + '_QtyKg'), pcEl = document.getElementById(p + '_QtyPcs'), q = document.getElementById(p + '_Qty');
+  if (!kgEl || !q) return;
+  const piece = !!window['__' + p + 'Piece'], avg = window['__' + p + 'AvgKgPc'] || 0;
+  q.value = piece ? pcEl.value : kgEl.value;   // দর × মূল এককের পরিমাণ = মূল্য
+  kgEl.placeholder = (piece && avg && pcEl.value) ? '≈ ' + (+(Number(pcEl.value) * avg).toFixed(3)) : '';
+  pcEl.placeholder = (!piece && avg && kgEl.value) ? '≈ ' + Math.round(Number(kgEl.value) / avg) : '';
+  q.dispatchEvent(new Event('input', { bubbles: true }));
+}
+function wireVoucherDual(p) { [p + '_QtyKg', p + '_QtyPcs'].forEach(function (id) { const el = document.getElementById(id); if (el) el.addEventListener('input', function () { voucherDualSync(p); }); }); }
+const VOUCHER_GRID_CSS = `
+  .vg2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px 8px;margin-bottom:12px;}
+  .vg2 .vfull{grid-column:1 / -1;}
+  .vg2 .field{margin:0 !important;min-width:0;}
+  .vg2 .field label{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;margin-bottom:2px;min-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .vg2 .field input:not([type=checkbox]),.vg2 .field select{width:100% !important;max-width:100% !important;height:36px;padding:5px 8px;font-size:13.5px;border-radius:7px;box-sizing:border-box;}
+  .vg2 input[type=checkbox]{width:19px !important;height:19px !important;max-width:none !important;margin:0;flex-shrink:0;accent-color:#c27a12;cursor:pointer;}
+  .vg2 .vro{background:var(--bg) !important;}
+  .vg2 .vbold{font-weight:700;}
+  .vg2 label.vmain::after{content:" ★";color:#c27a12;}
+  .vg2 .vbtn{display:flex;align-items:center;justify-content:center;gap:6px;min-height:46px;border-radius:10px;background:var(--ink-900);color:var(--amber);font-weight:700;font-size:13.5px;cursor:pointer;border:0;margin:0;width:100%;user-select:none;-webkit-tap-highlight-color:transparent;}
+  .vg2 .vbtn:active{transform:scale(.98);}
+  .vg2 .vbtn.vret{background:#7a2e1a;color:#fff;}
+  .vg2 .vhide{position:absolute !important;opacity:0;width:1px !important;height:1px !important;pointer-events:none;}
+  .vg2 .vcomm{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px 8px;}
+  .vg2 .vcash{padding:10px;border:1px dashed var(--border);border-radius:8px;background:var(--bg);}
+  @media (pointer:coarse){ .vg2 .field input:not([type=checkbox]),.vg2 .field select{font-size:16px;height:40px;} }
+  @media (max-width:380px){ .vg2{gap:5px 6px;} .vg2 .field label{font-size:10.5px;} }`;
 
 async function openPurchaseVoucherForm(defaultType, existingId) {
   const pvData = await cachedListMultiple(['Suppliers', 'Items', 'ItemGroups', 'Categories', 'UOM', 'Warehouses', 'BankCashAccounts', 'ExpenseCategories']);
@@ -8350,14 +8635,14 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     ? existingLines.map(function (l) {
         const amt = Math.round((Number(l.Quantity)||0) * (Number(l.Rate)||0));
         const commAmt = Number(l.CommissionAmount) || 0;
-        return { itemId: l.ItemID, warehouseId: rec.WarehouseID, qty: Number(l.Quantity)||0, rate: Number(l.Rate)||0, amount: amt, commRate: Number(l.CommissionRate)||0, commAmount: commAmt, netAmount: l.NetAmount !== null && l.NetAmount !== undefined ? Number(l.NetAmount) : (amt - commAmt) };
+        return { itemId: l.ItemID, warehouseId: rec.WarehouseID, qty: Number(l.Quantity)||0, qtyKg: Number(l.QtyKg)||0, qtyPcs: Number(l.QtyPcs)||0, rate: Number(l.Rate)||0, amount: amt, commRate: Number(l.CommissionRate)||0, commAmount: commAmt, netAmount: l.NetAmount !== null && l.NetAmount !== undefined ? Number(l.NetAmount) : (amt - commAmt) };
       })
     : [];
   window.__pv3ReturnLines = (isEdit && existingDocType === 'PurchaseReturn')
     ? existingLines.map(function (l) {
         const amt = Math.round((Number(l.Quantity)||0) * (Number(l.Rate)||0));
         const commAmt = Number(l.CommissionAmount) || 0;
-        return { itemId: l.ItemID, warehouseId: rec.WarehouseID, qty: Number(l.Quantity)||0, rate: Number(l.Rate)||0, amount: amt, commRate: Number(l.CommissionRate)||0, commAmount: commAmt, netAmount: l.NetAmount !== null && l.NetAmount !== undefined ? Number(l.NetAmount) : (amt - commAmt) };
+        return { itemId: l.ItemID, warehouseId: rec.WarehouseID, qty: Number(l.Quantity)||0, qtyKg: Number(l.QtyKg)||0, qtyPcs: Number(l.QtyPcs)||0, rate: Number(l.Rate)||0, amount: amt, commRate: Number(l.CommissionRate)||0, commAmount: commAmt, netAmount: l.NetAmount !== null && l.NetAmount !== undefined ? Number(l.NetAmount) : (amt - commAmt) };
       })
     : [];
   window.__pv3LastStockQty = '';
@@ -8368,7 +8653,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   }
 
   const bodyHtml = `
-    <div style="display:flex;border-bottom:2px solid var(--border);margin-bottom:16px;">
+    <div style="display:none;">
       <button type="button" id="pv3_TabEntryBtn" style="flex:1;padding:10px;border:none;background:none;cursor:pointer;font-weight:700;border-bottom:3px solid var(--amber);color:var(--text);">${t('ক্রয় ভাউচার','Purchase Voucher')}</button>
       <button type="button" id="pv3_TabPreviewBtn" style="flex:1;padding:10px;border:none;background:none;cursor:pointer;font-weight:700;border-bottom:3px solid transparent;color:var(--text-muted);">${t('লাইভ প্রিভিউ ভাউচার','Live Preview Voucher')}</button>
     </div>
@@ -8387,78 +8672,52 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       <div class="pv3-compact">
       <h4 style="margin:0 0 12px;font-size:13px;color:var(--amber);text-transform:uppercase;background:var(--ink-900);padding:8px;text-align:center;border-radius:6px;">${t('ক্রয় ভাউচার','Purchase Voucher')}</h4>
 
-      <div class="field"><label>${t('১. ভাউচার তারিখঃ','1. Voucher Date:')}</label><input type="date" id="pv3_Date" value="${attr(rec.InvoiceDate || rec.Date) || new Date().toISOString().slice(0,10)}"></div>
-      <div class="field"><label>${t('২. ভাউচার নম্বরঃ','2. Voucher No:')}</label><input id="pv3_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো তৈরি হবে','Auto')}" readonly style="background:var(--bg);"></div>
-
-      <div class="field">
-        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pv3_SNDateCheck" style="width:auto;" ${rec.SupplierInvoiceDate?'checked':''}> ${t('৩. নিঃতারিখঃ','3. Manual Date:')}</label>
-        <input type="date" id="pv3_SupplierInvoiceDate" value="${attr(rec.SupplierInvoiceDate)}" ${rec.SupplierInvoiceDate?'':'disabled'}>
-      </div>
-      <div class="field">
-        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pv3_SNNoCheck" style="width:auto;" ${rec.SupplierInvoiceNo?'checked':''}> ${t('৪. নিঃনম্বরঃ','4. Manual No:')}</label>
-        <input id="pv3_SupplierInvoiceNo" value="${attr(rec.SupplierInvoiceNo)}" ${rec.SupplierInvoiceNo?'':'disabled'}>
-      </div>
-
-      <div class="field">
-        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pv3_ZoneCheck" style="width:auto;" checked> ${t('জোনঃ','Zone:')}</label>
-        <select id="pv3_ZoneFilter"><option value="">${t('সব জোন','All Zones')}</option>${pv3ZoneList.map(function(z){return `<option value="${attr(z)}">${escapeHtml(z)}</option>`;}).join('')}</select>
-      </div>
-
-      <div class="field"><label>${t('৫. সাপ্লায়ার নামঃ','5. Supplier:')}</label><select id="pv3_SupplierID"><option value="">—</option>${suppliers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.SupplierID)}" data-zone="${attr(r.Zone||'')}" ${rec.SupplierID===r.SupplierID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select></div>
-      <div class="field"><label>${t('৬. সাপ্লায়ার হিসাবঃ','6. Supplier Balance:')}</label><input id="pv3_SupplierBalance" readonly style="background:var(--bg);font-weight:700;"></div>
-
-      <div id="pv3_CashSupplierCard" style="display:none;padding:12px;border:1px dashed var(--border);border-radius:8px;background:var(--bg);margin-bottom:14px;">
+      <style>${VOUCHER_GRID_CSS}</style>
+      <div class="vg2">
+        <div class="field"><label>${t('ভাউচার তারিখ','Voucher date')}</label><input type="date" id="pv3_Date" value="${attr(rec.InvoiceDate || rec.Date) || new Date().toISOString().slice(0,10)}"></div>
+        <div class="field"><label><input type="checkbox" id="pv3_SNDateCheck" ${rec.SupplierInvoiceDate?'checked':''}> ${t('নিঃ তারিখ','Manual date')}</label><input type="date" id="pv3_SupplierInvoiceDate" value="${attr(rec.SupplierInvoiceDate)}" ${rec.SupplierInvoiceDate?'':'disabled'}></div>
+        <div class="field"><label>${t('ভাউচার নম্বর','Voucher no')}</label><input id="pv3_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো তৈরি হবে','Auto')}" readonly style="background:var(--bg);"></div>
+        <div class="field"><label><input type="checkbox" id="pv3_SNNoCheck" ${rec.SupplierInvoiceNo?'checked':''}> ${t('নিঃ নম্বর','Manual no')}</label><input id="pv3_SupplierInvoiceNo" value="${attr(rec.SupplierInvoiceNo)}" ${rec.SupplierInvoiceNo?'':'disabled'}></div>
+        <div class="field"><label>${t('পার্টি জোন','Party zone')}<input type="checkbox" id="pv3_ZoneCheck" checked class="vhide" tabindex="-1"></label><select id="pv3_ZoneFilter"><option value="">${t('সব জোন','All Zones')}</option>${pv3ZoneList.map(function(z){return `<option value="${attr(z)}">${escapeHtml(z)}</option>`;}).join('')}</select></div>
+        <div class="field"><label>${t('পার্টি ব্যালান্স','Party balance')}</label><input id="pv3_SupplierBalance" readonly class="vro vbold"></div>
+        <div class="field vfull"><label>${t('সাপ্লায়ার নাম','Supplier')}</label><select id="pv3_SupplierID"><option value="">—</option>${suppliers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.SupplierID)}" data-zone="${attr(r.Zone||'')}" ${rec.SupplierID===r.SupplierID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select></div>
+        <div id="pv3_CashSupplierCard" class="vfull vcash" style="display:none;">
         <div class="field"><label>${t('নগদ পার্টির আসল নাম','Actual Cash Party Name')}</label><input id="pv3_CashName" value="${attr(rec.WalkInPartyName)}"></div>
         <div class="field"><label>${t('ঠিকানা','Address')}</label><input id="pv3_CashAddress" value="${attr(rec.WalkInPartyAddress)}"></div>
         <div class="field"><label>${t('মোবাইল','Mobile')}</label><input id="pv3_CashMobile" value="${attr(rec.WalkInPartyMobile)}"></div>
       </div>
+        <div class="field"><label><input type="checkbox" id="pv3_GroupCheck"> ${t('গ্রুপ নাম','Group')}</label><select id="pv3_GroupSelect" disabled style="display:none;"><option value="">—</option>${optsHtml(window.__pv3Groups, 'GroupID','GroupName','')}</select></div>
+        <div class="field"><label><input type="checkbox" id="pv3_CatCheck"> ${t('ক্যাটাগরি','Category')}</label><select id="pv3_CatSelect" disabled style="display:none;"><option value="">—</option>${optsHtml(window.__pv3Categories, 'CategoryID','CategoryName','')}</select></div>
+        <div class="field"><label>${t('আইটেম','Item')}</label><select id="pv3_ItemID"><option value="">—</option></select></div>
+        <div class="field"><label>${t('স্টক আইটেম','Item stock')}</label><input id="pv3_PreviewStockQty" readonly class="vro"></div>
+        <div class="field"><label>${t('গুদাম','Warehouse')}</label><select id="pv3_WarehouseID"><option value="">—</option>${optsHtml(window.__pv3Warehouses, 'WarehouseID','WarehouseName', rec.WarehouseID)}</select></div>
+        <div class="field"><label>${t('স্টক দর','Stock rate')}</label><input id="pv3_PreviewStockRate" readonly class="vro"></div>
+        <div class="field"><label id="pv3_LblKg">${t('পরিমাণ (কেজি)','Qty (kg)')}</label><input id="pv3_QtyKg" type="number" step="any" min="0" inputmode="decimal"></div>
+        <div class="field"><label id="pv3_LblPcs">${t('পরিমাণ (পিস)','Qty (pcs)')}</label><input id="pv3_QtyPcs" type="number" step="any" min="0" inputmode="decimal"></div>
+        <div class="field"><label>${t('আঃ ক্রয় দর (কেজি)','Avg. purchase rate (kg)')}</label><input id="pv3_AvgRateKg" readonly class="vro"></div>
+        <div class="field"><label>${t('আঃ ক্রয় দর (পিস)','Avg. purchase rate (pc)')}</label><input id="pv3_AvgRatePc" readonly class="vro"></div>
+        <div class="field"><label>${t('দর','Rate')}</label><input id="pv3_Rate" type="number" step="any" min="0" inputmode="decimal"></div>
+        <div class="field"><label>${t('একক','Unit')}</label><input id="pv3_Unit" readonly class="vro"></div>
+        <div class="field"><label>${t('মূল্য','Amount')}</label><input id="pv3_Amount" readonly class="vro vbold"></div>
+        <div class="field"><label><input type="checkbox" id="pv3_CommCheck"> ${t('কমিশন (%)','Commission (%)')}</label><input id="pv3_CommRate" type="number" step="any" min="0" inputmode="decimal" placeholder="0" disabled></div>
+        <div id="pv3_CommResultRow" class="vfull vcomm" style="display:none;">
+          <div class="field"><label>${t('(-) কমিশন','(-) Commission')}</label><input id="pv3_CommAmount" readonly class="vro"></div>
+          <div class="field"><label>${t('নিট মূল্য','Net amount')}</label><input id="pv3_NetLineAmount" readonly class="vro vbold"></div>
+        </div>
+        <label class="vbtn"><input type="checkbox" id="pv3_ConfirmPurchaseCheck" class="vhide"> ＋ ${t('সেভ + ক্রয় লাইন যোগ','Save + add purchase line')}</label>
+        <button type="button" id="pv3_AddReturnLineBtn" class="vbtn vret">＋ ${t('ক্রয় ফেরৎ লাইন যোগ','Add purchase return line')}</button>
+      </div>
+      <input type="hidden" id="pv3_Qty">
+      <div style="display:none;"><input type="checkbox" id="pv3_StdPurchaseCheck"><input id="pv3_PreviewStdPurchaseRate" readonly style="background:var(--bg);display:none;"></div>
 
       <div class="field">
-        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pv3_GroupCheck" style="width:auto;"> ${t('৭. গ্রুপ নামঃ','7. Group:')}</label>
-        <select id="pv3_GroupSelect" disabled style="display:none;"><option value="">—</option>${optsHtml(window.__pv3Groups, 'GroupID','GroupName','')}</select>
-      </div>
-      <div class="field">
-        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pv3_CatCheck" style="width:auto;"> ${t('৮. ক্যাটাগরিঃ','8. Category:')}</label>
-        <select id="pv3_CatSelect" disabled style="display:none;"><option value="">—</option>${optsHtml(window.__pv3Categories, 'CategoryID','CategoryName','')}</select>
-      </div>
-
-      <div class="field"><label>${t('৯. আইটেমঃ','9. Item:')}</label><select id="pv3_ItemID"><option value="">—</option></select></div>
-      <div class="field"><label>${t('১০. ওয়ারহাউজঃ','10. Warehouse:')}</label><select id="pv3_WarehouseID"><option value="">—</option>${optsHtml(window.__pv3Warehouses, 'WarehouseID','WarehouseName', rec.WarehouseID)}</select></div>
-      <div class="field"><label>${t('১১. স্টক পরিমাণঃ','11. Stock Qty:')}</label><input id="pv3_PreviewStockQty" readonly style="background:var(--bg);"></div>
-      <div class="field"><label>${t('১২. পরিমাণঃ','12. Quantity:')}</label><input id="pv3_Qty" type="number" step="any"></div>
-      <div class="field"><label>${t('১৩. স্টক দরঃ','13. Stock Rate:')}</label><input id="pv3_PreviewStockRate" readonly style="background:var(--bg);"></div>
-      <div class="field">
-        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pv3_StdPurchaseCheck" style="width:auto;"> ${t('১৪. আঃক্রয় দরঃ (ডিফল্ট)','14. Std. Purchase Rate (default):')}</label>
-        <input id="pv3_PreviewStdPurchaseRate" readonly style="background:var(--bg);display:none;">
-      </div>
-      <div class="field"><label>${t('১৫. দরঃ','15. Rate:')}</label><input id="pv3_Rate" type="number" step="any"></div>
-      <div class="field"><label>${t('১৬. এককঃ','16. Unit:')}</label><input id="pv3_Unit" readonly style="background:var(--bg);"></div>
-      <div class="field"><label>${t('১৭. মূল্যঃ','17. Amount:')}</label><input id="pv3_Amount" readonly style="background:var(--bg);font-weight:700;"></div>
-
-      <div class="field">
-        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pv3_CommCheck" style="width:auto;"> ${t('কমিঃ (%)ঃ','Comm. (%):')}</label>
-        <input id="pv3_CommRate" type="number" step="any" placeholder="0" disabled>
-      </div>
-      <div id="pv3_CommResultRow" style="display:none;">
-        <div class="field"><label>${t('(-)কমিঃঃ','(-) Comm.:')}</label><input id="pv3_CommAmount" readonly style="background:var(--bg);"></div>
-        <div class="field"><label>${t('নিট মূল্যঃ','Net Amount:')}</label><input id="pv3_NetLineAmount" readonly style="background:var(--bg);font-weight:700;"></div>
-      </div>
-
-      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">
-        <label style="display:flex;align-items:center;gap:8px;background:var(--ink-900);color:var(--amber);padding:8px 10px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;">
-          <input type="checkbox" id="pv3_ConfirmPurchaseCheck" style="width:auto;"> ✓ ${t('সেভ + ক্রয় লাইন যোগ','Save + Add Purchase Line')}
-        </label>
-        <button type="button" id="pv3_AddReturnLineBtn" class="btn" style="width:100%;background:var(--ink-900);color:var(--amber);padding:8px 10px;font-size:12px;">+ ${t('ক্রয় ফেরত লাইন যোগ','Add Purchase Return Line')}</button>
-      </div>
-
-      <div class="field">
-        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pv3_ExpCheck" style="width:auto;"> ${t('খরচ(+)ঃ','Expense(+):')}</label>
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pv3_ExpCheck" style="width:auto;"> ${t('খরচঃ (+)','Expense (+):')}</label>
         <input id="pv3_ExpTotalAmount" type="number" step="any" placeholder="৳">
       </div>
       <div id="pv3_ExpSubWrap" style="display:none;margin-bottom:16px;"></div>
 
       <div class="field">
-        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pv3_DiscCheck" style="width:auto;" ${rec.DiscountAmount?'checked':''}> ${t('ডিসকাউন্ট(-)ঃ','Discount(-):')}</label>
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pv3_DiscCheck" style="width:auto;" ${rec.DiscountAmount?'checked':''}> ${t('ডিসকাউন্টঃ (-)','Discount (-):')}</label>
         <input id="pv3_DiscAmount" type="number" step="any" placeholder="৳" value="${attr(rec.DiscountAmount)}">
       </div>
 
@@ -8492,13 +8751,17 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       </div>
     </div>
 
-    <div id="pv3_TabPreviewPanel" style="display:none;">
+    <div id="pv3_TabPreviewPanel" class="vbottom"><style>${VOUCHER_BOTTOM_CSS}</style>
+      <div class="vbtabs"><button type="button" data-vb="preview" class="on">👁️ ${t('লাইভ প্রিভিউ','Live preview')}</button><button type="button" data-vb="list">📋 ${t('ভাউচার তালিকা','Vouchers')}</button><button type="button" data-vb="challan">🚚 ${t('চালান তালিকা','Challans')}</button></div>
+      <div id="pv3_VBPreview">
       <div style="display:flex;gap:8px;margin-bottom:16px;">
         <button type="button" class="btn btn-outline" style="width:auto;" id="pv3_LivePageSetupBtn">📄 ${t('পেজ সেটাপ','Page Setup')}</button>
         <button type="button" class="btn btn-primary" style="width:auto;" id="pv3_LivePrintBtn">🖨️ ${t('প্রিন্ট','Print')}</button>
         <button type="button" class="btn btn-outline" style="width:auto;" id="pv3_LiveShareBtn">🔗 ${t('শেয়ার','Share')}</button>
       </div>
       <div id="pv3_LivePreviewBody" style="font-size:12.5px;"></div>
+      </div>
+      <div id="pv3_VBList" style="display:none;"></div>
     </div>
   `;
 
@@ -8525,7 +8788,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       if (hasPurchase) {
         const warehouseId = window.__pv3PurchaseLines[0].warehouseId;
         if (!warehouseId) throw new Error(t('ক্রয় লাইনে গুদাম আবশ্যক।','Warehouse is required for purchase lines.'));
-        const lineData = window.__pv3PurchaseLines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, Rate: l.rate, Amount: l.amount, CommissionRate: l.commRate || 0, CommissionAmount: l.commAmount || 0, NetAmount: l.netAmount !== undefined ? l.netAmount : l.amount }; });
+        const lineData = window.__pv3PurchaseLines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, QtyKg: l.qtyKg || 0, QtyPcs: l.qtyPcs || 0, Rate: l.rate, Amount: l.amount, CommissionRate: l.commRate || 0, CommissionAmount: l.commAmount || 0, NetAmount: l.netAmount !== undefined ? l.netAmount : l.amount }; });
         const itemsTotal = lineData.reduce(function (s, l) { return s + (Number(l.Amount) || 0); }, 0);
         const cashExpenseAmount = (window.__pv3CashExpense && window.__pv3CashExpense.amount) || 0;
         const discountAmount = Number(val('pv3_DiscAmount')) || 0;
@@ -8580,7 +8843,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       if (hasReturn) {
         const warehouseId = window.__pv3ReturnLines[0].warehouseId;
         if (!warehouseId) throw new Error(t('ফেরত লাইনে গুদাম আবশ্যক।','Warehouse is required for return lines.'));
-        const lineData = window.__pv3ReturnLines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, Rate: l.rate, CommissionRate: l.commRate || 0, CommissionAmount: l.commAmount || 0, NetAmount: l.netAmount !== undefined ? l.netAmount : l.amount }; });
+        const lineData = window.__pv3ReturnLines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, QtyKg: l.qtyKg || 0, QtyPcs: l.qtyPcs || 0, Rate: l.rate, CommissionRate: l.commRate || 0, CommissionAmount: l.commAmount || 0, NetAmount: l.netAmount !== undefined ? l.netAmount : l.amount }; });
         const headerData = Object.assign({}, common, { Date: val('pv3_Date'), WarehouseID: warehouseId });
         if (isEdit && existingDocType === 'PurchaseReturn') {
           await api('updateDocument', { headerSheet:'PurchaseReturn', idField:'PRetID', linesSheet:'PR_Return_Lines', lineIdField:'PRetID', idValue: existingId, headerData: headerData, lines: lineData });
@@ -8591,6 +8854,9 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
 
       showToast(t('সেভ হয়েছে ✅','Saved ✅'), 'success');
       if (window.__refreshPurchaseVoucherList) await window.__refreshPurchaseVoucherList();
+      // সেভ হলেঃ নতুন খালি ভাউচার খোলে, নিচে ভাউচার তালিকা (সদ্য সেভ করাটা চিহ্নিত)
+      window.__vAfterSave = { kind: 'purchase', at: Date.now(), editId: isEdit ? existingId : ((window.__lastCreatedDoc && window.__lastCreatedDoc.id) || null) };
+      setTimeout(function () { openPurchaseVoucherForm('PurchaseInvoice'); }, 350);
     }
   });
 
@@ -8598,11 +8864,11 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     const entryBtn = document.getElementById('pv3_TabEntryBtn'), previewBtn = document.getElementById('pv3_TabPreviewBtn');
     const entryPanel = document.getElementById('pv3_TabEntryPanel'), previewPanel = document.getElementById('pv3_TabPreviewPanel');
     if (tab === 'entry') {
-      entryPanel.style.display = ''; previewPanel.style.display = 'none';
+      entryPanel.style.display = ''; previewPanel.style.display = '';   // প্রিভিউ এখন ভাউচারের নিচে — সবসময় দেখা যায়
       entryBtn.style.borderBottomColor = 'var(--amber)'; entryBtn.style.color = 'var(--text)';
       previewBtn.style.borderBottomColor = 'transparent'; previewBtn.style.color = 'var(--text-muted)';
     } else {
-      entryPanel.style.display = 'none'; previewPanel.style.display = '';
+      entryPanel.style.display = ''; previewPanel.style.display = '';
       previewBtn.style.borderBottomColor = 'var(--amber)'; previewBtn.style.color = 'var(--text)';
       entryBtn.style.borderBottomColor = 'transparent'; entryBtn.style.color = 'var(--text-muted)';
       renderFullPreview();
@@ -8623,6 +8889,8 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   wireRevealCheckbox('pv3_SNNoCheck', 'pv3_SupplierInvoiceNo');
   wireRevealCheckbox('pv3_StdPurchaseCheck', 'pv3_PreviewStdPurchaseRate');
   wireSequentialKeyNav(document.getElementById('pv3_TabEntryPanel'));
+  wireVoucherDual('pv3');
+  voucherBottomWire('pv3', 'purchase', renderFullPreview);   // নিচেঃ লাইভ প্রিভিউ · ভাউচার তালিকা · চালান তালিকা
 
   function refreshPv3SupplierOptions() {
     const zoneChecked = document.getElementById('pv3_ZoneCheck').checked;
@@ -8970,6 +9238,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     document.getElementById('pv3_PreviewStockQty').value = window.__pv3LastStockQty;
     document.getElementById('pv3_PreviewStockRate').value = window.__pv3LastStockRate;
     document.getElementById('pv3_PreviewStdPurchaseRate').value = item ? (Number(item.StandardCost)||0).toFixed(2) : '';
+    await voucherDualRefresh('pv3', 'purchase');   // স্টক কেজি/পিস, আঃ দর, মূল একক
     recalcAmount();
     renderRightSummary();
   }
@@ -9007,6 +9276,8 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     document.getElementById('pv3_ItemID').value = '';
     document.getElementById('pv3_WarehouseID').value = '';
     document.getElementById('pv3_Qty').value = '';
+    document.getElementById('pv3_QtyKg').value = ''; document.getElementById('pv3_QtyPcs').value = ''; document.getElementById('pv3_QtyKg').placeholder = ''; document.getElementById('pv3_QtyPcs').placeholder = '';
+    document.getElementById('pv3_AvgRateKg').value = ''; document.getElementById('pv3_AvgRatePc').value = '';
     document.getElementById('pv3_Rate').value = '';
     document.getElementById('pv3_Unit').value = '';
     document.getElementById('pv3_Amount').value = '';
@@ -9026,12 +9297,13 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     const rate = Number(val('pv3_Rate')) || 0;
     if (!itemId) { showToast(t('আইটেম বাছাই করুন।','Select an item.'), 'error'); return null; }
     if (!warehouseId) { showToast(t('গুদাম বাছাই করুন।','Select a warehouse.'), 'error'); return null; }
+    if (!(qty > 0) && (Number(val('pv3_QtyKg')) || Number(val('pv3_QtyPcs')))) { showToast(window.__pv3Piece ? t('এই আইটেমের মূল একক পিস — পরিমাণ (পিস) দিন।','This item is counted in pieces — enter Qty (pcs).') : t('এই আইটেমের মূল একক কেজি — পরিমাণ (কেজি) দিন।','This item is counted in kg — enter Qty (kg).'), 'error'); return null; }
     if (!(qty > 0 && rate > 0)) { showToast(t('পরিমাণ ও দর দিন।','Enter quantity and rate.'), 'error'); return null; }
     const amount = Math.round(qty * rate);
     const useComm = document.getElementById('pv3_CommCheck').checked;
     const commRate = useComm ? (Number(val('pv3_CommRate')) || 0) : 0;
     const commAmount = useComm ? Number((amount * commRate / 100).toFixed(2)) : 0;
-    return { itemId: itemId, warehouseId: warehouseId, qty: qty, rate: rate, amount: amount, commRate: commRate, commAmount: commAmount, netAmount: useComm ? Number((amount - commAmount).toFixed(2)) : amount };
+    return { itemId: itemId, warehouseId: warehouseId, qty: qty, qtyKg: Number(val('pv3_QtyKg')) || 0, qtyPcs: Number(val('pv3_QtyPcs')) || 0, rate: rate, amount: amount, commRate: commRate, commAmount: commAmount, netAmount: useComm ? Number((amount - commAmount).toFixed(2)) : amount };
   }
 
   document.getElementById('pv3_ConfirmPurchaseCheck').addEventListener('change', function () {
@@ -9068,6 +9340,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   }
 
   function renderRightSummary() {
+    if (window.__pv3SchedulePreview) window.__pv3SchedulePreview();   // লাইভ প্রিভিউ হালনাগাদ
     document.getElementById('pv3_PreviewStockQty').value = window.__pv3LastStockQty;
     document.getElementById('pv3_PreviewStockRate').value = window.__pv3LastStockRate;
   }
@@ -9127,7 +9400,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       return;
     }
     const html = await buildDraftPrintHtml();
-    wrap.innerHTML = `<iframe id="pv3_PreviewFrame" style="width:100%;height:70vh;border:1px solid var(--border);border-radius:8px;background:#fff;" srcdoc="${attr(html)}"></iframe>`;
+    wrap.innerHTML = `<iframe id="pv3_PreviewFrame" style="width:100%;height:62vh;border:1px solid var(--border);border-radius:8px;background:#fff;" srcdoc="${attr(html)}"></iframe>`;
   }
 
   function printDraftFrame() {
@@ -9314,14 +9587,14 @@ async function openSalesVoucherForm(defaultType, existingId) {
     ? existingLines.map(function (l) {
         const amt = Math.round((Number(l.Quantity)||0) * (Number(l.Rate)||0));
         const commAmt = Number(l.CommissionAmount) || 0;
-        return { itemId: l.ItemID, warehouseId: rec.WarehouseID, qty: Number(l.Quantity)||0, rate: Number(l.Rate)||0, amount: amt, commRate: Number(l.CommissionRate)||0, commAmount: commAmt, netAmount: l.NetAmount !== null && l.NetAmount !== undefined ? Number(l.NetAmount) : (amt - commAmt), costRate: sv3CostRateOf(l) };
+        return { itemId: l.ItemID, warehouseId: rec.WarehouseID, qty: Number(l.Quantity)||0, qtyKg: Number(l.QtyKg)||0, qtyPcs: Number(l.QtyPcs)||0, rate: Number(l.Rate)||0, amount: amt, commRate: Number(l.CommissionRate)||0, commAmount: commAmt, netAmount: l.NetAmount !== null && l.NetAmount !== undefined ? Number(l.NetAmount) : (amt - commAmt), costRate: sv3CostRateOf(l) };
       })
     : [];
   window.__sv3ReturnLines = (isEdit && existingDocType === 'SalesReturn')
     ? existingLines.map(function (l) {
         const amt = Math.round((Number(l.Quantity)||0) * (Number(l.Rate)||0));
         const commAmt = Number(l.CommissionAmount) || 0;
-        return { itemId: l.ItemID, warehouseId: rec.WarehouseID, qty: Number(l.Quantity)||0, rate: Number(l.Rate)||0, amount: amt, commRate: Number(l.CommissionRate)||0, commAmount: commAmt, netAmount: l.NetAmount !== null && l.NetAmount !== undefined ? Number(l.NetAmount) : (amt - commAmt), costRate: sv3CostRateOf(l) };
+        return { itemId: l.ItemID, warehouseId: rec.WarehouseID, qty: Number(l.Quantity)||0, qtyKg: Number(l.QtyKg)||0, qtyPcs: Number(l.QtyPcs)||0, rate: Number(l.Rate)||0, amount: amt, commRate: Number(l.CommissionRate)||0, commAmount: commAmt, netAmount: l.NetAmount !== null && l.NetAmount !== undefined ? Number(l.NetAmount) : (amt - commAmt), costRate: sv3CostRateOf(l) };
       })
     : [];
   window.__sv3LastStockQty = '';
@@ -9332,7 +9605,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
   }
 
   const bodyHtml = `
-    <div style="display:flex;border-bottom:2px solid var(--border);margin-bottom:16px;">
+    <div style="display:none;">
       <button type="button" id="sv3_TabEntryBtn" style="flex:1;padding:10px;border:none;background:none;cursor:pointer;font-weight:700;border-bottom:3px solid var(--amber);color:var(--text);">${t('বিক্রয় ভাউচার','Sales Voucher')}</button>
       <button type="button" id="sv3_TabPreviewBtn" style="flex:1;padding:10px;border:none;background:none;cursor:pointer;font-weight:700;border-bottom:3px solid transparent;color:var(--text-muted);">${t('লাইভ প্রিভিউ ভাউচার','Live Preview Voucher')}</button>
     </div>
@@ -9351,78 +9624,52 @@ async function openSalesVoucherForm(defaultType, existingId) {
       <div class="sv3-compact">
       <h4 style="margin:0 0 12px;font-size:13px;color:var(--amber);text-transform:uppercase;background:var(--ink-900);padding:8px;text-align:center;border-radius:6px;">${t('বিক্রয় ভাউচার','Sales Voucher')}</h4>
 
-      <div class="field"><label>${t('১. ভাউচার তারিখঃ','1. Voucher Date:')}</label><input type="date" id="sv3_Date" value="${attr(rec.InvoiceDate || rec.Date) || new Date().toISOString().slice(0,10)}"></div>
-      <div class="field"><label>${t('২. ভাউচার নম্বরঃ','2. Voucher No:')}</label><input id="sv3_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো তৈরি হবে','Auto')}" readonly style="background:var(--bg);"></div>
-
-      <div class="field">
-        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="sv3_ManualDateCheck" style="width:auto;" ${rec.ManualVoucherDate?'checked':''}> ${t('৩. নিঃতারিখঃ','3. Manual Date:')}</label>
-        <input type="date" id="sv3_ManualVoucherDate" value="${attr(rec.ManualVoucherDate)}" ${rec.ManualVoucherDate?'':'disabled'}>
-      </div>
-      <div class="field">
-        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="sv3_ManualNoCheck" style="width:auto;" ${rec.ManualVoucherNo?'checked':''}> ${t('৪. নিঃনম্বরঃ','4. Manual No:')}</label>
-        <input id="sv3_ManualVoucherNo" value="${attr(rec.ManualVoucherNo)}" ${rec.ManualVoucherNo?'':'disabled'}>
-      </div>
-
-      <div class="field">
-        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="sv3_ZoneCheck" style="width:auto;" checked> ${t('জোনঃ','Zone:')}</label>
-        <select id="sv3_ZoneFilter"><option value="">${t('সব জোন','All Zones')}</option>${sv3ZoneList.map(function(z){return `<option value="${attr(z)}">${escapeHtml(z)}</option>`;}).join('')}</select>
-      </div>
-
-      <div class="field"><label>${t('৫. গ্রাহক নামঃ','5. Customer:')}</label><select id="sv3_CustomerID"><option value="">—</option>${customers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.CustomerID)}" data-zone="${attr(r.Zone||'')}" ${rec.CustomerID===r.CustomerID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select></div>
-      <div class="field"><label>${t('৬. গ্রাহক হিসাবঃ','6. Customer Balance:')}</label><input id="sv3_CustomerBalance" readonly style="background:var(--bg);font-weight:700;"></div>
-
-      <div id="sv3_CashCustomerCard" style="display:none;padding:12px;border:1px dashed var(--border);border-radius:8px;background:var(--bg);margin-bottom:14px;">
+      <style>${VOUCHER_GRID_CSS}</style>
+      <div class="vg2">
+        <div class="field"><label>${t('ভাউচার তারিখ','Voucher date')}</label><input type="date" id="sv3_Date" value="${attr(rec.InvoiceDate || rec.Date) || new Date().toISOString().slice(0,10)}"></div>
+        <div class="field"><label><input type="checkbox" id="sv3_ManualDateCheck" ${rec.ManualVoucherDate?'checked':''}> ${t('নিঃ তারিখ','Manual date')}</label><input type="date" id="sv3_ManualVoucherDate" value="${attr(rec.ManualVoucherDate)}" ${rec.ManualVoucherDate?'':'disabled'}></div>
+        <div class="field"><label>${t('ভাউচার নম্বর','Voucher no')}</label><input id="sv3_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো তৈরি হবে','Auto')}" readonly style="background:var(--bg);"></div>
+        <div class="field"><label><input type="checkbox" id="sv3_ManualNoCheck" ${rec.ManualVoucherNo?'checked':''}> ${t('নিঃ নম্বর','Manual no')}</label><input id="sv3_ManualVoucherNo" value="${attr(rec.ManualVoucherNo)}" ${rec.ManualVoucherNo?'':'disabled'}></div>
+        <div class="field"><label>${t('পার্টি জোন','Party zone')}<input type="checkbox" id="sv3_ZoneCheck" checked class="vhide" tabindex="-1"></label><select id="sv3_ZoneFilter"><option value="">${t('সব জোন','All Zones')}</option>${sv3ZoneList.map(function(z){return `<option value="${attr(z)}">${escapeHtml(z)}</option>`;}).join('')}</select></div>
+        <div class="field"><label>${t('পার্টি ব্যালান্স','Party balance')}</label><input id="sv3_CustomerBalance" readonly class="vro vbold"></div>
+        <div class="field vfull"><label>${t('গ্রাহকের নাম','Customer')}</label><select id="sv3_CustomerID"><option value="">—</option>${customers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.CustomerID)}" data-zone="${attr(r.Zone||'')}" ${rec.CustomerID===r.CustomerID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select></div>
+        <div id="sv3_CashCustomerCard" class="vfull vcash" style="display:none;">
         <div class="field"><label>${t('নগদ পার্টির আসল নাম','Actual Cash Party Name')}</label><input id="sv3_CashName" value="${attr(rec.WalkInPartyName)}"></div>
         <div class="field"><label>${t('ঠিকানা','Address')}</label><input id="sv3_CashAddress" value="${attr(rec.WalkInPartyAddress)}"></div>
         <div class="field"><label>${t('মোবাইল','Mobile')}</label><input id="sv3_CashMobile" value="${attr(rec.WalkInPartyMobile)}"></div>
       </div>
+        <div class="field"><label><input type="checkbox" id="sv3_GroupCheck"> ${t('গ্রুপ নাম','Group')}</label><select id="sv3_GroupSelect" disabled style="display:none;"><option value="">—</option>${optsHtml(window.__sv3Groups, 'GroupID','GroupName','')}</select></div>
+        <div class="field"><label><input type="checkbox" id="sv3_CatCheck"> ${t('ক্যাটাগরি','Category')}</label><select id="sv3_CatSelect" disabled style="display:none;"><option value="">—</option>${optsHtml(window.__sv3Categories, 'CategoryID','CategoryName','')}</select></div>
+        <div class="field"><label>${t('আইটেম','Item')}</label><select id="sv3_ItemID"><option value="">—</option></select></div>
+        <div class="field"><label>${t('স্টক আইটেম','Item stock')}</label><input id="sv3_PreviewStockQty" readonly class="vro"></div>
+        <div class="field"><label>${t('গুদাম','Warehouse')}</label><select id="sv3_WarehouseID"><option value="">—</option>${optsHtml(window.__sv3Warehouses, 'WarehouseID','WarehouseName', rec.WarehouseID)}</select></div>
+        <div class="field"><label>${t('স্টক দর','Stock rate')}</label><input id="sv3_PreviewStockRate" readonly class="vro"></div>
+        <div class="field"><label id="sv3_LblKg">${t('পরিমাণ (কেজি)','Qty (kg)')}</label><input id="sv3_QtyKg" type="number" step="any" min="0" inputmode="decimal"></div>
+        <div class="field"><label id="sv3_LblPcs">${t('পরিমাণ (পিস)','Qty (pcs)')}</label><input id="sv3_QtyPcs" type="number" step="any" min="0" inputmode="decimal"></div>
+        <div class="field"><label>${t('আঃ বিক্রয় দর (কেজি)','Std. sales rate (kg)')}</label><input id="sv3_AvgRateKg" readonly class="vro"></div>
+        <div class="field"><label>${t('আঃ বিক্রয় দর (পিস)','Std. sales rate (pc)')}</label><input id="sv3_AvgRatePc" readonly class="vro"></div>
+        <div class="field"><label>${t('দর','Rate')}</label><input id="sv3_Rate" type="number" step="any" min="0" inputmode="decimal"></div>
+        <div class="field"><label>${t('একক','Unit')}</label><input id="sv3_Unit" readonly class="vro"></div>
+        <div class="field"><label>${t('মূল্য','Amount')}</label><input id="sv3_Amount" readonly class="vro vbold"></div>
+        <div class="field"><label><input type="checkbox" id="sv3_CommCheck"> ${t('কমিশন (%)','Commission (%)')}</label><input id="sv3_CommRate" type="number" step="any" min="0" inputmode="decimal" placeholder="0" disabled></div>
+        <div id="sv3_CommResultRow" class="vfull vcomm" style="display:none;">
+          <div class="field"><label>${t('(-) কমিশন','(-) Commission')}</label><input id="sv3_CommAmount" readonly class="vro"></div>
+          <div class="field"><label>${t('নিট মূল্য','Net amount')}</label><input id="sv3_NetLineAmount" readonly class="vro vbold"></div>
+        </div>
+        <label class="vbtn"><input type="checkbox" id="sv3_ConfirmSaleCheck" class="vhide"> ＋ ${t('সেভ + বিক্রয় লাইন যোগ','Save + add sale line')}</label>
+        <button type="button" id="sv3_AddReturnLineBtn" class="vbtn vret">＋ ${t('বিক্রয় ফেরৎ লাইন যোগ','Add sale return line')}</button>
+      </div>
+      <input type="hidden" id="sv3_Qty">
+      <div style="display:none;"><input type="checkbox" id="sv3_StdSalesCheck"><input id="sv3_PreviewStdSalesRate" readonly style="background:var(--bg);display:none;"></div>
 
       <div class="field">
-        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="sv3_GroupCheck" style="width:auto;"> ${t('৭. গ্রুপ নামঃ','7. Group:')}</label>
-        <select id="sv3_GroupSelect" disabled style="display:none;"><option value="">—</option>${optsHtml(window.__sv3Groups, 'GroupID','GroupName','')}</select>
-      </div>
-      <div class="field">
-        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="sv3_CatCheck" style="width:auto;"> ${t('৮. ক্যাটাগরিঃ','8. Category:')}</label>
-        <select id="sv3_CatSelect" disabled style="display:none;"><option value="">—</option>${optsHtml(window.__sv3Categories, 'CategoryID','CategoryName','')}</select>
-      </div>
-
-      <div class="field"><label>${t('৯. আইটেমঃ','9. Item:')}</label><select id="sv3_ItemID"><option value="">—</option></select></div>
-      <div class="field"><label>${t('১০. ওয়ারহাউজঃ','10. Warehouse:')}</label><select id="sv3_WarehouseID"><option value="">—</option>${optsHtml(window.__sv3Warehouses, 'WarehouseID','WarehouseName', rec.WarehouseID)}</select></div>
-      <div class="field"><label>${t('১১. স্টক পরিমাণঃ','11. Stock Qty:')}</label><input id="sv3_PreviewStockQty" readonly style="background:var(--bg);"></div>
-      <div class="field"><label>${t('১২. পরিমাণঃ','12. Quantity:')}</label><input id="sv3_Qty" type="number" step="any"></div>
-      <div class="field"><label>${t('১৩. স্টক দরঃ','13. Stock Rate:')}</label><input id="sv3_PreviewStockRate" readonly style="background:var(--bg);"></div>
-      <div class="field">
-        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="sv3_StdSalesCheck" style="width:auto;"> ${t('১৪. আঃ বিঃ দরঃ (ডিফল্ট)','14. Std. Sales Rate (default):')}</label>
-        <input id="sv3_PreviewStdSalesRate" readonly style="background:var(--bg);display:none;">
-      </div>
-      <div class="field"><label>${t('১৫. দরঃ','15. Rate:')}</label><input id="sv3_Rate" type="number" step="any"></div>
-      <div class="field"><label>${t('১৬. এককঃ','16. Unit:')}</label><input id="sv3_Unit" readonly style="background:var(--bg);"></div>
-      <div class="field"><label>${t('১৭. মূল্যঃ','17. Amount:')}</label><input id="sv3_Amount" readonly style="background:var(--bg);font-weight:700;"></div>
-
-      <div class="field">
-        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="sv3_CommCheck" style="width:auto;"> ${t('কমিঃ (%)ঃ','Comm. (%):')}</label>
-        <input id="sv3_CommRate" type="number" step="any" placeholder="0" disabled>
-      </div>
-      <div id="sv3_CommResultRow" style="display:none;">
-        <div class="field"><label>${t('(-)কমিঃঃ','(-) Comm.:')}</label><input id="sv3_CommAmount" readonly style="background:var(--bg);"></div>
-        <div class="field"><label>${t('নিট মূল্যঃ','Net Amount:')}</label><input id="sv3_NetLineAmount" readonly style="background:var(--bg);font-weight:700;"></div>
-      </div>
-
-      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">
-        <label style="display:flex;align-items:center;gap:8px;background:var(--ink-900);color:var(--amber);padding:8px 10px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;">
-          <input type="checkbox" id="sv3_ConfirmSaleCheck" style="width:auto;"> ✓ ${t('সেভ + বিক্রয় লাইন যোগ','Save + Add Sale Line')}
-        </label>
-        <button type="button" id="sv3_AddReturnLineBtn" class="btn" style="width:100%;background:var(--ink-900);color:var(--amber);padding:8px 10px;font-size:12px;">+ ${t('বিক্রয় ফেরত লাইন যোগ','Add Sale Return Line')}</button>
-      </div>
-
-      <div class="field">
-        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="sv3_ExpCheck" style="width:auto;"> ${t('খরচ(+)ঃ','Expense(+):')}</label>
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="sv3_ExpCheck" style="width:auto;"> ${t('খরচঃ (+)','Expense (+):')}</label>
         <input id="sv3_ExpTotalAmount" type="number" step="any" placeholder="৳">
       </div>
       <div id="sv3_ExpSubWrap" style="display:none;margin-bottom:16px;"></div>
 
       <div class="field">
-        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="sv3_DiscCheck" style="width:auto;" ${rec.DiscountAmount?'checked':''}> ${t('ডিসকাউন্ট(-)ঃ','Discount(-):')}</label>
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="sv3_DiscCheck" style="width:auto;" ${rec.DiscountAmount?'checked':''}> ${t('ডিসকাউন্টঃ (-)','Discount (-):')}</label>
         <input id="sv3_DiscAmount" type="number" step="any" placeholder="৳" value="${attr(rec.DiscountAmount)}">
       </div>
 
@@ -9455,7 +9702,9 @@ async function openSalesVoucherForm(defaultType, existingId) {
       </div>
     </div>
 
-    <div id="sv3_TabPreviewPanel" style="display:none;">
+    <div id="sv3_TabPreviewPanel" class="vbottom"><style>${VOUCHER_BOTTOM_CSS}</style>
+      <div class="vbtabs"><button type="button" data-vb="preview" class="on">👁️ ${t('লাইভ প্রিভিউ','Live preview')}</button><button type="button" data-vb="list">📋 ${t('ভাউচার তালিকা','Vouchers')}</button><button type="button" data-vb="challan">🚚 ${t('চালান তালিকা','Challans')}</button></div>
+      <div id="sv3_VBPreview">
       <div style="display:flex;gap:8px;margin-bottom:16px;">
         <button type="button" class="btn btn-outline" style="width:auto;" id="sv3_LivePageSetupBtn">📄 ${t('পেজ সেটাপ','Page Setup')}</button>
         <button type="button" class="btn btn-primary" style="width:auto;" id="sv3_LivePrintBtn">🖨️ ${t('প্রিন্ট','Print')}</button>
@@ -9463,6 +9712,8 @@ async function openSalesVoucherForm(defaultType, existingId) {
         <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;cursor:pointer;margin-left:auto;"><input type="checkbox" id="sv3_ShowProfitCheck" style="width:auto;"> 📈 ${t('লাভ দেখান','Show profit')}</label>
       </div>
       <div id="sv3_LivePreviewBody" style="font-size:12.5px;"></div>
+      </div>
+      <div id="sv3_VBList" style="display:none;"></div>
     </div>
   `;
 
@@ -9487,7 +9738,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
       if (hasSale) {
         const warehouseId = window.__sv3SaleLines[0].warehouseId;
         if (!warehouseId) throw new Error(t('বিক্রয় লাইনে গুদাম আবশ্যক।','Warehouse is required for sale lines.'));
-        const lineData = window.__sv3SaleLines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, Rate: l.rate, Amount: l.amount, CommissionRate: l.commRate || 0, CommissionAmount: l.commAmount || 0, NetAmount: l.netAmount !== undefined ? l.netAmount : l.amount, CostRate: l.costRate || 0 }; });
+        const lineData = window.__sv3SaleLines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, QtyKg: l.qtyKg || 0, QtyPcs: l.qtyPcs || 0, Rate: l.rate, Amount: l.amount, CommissionRate: l.commRate || 0, CommissionAmount: l.commAmount || 0, NetAmount: l.netAmount !== undefined ? l.netAmount : l.amount, CostRate: l.costRate || 0 }; });
         const itemsTotal = lineData.reduce(function (s, l) { return s + (Number(l.Amount) || 0); }, 0);
         const cashExpenseAmount = (window.__sv3CashExpense && window.__sv3CashExpense.amount) || 0;
         const discountAmount = Number(val('sv3_DiscAmount')) || 0;
@@ -9533,7 +9784,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
       if (hasReturn) {
         const warehouseId = window.__sv3ReturnLines[0].warehouseId;
         if (!warehouseId) throw new Error(t('ফেরত লাইনে গুদাম আবশ্যক।','Warehouse is required for return lines.'));
-        const lineData = window.__sv3ReturnLines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, Rate: l.rate, CommissionRate: l.commRate || 0, CommissionAmount: l.commAmount || 0, NetAmount: l.netAmount !== undefined ? l.netAmount : l.amount, CostRate: l.costRate || 0 }; });
+        const lineData = window.__sv3ReturnLines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, QtyKg: l.qtyKg || 0, QtyPcs: l.qtyPcs || 0, Rate: l.rate, CommissionRate: l.commRate || 0, CommissionAmount: l.commAmount || 0, NetAmount: l.netAmount !== undefined ? l.netAmount : l.amount, CostRate: l.costRate || 0 }; });
         const headerData = Object.assign({}, common, { Date: val('sv3_Date'), WarehouseID: warehouseId });
         if (isEdit && existingDocType === 'SalesReturn') {
           await api('updateDocument', { headerSheet:'SalesReturn', idField:'SRID', linesSheet:'SR_Lines', lineIdField:'SRID', idValue: existingId, headerData: headerData, lines: lineData });
@@ -9544,6 +9795,9 @@ async function openSalesVoucherForm(defaultType, existingId) {
 
       showToast(t('সেভ হয়েছে ✅','Saved ✅'), 'success');
       if (window.__refreshSalesVoucherList) await window.__refreshSalesVoucherList();
+      // সেভ হলেঃ নতুন খালি ভাউচার খোলে, নিচে ভাউচার তালিকা (সদ্য সেভ করাটা চিহ্নিত)
+      window.__vAfterSave = { kind: 'sales', at: Date.now(), editId: isEdit ? existingId : ((window.__lastCreatedDoc && window.__lastCreatedDoc.id) || null) };
+      setTimeout(function () { openSalesVoucherForm('SalesInvoice'); }, 350);
     }
   });
 
@@ -9551,11 +9805,11 @@ async function openSalesVoucherForm(defaultType, existingId) {
     const entryBtn = document.getElementById('sv3_TabEntryBtn'), previewBtn = document.getElementById('sv3_TabPreviewBtn');
     const entryPanel = document.getElementById('sv3_TabEntryPanel'), previewPanel = document.getElementById('sv3_TabPreviewPanel');
     if (tab === 'entry') {
-      entryPanel.style.display = ''; previewPanel.style.display = 'none';
+      entryPanel.style.display = ''; previewPanel.style.display = '';   // প্রিভিউ এখন ভাউচারের নিচে — সবসময় দেখা যায়
       entryBtn.style.borderBottomColor = 'var(--amber)'; entryBtn.style.color = 'var(--text)';
       previewBtn.style.borderBottomColor = 'transparent'; previewBtn.style.color = 'var(--text-muted)';
     } else {
-      entryPanel.style.display = 'none'; previewPanel.style.display = '';
+      entryPanel.style.display = ''; previewPanel.style.display = '';
       previewBtn.style.borderBottomColor = 'var(--amber)'; previewBtn.style.color = 'var(--text)';
       entryBtn.style.borderBottomColor = 'transparent'; entryBtn.style.color = 'var(--text-muted)';
       renderFullPreview();
@@ -9576,6 +9830,8 @@ async function openSalesVoucherForm(defaultType, existingId) {
   wireRevealCheckbox('sv3_ManualNoCheck', 'sv3_ManualVoucherNo');
   wireRevealCheckbox('sv3_StdSalesCheck', 'sv3_PreviewStdSalesRate');
   wireSequentialKeyNav(document.getElementById('sv3_TabEntryPanel'));
+  wireVoucherDual('sv3');
+  voucherBottomWire('sv3', 'sales', renderFullPreview);   // নিচেঃ লাইভ প্রিভিউ · ভাউচার তালিকা · চালান তালিকা
 
   function refreshSv3CustomerOptions() {
     const zoneChecked = document.getElementById('sv3_ZoneCheck').checked;
@@ -9917,6 +10173,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
     document.getElementById('sv3_PreviewStockRate').value = window.__sv3LastStockRate;
     document.getElementById('sv3_PreviewStdSalesRate').value = item ? (Number(item.SalesPrice)||0).toFixed(2) : '';
     if (!val('sv3_Rate') && item && item.SalesPrice) document.getElementById('sv3_Rate').value = item.SalesPrice;
+    await voucherDualRefresh('sv3', 'sales');   // স্টক কেজি/পিস, আঃ দর, মূল একক
     recalcAmount();
     renderRightSummary();
   }
@@ -9954,6 +10211,8 @@ async function openSalesVoucherForm(defaultType, existingId) {
     document.getElementById('sv3_ItemID').value = '';
     document.getElementById('sv3_WarehouseID').value = '';
     document.getElementById('sv3_Qty').value = '';
+    document.getElementById('sv3_QtyKg').value = ''; document.getElementById('sv3_QtyPcs').value = ''; document.getElementById('sv3_QtyKg').placeholder = ''; document.getElementById('sv3_QtyPcs').placeholder = '';
+    document.getElementById('sv3_AvgRateKg').value = ''; document.getElementById('sv3_AvgRatePc').value = '';
     document.getElementById('sv3_Rate').value = '';
     document.getElementById('sv3_Unit').value = '';
     document.getElementById('sv3_Amount').value = '';
@@ -9973,13 +10232,14 @@ async function openSalesVoucherForm(defaultType, existingId) {
     const rate = Number(val('sv3_Rate')) || 0;
     if (!itemId) { showToast(t('আইটেম বাছাই করুন।','Select an item.'), 'error'); return null; }
     if (!warehouseId) { showToast(t('গুদাম বাছাই করুন।','Select a warehouse.'), 'error'); return null; }
+    if (!(qty > 0) && (Number(val('sv3_QtyKg')) || Number(val('sv3_QtyPcs')))) { showToast(window.__sv3Piece ? t('এই আইটেমের মূল একক পিস — পরিমাণ (পিস) দিন।','This item is counted in pieces — enter Qty (pcs).') : t('এই আইটেমের মূল একক কেজি — পরিমাণ (কেজি) দিন।','This item is counted in kg — enter Qty (kg).'), 'error'); return null; }
     if (!(qty > 0 && rate > 0)) { showToast(t('পরিমাণ ও দর দিন।','Enter quantity and rate.'), 'error'); return null; }
     const amount = Math.round(qty * rate);
     const useComm = document.getElementById('sv3_CommCheck').checked;
     const commRate = useComm ? (Number(val('sv3_CommRate')) || 0) : 0;
     const commAmount = useComm ? Number((amount * commRate / 100).toFixed(2)) : 0;
     const costRate = Number((window.__sv3ItemMap[itemId] || {}).StandardCost) || 0;
-    return { itemId: itemId, warehouseId: warehouseId, qty: qty, rate: rate, amount: amount, commRate: commRate, commAmount: commAmount, netAmount: useComm ? Number((amount - commAmount).toFixed(2)) : amount, costRate: costRate };
+    return { itemId: itemId, warehouseId: warehouseId, qty: qty, qtyKg: Number(val('sv3_QtyKg')) || 0, qtyPcs: Number(val('sv3_QtyPcs')) || 0, rate: rate, amount: amount, commRate: commRate, commAmount: commAmount, netAmount: useComm ? Number((amount - commAmount).toFixed(2)) : amount, costRate: costRate };
   }
 
   document.getElementById('sv3_ConfirmSaleCheck').addEventListener('change', function () {
@@ -10005,6 +10265,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
   window.__sv3RemoveReturnLine = function (i) { window.__sv3ReturnLines.splice(i, 1); renderRightSummary(); renderFullPreview(); };
 
   function renderRightSummary() {
+    if (window.__sv3SchedulePreview) window.__sv3SchedulePreview();   // লাইভ প্রিভিউ হালনাগাদ
     document.getElementById('sv3_PreviewStockQty').value = window.__sv3LastStockQty;
     document.getElementById('sv3_PreviewStockRate').value = window.__sv3LastStockRate;
   }
@@ -10065,7 +10326,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
       return;
     }
     const html = await buildDraftPrintHtml();
-    wrap.innerHTML = `<iframe id="sv3_PreviewFrame" style="width:100%;height:70vh;border:1px solid var(--border);border-radius:8px;background:#fff;" srcdoc="${attr(html)}"></iframe>`;
+    wrap.innerHTML = `<iframe id="sv3_PreviewFrame" style="width:100%;height:62vh;border:1px solid var(--border);border-radius:8px;background:#fff;" srcdoc="${attr(html)}"></iframe>`;
   }
 
   function printDraftFrame() {
@@ -10442,6 +10703,59 @@ function wireDmyFields(root) {
     });
   });
 }
+/* ===== সব তারিখের ঘরঃ দিন-মাস-বছর (09-10-2026) =====
+   পেজে যেকোনো <input type="date"> এলেই তার ওপর দিন-মাস-বছরের লেখার ঘর বসে (পাশে 📅 ক্যালেন্ডার)।
+   আসল ঘরটা ভেতরে লুকিয়ে থাকে — কোড আগের মতোই .value দিয়ে 2026-10-09 পড়ে/লেখে, আর লেখার ঘর নিজে মিলে যায়। */
+(function () {
+  const desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+  function enhance(nat) {
+    if (nat.__dmyEnh || nat.type !== 'date' || nat.classList.contains('dmy-native') || (nat.closest && nat.closest('.dmy-wrap'))) return;
+    nat.__dmyEnh = true;
+    const wrap = document.createElement('span'); wrap.className = 'dmy-wrap dmy-auto';
+    if (nat.style.width) { wrap.style.width = nat.style.width; nat.style.width = ''; }
+    const txt = document.createElement('input');
+    txt.type = 'text'; txt.className = 'dmy-in dmy-in-auto'; txt.placeholder = 'দিন-মাস-বছর'; txt.inputMode = 'numeric'; txt.maxLength = 10; txt.autocomplete = 'off';
+    if (nat.id) txt.setAttribute('data-dmyof', nat.id);
+    const cal = document.createElement('button'); cal.type = 'button'; cal.className = 'dmy-cal'; cal.textContent = '📅'; cal.tabIndex = -1; cal.title = 'ক্যালেন্ডার';
+    nat.parentNode.insertBefore(wrap, nat); wrap.appendChild(txt); wrap.appendChild(cal); wrap.appendChild(nat);
+    nat.classList.add('dmy-shadow'); nat.tabIndex = -1;
+    const show = function () { txt.value = isoToDmy(desc.get.call(nat)); txt.classList.remove('bad'); };
+    Object.defineProperty(nat, 'value', { configurable: true, get: function () { return desc.get.call(this); }, set: function (v) { desc.set.call(this, v); show(); } });
+    nat.addEventListener('change', show); nat.addEventListener('input', show);
+    nat.addEventListener('focus', function () { txt.focus(); });
+    show();
+    txt.addEventListener('input', function () {
+      const digits = txt.value.replace(/[০-৯]/g, function (c) { return '০১২৩৪৫৬৭৮৯'.indexOf(c); }).replace(/\D/g, '').slice(0, 8);
+      let v = digits; if (digits.length > 4) v = digits.slice(0, 2) + '-' + digits.slice(2, 4) + '-' + digits.slice(4); else if (digits.length > 2) v = digits.slice(0, 2) + '-' + digits.slice(2);
+      txt.value = v; txt.classList.remove('bad');
+    });
+    const commit = function () {
+      const cur = desc.get.call(nat);
+      if (!txt.value) { if (cur) { desc.set.call(nat, ''); nat.dispatchEvent(new Event('input', { bubbles: true })); nat.dispatchEvent(new Event('change', { bubbles: true })); } return; }
+      const iso = dmyToIso(txt.value);
+      if (!iso) { txt.classList.add('bad'); return; }
+      txt.value = isoToDmy(iso);
+      if (iso !== cur) { desc.set.call(nat, iso); nat.dispatchEvent(new Event('input', { bubbles: true })); nat.dispatchEvent(new Event('change', { bubbles: true })); }
+    };
+    txt.addEventListener('change', commit); txt.addEventListener('blur', commit);
+    txt.addEventListener('keydown', function (e) { if (e.key === 'Enter') commit(); });
+    cal.addEventListener('click', function () { if (nat.disabled || nat.readOnly) return; try { if (nat.showPicker) nat.showPicker(); else { nat.focus(); nat.click(); } } catch (e) {} });
+    const mirror = function () {
+      txt.disabled = nat.disabled; txt.readOnly = nat.readOnly; cal.disabled = nat.disabled || nat.readOnly;
+      wrap.style.display = nat.style.display === 'none' ? 'none' : '';
+      if (nat.title) txt.title = nat.title;
+    };
+    new MutationObserver(mirror).observe(nat, { attributes: true, attributeFilter: ['disabled', 'readonly', 'style', 'title'] });
+    mirror();
+  }
+  function scan(root) { if (root && root.querySelectorAll) root.querySelectorAll('input[type="date"]').forEach(enhance); }
+  window.enhanceDateInputs = scan;
+  new MutationObserver(function (muts) {
+    muts.forEach(function (m) { m.addedNodes.forEach(function (n) { if (n.nodeType !== 1) return; if (n.matches && n.matches('input[type="date"]')) enhance(n); else scan(n); }); });
+  }).observe(document.documentElement, { childList: true, subtree: true });
+  if (document.readyState !== 'loading') scan(document); else document.addEventListener('DOMContentLoaded', function () { scan(document); });
+})();
+
 const DMY_CSS = `.dmy-wrap{position:relative;display:inline-flex;align-items:center;}
   .dmy-in{width:128px !important;min-width:0 !important;height:34px;padding:4px 30px 4px 9px;font-size:12.5px;border:1px solid var(--border,#d6dae1);border-radius:8px;background:var(--surface,#fff);letter-spacing:.3px;}
   .dmy-in.bad{border-color:#c0392b;background:#fdf0ef;}
@@ -11279,7 +11593,8 @@ function renderModalTaskbar() {
 
 function openModal(opts) {
   if (modalIsOpen()) minimizeModal();   // খোলা উইন্ডো হারাবে না — নিচের টাস্কবারে যাবে
-  setModalMax(!!opts.maximized);
+  // মোবাইলে (ছোট পর্দা) উইন্ডো নিজে থেকে পুরো পর্দা — কাজের জায়গা সবচেয়ে বেশি; ▢ চেপে ছোট করা যায়
+  setModalMax(!!opts.maximized || !!(window.matchMedia && window.matchMedia('(max-width: 760px)').matches));
   modalCurrentTitle = opts.title; modalCurrentKey = opts.winKey || modalPendingKey || ''; modalPendingKey = '';
   document.getElementById('modalTitle').textContent = opts.title;
   document.getElementById('modalBody').innerHTML = opts.bodyHtml;
@@ -11411,7 +11726,7 @@ function formatShortDate(isoDate) {
   const parts = String(isoDate).split('-');
   if (parts.length !== 3) return isoDate;
   const [yyyy, mm, dd] = parts;
-  return dd + '-' + mm + '-' + yyyy.slice(-2);
+  return dd + '-' + mm + '-' + yyyy;   // সব জায়গায় 09-10-2026 (চার অঙ্কের বছর)
 }
 
 /** ক্রয়/বিক্রয় ভাউচারের প্রিন্ট/প্রিভিউর জন্য একটামাত্র শেয়ার করা বর্ডার-টেবিল
@@ -11707,13 +12022,14 @@ async function avgKgPerPiece(itemId, warehouseId) {
   return pcs > 0 && kg > 0 ? kg / pcs : 0;
 }
 /** একক-সচেতন স্টক পোস্ট (বিক্রয়, ক্রয়, ফেরত, ইস্যু, সমন্বয়, ওপেনিং) — পিসের আইটেমে পিস ও (পিস × গড় ওজন) কেজি, কেজির আইটেমে শুধু কেজি */
-async function postSalesStock(itemId, warehouseId, date, txType, refModule, refId, qty, sign) {
-  qty = Number(qty) || 0;
+async function postSalesStock(itemId, warehouseId, date, txType, refModule, refId, qty, sign, other) {
+  // other = { kg, pcs } — লাইনে অন্য এককের আসল পরিমাণ লেখা থাকলে সেটাই স্টকে যায় (না থাকলে পিস × গড় ওজন)
+  qty = Number(qty) || 0; const o = other || {};
   if (await itemIsPiece(itemId)) {
-    const avg = await avgKgPerPiece(itemId, warehouseId);
-    await postStockMovement(itemId, warehouseId, date, txType, refModule, refId, sign * qty * avg, sign * qty);
+    const kg = Number(o.kg) > 0 ? Number(o.kg) : qty * (await avgKgPerPiece(itemId, warehouseId));
+    await postStockMovement(itemId, warehouseId, date, txType, refModule, refId, sign * kg, sign * qty);
   } else {
-    await postStockMovement(itemId, warehouseId, date, txType, refModule, refId, sign * qty, 0);
+    await postStockMovement(itemId, warehouseId, date, txType, refModule, refId, sign * qty, sign * (Number(o.pcs) > 0 ? Number(o.pcs) : 0));
   }
 }
 
