@@ -11349,7 +11349,9 @@ async function voucherForceClean(base, id) {
 }
 
 async function renderPartyLedger(content, partyTypeFilter) {
+  delete listCache.Customers; delete listCache.Suppliers;   // সবসময় সর্বশেষ তালিকা — নতুন পার্টি সাথে সাথে আসে
   const [customers, suppliers] = await Promise.all([cachedList('Customers'), cachedList('Suppliers')]);
+  const normName = function (x) { return String(x || '').replace(/\s+/g, ' ').trim().toLowerCase(); };
 
   // "পার্টি" পেজ থেকে তৈরি হওয়া একই ব্যক্তি/প্রতিষ্ঠান Customers ও Suppliers —
   // দুই টেবিলেই আলাদা ID নিয়ে থাকে, কিন্তু একই "Code" শেয়ার করে। এখানে সেই
@@ -11357,9 +11359,10 @@ async function renderPartyLedger(content, partyTypeFilter) {
   const combined = {}; // key: Code (বা কোড না থাকলে নিজের ID) → { name, customerId, supplierId, zone }
   if (!partyTypeFilter || partyTypeFilter === 'Customer') {
     customers.filter(function (c) { return c.Status !== 'Deleted'; }).forEach(function (c) {
-      const key = c.Code || c.CustomerID;
       const label = c.CompanyName || c.Name;
-      if (!combined[key]) combined[key] = { name: label, customerId: null, supplierId: null, customerIds: [], supplierIds: [], zone: c.Zone || '' };
+      const key = c.Code ? c.Code + '|' + normName(label) : c.CustomerID;   // একই কোড + একই নাম হলে তবেই এক পার্টি
+      if (!combined[key]) combined[key] = { name: label, customerId: null, supplierId: null, customerIds: [], supplierIds: [], zone: c.Zone || '', phone: c.Phone || '', code: c.Code || '', inactive: false };
+      if (c.IsActive === false || c.IsActive === 'FALSE') combined[key].inactive = true;
       combined[key].customerId = c.CustomerID; combined[key].customerIds.push(c.CustomerID);   // একই কোডের সব গ্রাহক
       if (!combined[key].name) combined[key].name = label;
       if (!combined[key].zone) combined[key].zone = c.Zone || '';
@@ -11367,9 +11370,10 @@ async function renderPartyLedger(content, partyTypeFilter) {
   }
   if (!partyTypeFilter || partyTypeFilter === 'Supplier') {
     suppliers.filter(function (s) { return s.Status !== 'Deleted'; }).forEach(function (s) {
-      const key = s.Code || s.SupplierID;
       const label = s.CompanyName || s.Name;
-      if (!combined[key]) combined[key] = { name: label, customerId: null, supplierId: null, customerIds: [], supplierIds: [], zone: s.Zone || '' };
+      const key = s.Code ? s.Code + '|' + normName(label) : s.SupplierID;
+      if (!combined[key]) combined[key] = { name: label, customerId: null, supplierId: null, customerIds: [], supplierIds: [], zone: s.Zone || '', phone: s.Phone || '', code: s.Code || '', inactive: false };
+      if (!combined[key].phone) combined[key].phone = s.Phone || '';
       combined[key].supplierId = s.SupplierID; combined[key].supplierIds.push(s.SupplierID);
       if (!combined[key].name) combined[key].name = label;
       if (!combined[key].zone) combined[key].zone = s.Zone || '';
@@ -11390,16 +11394,24 @@ async function renderPartyLedger(content, partyTypeFilter) {
       </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;margin:0;"><input type="checkbox" id="plZoneCheck" style="width:auto;"> ${t('জোন','Zone')}</label>
-        <select id="plZoneFilter" style="width:auto;min-width:140px;" disabled>
+        <select id="plZoneFilter" style="width:auto;min-width:140px;">
           <option value="">${t('সব জোন','All Zones')}</option>
           ${zoneList.map(function (z) { return `<option value="${attr(z)}">${escapeHtml(z)}</option>`; }).join('')}
         </select>
-        <input id="plPartySearch" list="plPartyDatalist" placeholder="${t('পার্টির নাম লিখে খুঁজুন...','Type to search party...')}" style="width:auto;min-width:240px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:13.5px;">
+        <div class="pl-pick"><input id="plPartySearch" autocomplete="off" placeholder="${t('পার্টি খুঁজুন — চাপলেই সব পার্টি','Search party — tap to see all')}" style="width:100%;padding:9px 30px 9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:13.5px;box-sizing:border-box;"><span class="pl-caret">▾</span>
+          <div id="plPartyList" class="pl-list" style="display:none;"></div></div>
         <datalist id="plPartyDatalist">${partyOptionsHtml(parties)}</datalist>
         <button type="button" id="plPrintBtn" class="btn btn-outline" style="width:auto;display:none;">🖨️ ${t('প্রিন্ট প্রিভিউ','Print Preview')}</button>
       </div>
     </div>
-    <style>.pl-ic{border:1px solid var(--border);background:var(--surface);border-radius:7px;min-width:32px;height:30px;font-size:13px;cursor:pointer;margin:0 1px;} .pl-ic:disabled{opacity:.35;cursor:default;} #plWrap .data-table th{text-align:center;}</style>
+    <style>.pl-pick{position:relative;min-width:260px;flex:1 1 260px;max-width:420px;} .pl-caret{position:absolute;right:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);pointer-events:none;}
+      .pl-list{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:50;background:var(--surface,#fff);border:1px solid var(--border);border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.14);max-height:min(60vh,420px);overflow-y:auto;-webkit-overflow-scrolling:touch;}
+      .pl-list .pl-cnt{position:sticky;top:0;background:var(--bg,#f4f5f7);font-size:11.5px;color:var(--text-muted);padding:6px 12px;border-bottom:1px solid var(--border);}
+      .pl-list .pl-it{display:flex;align-items:center;gap:8px;padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13.5px;min-height:40px;box-sizing:border-box;}
+      .pl-list .pl-it:hover,.pl-list .pl-it.on{background:#fff6e0;} .pl-list .pl-it .nm{flex:1;min-width:0;} .pl-list .pl-it small{color:var(--text-muted);}
+      .pl-list .pl-bd{font-size:10.5px;border-radius:999px;padding:1px 8px;white-space:nowrap;border:1px solid var(--border);} .pl-bd.c{background:#e8f5ec;color:#145c38;} .pl-bd.s{background:#e8f0fe;color:#16467e;} .pl-bd.b{background:#fff3d6;color:#7a5200;}
+      .pl-list .pl-none{padding:14px 12px;color:var(--text-muted);font-size:13px;}
+      .pl-ic{border:1px solid var(--border);background:var(--surface);border-radius:7px;min-width:32px;height:30px;font-size:13px;cursor:pointer;margin:0 1px;} .pl-ic:disabled{opacity:.35;cursor:default;} #plWrap .data-table th{text-align:center;}</style>
     <div class="panel"><div id="plWrap"><div class="empty-state">${t('উপরে একটা পার্টি বাছাই করুন।','Select a party above.')}</div></div></div>`;
 
   const zoneCheck = document.getElementById('plZoneCheck');
@@ -11412,7 +11424,7 @@ async function renderPartyLedger(content, partyTypeFilter) {
   // চেকবক্স টিক দিলে তবেই জোন ড্রপডাউন সক্রিয় হবে — প্রয়োজন না হলে এটা এড়িয়ে
   // সরাসরি সব পার্টি থেকে লিখে খোঁজা যাবে
   zoneCheck.addEventListener('change', function () {
-    zoneSelect.disabled = !zoneCheck.checked;
+    // জোনের ঘর সবসময় চালু — টিক তুলে দিলে "সব জোন"
     if (!zoneCheck.checked) {
       zoneSelect.value = '';
       datalist.innerHTML = partyOptionsHtml(parties);
@@ -11426,7 +11438,57 @@ async function renderPartyLedger(content, partyTypeFilter) {
     const filtered = zone ? parties.filter(function (p) { return p.zone === zone; }) : parties;
     datalist.innerHTML = partyOptionsHtml(filtered);
     searchInput.value = '';
+    zoneCheck.checked = !!zone;   // জোন বাছলে টিক নিজে, "সব জোন" হলে উঠে যায়
+    // জোন বাছলেই সেই জোনের পার্টিদের তালিকা নিজে খোলে; একজনই থাকলে সরাসরি তার লেজার
+    setTimeout(function () {
+      const touch = window.matchMedia && window.matchMedia('(pointer:coarse)').matches;
+      if (!touch) searchInput.focus({ preventScroll: true });   // মোবাইলে কীবোর্ড নিজে উঠবে না
+      showPick();
+      if (zone && pickItems.length === 1) choose(0);
+    }, 30);
   });
+
+  // ===== নিজের খোঁজার তালিকাঃ চাপলেই সব পার্টি; নাম/জোন/ফোন/কোডের যেকোনো অংশে ছাঁকা; আঙুল ও কীবোর্ড (↑↓ Enter Esc) =====
+  const pickBox = document.getElementById('plPartyList');
+  let pickItems = [], pickOn = -1;
+  const partyLabel = function (p) { return p.name + (p.zone ? ' — ' + p.zone : ''); };
+  function renderPick() {
+    const zone = zoneSelect.value;
+    const qy = normName(searchInput.value);
+    const isSel = currentPartyKey && combined[currentPartyKey] && searchInput.value === partyLabel(combined[currentPartyKey]);
+    pickItems = parties.filter(function (p) {
+      if (zone && p.zone !== zone) return false;
+      if (!qy || isSel) return true;
+      return [p.name, p.zone, p.phone, p.code].some(function (x) { return normName(x).indexOf(qy) !== -1; });
+    });
+    pickOn = pickItems.length ? 0 : -1;
+    const badge = function (p) { const c = (p.customerIds || []).length, sp = (p.supplierIds || []).length; return c && sp ? `<span class="pl-bd b">${t('গ্রাহক + সাপ্লায়ার', 'Both')}</span>` : c ? `<span class="pl-bd c">${t('গ্রাহক', 'Customer')}</span>` : `<span class="pl-bd s">${t('সাপ্লায়ার', 'Supplier')}</span>`; };
+    pickBox.innerHTML = `<div class="pl-cnt">${t('মোট ', 'Total ')}${pickItems.length}${t('টা পার্টি', ' parties')}${zone ? ' · ' + escapeHtml(zone) : ''}</div>` +
+      (pickItems.length ? pickItems.map(function (p, i) {
+        return `<div class="pl-it ${i === pickOn ? 'on' : ''}" data-i="${i}"><span class="nm">${escapeHtml(p.name)}${p.inactive ? ` <small>(${t('নিষ্ক্রিয়', 'inactive')})</small>` : ''}<br><small>${escapeHtml([p.zone, p.phone].filter(Boolean).join(' · '))}</small></span>${badge(p)}</div>`;
+      }).join('') : `<div class="pl-none">${t('এই নামে কোনো পার্টি নেই।', 'No party matches.')}</div>`);
+  }
+  function showPick() { renderPick(); pickBox.style.display = ''; }
+  function hidePick() { pickBox.style.display = 'none'; }
+  function choose(i) {
+    const p = pickItems[i]; if (!p) return;
+    searchInput.value = partyLabel(p); hidePick(); loadLedgerForKey(p.key);
+  }
+  searchInput.addEventListener('focus', function () { if (searchInput.value && currentPartyKey) searchInput.select(); showPick(); });
+  searchInput.addEventListener('click', showPick);
+  searchInput.addEventListener('input', showPick);
+  searchInput.addEventListener('keydown', function (e) {
+    if (pickBox.style.display === 'none' && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { showPick(); e.preventDefault(); return; }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault(); if (!pickItems.length) return;
+      pickOn = (pickOn + (e.key === 'ArrowDown' ? 1 : -1) + pickItems.length) % pickItems.length;
+      pickBox.querySelectorAll('.pl-it').forEach(function (el, i) { el.classList.toggle('on', i === pickOn); if (i === pickOn) el.scrollIntoView({ block: 'nearest' }); });
+    } else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); if (pickBox.style.display !== 'none' && pickOn >= 0) choose(pickOn); }
+    else if (e.key === 'Escape') { hidePick(); }
+  });
+  pickBox.addEventListener('mousedown', function (e) { e.preventDefault(); });   // বাছাইয়ের আগে ঘর থেকে ফোকাস না সরে
+  pickBox.addEventListener('click', function (e) { const it = e.target.closest('.pl-it'); if (it) choose(Number(it.getAttribute('data-i'))); });
+  document.addEventListener('click', function (e) { if (!e.target.closest || !e.target.closest('.pl-pick')) hidePick(); });
 
   function findPartyByTypedValue(typedValue) {
     const opt = Array.from(datalist.options).find(function (o) { return o.value === typedValue; });
@@ -11552,9 +11614,9 @@ async function renderPartyLedger(content, partyTypeFilter) {
   });
 
   searchInput.addEventListener('change', function () {
-    const key = findPartyByTypedValue(searchInput.value.trim());
-    if (!key && searchInput.value.trim()) { showToast(t('তালিকা থেকে একটা পার্টি বাছাই করুন।','Pick a party from the list.'), 'error'); return; }
-    loadLedgerForKey(key);
+    const v = searchInput.value.trim(); if (!v) return;
+    const hit = parties.find(function (p) { return partyLabel(p) === v; });
+    if (hit) loadLedgerForKey(hit.key);   // একই পার্টি আবার বাছলেও নতুন করে (মোছা/যোগের পর হালনাগাদ)
   });
 
   printBtn.addEventListener('click', function () {
