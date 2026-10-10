@@ -7871,7 +7871,9 @@ async function openProcessingPrintView(docId, autoPrint, dIn) {
 </style></head><body>
   <div class="toolbar">
     <button class="primary" onclick="window.print()">🖨️ প্রিন্ট</button>
-    <button onclick="window.print()">📄 পেজ সেটাপ</button>
+    <style id="pg">@page{size:A5 portrait;margin:8mm;}</style>
+    <button onclick="document.getElementById('pg').textContent='@page{size:A5 portrait;margin:8mm;}';document.body.classList.remove('a5l');">📄 A5 খাড়া</button>
+    <button onclick="document.getElementById('pg').textContent='@page{size:A5 landscape;margin:8mm;}';document.body.classList.add('a5l');">📄 A5 আড়াআড়ি</button>
   </div>
   <div class="v-co">
     <div class="v-logo">${co.LogoURL ? `<img src="${attr(co.LogoURL)}" alt="">` : '<span>লোগো</span>'}</div>
@@ -8219,8 +8221,11 @@ async function openPrintableVoucherView(docType, docId, opts) {
   const shapedLines = lines.map(function (l) {
     const qty = Number(l.Quantity) || 0, rate = Number(l.Rate) || 0, amt = qty * rate;
     const commAmt = Number(l.CommissionAmount) || 0;
+    const pieceItem = /পিস|pcs|piece/i.test(unitMap[(itemMap[l.ItemID] || {}).UOMID] || '');
+    const qKg = pieceItem ? (Number(l.QtyKg) || 0) : (Number(l.QtyKg) || qty), qPc = pieceItem ? qty : (Number(l.QtyPcs) || 0);
     return {
       itemId: l.ItemID, qty: qty, rate: rate, amount: amt,
+      qtyKg: qKg, qtyPcs: qPc, rateKg: Number(l.RateKg) || 0, ratePc: Number(l.RatePc) || 0,
       costRate: (l.CostRate !== null && l.CostRate !== undefined) ? (Number(l.CostRate) || 0) : (Number((itemMap[l.ItemID] || {}).StandardCost) || 0),
       commRate: Number(l.CommissionRate) || 0, commAmount: commAmt,
       netAmount: (l.NetAmount !== null && l.NetAmount !== undefined) ? Number(l.NetAmount) : (amt - commAmt)
@@ -8272,7 +8277,7 @@ async function openPrintableVoucherView(docType, docId, opts) {
     cw.document.write(ch); cw.document.close(); return;
   }
 
-  const voucherTableBody = buildVoucherTableBody({
+  const voucherTableBody = buildVoucherBodyScreenPrint({
     vatRate: Number(header.VatRate) || 0, vatAmount: Number(header.VatAmount) || 0,
     isCashParty: isCashParty, prevDue: isSales ? prevBalance : -prevBalance,
     cashPaid: Number(isSales ? header.CashReceivedAmount : header.CashPaidAmount) || 0,
@@ -8297,7 +8302,9 @@ async function openPrintableVoucherView(docType, docId, opts) {
 <style>${VOUCHER_TABLE_CSS}</style></head><body>
   <div class="toolbar">
     <button class="primary" onclick="window.print()">🖨️ প্রিন্ট</button>
-    <button onclick="window.print()">📄 পেজ সেটাপ</button>
+    <style id="pg">@page{size:A5 portrait;margin:8mm;}</style>
+    <button onclick="document.getElementById('pg').textContent='@page{size:A5 portrait;margin:8mm;}';document.body.classList.remove('a5l');">📄 A5 খাড়া</button>
+    <button onclick="document.getElementById('pg').textContent='@page{size:A5 landscape;margin:8mm;}';document.body.classList.add('a5l');">📄 A5 আড়াআড়ি</button>
     <button id="shareBtn">🔗 শেয়ার</button>
     ${isSales ? `<label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;cursor:pointer;"><input type="checkbox" id="profitChk" onchange="document.querySelectorAll('.v-profit').forEach(function(e){e.style.display=this.checked?'':'none';}.bind(this))"> 📈 লাভ দেখান</label>` : ''}
   </div>
@@ -8557,6 +8564,26 @@ function voucherBottomWire(P, kind, renderPreview) {
    • দর ও মূল্য আইটেমের মূল এককে (কেজির আইটেমে কেজি, পিসের আইটেমে পিস) — মূল এককের ঘর ★ চিহ্নিত
    • অন্য এককও লিখলে লাইনে সেভ হয় (QtyKg/QtyPcs) আর স্টকে ঠিক সেটাই যায়; না লিখলে গড় ওজন দিয়ে
    • স্টক আইটেমঃ কেজি / পিস দুটোই; আঃ দর (কেজি/পিস) স্টক থেকে */
+/** আইটেমের খরচ-দর (মূল এককে) — লাভ হিসাবের জন্য: সর্বশেষ পোস্ট করা প্রসেসিং (ফিনিশড গুডসের দর) → পোস্ট করা ক্রয়ের গড় → স্ট্যান্ডার্ড কস্ট */
+async function itemCostRate(item, piece) {
+  if (!item) return 0;
+  const safe = async function (q) { try { const r = await q; return (r && !r.error && r.data) || []; } catch (e) { return []; } };
+  const fg = await safe(supabaseClient.from('ProcessingFG_Lines').select('*').eq('ItemID', item.ItemID));
+  if (fg.length) {
+    const hs = await safe(supabaseClient.from('ProcessingVoucher').select('ProcessingID,Date,Status').in('ProcessingID', Array.from(new Set(fg.map(function (l) { return l.ProcessingID; })))));
+    const ok = {}; hs.forEach(function (h) { if (h.Status === 'Posted') ok[h.ProcessingID] = h.Date || ''; });
+    const last = fg.filter(function (l) { return ok[l.ProcessingID] !== undefined; }).sort(function (a, b) { return String(ok[a.ProcessingID]).localeCompare(String(ok[b.ProcessingID])); }).pop();
+    if (last) { const r = piece ? Number(last.RatePerPc) : Number(last.RatePerKg); if (r > 0) return r; }
+  }
+  const ls = await safe(supabaseClient.from('PI_Lines').select('PIID,Quantity,Amount,NetAmount').eq('ItemID', item.ItemID));
+  if (ls.length) {
+    const hs = await safe(supabaseClient.from('PurchaseInvoice').select('PIID,Status').in('PIID', Array.from(new Set(ls.map(function (l) { return l.PIID; })))));
+    const ok = {}; hs.forEach(function (h) { if (h.Status === 'Posted') ok[h.PIID] = true; });
+    let q = 0, v = 0; ls.forEach(function (l) { if (ok[l.PIID] && Number(l.Quantity) > 0) { q += Number(l.Quantity); v += (l.NetAmount !== null && l.NetAmount !== undefined && l.NetAmount !== '') ? Number(l.NetAmount) : (Number(l.Amount) || 0); } });
+    if (q > 0 && v > 0) return v / q;
+  }
+  return Number(item.StandardCost) || 0;
+}
 function voucherIsPieceUnit(name) { const s = String(name || '').trim(); return /পিস|pcs|piece/i.test(s) || /^pc$/i.test(s); }
 async function voucherDualRefresh(p, kind) {
   const $ = function (id) { return document.getElementById(id); };
@@ -8592,7 +8619,7 @@ async function voucherDualRefresh(p, kind) {
           if (q > 0 && v > 0) main = v / q;
         }
       } catch (e) {}
-    } else main = Number(item.SalesPrice) || 0;   // বিক্রয়ঃ স্ট্যান্ডার্ড বিক্রয় দর
+    } else { main = Number(item.SalesPrice) || 0; window['__' + p + 'CostRate'] = await itemCostRate(item, piece); }   // বিক্রয়ঃ স্ট্যান্ডার্ড বিক্রয় দর; লাভের জন্য খরচ-দর
   }
   const rKg = piece ? (avg ? main / avg : 0) : main, rPc = piece ? main : (avg ? main * avg : 0);
   $(p + '_AvgRateKg').value = rKg ? rKg.toFixed(2) : ''; $(p + '_AvgRatePc').value = rPc ? rPc.toFixed(2) : '';
@@ -8658,6 +8685,10 @@ const VOUCHER_GRID_CSS = `
   .vg2 .vcash{padding:10px;border:1px dashed var(--border);border-radius:8px;background:var(--bg);}
   .vg2 input.vdrv{border-color:#c27a12 !important;box-shadow:inset 0 0 0 1px #c27a12;}
   .vg2 .vtap{cursor:pointer;}
+  .vg2-low{border-top:1px solid var(--border);padding-top:10px;align-items:start;}
+  .vg2-low .field > label{white-space:normal !important;}
+  .vg2-low .vcashbank .field{margin:0 0 6px !important;}
+  .vg2-low [id$="_VatWrap"]{gap:6px;} .vg2-low [id$="_VatWrap"] input{min-width:0;}
   .vg2 input.vauto{color:#5a6472;font-style:italic;}
   .vg2 input:disabled{opacity:.55;}
   @media (pointer:coarse){ .vg2 .field input:not([type=checkbox]),.vg2 .field select{font-size:16px;height:40px;} }
@@ -8777,23 +8808,22 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
           <div class="field"><label>${t('(-) কমিশন','(-) Commission')}</label><input id="pv3_CommAmount" readonly class="vro"></div>
           <div class="field"><label>${t('নিট মূল্য','Net amount')}</label><input id="pv3_NetLineAmount" readonly class="vro vbold"></div>
         </div>
-        <label class="vbtn"><input type="checkbox" id="pv3_ConfirmPurchaseCheck" class="vhide"> ＋ ${t('সেভ + ক্রয় লাইন যোগ','Save + add purchase line')}</label>
+        <label class="vbtn"><input type="checkbox" id="pv3_ConfirmPurchaseCheck" class="vhide"> ＋ ${t('ক্রয় লাইন যোগ','Add purchase line')}</label>
         <button type="button" id="pv3_AddReturnLineBtn" class="vbtn vret">＋ ${t('ক্রয় ফেরৎ লাইন যোগ','Add purchase return line')}</button>
       </div>
       <input type="hidden" id="pv3_Qty"><input type="hidden" id="pv3_Rate"><input type="hidden" id="pv3_Unit">
       <div style="display:none;"><input type="checkbox" id="pv3_StdPurchaseCheck"><input id="pv3_PreviewStdPurchaseRate" readonly style="background:var(--bg);display:none;"></div>
 
+      <div class="vg2 vg2-low">
       <div class="field">
         <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pv3_ExpCheck" style="width:auto;"> ${t('খরচঃ (+)','Expense (+):')}</label>
         <input id="pv3_ExpTotalAmount" type="number" step="any" placeholder="৳">
       </div>
-      <div id="pv3_ExpSubWrap" style="display:none;margin-bottom:16px;"></div>
-
       <div class="field">
         <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pv3_DiscCheck" style="width:auto;" ${rec.DiscountAmount?'checked':''}> ${t('ডিসকাউন্টঃ (-)','Discount (-):')}</label>
         <input id="pv3_DiscAmount" type="number" step="any" placeholder="৳" value="${attr(rec.DiscountAmount)}">
       </div>
-
+      <div id="pv3_ExpSubWrap" class="vfull" style="display:none;"></div>
       <div class="field">
         <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pv3_VatCheck" style="width:auto;" ${rec.VatAmount?'checked':''}> ${t('ভ্যাটঃ','VAT:')}</label>
         <div id="pv3_VatWrap" style="display:${rec.VatAmount?'flex':'none'};gap:6px;">
@@ -8801,8 +8831,8 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
           <input id="pv3_VatAmount" type="number" step="any" placeholder="${t('পরিমাণ ৳','Amount ৳')}" value="${attr(rec.VatAmount)}" style="flex:1.6;">
         </div>
       </div>
-
-      <h4 style="margin:16px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('নগদ ও ব্যাংক হিসাব','Cash & Bank Account')}</h4>
+      <div class="field vcashbank"><label>${t('নগদ ও ব্যাংক হিসাব','Cash & bank')}</label>
+      
       <div class="field">
         <select id="pv3_PayTypeSelect">
           <option value="Cash">${t('নগদ প্রদান','Cash Paid')}</option>
@@ -8813,6 +8843,8 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       <div class="field" id="pv3_PayExtraArea">
         <input id="pv3_CashPaidNote" placeholder="${t('নোট (ঐচ্ছিক)','Note (optional)')}">
         <div id="pv3_BankPaySummary" style="display:none;font-size:11px;color:var(--text-muted);cursor:pointer;margin-top:6px;">${t('টাকা লিখলে বিস্তারিত জিজ্ঞাসা করা হবে','Details will be asked once you enter an amount')}</div>
+      </div>
+      </div>
       </div>
       <input type="hidden" id="pv3_CashPaidAmount" value="">
       <input type="hidden" id="pv3_BankPaidAmount" value="">
@@ -9731,23 +9763,22 @@ async function openSalesVoucherForm(defaultType, existingId) {
           <div class="field"><label>${t('(-) কমিশন','(-) Commission')}</label><input id="sv3_CommAmount" readonly class="vro"></div>
           <div class="field"><label>${t('নিট মূল্য','Net amount')}</label><input id="sv3_NetLineAmount" readonly class="vro vbold"></div>
         </div>
-        <label class="vbtn"><input type="checkbox" id="sv3_ConfirmSaleCheck" class="vhide"> ＋ ${t('সেভ + বিক্রয় লাইন যোগ','Save + add sale line')}</label>
+        <label class="vbtn"><input type="checkbox" id="sv3_ConfirmSaleCheck" class="vhide"> ＋ ${t('বিক্রয় লাইন যোগ','Add sale line')}</label>
         <button type="button" id="sv3_AddReturnLineBtn" class="vbtn vret">＋ ${t('বিক্রয় ফেরৎ লাইন যোগ','Add sale return line')}</button>
       </div>
       <input type="hidden" id="sv3_Qty"><input type="hidden" id="sv3_Rate"><input type="hidden" id="sv3_Unit">
       <div style="display:none;"><input type="checkbox" id="sv3_StdSalesCheck"><input id="sv3_PreviewStdSalesRate" readonly style="background:var(--bg);display:none;"></div>
 
+      <div class="vg2 vg2-low">
       <div class="field">
         <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="sv3_ExpCheck" style="width:auto;"> ${t('খরচঃ (+)','Expense (+):')}</label>
         <input id="sv3_ExpTotalAmount" type="number" step="any" placeholder="৳">
       </div>
-      <div id="sv3_ExpSubWrap" style="display:none;margin-bottom:16px;"></div>
-
       <div class="field">
         <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="sv3_DiscCheck" style="width:auto;" ${rec.DiscountAmount?'checked':''}> ${t('ডিসকাউন্টঃ (-)','Discount (-):')}</label>
         <input id="sv3_DiscAmount" type="number" step="any" placeholder="৳" value="${attr(rec.DiscountAmount)}">
       </div>
-
+      <div id="sv3_ExpSubWrap" class="vfull" style="display:none;"></div>
       <div class="field">
         <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="sv3_VatCheck" style="width:auto;" ${rec.VatAmount?'checked':''}> ${t('ভ্যাটঃ','VAT:')}</label>
         <div id="sv3_VatWrap" style="display:${rec.VatAmount?'flex':'none'};gap:6px;">
@@ -9755,8 +9786,8 @@ async function openSalesVoucherForm(defaultType, existingId) {
           <input id="sv3_VatAmount" type="number" step="any" placeholder="${t('পরিমাণ ৳','Amount ৳')}" value="${attr(rec.VatAmount)}" style="flex:1.6;">
         </div>
       </div>
-
-      <h4 style="margin:16px 0 10px;font-size:13px;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:14px;">${t('নগদ ও ব্যাংক হিসাব','Cash & Bank Account')}</h4>
+      <div class="field vcashbank"><label>${t('নগদ ও ব্যাংক হিসাব','Cash & bank')}</label>
+      
       <div class="field">
         <select id="sv3_RecTypeSelect">
           <option value="Cash">${t('নগদ গ্রহণ','Cash Received')}</option>
@@ -9767,6 +9798,8 @@ async function openSalesVoucherForm(defaultType, existingId) {
       <div class="field" id="sv3_RecExtraArea">
         <input id="sv3_CashReceivedNote" placeholder="${t('নোট (ঐচ্ছিক)','Note (optional)')}">
         <div id="sv3_BankRecSummary" style="display:none;font-size:11px;color:var(--text-muted);cursor:pointer;margin-top:6px;">${t('টাকা লিখলে বিস্তারিত জিজ্ঞাসা করা হবে','Details will be asked once you enter an amount')}</div>
+      </div>
+      </div>
       </div>
       <input type="hidden" id="sv3_CashReceivedAmount" value="">
       <input type="hidden" id="sv3_BankReceivedAmount" value="">
@@ -9784,7 +9817,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
         <button type="button" class="btn btn-outline" style="width:auto;" id="sv3_LivePageSetupBtn">📄 ${t('পেজ সেটাপ','Page Setup')}</button>
         <button type="button" class="btn btn-primary" style="width:auto;" id="sv3_LivePrintBtn">🖨️ ${t('প্রিন্ট','Print')}</button>
         <button type="button" class="btn btn-outline" style="width:auto;" id="sv3_LiveShareBtn">🔗 ${t('শেয়ার','Share')}</button>
-        <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;cursor:pointer;margin-left:auto;"><input type="checkbox" id="sv3_ShowProfitCheck" style="width:auto;"> 📈 ${t('লাভ দেখান','Show profit')}</label>
+        ${currentUser && currentUser.RoleID === 'ROLE-ADMIN' ? `<label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;cursor:pointer;margin-left:auto;"><input type="checkbox" id="sv3_ShowProfitCheck" style="width:auto;"> 📈 ${t('লাভ দেখান','Show profit')}</label>` : '<input type="checkbox" id="sv3_ShowProfitCheck" hidden>'}
       </div>
       <div id="sv3_LivePreviewBody" style="font-size:12.5px;"></div>
       </div>
@@ -10315,7 +10348,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
     const useComm = document.getElementById('sv3_CommCheck').checked;
     const commRate = useComm ? (Number(val('sv3_CommRate')) || 0) : 0;
     const commAmount = useComm ? Number((amount * commRate / 100).toFixed(2)) : 0;
-    const costRate = Number((window.__sv3ItemMap[itemId] || {}).StandardCost) || 0;
+    const costRate = Number(window.__sv3CostRate) || Number((window.__sv3ItemMap[itemId] || {}).StandardCost) || 0;   // খরচ-দর (প্রসেসিং/ক্রয় থেকে)
     return { itemId: itemId, warehouseId: warehouseId, qty: qty, qtyKg: Number(val('sv3_QtyKg')) || 0, qtyPcs: Number(val('sv3_QtyPcs')) || 0, rateKg: Number(val('sv3_RateKg')) || 0, ratePc: Number(val('sv3_RatePc')) || 0, rateBasis: window.__sv3RateBasis || null, rate: rate, amount: amount, commRate: commRate, commAmount: commAmount, netAmount: useComm ? Number((amount - commAmount).toFixed(2)) : amount, costRate: costRate };
   }
 
@@ -10659,7 +10692,23 @@ async function stockOverviewData() {
       rates['__pi__' + l.ItemID] = { kg: piece ? 0 : r, pc: piece ? r : 0, src: t('ক্রয়', 'purchase') };
     });
   const drafts = { pi: pih.filter(function (h) { return h.Status === 'Draft'; }).length, pv: pv.filter(function (h) { return h.Status === 'Draft'; }).length };
-  return { items: items, units: units, ledger: ledger, itemMap: itemMap, whMap: whMap, rates: rates, drafts: drafts };
+  // লাভের জন্য বিক্রয় (পোস্ট করা বিক্রয় যোগ, পোস্ট করা বিক্রয় ফেরত বাদ)
+  const sales = [];
+  if (currentUser && currentUser.RoleID === 'ROLE-ADMIN') {
+    const [sil, sih, srl, srh] = await Promise.all([safe(supabaseClient.from('SI_Lines').select('*')), safe(supabaseClient.from('SalesInvoice').select('SIID,InvoiceDate,WarehouseID,Status')),
+      safe(supabaseClient.from('SR_Lines').select('*')), safe(supabaseClient.from('SalesReturn').select('SRID,Date,WarehouseID,Status'))]);
+    const add = function (lines, heads, idf, df, sign) {
+      const hm = {}; heads.forEach(function (h) { if (h.Status === 'Posted') hm[h[idf]] = h; });
+      lines.forEach(function (l) {
+        const h = hm[l[idf]]; if (!h) return;
+        const piece = isPieceUOM((itemMap[l.ItemID] || {}).UOMID, units), q = Number(l.Quantity) || 0;
+        const net = (l.NetAmount !== null && l.NetAmount !== undefined && l.NetAmount !== '') ? Number(l.NetAmount) : (Number(l.Amount) || q * (Number(l.Rate) || 0));
+        sales.push({ ItemID: l.ItemID, WarehouseID: h.WarehouseID, date: String(h[df] || '').slice(0, 10), kg: piece ? (Number(l.QtyKg) || 0) : q, pc: piece ? q : (Number(l.QtyPcs) || 0), net: net, sign: sign });
+      });
+    };
+    add(sil, sih, 'SIID', 'InvoiceDate', 1); add(srl, srh, 'SRID', 'Date', -1);
+  }
+  return { items: items, units: units, ledger: ledger, itemMap: itemMap, whMap: whMap, rates: rates, drafts: drafts, sales: sales };
 }
 function stockOverviewRows(D, fromDate, toDate) {
   const combos = {};
@@ -10681,7 +10730,11 @@ function stockOverviewRows(D, fromDate, toDate) {
       if (!r.kg && r.pc && avg) r.kg = r.pc / avg;
       if (!r.pc && r.kg && avg) r.pc = r.kg * avg;
       const val = function (kg, pc) { return piece ? (pc && r.pc ? pc * r.pc : kg * r.kg) : (kg && r.kg ? kg * r.kg : pc * r.pc); };
-      return { c: c, item: item, piece: piece, unit: u ? u.UOMName : '', wh: D.whMap[c.WarehouseID] || c.WarehouseID, r: r, val: val };
+      // লাভ = বিক্রয়ের নিট মূল্য − বিক্রি হওয়া মালের খরচ (এই সময়ের মধ্যে)
+      let rev = 0, sKg = 0, sPc = 0, sold = false;
+      (D.sales || []).forEach(function (x) { if (x.ItemID === c.ItemID && x.WarehouseID === c.WarehouseID && x.date >= fromDate && x.date <= toDate) { sold = true; rev += x.sign * x.net; sKg += x.sign * x.kg; sPc += x.sign * x.pc; } });
+      const profit = sold ? rev - val(sKg, sPc) : null;
+      return { c: c, item: item, piece: piece, unit: u ? u.UOMName : '', wh: D.whMap[c.WarehouseID] || c.WarehouseID, r: r, val: val, profit: profit };
     }).sort(function (a, b) { return String(a.item.ItemName || '').localeCompare(String(b.item.ItemName || ''), 'bn'); });
 }
 function stockOverviewTableHtml(rows, fromDate, toDate, forPrint) {
@@ -10695,19 +10748,31 @@ function stockOverviewTableHtml(rows, fromDate, toDate, forPrint) {
     return cell1(kg, !R.piece) + cell(pc, R.piece) + `<td class="r ${g}">${m2(R.r.kg)}</td><td class="r ${g}">${m2(R.r.pc)}</td><td class="r ${g} gend ${bad ? 'neg' : ''}"><b>${v ? v.toFixed(2) : '0.00'}</b>${bad && !forPrint ? ` <span title="${attr(t('স্টক মাইনাস — বিক্রি/খরচ বেশি হয়েছে, অথবা ক্রয় চালান/প্রসেসিং এখনো পোস্ট হয়নি', 'Negative stock — more sold/used than received, or a purchase/processing is not posted yet'))}">⚠️</span>` : ''}</td>`;
   };
   const sub = function (g) { return `<th class="${g} ${g === 'gi' ? 'gstart' : ''}">${t('কেজি', 'kg')}</th><th class="${g}">${t('পিস', 'pcs')}</th><th class="${g}">${t('দর/কেজি', 'rate/kg')}</th><th class="${g}">${t('দর/পিস', 'rate/pc')}</th><th class="${g} gend">${t('মূল্য', 'value')}</th>`; };
-  let tIn = 0, tOut = 0, tBal = 0;
+  let tIn = 0, tOut = 0, tBal = 0, tPf = 0;
+  // মোট সারিঃ কেজি ও পিসের যোগফল; গড় দর = যেসব সারিতে কেজি (বা পিস) আছে তাদের মোট মূল্য ÷ মোট কেজি (বা পিস)
+  const G = { in: { kg: 0, pc: 0, vk: 0, vp: 0, kgPos: 0, pcPos: 0 }, out: { kg: 0, pc: 0, vk: 0, vp: 0, kgPos: 0, pcPos: 0 }, bal: { kg: 0, pc: 0, vk: 0, vp: 0, kgPos: 0, pcPos: 0 } };
+  // গড় দরে শুধু যেসব সারির দর (মূল্য) জানা — দর-না-জানা মাল গড় কমিয়ে দেয় না; কেজি ও পিসের যোগফলে সব আইটেম
+  const acc = function (g, kg, pc, v) { g.kg += kg; g.pc += pc; const known = Math.abs(v) > 0.005; if (kg > 0.0005 && known) { g.vk += v; g.kgPos += kg; } if (pc > 0.0005 && known) { g.vp += v; g.pcPos += pc; } };
+  const totCells = function (g, cls, v, isBal) {
+    const rk = g.kgPos > 0 ? g.vk / g.kgPos : 0, rp = g.pcPos > 0 ? g.vp / g.pcPos : 0;
+    const qc = function (x, first) { return `<td class="r ${cls} ${first && cls === 'gi' ? 'gstart' : ''} ${isBal && neg(x) ? 'neg' : ''}"><b>${q3(x)}</b></td>`; };
+    return qc(g.kg, true) + qc(g.pc, false) + `<td class="r ${cls}" title="${attr(t('গড় দর = মোট মূল্য ÷ মোট কেজি (যেসব আইটেমের দর জানা)', 'Average = total value ÷ total kg (items with a known rate)'))}">${m2(rk)}</td><td class="r ${cls}" title="${attr(t('গড় দর = মোট মূল্য ÷ মোট পিস (যেসব আইটেমের দর জানা)', 'Average = total value ÷ total pcs (items with a known rate)'))}">${m2(rp)}</td><td class="r ${cls} gend"><b>${v.toFixed(2)}</b></td>`;
+  };
+  const showPf = !forPrint && !!(currentUser && currentUser.RoleID === 'ROLE-ADMIN');   // লাভ — শুধু এডমিনের পর্দায়, প্রিন্টে নয়
+  const pfCell = function (v) { return v === null || v === undefined ? '<td class="r gpf">—</td>' : `<td class="r gpf" style="color:${v < 0 ? '#c0392b' : '#15803d'};font-weight:700;">${v < 0 ? '−' : ''}${Math.abs(v).toFixed(2)}</td>`; };
   const body = rows.map(function (R) {
-    const c = R.c; tIn += R.val(c.inKg, c.inPc); tOut += R.val(c.outKg, c.outPc); tBal += R.val(c.balKg, c.balPc);
+    const c = R.c; tIn += R.val(c.inKg, c.inPc); tOut += R.val(c.outKg, c.outPc); tBal += R.val(c.balKg, c.balPc); if (R.profit) tPf += R.profit;
+    acc(G.in, c.inKg, c.inPc, R.val(c.inKg, c.inPc)); acc(G.out, c.outKg, c.outPc, R.val(c.outKg, c.outPc)); acc(G.bal, c.balKg, c.balPc, R.val(c.balKg, c.balPc));
     return `<tr><td class="l fz">${escapeHtml(R.item.ItemName || c.ItemID)}</td><td title="${attr(t('দরের উৎসঃ ', 'Rate from: ') + R.r.src)}">${escapeHtml(R.unit)}</td><td>${escapeHtml(R.wh)}</td>
-      ${grp(R, c.inKg, c.inPc, false, 'gi')}${grp(R, c.outKg, c.outPc, false, 'go')}${grp(R, c.balKg, c.balPc, true, 'gb')}
+      ${grp(R, c.inKg, c.inPc, false, 'gi')}${grp(R, c.outKg, c.outPc, false, 'go')}${showPf ? pfCell(R.profit) : ''}${grp(R, c.balKg, c.balPc, true, 'gb')}
       ${forPrint ? '' : `<td class="vw"><button type="button" class="so-eye" title="${attr(t('ভাউচার দেখুন — এডিট, ডিলিট, পোস্ট', 'Vouchers — edit, delete, post'))}" aria-label="${attr(t('দেখুন', 'View'))}" onclick='openStockItemVouchers(${JSON.stringify(c.ItemID)}, ${JSON.stringify(c.WarehouseID)}, ${JSON.stringify(fromDate)}, ${JSON.stringify(toDate)})'>👁️</button></td>`}</tr>`;
   }).join('');
   return `<table class="data-table so-tbl"><thead>
       <tr class="h1"><th rowspan="2" class="fz">${t('আইটেম', 'Item')}</th><th rowspan="2" title="${attr(t('যে এককে কেনা-বেচা হয়; মূল্য এই এককের দরে — ঘরে মোটা করে দেখানো', 'The unit it is bought/sold in; value uses this unit’s rate — shown in bold'))}">${t('মূল একক', 'Main unit')}</th><th rowspan="2">${t('ওয়্যারহাউজ', 'Warehouse')}</th>
-        <th colspan="5" class="hi gend gstart">⬇ ${t('স্টক ইন', 'Stock in')}</th><th colspan="5" class="ho gend">⬆ ${t('স্টক আউট', 'Stock out')}</th><th colspan="5" class="hb gend">= ${t('স্টক ব্যালান্স', 'Stock balance')}</th>${forPrint ? '' : `<th rowspan="2" class="vw">👁️</th>`}</tr>
+        <th colspan="5" class="hi gend gstart">⬇ ${t('স্টক ইন', 'Stock in')}</th><th colspan="5" class="ho gend">⬆ ${t('স্টক আউট', 'Stock out')}</th>${showPf ? `<th rowspan="2" class="hpf" title="${attr(t('বিক্রয়ের নিট মূল্য − বিক্রি হওয়া মালের খরচ (এই সময়ে) — শুধু আপনি দেখেন, প্রিন্টে আসে না', 'Sales net − cost of goods sold (this period) — admin only, not printed'))}">📈 ${t('লাভ', 'Profit')}</th>` : ''}<th colspan="5" class="hb gend">= ${t('স্টক ব্যালান্স', 'Stock balance')}</th>${forPrint ? '' : `<th rowspan="2" class="vw">👁️</th>`}</tr>
       <tr class="h2">${sub('gi')}${sub('go')}${sub('gb')}</tr></thead>
     <tbody>${body}</tbody>
-    <tfoot><tr><td class="l fz">${t('মোট মূল্য', 'Total value')}</td><td colspan="2"></td><td colspan="4" class="gi gstart"></td><td class="r gi gend"><b>${tIn.toFixed(2)}</b></td><td colspan="4" class="go"></td><td class="r go gend"><b>${tOut.toFixed(2)}</b></td><td colspan="4" class="gb"></td><td class="r gb gend"><b>${tBal.toFixed(2)}</b></td>${forPrint ? '' : '<td></td>'}</tr></tfoot></table>`;
+    <tfoot><tr><td class="l fz">${t('মোট', 'Total')}<div style="font-size:10px;font-weight:500;color:var(--text-muted);">${t('দর = গড়', 'rate = average')}</div></td><td colspan="2"></td>${totCells(G.in, 'gi', tIn, false)}${totCells(G.out, 'go', tOut, false)}${showPf ? pfCell(tPf) : ''}${totCells(G.bal, 'gb', tBal, true)}${forPrint ? '' : '<td></td>'}</tr></tfoot></table>`;
 }
 const STOCK_OV_CSS = `.so-tbl{font-size:11.5px;border-collapse:separate !important;border-spacing:0;width:auto !important;min-width:100%;}
   .so-tbl th,.so-tbl td{padding:3px 6px !important;line-height:1.25;height:auto !important;}
@@ -10721,6 +10786,7 @@ const STOCK_OV_CSS = `.so-tbl{font-size:11.5px;border-collapse:separate !importa
   .so-tbl th.hi{background:#1f7a4d !important;color:#fff !important;} .so-tbl th.ho{background:#b5482a !important;color:#fff !important;} .so-tbl th.hb{background:#1f5fa8 !important;color:#fff !important;}
   .so-tbl th.gi{background:#d6efe0 !important;color:#145c38 !important;} .so-tbl th.go{background:#f8ddd3 !important;color:#8a3215 !important;} .so-tbl th.gb{background:#d8e6f8 !important;color:#16467e !important;}
   .so-tbl td.gi{background:#f1faf4;} .so-tbl td.go{background:#fdf3ef;} .so-tbl td.gb{background:#f0f5fc;}
+  .so-tbl th.hpf{background:#8a5a00 !important;color:#fff !important;} .so-tbl td.gpf{background:#fff8e6;border-right:2px solid #8a94a3 !important;}
   .so-tbl tfoot td.gi{background:#d6efe0;} .so-tbl tfoot td.go{background:#f8ddd3;} .so-tbl tfoot td.gb{background:#d8e6f8;}
   .so-tbl .gend{border-right:2px solid #8a94a3 !important;}
   .so-tbl th,.so-tbl td{-webkit-print-color-adjust:exact;print-color-adjust:exact;}`;
@@ -11814,7 +11880,8 @@ function formatShortDate(isoDate) {
 const VOUCHER_TABLE_CSS = `
   *,*::before,*::after{box-sizing:border-box;}
   html,body{max-width:100%;overflow-x:hidden;}
-  body{font-family:'Anek Bangla',sans-serif;color:#111;width:800px;max-width:100%;margin:16px auto;padding:0 10px;font-size:11px;position:relative;}
+  body{font-family:'Anek Bangla',sans-serif;color:#111;width:148mm;max-width:100%;margin:16px auto;padding:0 6px;font-size:11px;position:relative;box-sizing:border-box;}   /* পর্দাতেও A5-এর মাপ */
+  body.a5l{width:210mm;}
   .en{font-family:Arial,Helvetica,sans-serif;letter-spacing:.2px;}
   /* ১ম অংশ — প্রতিষ্ঠান (বামে লোগো+নাম+ঠিকানা+মোবাইল, ডানে ভাউচার তথ্য) */
   .v-co{display:flex;align-items:stretch;gap:8px;border:1.5px solid #000;border-radius:6px;padding:6px;position:relative;z-index:1;}
@@ -11845,7 +11912,7 @@ const VOUCHER_TABLE_CSS = `
   .items-table td,.items-table th{border:.5px solid #444;padding:1.5px 4px;font-size:10px;line-height:1.25;text-align:center;overflow-wrap:anywhere;}
   .items-table th{background:#efefef;font-weight:700;}
   .items-table td.l{text-align:left;}
-  .items-table td.r,.items-table th.r{text-align:right;}
+  .items-table td.r{text-align:right;} .items-table th,.items-table th.r{text-align:center !important;vertical-align:middle;}
   /* আইটেম লাইনের শেষে "মোটঃ ক্রয়/বিক্রয়/ফেরত" সারির উপরে মোটা বর্ডার — পরের সব হিসাব এর নিচে */
   .items-table .total-row td{font-weight:700;background:#fafafa;border-top:1.8px solid #000;}
   .items-table .section-head td{background:#f5f5f5;font-weight:700;text-align:left;}
@@ -11879,6 +11946,12 @@ const VOUCHER_TABLE_CSS = `
     html,body{width:100% !important;max-width:100% !important;margin:0 !important;padding:0 !important;overflow:visible !important;}
     .v-co,.v-party,.v-meta,.v-logo,.items-table th,.items-table .total-row td,.items-table .grand-all td,.v-type{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
   }
+
+  .items-table thead th.grp{border-bottom:1px solid rgba(255,255,255,.35);}
+  .items-table thead tr.sub th{font-size:10px;padding-top:2px;padding-bottom:3px;}
+
+  .prt-only{display:none;} @media print{ .scr-only{display:none !important;} .prt-only{display:block !important;} }
+  .items-table th.pcol{background:#fdf3d6 !important;color:#7a5200 !important;} .items-table td.pcol{background:#fffbeb;}
 `;
 
 /** প্রিন্টে সংখ্যাকে বাংলা অঙ্কে (০-৯) দেখায় — শুধু ভাউচার নম্বর/তারিখ ও মোবাইল ইংরেজিতে থাকে */
@@ -11887,22 +11960,42 @@ function bnDigits(v) {
   return String(v === undefined || v === null ? '' : v).replace(/[0-9]/g, function (d) { return map[d]; });
 }
 
+/** পর্দায় লাভের কলামসহ (শুধু এডমিন, বিক্রয়), ছাপায় লাভ ছাড়া — প্রিন্ট চাপলে ব্রাউজার নিজে লাভ-ছাড়া রূপটা ছাপে */
+function buildVoucherBodyScreenPrint(opts) {
+  const admin = !!(currentUser && currentUser.RoleID === 'ROLE-ADMIN');
+  if (!(opts.withProfit && admin)) return buildVoucherTableBody(opts);
+  return `<div class="scr-only">${buildVoucherTableBody(Object.assign({}, opts, { profitCol: true }))}</div><div class="prt-only">${buildVoucherTableBody(opts)}</div>`;
+}
 function buildVoucherTableBody(opts) {
   const hasComm = opts.mainLines.some(function (l) { return (l.commAmount || 0) > 0; }) ||
                    opts.returnLines.some(function (l) { return (l.commAmount || 0) > 0; });
   const B = function (v) { return escapeHtml(bnDigits(v)); };
   const M = function (n) { return B(Number(n || 0).toFixed(2)); };
 
-  function itemRows(lines, startIdx) {
+  // পরিমাণ (কেজি | পিস) · দর (কেজি | পিস) — লাইনে আলাদা না থাকলে (পুরনো লাইন) পরিমাণ কেজিতে ধরা
+  function kp(l) {
+    let kg = Number(l.qtyKg) || 0, pc = Number(l.qtyPcs) || 0;
+    if (!kg && !pc) kg = Number(l.qty) || 0;
+    const amt = Number(l.amount) || 0;
+    return { kg: kg, pc: pc, rk: Number(l.rateKg) || (kg > 0 ? amt / kg : 0), rp: Number(l.ratePc) || (pc > 0 ? amt / pc : 0) };
+  }
+  const Q3 = function (v) { return v ? B(+Number(v).toFixed(3)) : '—'; };
+  const R2 = function (v) { return v ? M(v) : '—'; };
+  const pcol = !!opts.profitCol;   // লাভের কলাম — শুধু এডমিনের পর্দার রূপে, ছাপায় কখনো নয়
+  const lineProfit = function (l) { const nt = Number(l.netAmount !== undefined ? l.netAmount : l.amount) || 0; return nt - (Number(l.qty) || 0) * (Number(l.costRate) || 0); };
+  const PF = function (v) { return `<span style="color:${v < 0 ? '#b91c1c' : '#15803d'};font-weight:700;">${v < 0 ? '−' : ''}${M(Math.abs(v))}</span>`; };
+  function itemRows(lines, startIdx, sign) {
+    sign = sign || 1;
     return lines.map(function (l, i) {
       const item = opts.itemMap[l.itemId] || {};
       const net = l.netAmount !== undefined ? l.netAmount : l.amount;
+      const x = kp(l);
       return `<tr>
         <td>${B(startIdx + i + 1)}</td>
         <td class="l">${escapeHtml(item.ItemName || l.itemId)}</td>
-        <td>${B(l.qty)}</td>
-        <td class="r">${M(l.rate)}</td>
-        <td class="r">${M(l.amount)}</td>
+        <td>${Q3(x.kg)}</td><td>${Q3(x.pc)}</td>
+        <td class="r">${R2(x.rk)}</td><td class="r">${R2(x.rp)}</td>
+        <td class="r">${M(l.amount)}</td>${pcol ? `<td class="r pcol">${PF(sign * lineProfit(l))}</td>` : ''}
         ${hasComm ? `<td>${B(l.commRate || 0)}</td><td class="r">${M(l.commAmount)}</td><td class="r">${M(net)}</td>` : ''}
       </tr>`;
     }).join('');
@@ -11910,26 +12003,37 @@ function buildVoucherTableBody(opts) {
   function sumField(lines, field) { return lines.reduce(function (s, l) { return s + (Number(l[field]) || 0); }, 0); }
   function sumNet(lines) { return lines.reduce(function (s, l) { return s + (Number(l.netAmount !== undefined ? l.netAmount : l.amount) || 0); }, 0); }
 
+  function sumKP(lines) { return lines.reduce(function (s, l) { const x = kp(l); s.kg += x.kg; s.pc += x.pc; return s; }, { kg: 0, pc: 0 }); }
+  const mainKP = sumKP(opts.mainLines), retKP = sumKP(opts.returnLines);
   const mainQty = sumField(opts.mainLines, 'qty'), mainAmt = sumField(opts.mainLines, 'amount'), mainComm = sumField(opts.mainLines, 'commAmount'), mainNet = sumNet(opts.mainLines);
   const retQty = sumField(opts.returnLines, 'qty'), retAmt = sumField(opts.returnLines, 'amount'), retComm = sumField(opts.returnLines, 'commAmount'), retNet = sumNet(opts.returnLines);
   const netGrandTotal = mainNet + (opts.cashExpenseAmt || 0) - (opts.discountAmt || 0) - retNet;
-  const colCount = hasComm ? 8 : 5;
+  const colCount = (hasComm ? 10 : 7) + (pcol ? 1 : 0);
+  const sumProfit = function (lines) { return lines.reduce(function (s, l) { return s + lineProfit(l); }, 0); };
+  const mainProfit = sumProfit(opts.mainLines), retProfit = sumProfit(opts.returnLines);
   const vatAmt = Number(opts.vatAmount) || 0, vatRate = Number(opts.vatRate) || 0;
   const voucherGrand = netGrandTotal + vatAmt;
   // শুধু-ফেরত ভাউচার (ক্রয় ফেরত / বিক্রয় ফেরত) — যোগফল ঋণাত্মক হয়, তাই চিহ্ন ছাড়া (−) দিয়ে দেখানো হবে
   const isReturnOnly = opts.mainLines.length === 0 && opts.returnLines.length > 0;
   const SM = function (n) { return (n < 0 ? '(−) ' : '') + M(Math.abs(n)); };
   const grandQty = Math.abs(mainQty - retQty);
-  const grandLabel = isReturnOnly ? 'সর্বমোট ফেরত (ভাউচার)ঃ' : 'সর্বমোট (ভাউচার)ঃ';
-  const colgroup = hasComm
-    ? '<colgroup><col style="width:6%"><col style="width:24%"><col style="width:11%"><col style="width:10%"><col style="width:13%"><col style="width:8%"><col style="width:12%"><col style="width:16%"></colgroup>'
-    : '<colgroup><col style="width:7%"><col style="width:38%"><col style="width:15%"><col style="width:15%"><col style="width:25%"></colgroup>';
-  const headCells = `<th>ক্রঃ</th><th>আইটেম (পণ্য)</th><th>পরিমাণ</th><th class="r">দর</th><th class="r">মূল্য</th>${hasComm ? '<th>কমিঃ %</th><th class="r">(-) কমিঃ</th><th class="r">নিট মূল্য</th>' : ''}`;
-  const totalRow = function (label, q, a, c, n) {
-    return `<tr class="total-row"><td colspan="2">${escapeHtml(label)}</td><td>${B(q)}</td><td></td><td class="r">${M(a)}</td>${hasComm ? `<td></td><td class="r">${M(c)}</td><td class="r">${M(n)}</td>` : ''}</tr>`;
+  const grandLabel = isReturnOnly ? 'সর্বমোট ফেরতঃ (ভাউচার)' : 'সর্বমোটঃ (ভাউচার)';
+  const colgroup = pcol
+    ? (hasComm ? '<colgroup><col style="width:4%"><col style="width:17%"><col style="width:8%"><col style="width:6%"><col style="width:8%"><col style="width:8%"><col style="width:11%"><col style="width:10%"><col style="width:6%"><col style="width:9%"><col style="width:13%"></colgroup>'
+               : '<colgroup><col style="width:5%"><col style="width:26%"><col style="width:10%"><col style="width:8%"><col style="width:11%"><col style="width:11%"><col style="width:15%"><col style="width:14%"></colgroup>')
+    : hasComm
+    ? '<colgroup><col style="width:5%"><col style="width:19%"><col style="width:9%"><col style="width:7%"><col style="width:9%"><col style="width:9%"><col style="width:12%"><col style="width:7%"><col style="width:10%"><col style="width:13%"></colgroup>'
+    : '<colgroup><col style="width:6%"><col style="width:29%"><col style="width:11%"><col style="width:9%"><col style="width:12%"><col style="width:12%"><col style="width:21%"></colgroup>';
+  // দুই সারির হেডারঃ পরিমাণ (কেজি | পিস) · দর (কেজি | পিস)
+  const headCells = `<th rowspan="2">ক্রঃ</th><th rowspan="2">আইটেম (পণ্য)</th><th colspan="2" class="grp">পরিমাণ</th><th colspan="2" class="grp">দর</th><th rowspan="2" class="r">মূল্য</th>${pcol ? '<th rowspan="2" class="pcol">লাভ</th>' : ''}${hasComm ? '<th rowspan="2">কমিঃ %</th><th rowspan="2" class="r">(-) কমিঃ</th><th rowspan="2" class="r">নিট মূল্য</th>' : ''}</tr><tr class="sub"><th>কেজি</th><th>পিস</th><th class="r">কেজি</th><th class="r">পিস</th>`;
+  const totalRow = function (label, q, a, c, n, pr) {
+    return `<tr class="total-row"><td colspan="2">${escapeHtml(label)}</td><td>${Q3(q.kg)}</td><td>${Q3(q.pc)}</td><td></td><td></td><td class="r">${M(a)}</td>${pcol ? `<td class="r pcol">${PF(pr || 0)}</td>` : ''}${hasComm ? `<td></td><td class="r">${M(c)}</td><td class="r">${M(n)}</td>` : ''}</tr>`;
   };
+  // শেষ ঘরে টাকা — লাভের কলাম থাকলে আর কমিশন না থাকলে টাকা "মূল্য" কলামে, লাভের ঘর ফাঁকা
+  const tail = function (valueHtml) { return (pcol && !hasComm) ? `<td class="r">${valueHtml}</td><td class="pcol"></td>` : `<td class="r">${valueHtml}</td>`; };
+  const spanL = (pcol && !hasComm) ? colCount - 2 : colCount - 1;
   const labelRow = function (label, valueHtml) {
-    return `<tr><td colspan="${colCount-1}" class="r">${escapeHtml(label)}</td><td class="r">${valueHtml}</td></tr>`;
+    return `<tr><td colspan="${spanL}" class="r">${escapeHtml(label)}</td>${tail(valueHtml)}</tr>`;
   };
 
   // প্রিন্টের তারিখ ও সময় — যখন প্রিভিউ/প্রিন্ট তৈরি হয় তখনকার সময়
@@ -11977,25 +12081,27 @@ function buildVoucherTableBody(opts) {
     ${colgroup}
     <thead><tr>${headCells}</tr></thead>
     ${opts.mainLines.length > 0 ? `
-    <tbody>${itemRows(opts.mainLines, 0)}</tbody>
-    <tbody>${totalRow(opts.mainTotalLabel, mainQty, mainAmt, mainComm, mainNet)}</tbody>` : ''}
+    <tbody>${itemRows(opts.mainLines, 0, 1)}</tbody>
+    <tbody>${totalRow(opts.mainTotalLabel, mainKP, mainAmt, mainComm, mainNet, mainProfit)}</tbody>` : ''}
     ${opts.returnLines.length > 0 ? `
     <tbody>
       <tr class="section-head"><td colspan="${colCount}">${escapeHtml(opts.returnLabel)}</td></tr>
-      ${itemRows(opts.returnLines, 0)}
-      ${totalRow(opts.returnTotalLabel, retQty, retAmt, retComm, retNet)}
+      ${itemRows(opts.returnLines, 0, -1)}
+      ${totalRow(opts.returnTotalLabel, retKP, retAmt, retComm, retNet, -retProfit)}
     </tbody>` : ''}
     <tbody>
       ${opts.cashExpenseAmt > 0 ? labelRow('খরচ যোগঃ', M(opts.cashExpenseAmt)) : ''}
       ${opts.discountAmt > 0 ? labelRow('ডিসকাউন্টঃ', '− ' + M(opts.discountAmt)) : ''}
-      <tr class="grand"><td colspan="${colCount-1}" class="r">নিট মোটঃ</td><td class="r">${SM(netGrandTotal)}</td></tr>
-      ${vatAmt > 0 ? `<tr class="vat-row"><td colspan="${colCount-1}" class="r">ভ্যাটঃ ${vatRate ? '(' + B(vatRate) + ' %)' : ''}</td><td class="r">+ ${M(vatAmt)}</td></tr>` : ''}
-      <tr class="grand-all"><td colspan="2" class="r">${grandLabel}</td><td>${B(grandQty)}</td><td colspan="${colCount-4}"></td><td class="r">${SM(voucherGrand)}</td></tr>
+      <tr class="grand"><td colspan="${spanL}" class="r">নিট মোটঃ</td>${tail(SM(netGrandTotal))}</tr>
+      ${vatAmt > 0 ? `<tr class="vat-row"><td colspan="${spanL}" class="r">ভ্যাটঃ ${vatRate ? '(' + B(vatRate) + ' %)' : ''}</td>${tail('+ ' + M(vatAmt))}</tr>` : ''}
+      ${pcol
+        ? `<tr class="grand-all"><td colspan="2" class="r">${grandLabel}</td><td>${Q3(Math.abs(mainKP.kg - retKP.kg))}</td><td>${Q3(Math.abs(mainKP.pc - retKP.pc))}</td><td colspan="2"></td>${hasComm ? '<td></td>' : `<td class="r">${SM(voucherGrand)}</td>`}<td class="r pcol" title="মোট লাভ (ডিসকাউন্ট বাদে)">${PF(mainProfit - retProfit - (Number(opts.discountAmt) || 0))}</td>${hasComm ? `<td></td><td></td><td class="r">${SM(voucherGrand)}</td>` : ''}</tr>`
+        : `<tr class="grand-all"><td colspan="2" class="r">${grandLabel}</td><td>${Q3(Math.abs(mainKP.kg - retKP.kg))}</td><td>${Q3(Math.abs(mainKP.pc - retKP.pc))}</td><td colspan="${colCount-5}"></td><td class="r">${SM(voucherGrand)}</td></tr>`}
     </tbody>
   </table>
 
   ${buildVoucherSummaryBox(opts, netGrandTotal, B, M)}
-  ${opts.withProfit ? buildVoucherProfitBox(opts, B, M) : ''}
+  ${opts.withProfit && currentUser && currentUser.RoleID === 'ROLE-ADMIN' ? buildVoucherProfitBox(opts, B, M) : ''}   <!-- লাভ — শুধু এডমিন -->
 
   <div class="sign-row"><div>${escapeHtml(opts.sign1)}</div><div>অথরাইজেশন স্বাঃ<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div><div>${escapeHtml(opts.sign3Label)}<br>${escapeHtml(currentUser ? currentUser.FullName : '')}</div></div>`;
 }
@@ -12068,7 +12174,7 @@ function buildVoucherTableHtml(opts) {
 <link href="https://fonts.googleapis.com/css2?family=Anek+Bangla:wght@400;500;600;700&family=Oswald:wght@600;700&display=swap" rel="stylesheet">
 <style>${VOUCHER_TABLE_CSS}</style></head><body>
   ${opts.isDraft ? `<div class="toolbar"><button onclick="window.print()">🖨️ প্রিন্ট করুন</button></div>` : ''}
-  ${buildVoucherTableBody(opts)}
+  ${buildVoucherBodyScreenPrint(opts)}
 </body></html>`;
 }
 
