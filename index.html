@@ -847,7 +847,7 @@ async function runPostingLogic(docType, header, docId) {
     for (const bp of (byProducts || [])) {
       // আইটেম বাছাই না থাকলে একই নামের আইটেম (যেমন "কাটিং", "ভাঙ্গাড়ী", "অপচয়") — তাতে স্টকে যোগ
       let bpItem = bp.ItemID;
-      if (!bpItem && bp.ByProductName) { const nm = String(bp.ByProductName).trim(); const hit = bpItems.find(function (i) { return i.Status !== 'Deleted' && String(i.ItemName || '').trim() === nm; }); if (hit) bpItem = hit.ItemID; }
+      if (!bpItem && bp.ByProductName) { const hit = findItemByName(bpItems, bp.ByProductName); if (hit) bpItem = hit.ItemID; }   // ড়/য় দুই রকম লেখাও মেলে
       if (bpItem && ((Number(bp.Quantity) || 0) > 0 || (Number(bp.QtyPcs) || 0) > 0)) {
         await postStockMovement(bpItem, header.WarehouseID, header.Date || today, 'ProcessingVoucher-ByProduct', 'ProcessingVoucher', docId, Number(bp.Quantity) || 0, Number(bp.QtyPcs) || 0);
       }
@@ -1123,6 +1123,20 @@ async function runSupabaseAction(action, p) {
       return {};
     }
 
+    case 'saveOpeningStock': {
+      // প্রারম্ভিক জের — আগের জের বদলে নতুনটা (আবার সেভ করলে যোগ হয় না); দর ও মূল্য আইটেমেই থাকে
+      const upd = { OpeningWarehouseID: p.warehouseId || null, OpeningDate: p.date || null, OpeningQtyKg: Number(p.kg) || 0, OpeningQtyPcs: Number(p.pcs) || 0,
+        OpeningRateKg: Number(p.rateKg) || 0, OpeningRatePc: Number(p.ratePc) || 0, OpeningValue: Number(p.value) || 0 };
+      const { error: uErr } = await supabaseClient.from('items').update(upd).eq('ItemID', p.itemId);
+      if (uErr) throw new Error(/Opening/.test(uErr.message || '') ? 'প্রারম্ভিক জেরের ঘর ডেটাবেসে নেই — আগে Supabase-এ 33 নম্বর SQL চালান।' : uErr.message);
+      const { data: old } = await supabaseClient.from('stock_ledger').select('*').eq('RefModule', 'Items').eq('RefID', p.itemId).eq('TransactionType', 'Opening');
+      for (const e of (old || [])) {
+        await adjustCurrentStock(e.ItemID, e.WarehouseID, (Number(e.QtyOut) || 0) - (Number(e.QtyIn) || 0), (Number(e.PiecesOut) || 0) - (Number(e.PiecesIn) || 0));
+        await supabaseClient.from('stock_ledger').delete().eq('id', e.id);
+      }
+      if ((Number(p.kg) || 0) || (Number(p.pcs) || 0)) await postStockMovement(p.itemId, p.warehouseId, p.date || new Date().toISOString().slice(0, 10), 'Opening', 'Items', p.itemId, Number(p.kg) || 0, Number(p.pcs) || 0);
+      return {};
+    }
     case 'postOpeningStock': {
       await postSalesStock(p.itemId, p.warehouseId, new Date().toISOString().slice(0,10), 'Opening', 'Items', p.itemId, p.quantity, 1);
       return {};
@@ -2529,6 +2543,9 @@ async function deleteMasterRecord(sheetName, idValue) {
    • মূল্য = মূল এককের পরিমাণ × মূল এককের দর (স্টক ওভারভিউর মতোই — দুই জায়গায় একই মূল্য)
    • হেডার ও নামের কলাম স্থির; চিকন সারি; খোঁজার ঘর; মোবাইলে মসৃণ; 👁️ দেখুন · ✏️ এডিট · 🗑️ ডিলিট
    ============================================================ */
+/** বাংলা নাম মেলানোর চাবি — "ড়", "য়" দুই রকম লেখা (একটা অক্ষর বা অক্ষর + নুক্তা) এক রূপে, ফাঁকা ও অদৃশ্য অক্ষর বাদ */
+function bnKey(x) { return String(x || '').normalize('NFC').replace(/[\s\u200b-\u200d\ufeff]/g, '').toLowerCase(); }
+function findItemByName(items, name) { const k = bnKey(name); if (!k) return null; return (items || []).find(function (i) { return i.Status !== 'Deleted' && bnKey(i.ItemName) === k; }) || null; }
 async function itemMasterRates(items, units) {
   const safe = async function (q) { try { const r = await q; return (r && !r.error && r.data) || []; } catch (e) { return []; } };
   const [fg, pv, pil, pih] = await Promise.all([
@@ -2595,20 +2612,21 @@ async function renderItemMasterPage(content) {
     <style>${ITEM_MASTER_CSS}</style>
     <div class="page-head"><div>
         <h1 class="i18n" data-bn="আইটেম মাস্টার" data-en="Item Master">${t('আইটেম মাস্টার','Item Master')}</h1>
-        <p class="i18n" data-bn="কাঁচামাল, তৈরি পণ্য ও অন্যান্য সব আইটেমের তালিকা — পরিমাণ ও দর কেজি ও পিসে" data-en="All items — quantity and rate in kg and pcs">${t('কাঁচামাল, তৈরি পণ্য ও অন্যান্য সব আইটেমের তালিকা — পরিমাণ ও দর কেজি ও পিসে','All items — quantity and rate in kg and pcs')}</p>
+        <p class="i18n" data-bn="সব আইটেম ও তাদের প্রারম্ভিক জের (ওপেনিং স্টক) — পরিমাণ ও দর কেজি ও পিসে" data-en="All items and their opening stock — quantity and rate in kg and pcs">${t('সব আইটেম ও তাদের প্রারম্ভিক জের (ওপেনিং স্টক) — পরিমাণ ও দর কেজি ও পিসে','All items and their opening stock — quantity and rate in kg and pcs')}</p>
       </div>
       <button class="btn btn-primary" style="width:auto;" id="itemAddBtn">Item +</button></div>
     <div class="panel">
       <div class="im-tools"><input id="imSearch" type="search" autocomplete="off" placeholder="${attr(t('নাম, কোড, গ্রুপ বা ক্যাটাগরি দিয়ে খুঁজুন…', 'Search by name, code, group or category…'))}"><span class="im-cnt" id="imCount"></span></div>
       <div id="itemTableWrap"><div class="empty-state">${t('লোড হচ্ছে...', 'Loading...')}</div></div>
-      <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">${t('মূল একক = যে এককে কেনা-বেচা হয়, পরিমাণ মোটা করে দেখানো। দরঃ সর্বশেষ পোস্ট করা প্রসেসিং বা ক্রয় থেকে (না থাকলে স্ট্যান্ডার্ড কস্ট) — দরে মাউস রাখলে উৎস দেখায়। লাল = মাইনাস স্টক।', 'Main unit = unit it is traded in (bold). Rate from the latest posted processing or purchase (else standard cost). Red = negative stock.')}</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">${t('এখানে প্রারম্ভিক জের — বর্তমান স্টক দেখতে ইনভেন্টরি → স্টক ওভারভিউ। জের দিতে/বদলাতে ✏️ এডিট → "২) প্রারম্ভিক জের"। মূল একক = যে এককে কেনা-বেচা হয় (পরিমাণ মোটা)। "পুরনো জের" = দর সেভ হওয়ার আগের, দর স্ট্যান্ডার্ড কস্ট থেকে — এডিট করে আসল দর দিন।', 'Opening stock shown here — current stock is in Stock Overview. Edit an item to set its opening stock.')}</div>
     </div>`;
 
   let rowsData = [], itemById = {};
   async function loadList() {
-    const [items, groups, categories, units, stock, warehouses] = await Promise.all([
+    const [items, groups, categories, units, opRows, warehouses] = await Promise.all([
       api('list', { sheet:'Items' }), cachedList('ItemGroups'), cachedList('Categories'),
-      cachedList('UOM'), api('list', { sheet:'CurrentStock' }), cachedList('Warehouses')
+      cachedList('UOM'), (async function () { try { const r = await supabaseClient.from('stock_ledger').select('ItemID,WarehouseID,Date,QtyIn,QtyOut,PiecesIn,PiecesOut').eq('RefModule', 'Items').eq('TransactionType', 'Opening'); return (r && r.data) || []; } catch (e) { return []; } })(),
+      cachedList('Warehouses')
     ]);
     const groupMap = {}; groups.forEach(function (g) { groupMap[g.GroupID] = g.GroupName; });
     const catMap = {}; categories.forEach(function (c) { catMap[c.CategoryID] = c.CategoryName; });
@@ -2619,21 +2637,26 @@ async function renderItemMasterPage(content) {
     const active = sortItemsBySerial(items.filter(function (r) { return r.Status !== 'Deleted'; }), catMap);
     itemById = {}; active.forEach(function (r) { itemById[r.ItemID] = r; });
     if (!active.length) { wrap.innerHTML = `<div class="empty-state">${t('এখনো কোনো আইটেম যোগ করা হয়নি।','No items added yet.')}</div>`; document.getElementById('imCount').textContent = ''; return; }
-    const rates = await itemMasterRates(active, units);
+    // প্রারম্ভিক জের — আইটেমে সেভ করা (পরিমাণ, দর, মূল্য); না থাকলে (পুরনো জের) লেজারের প্রারম্ভিক মজুদ + স্ট্যান্ডার্ড কস্ট
+    const opBy = {}; opRows.forEach(function (e) { const o = opBy[e.ItemID] = opBy[e.ItemID] || { kg: 0, pc: 0, wh: e.WarehouseID, date: e.Date }; o.kg += (Number(e.QtyIn) || 0) - (Number(e.QtyOut) || 0); o.pc += (Number(e.PiecesIn) || 0) - (Number(e.PiecesOut) || 0); });
     rowsData = [];
     active.forEach(function (r) {
       const piece = isPieceUOM(r.UOMID, units), unit = unitMap[r.UOMID];
-      const its = stock.filter(function (s) { return s.ItemID === r.ItemID; });
-      (its.length ? its : [null]).forEach(function (s) {
-        const kg = s ? (Number(s.QtyOnHand) || 0) : 0, pc = s ? (Number(s.QtyPieces) || 0) : 0;
-        const base = rates[r.ItemID] || { kg: 0, pc: 0, src: '' }, rt = { kg: base.kg, pc: base.pc, src: base.src };
-        const avg = (kg > 0 && pc > 0) ? kg / pc : 0;
-        if (!rt.kg && rt.pc && avg) rt.kg = rt.pc / avg;
-        if (!rt.pc && rt.kg && avg) rt.pc = rt.kg * avg;
-        const value = piece ? (pc && rt.pc ? pc * rt.pc : kg * rt.kg) : (kg && rt.kg ? kg * rt.kg : pc * rt.pc);
-        rowsData.push({ r: r, s: s, piece: piece, unit: unit ? unit.UOMName : '', wh: s ? (whMap[s.WarehouseID] || s.WarehouseID) : '', kg: kg, pc: pc, rt: rt, value: value,
-          group: groupMap[r.GroupID] || '', cat: catMap[r.CategoryID] || '' });
-      });
+      const saved = (Number(r.OpeningQtyKg) || 0) || (Number(r.OpeningQtyPcs) || 0) || (Number(r.OpeningValue) || 0);
+      let kg = 0, pc = 0, whId = '', date = '', rk = 0, rp = 0, value = 0, src = '';
+      if (saved) {
+        kg = Number(r.OpeningQtyKg) || 0; pc = Number(r.OpeningQtyPcs) || 0; whId = r.OpeningWarehouseID || ''; date = r.OpeningDate || '';
+        rk = Number(r.OpeningRateKg) || 0; rp = Number(r.OpeningRatePc) || 0;
+        value = Number(r.OpeningValue) || (piece ? pc * rp : kg * rk); src = t('আইটেমে সেভ করা জের', 'saved opening');
+      } else if (opBy[r.ItemID]) {
+        const o = opBy[r.ItemID], sc = Number(r.StandardCost) || 0;
+        kg = o.kg; pc = o.pc; whId = o.wh || ''; date = o.date || '';
+        if (piece) rp = sc; else rk = sc; value = piece ? pc * sc : kg * sc; src = t('পুরনো জের — দর সেভ ছিল না, স্ট্যান্ডার্ড কস্ট', 'old opening — standard cost');
+      }
+      if (!rk && kg > 0 && value) rk = value / kg;
+      if (!rp && pc > 0 && value) rp = value / pc;
+      rowsData.push({ r: r, s: whId ? { WarehouseID: whId } : null, piece: piece, unit: unit ? unit.UOMName : '', wh: whId ? (whMap[whId] || whId) : '', date: date, old: !saved && !!opBy[r.ItemID],
+        kg: kg, pc: pc, rt: { kg: rk, pc: rp, src: src }, value: value, group: groupMap[r.GroupID] || '', cat: catMap[r.CategoryID] || '' });
     });
     renderTable();
   }
@@ -2659,23 +2682,23 @@ async function renderItemMasterPage(content) {
         <td class="im-hide-m">${escapeHtml(x.r.ItemID)}</td>
         <td class="fz">${escapeHtml(x.r.ItemName)}<div class="im-show-m"><small>${escapeHtml(x.cat || '')}</small></div></td>
         <td class="im-hide-m">${escapeHtml(x.group || '—')}</td><td class="im-hide-m">${escapeHtml(x.cat || '—')}</td>
-        <td>${escapeHtml(x.unit)}</td><td>${escapeHtml(x.wh || '—')}</td>
+        <td>${escapeHtml(x.unit)}</td><td>${escapeHtml(x.wh || '—')}</td><td class="im-hide-m">${x.date ? escapeHtml(formatShortDate(x.date)) : '—'}${x.old ? `<div><small style="color:#b45309;">${t('পুরনো জের', 'old')}</small></div>` : ''}</td>
         <td class="r gq gstart ${!x.piece ? 'mu' : ''} ${neg(x.kg)}">${q3(x.kg)}</td><td class="r gq gend ${x.piece ? 'mu' : ''} ${neg(x.pc)}">${q3(x.pc)}</td>
         <td class="r gr" title="${attr(t('দরের উৎসঃ ', 'Rate from: ') + x.rt.src)}">${m2(x.rt.kg)}</td><td class="r gr gend" title="${attr(t('দরের উৎসঃ ', 'Rate from: ') + x.rt.src)}">${m2(x.rt.pc)}</td>
         <td class="r"><b>${x.value ? x.value.toFixed(2) : '0.00'}</b></td>
         <td>${statusCell}</td>
-        <td style="white-space:nowrap;">${ic('view', '👁️', t('এই আইটেমের ভাউচার — স্টক কার্ড', 'Vouchers of this item'), !x.s)}${ic('edit', '✏️', t('এডিট', 'Edit'))}${ic('del', '🗑️', t('ডিলিট', 'Delete'))}</td>
+        <td style="white-space:nowrap;">${ic('view', '👁️', t('এই আইটেমের ভাউচার — স্টক কার্ড (বর্তমান স্টক)', 'Vouchers of this item (current stock)'), !x.s)}${ic('edit', '✏️', t('এডিট', 'Edit'))}${ic('del', '🗑️', t('ডিলিট', 'Delete'))}</td>
       </tr>`;
     }).join('');
     const rk = kgPos > 0 ? vk / kgPos : 0, rp = pcPos > 0 ? vp / pcPos : 0;
     wrap.innerHTML = `<table class="data-table im-tbl"><thead>
         <tr class="h1"><th rowspan="2" class="im-hide-m">${t('কোড','Code')}</th><th rowspan="2" class="fz">${t('নাম','Name')}</th><th rowspan="2" class="im-hide-m">${t('গ্রুপ','Group')}</th><th rowspan="2" class="im-hide-m">${t('ক্যাটাগরি','Category')}</th>
-          <th rowspan="2">${t('মূল একক','Main unit')}</th><th rowspan="2">${t('গুদাম','Warehouse')}</th>
-          <th colspan="2" class="gq gstart gend">${t('পরিমাণ','Quantity')}</th><th colspan="2" class="gr gend">${t('দর','Rate')}</th>
-          <th rowspan="2">${t('মূল্য','Value')}</th><th rowspan="2">${t('অবস্থা','Status')}</th><th rowspan="2"></th></tr>
+          <th rowspan="2">${t('মূল একক','Main unit')}</th><th rowspan="2">${t('গুদাম','Warehouse')}</th><th rowspan="2" class="im-hide-m">${t('জেরের তারিখ','Opening date')}</th>
+          <th colspan="2" class="gq gstart gend">${t('প্রারম্ভিক পরিমাণ','Opening qty')}</th><th colspan="2" class="gr gend">${t('প্রারম্ভিক দর','Opening rate')}</th>
+          <th rowspan="2">${t('প্রারম্ভিক মূল্য','Opening value')}</th><th rowspan="2">${t('অবস্থা','Status')}</th><th rowspan="2"></th></tr>
         <tr class="h2"><th class="gq gstart">${t('কেজি','kg')}</th><th class="gq gend">${t('পিস','pcs')}</th><th class="gr">${t('কেজি','kg')}</th><th class="gr gend">${t('পিস','pcs')}</th></tr>
       </thead><tbody>${body}</tbody>
-      <tfoot><tr><td class="im-hide-m"></td><td class="fz">${t('মোট', 'Total')}<div><small>${t('দর = গড়', 'rate = average')}</small></div></td><td class="im-hide-m"></td><td class="im-hide-m"></td><td></td><td></td>
+      <tfoot><tr><td class="im-hide-m"></td><td class="fz">${t('মোট', 'Total')}<div><small>${t('দর = গড়', 'rate = average')}</small></div></td><td class="im-hide-m"></td><td class="im-hide-m"></td><td></td><td></td><td class="im-hide-m"></td>
         <td class="r gstart">${q3(tKg)}</td><td class="r gend">${q3(tPc)}</td><td class="r">${m2(rk)}</td><td class="r gend">${m2(rp)}</td><td class="r">${tVal.toFixed(2)}</td><td></td><td></td></tr></tfoot></table>`;
     // দ্বিতীয় হেডার-সারি ঠিক প্রথমটার নিচে (আসল উচ্চতা মেপে)
     fitImHead(); requestAnimationFrame(fitImHead); setTimeout(fitImHead, 250);
@@ -2717,6 +2740,7 @@ async function deleteItemRecord(itemId) {
 }
 
 async function openItemForm(existing) {
+  if (!document.getElementById('vgCssGlobal')) { const st = document.createElement('style'); st.id = 'vgCssGlobal'; st.textContent = VOUCHER_GRID_CSS; document.head.appendChild(st); }
   const itemFormData = await cachedListMultiple(['ItemGroups', 'Categories', 'UOM', 'Warehouses']);
   const groups = itemFormData.ItemGroups.filter(function (g) { return g.Status !== 'Deleted'; });
   const categories = itemFormData.Categories.filter(function (c) { return c.Status !== 'Deleted'; });
@@ -2765,21 +2789,26 @@ async function openItemForm(existing) {
       <span id="it_Section1Status" style="margin-left:10px;font-size:12px;color:var(--success);"></span>
     </div>
 
-    <!-- ========== সেকশন ২ — প্রারম্ভিক মজুদ ========== -->
+    <!-- ========== সেকশন ২ — প্রারম্ভিক জের (পরিমাণ কেজি | পিস, দর কেজি | পিস, মূল্য) ========== -->
     <div id="it_Section2" style="border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px;${currentItemId?'':'opacity:.5;'}">
-      <h4 style="margin:0 0 12px;font-size:13px;color:var(--text-muted);text-transform:uppercase;">${t('২) প্রারম্ভিক মজুদ বিবরণী','2) Opening Stock Details')}</h4>
+      <h4 style="margin:0 0 12px;font-size:13px;color:var(--text-muted);text-transform:uppercase;">${t('২) প্রারম্ভিক জের (ওপেনিং স্টক)','2) Opening Stock')}</h4>
       ${!currentItemId ? `<p style="font-size:12px;color:var(--text-muted);margin:0 0 10px;">${t('প্রথমে "মূল তথ্য" সেভ করুন — তারপর এই সেকশন ব্যবহার করা যাবে।','Save "Basic Info" first — then this section unlocks.')}</p>` : ''}
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
-        <div class="field"><label>${t('গ্রুপ','Group')}</label><input id="it_Op_GroupEcho" readonly style="background:var(--bg);"></div>
-        <div class="field"><label>${t('ক্যাটাগরি','Category')}</label><input id="it_Op_CatEcho" readonly style="background:var(--bg);"></div>
-        <div class="field"><label>${t('পণ্য','Item')}</label><input id="it_Op_ItemEcho" readonly style="background:var(--bg);"></div>
-        <div class="field"><label>${t('ওয়ারহাউজ','Warehouse')}</label><select id="it_Op_WarehouseID" ${currentItemId?'':'disabled'}>${opts(warehouses, 'WarehouseID', 'WarehouseName', '')}</select></div>
-        <div class="field"><label>${t('পরিমাণ','Quantity')}</label><input id="it_Op_Qty" type="number" step="any" ${currentItemId?'':'disabled'}></div>
-        <div class="field"><label>${t('একক','Unit')}</label><input id="it_Op_UnitEcho" readonly style="background:var(--bg);"></div>
-        <div class="field"><label>${t('দর','Rate')}</label><input id="it_Op_Rate" type="number" step="any" ${currentItemId?'':'disabled'}></div>
-        <div class="field"><label>${t('মূল্য','Value')}</label><input id="it_Op_Value" readonly style="background:var(--bg);font-weight:600;"></div>
+      <div class="vg2">
+        <div class="field"><label>${t('গ্রুপ','Group')}</label><input id="it_Op_GroupEcho" readonly class="vro"></div>
+        <div class="field"><label>${t('ক্যাটাগরি','Category')}</label><input id="it_Op_CatEcho" readonly class="vro"></div>
+        <div class="field"><label>${t('পণ্য','Item')}</label><input id="it_Op_ItemEcho" readonly class="vro"></div>
+        <div class="field"><label>${t('মূল একক','Main unit')}</label><input id="it_Op_UnitEcho" readonly class="vro"></div>
+        <div class="field"><label>${t('গুদাম','Warehouse')}</label><select id="it_Op_WarehouseID" ${currentItemId?'':'disabled'}>${opts(warehouses, 'WarehouseID', 'WarehouseName', (existing && existing.OpeningWarehouseID) || '')}</select></div>
+        <div class="field"><label>${t('জেরের তারিখ','Opening date')}</label><input id="it_Op_Date" type="date" value="${attr((existing && existing.OpeningDate) || '')}" ${currentItemId?'':'disabled'}></div>
+        <div class="field"><label id="it_Op_LblKg">${t('পরিমাণ (কেজি)','Qty (kg)')}</label><input id="it_Op_Kg" type="number" step="any" min="0" inputmode="decimal" value="${attr(existing && existing.OpeningQtyKg ? existing.OpeningQtyKg : '')}" ${currentItemId?'':'disabled'}></div>
+        <div class="field"><label id="it_Op_LblPcs">${t('পরিমাণ (পিস)','Qty (pcs)')}</label><input id="it_Op_Pcs" type="number" step="any" min="0" inputmode="decimal" value="${attr(existing && existing.OpeningQtyPcs ? existing.OpeningQtyPcs : '')}" ${currentItemId?'':'disabled'}></div>
+        <div class="field"><label>${t('দর/কেজি','Rate/kg')}</label><input id="it_Op_RateKg" type="number" step="any" min="0" inputmode="decimal" value="${attr(existing && existing.OpeningRateKg ? +Number(existing.OpeningRateKg).toFixed(4) : '')}" ${currentItemId?'':'disabled'}></div>
+        <div class="field"><label>${t('দর/পিস','Rate/pc')}</label><input id="it_Op_RatePc" type="number" step="any" min="0" inputmode="decimal" value="${attr(existing && existing.OpeningRatePc ? +Number(existing.OpeningRatePc).toFixed(4) : '')}" ${currentItemId?'':'disabled'}></div>
+        <div class="field vfull"><label>${t('মূল্য','Value')}</label><input id="it_Op_Value" readonly class="vro vbold" value="${attr(existing && existing.OpeningValue ? Number(existing.OpeningValue).toFixed(2) : '')}"></div>
       </div>
-      <button type="button" class="btn btn-primary" style="width:auto;margin-top:12px;" id="it_SaveSection2" ${currentItemId?'':'disabled'}>${t('প্রারম্ভিক মজুদ সেভ করুন','Save Opening Stock')}</button>
+      <input type="hidden" id="it_Op_Qty"><input type="hidden" id="it_Op_Rate">
+      <div id="it_Op_Note" style="font-size:11.5px;color:var(--text-muted);margin-top:6px;"></div>
+      <button type="button" class="btn btn-primary" style="width:auto;margin-top:12px;" id="it_SaveSection2" ${currentItemId?'':'disabled'}>${t('প্রারম্ভিক জের সেভ করুন','Save Opening Stock')}</button>
       <span id="it_Section2Status" style="margin-left:10px;font-size:12px;color:var(--success);"></span>
     </div>
 
@@ -2846,19 +2875,52 @@ async function openItemForm(existing) {
   document.getElementById('it_ItemName').addEventListener('input', refreshOpeningEchoes);
   refreshUnitEchoes();
 
-  function recalcOpeningValue() {
-    const qty = Number(val('it_Op_Qty')) || 0;
-    const rate = Number(val('it_Op_Rate')) || 0;
-    document.getElementById('it_Op_Value').value = (qty * rate).toFixed(2);
+  // প্রারম্ভিক জেরঃ কেজির আইটেমে শুধু কেজি; পিসের আইটেমে পিস ও ওজন (কেজি)। যে দর লেখা হয় সেটাই মূল্যের ভিত্তি, অন্য দর নিজে
+  let opBasis = null;
+  const opPiece = function () { const u = (window.__itemFormUnits || []).find(function (x) { return x.UOMID === val('it_UOMID'); }); return voucherIsPieceUnit(u ? u.UOMName : ''); };
+  function recalcOpeningValue(src) {
+    if (src) opBasis = src;
+    const piece = opPiece(), kgEl = document.getElementById('it_Op_Kg'), pcEl = document.getElementById('it_Op_Pcs'), rkEl = document.getElementById('it_Op_RateKg'), rpEl = document.getElementById('it_Op_RatePc');
+    pcEl.disabled = rpEl.disabled = !piece || !currentItemId; if (!piece) { pcEl.value = ''; rpEl.value = ''; }
+    pcEl.placeholder = rpEl.placeholder = piece ? '' : '—';
+    document.getElementById('it_Op_LblKg').textContent = piece ? t('ওজন (কেজি)', 'Weight (kg)') : t('পরিমাণ (কেজি) ★', 'Qty (kg) ★');
+    document.getElementById('it_Op_LblPcs').textContent = piece ? t('পরিমাণ (পিস) ★', 'Qty (pcs) ★') : t('পরিমাণ (পিস)', 'Qty (pcs)');
+    const kg = Number(kgEl.value) || 0, pc = Number(pcEl.value) || 0;
+    const basis = opBasis || (piece ? (rpEl.value ? 'pc' : 'kg') : 'kg');
+    const value = basis === 'pc' ? pc * (Number(rpEl.value) || 0) : kg * (Number(rkEl.value) || 0);
+    const other = basis === 'pc' ? rkEl : rpEl, oq = basis === 'pc' ? kg : pc;
+    if (document.activeElement !== other && !other.disabled) other.value = (oq > 0 && value > 0) ? String(+(value / oq).toFixed(4)) : '';
+    document.getElementById('it_Op_Value').value = value ? value.toFixed(2) : '';
+    document.getElementById('it_Op_Note').textContent = piece ? t('পিসের আইটেমঃ পিস আর মোট ওজন (কেজি) দুটোই দিন — বিক্রয়ে গড় ওজন এখান থেকে শুরু হয়।', 'Piece item: give pieces and total weight (kg) — the average weight starts here.') : t('কেজির আইটেমঃ শুধু কেজি ও দর/কেজি।', 'Kg item: kg and rate per kg only.');
   }
-  document.getElementById('it_Op_Qty').addEventListener('input', recalcOpeningValue);
-  document.getElementById('it_Op_Rate').addEventListener('input', recalcOpeningValue);
+  document.getElementById('it_Op_Kg').addEventListener('input', function () { recalcOpeningValue(); });
+  document.getElementById('it_Op_Pcs').addEventListener('input', function () { recalcOpeningValue(); });
+  document.getElementById('it_Op_RateKg').addEventListener('input', function () { recalcOpeningValue('kg'); });
+  document.getElementById('it_Op_RatePc').addEventListener('input', function () { recalcOpeningValue('pc'); });
+  document.getElementById('it_UOMID').addEventListener('change', function () { recalcOpeningValue(); });
+  recalcOpeningValue();
+  // আগের জের — ঘর না থাকলে (পুরনো ডেটা) লেজারের প্রারম্ভিক মজুদ থেকে পরিমাণ; তারিখ না থাকলে অর্থবছরের শুরু
+  (async function () {
+    if (existing && !existing.OpeningValue && !existing.OpeningQtyKg && !existing.OpeningQtyPcs) {
+      try {
+        const { data: ol } = await supabaseClient.from('stock_ledger').select('*').eq('RefModule', 'Items').eq('RefID', existing.ItemID).eq('TransactionType', 'Opening');
+        if (ol && ol.length) {
+          const kg = ol.reduce(function (s, e) { return s + (Number(e.QtyIn) || 0) - (Number(e.QtyOut) || 0); }, 0), pc = ol.reduce(function (s, e) { return s + (Number(e.PiecesIn) || 0) - (Number(e.PiecesOut) || 0); }, 0);
+          if (kg) document.getElementById('it_Op_Kg').value = String(+kg.toFixed(3)); if (pc) document.getElementById('it_Op_Pcs').value = String(pc);
+          document.getElementById('it_Op_WarehouseID').value = ol[0].WarehouseID || '';
+          if (!val('it_Op_Date') && ol[0].Date) document.getElementById('it_Op_Date').value = String(ol[0].Date).slice(0, 10);
+          recalcOpeningValue();
+        }
+      } catch (e) {}
+    }
+    if (!val('it_Op_Date')) document.getElementById('it_Op_Date').value = await getFiscalYearStart();
+  })();
 
   function unlockSections() {
     ['it_Section2', 'it_Section3', 'it_Section4'].forEach(function (id) { document.getElementById(id).style.opacity = '1'; });
     document.getElementById('it_Op_WarehouseID').disabled = false;
-    document.getElementById('it_Op_Qty').disabled = false;
-    document.getElementById('it_Op_Rate').disabled = false;
+    ['it_Op_Kg', 'it_Op_RateKg', 'it_Op_Date'].forEach(function (id) { document.getElementById(id).disabled = false; });
+    recalcOpeningValue();
     document.getElementById('it_SaveSection2').disabled = false;
     document.getElementById('it_StdPurchaseRate').disabled = false;
     document.getElementById('it_StdPurchaseDate').disabled = false;
@@ -2906,14 +2968,19 @@ async function openItemForm(existing) {
     if (!currentItemId) { showToast(t('প্রথমে মূল তথ্য সেভ করুন।','Save Basic Info first.'), 'error'); return; }
     const btn = this; const statusEl = document.getElementById('it_Section2Status');
     const warehouseId = val('it_Op_WarehouseID');
-    const qty = Number(val('it_Op_Qty')) || 0;
+    const piece = opPiece(), kg = Number(val('it_Op_Kg')) || 0, pcs = piece ? (Number(val('it_Op_Pcs')) || 0) : 0;
     if (!warehouseId) { showToast(t('গুদাম বাছাই করুন।','Select a warehouse.'), 'error'); return; }
-    if (qty <= 0) { showToast(t('পরিমাণ দিন।','Enter a quantity.'), 'error'); return; }
+    if (piece ? !(pcs > 0) : !(kg > 0)) { showToast(piece ? t('পরিমাণ (পিস) দিন।','Enter qty (pcs).') : t('পরিমাণ (কেজি) দিন।','Enter qty (kg).'), 'error'); return; }
+    if (piece && !(kg > 0)) { showToast(t('পিসের আইটেমে মোট ওজন (কেজি)-ও দিন — নইলে বিক্রয়ে গড় ওজন পাওয়া যাবে না।','Give the total weight (kg) too.'), 'error'); return; }
+    recalcOpeningValue();
     btn.disabled = true; statusEl.textContent = t('সেভ হচ্ছে...','Saving...');
     try {
-      await api('postOpeningStock', { itemId: currentItemId, warehouseId: warehouseId, quantity: qty });
+      await api('saveOpeningStock', { itemId: currentItemId, warehouseId: warehouseId, date: val('it_Op_Date'), kg: kg, pcs: pcs,
+        rateKg: Number(val('it_Op_RateKg')) || 0, ratePc: Number(val('it_Op_RatePc')) || 0, value: Number(val('it_Op_Value')) || 0 });
+      listCache = {};
+      if (window.__refreshItemList) await window.__refreshItemList();
       statusEl.textContent = '✓ ' + t('সেভ হয়েছে','Saved');
-      showToast(t('প্রারম্ভিক মজুদ যোগ হয়েছে ✅','Opening stock added ✅'), 'success');
+      showToast(t('প্রারম্ভিক জের সেভ হয়েছে ✅ (আগের জের থাকলে সেটা বদলে গেছে)','Opening stock saved ✅'), 'success');
     } catch (err) {
       showToast(err.message, 'error');
       statusEl.textContent = '';
@@ -6701,6 +6768,7 @@ async function renderProdDailyPage(content) {
    ============================================================ */
 async function renderProcCostingPage(content) {
   const [allItems, allWh] = await Promise.all([cachedList('Items'), cachedList('Warehouses')]);
+  try { window.__pcUnits = await cachedList('UOM'); } catch (e) { window.__pcUnits = []; }   // বাই-প্রোডাক্টের নামের তালিকায় শুধু কেজির আইটেম
   const items = allItems.filter(function (i) { return i.Status !== 'Deleted'; }).sort(function (a, b) { return String(a.ItemName).localeCompare(String(b.ItemName), 'bn'); });
   const whs = allWh.filter(function (w) { return w.Status !== 'Deleted'; });
   const itemName = {}; items.forEach(function (i) { itemName[i.ItemID] = i.ItemName; });
@@ -6737,7 +6805,7 @@ async function renderProcCostingPage(content) {
       .pcx-sec{margin:14px 0 6px;font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:10px;}
       .pcx-tbl input,.pcx-tbl select{height:30px;font-size:12.5px;width:100%;min-width:70px;box-sizing:border-box;}
       .pcx-tbl input[type=number]{text-align:right;}
-      .pcx-tw{overflow-x:auto;-webkit-overflow-scrolling:touch;} .pcx-tbl td.vx span{display:none;}
+      .pcx-tw{overflow-x:auto;-webkit-overflow-scrolling:touch;} .bp-ok{font-size:11px;color:#15803d;margin-top:2px;} .bp-bad{font-size:11px;color:#b42318;font-weight:600;margin-top:2px;} .pcx-tbl td.vx span{display:none;}
       @media (max-width:600px){
         .pcx-card thead{display:none;}
         .pcx-card,.pcx-card tbody{display:block;width:100%;}
@@ -6975,9 +7043,11 @@ async function renderProcCostingPage(content) {
   // ---------- বাই-প্রোডাক্ট ও প্রস্তুত পণ্যের টেবিল ----------
   function renderBP() {
     if (!st.bp.length) st.bp.push({ name: '', qty: '', pcs: '', rate: '', ratePc: '', drv: 'kg' });
-    $('pc_BPWrap').innerHTML = `<div class="pcx-tw"><table class="pcx-tbl pcx-card"><thead><tr><th>${t('নাম', 'Name')}</th><th>${t('পরিমাণ (কেজি)', 'Qty (kg)')}</th><th>${t('দর/কেজি', 'Rate/kg')}</th><th>${t('মূল্য', 'Value')}</th><th style="width:70px;"></th></tr></thead><tbody>
+    $('pc_BPWrap').innerHTML = `<datalist id="pc_BPNames">${items.filter(function (it) { return it.Status !== 'Deleted' && !isPieceUOM(it.UOMID, window.__pcUnits || []); }).map(function (it) { return `<option value="${attr(it.ItemName)}"></option>`; }).join('')}</datalist><div class="pcx-tw"><table class="pcx-tbl pcx-card"><thead><tr><th>${t('নাম', 'Name')}</th><th>${t('পরিমাণ (কেজি)', 'Qty (kg)')}</th><th>${t('দর/কেজি', 'Rate/kg')}</th><th>${t('মূল্য', 'Value')}</th><th style="width:70px;"></th></tr></thead><tbody>
       ${st.bp.map(function (b, i) {
-        return `<tr><td class="vfull" data-l="${t('নাম', 'Name')}"><input data-bp="${i}" data-f="name" value="${attr(b.name)}" placeholder="${attr(t('কাটিং / ভাঙ্গাড়ী / অপচয়', 'cutting / scrap / wastage'))}"></td>
+        const bpHit = findItemByName(items, b.name);
+        const bpNote = !String(b.name || '').trim() ? '' : bpHit ? `<div class="bp-ok">✓ ${t('স্টকে যাবে → ', 'goes to stock → ')}${escapeHtml(bpHit.ItemName)}</div>` : `<div class="bp-bad">⚠️ ${t('এই নামে আইটেম নেই — স্টকে যাবে না। আইটেম মাস্টারে এই নামে আইটেম খুলুন, বা তালিকা থেকে নাম বাছুন।', 'No item with this name — it will not reach stock. Create the item or pick a name from the list.')}</div>`;
+        return `<tr><td class="vfull" data-l="${t('নাম', 'Name')}"><input data-bp="${i}" data-f="name" list="pc_BPNames" value="${attr(b.name)}" placeholder="${attr(t('কাটিং / ভাঙ্গাড়ী / অপচয়', 'cutting / scrap / wastage'))}"><span id="pc_bp_${i}_note">${bpNote}</span></td>
           <td data-l="${t('পরিমাণ (কেজি)', 'Qty (kg)')}"><input type="number" step="any" min="0" inputmode="decimal" data-bp="${i}" data-f="qty" value="${attr(b.qty)}"></td>
           <td data-l="${t('দর/কেজি', 'Rate/kg')}"><input type="number" step="any" min="0" inputmode="decimal" data-bp="${i}" data-f="rate" id="pc_bp_${i}_rk" class="${b.drv !== 'pc' && b.rate ? 'drv' : ''}" value="${attr(b.rate)}"></td>
           <td class="r" id="pc_bp_${i}_val" data-l="${t('মূল্য', 'Value')}">0.00</td><td class="pcx-act" style="white-space:nowrap;"><button type="button" class="pcx-x" data-bpdel="${i}" title="${attr(t('মুছুন', 'Remove'))}">✕</button>${i === st.bp.length - 1 ? `<button type="button" class="pcx-plus" data-bpadd="1" title="${attr(t('লাইন যোগ', 'Add line'))}">＋</button>` : ''}</td></tr>`;
@@ -7163,7 +7233,7 @@ async function renderProcCostingPage(content) {
     if (!fg.length) { showToast(t('অন্তত একটা প্রস্তুত পণ্য লাইন দিন।', 'Add at least one finished line.'), 'error'); return; }
     const w = netW(), v = netV(), fk = fg.reduce(function (s, l) { return s + l.kg; }, 0), fv = fg.reduce(function (s, l) { return s + l.value; }, 0), pcs = fg.reduce(function (s, l) { return s + l.pcs; }, 0);
     if ((Math.abs(w - fk) > 0.0005 || Math.abs(v - fv) > 0.5) && !confirm(t('প্রস্তুত পণ্যের মোট নীট ওজন/মূল্যের সাথে মিলছে না। তবুও সেভ করবেন?', 'Finished totals do not match net weight/value. Save anyway?'))) return;
-    const bpl = st.bp.filter(function (b) { return n(b.qty) > 0 || n(b.pcs) > 0; }).map(function (b) { const v = bpValue(b); return { ByProductName: b.name || '', ItemID: ((items.find(function (i) { return String(i.ItemName || '').trim() === String(b.name || '').trim(); }) || {}).ItemID) || null, Quantity: n(b.qty), Rate: n(b.qty) > 0 ? v / n(b.qty) : 0, Value: v, QtyPcs: n(b.pcs), RatePerPc: n(b.pcs) > 0 ? v / n(b.pcs) : 0 }; });
+    const bpl = st.bp.filter(function (b) { return n(b.qty) > 0 || n(b.pcs) > 0; }).map(function (b) { const v = bpValue(b); return { ByProductName: b.name || '', ItemID: (findItemByName(items, b.name) || {}).ItemID || null, Quantity: n(b.qty), Rate: n(b.qty) > 0 ? v / n(b.qty) : 0, Value: v, QtyPcs: n(b.pcs), RatePerPc: n(b.pcs) > 0 ? v / n(b.pcs) : 0 }; });
     const saleKg = n(gv('pc_SaleKg')), salePc = n(gv('pc_SalePc'));
     const header = {
       Date: gv('pc_Date') || today, RawMaterialItemID: raw, WarehouseID: wh,
@@ -7209,7 +7279,9 @@ async function renderProcCostingPage(content) {
   const root = content.querySelector('.pcx');
   root.addEventListener('input', function (e) {
     const el = e.target;
-    if (el.hasAttribute('data-bp')) { const b = st.bp[Number(el.getAttribute('data-bp'))], f = el.getAttribute('data-f'); b[f] = el.value; if (f === 'rate') b.drv = 'kg'; if (f === 'ratePc') b.drv = 'pc'; recalc(); return; }
+    if (el.hasAttribute('data-bp')) { const bi = Number(el.getAttribute('data-bp')), b = st.bp[bi], f = el.getAttribute('data-f'); b[f] = el.value; if (f === 'rate') b.drv = 'kg'; if (f === 'ratePc') b.drv = 'pc';
+      if (f === 'name') { const hit = findItemByName(items, b.name), nt = $('pc_bp_' + bi + '_note'); if (nt) nt.innerHTML = !String(b.name || '').trim() ? '' : hit ? `<div class="bp-ok">✓ ${t('স্টকে যাবে → ', 'goes to stock → ')}${escapeHtml(hit.ItemName)}</div>` : `<div class="bp-bad">⚠️ ${t('এই নামে আইটেম নেই — স্টকে যাবে না। আইটেম মাস্টারে এই নামে আইটেম খুলুন, বা তালিকা থেকে নাম বাছুন।', 'No item with this name — it will not reach stock.')}</div>`; }
+      recalc(); return; }
     if (el.hasAttribute('data-fg')) {
       const r = st.fg[Number(el.getAttribute('data-fg'))], f = el.getAttribute('data-f');
       r[f] = el.value;
@@ -11165,7 +11237,7 @@ async function stockCardDrafts(itemId, warehouseId, piece) {
     pvs.forEach(function (h) {
       if (h.RawMaterialItemID === itemId) out.push({ docType: 'ProcessingVoucher', id: h.ProcessingID, date: h.Date, dir: 'out', txt: qtyTxt(n(h.RawMaterialQty)) + t(' (কাঁচামাল)', ' (raw)') });
       fg.filter(function (l) { return l.ProcessingID === h.ProcessingID && l.ItemID === itemId; }).forEach(function (l) { out.push({ docType: 'ProcessingVoucher', id: h.ProcessingID, date: h.Date, dir: 'in', txt: (n(l.QtyKg) ? +n(l.QtyKg).toFixed(3) + ' ' + t('কেজি', 'kg') : '') + (n(l.QtyKg) && n(l.QtyPcs) ? ' / ' : '') + (n(l.QtyPcs) ? n(l.QtyPcs) + ' ' + t('পিস', 'pcs') : '') }); });
-      bp.filter(function (l) { return l.ProcessingID === h.ProcessingID && (l.ItemID === itemId || (!l.ItemID && String(l.ByProductName || '').trim() === String(me.ItemName || '').trim())); }).forEach(function (l) { out.push({ docType: 'ProcessingVoucher', id: h.ProcessingID, date: h.Date, dir: 'in', txt: qtyTxt(n(l.Quantity)) + t(' (বাই-প্রোডাক্ট)', ' (by-product)') }); });
+      bp.filter(function (l) { return l.ProcessingID === h.ProcessingID && (l.ItemID === itemId || (!l.ItemID && bnKey(l.ByProductName) === bnKey(me.ItemName))); }).forEach(function (l) { out.push({ docType: 'ProcessingVoucher', id: h.ProcessingID, date: h.Date, dir: 'in', txt: qtyTxt(n(l.Quantity)) + t(' (বাই-প্রোডাক্ট)', ' (by-product)') }); });
     });
   }
   return out.sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
