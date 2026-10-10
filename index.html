@@ -5553,6 +5553,7 @@ async function renderHrReportsPage(content) {
   const itemMap = {}; items.forEach(function (i) { itemMap[i.ItemID] = i; });
   const today = hrToday();
   const st = { tab: 'ledger', emp: '', from: today.slice(0, 8) + '01', to: today, month: today.slice(0, 7), pFrom: hrWeekOf(today).from, pTo: today, pBy: 'item', pGroup: '', pCat: '' };
+  { const fy = await getFiscalYearStart(today); st.from = fy; st.pFrom = fy; }   // "হইতে" ডিফল্টঃ অর্থবছরের শুরু
 
   content.innerHTML = `
     <style>
@@ -6587,6 +6588,7 @@ async function renderProcCostingPage(content) {
   const show = function (x, dec) { const v = Number(x); if (!v) return ''; return String(+v.toFixed(dec === undefined ? 3 : dec)); };
   const iso = function (d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
   const today = iso(new Date()), monthAgo = iso(new Date(Date.now() - 30 * 86400000));
+  const fyStart = await getFiscalYearStart(today);   // তারিখ-রেঞ্জের "হইতে" ডিফল্টঃ অর্থবছরের শুরু
   const $ = function (id) { return document.getElementById(id); };
   const gv = function (id) { const el = $(id); return el ? el.value : ''; };
   const opt = function (list, idF, lblF, sel) { return '<option value="">—</option>' + list.map(function (r) { return `<option value="${attr(r[idF])}" ${r[idF] === sel ? 'selected' : ''}>${escapeHtml(r[lblF])}</option>`; }).join(''); };
@@ -6712,7 +6714,7 @@ async function renderProcCostingPage(content) {
     <div class="panel">
       <div class="pcx-h">${t('সেভ করা ভাউচার', 'Saved vouchers')} <span>${t('— 💾 পোস্ট করলে প্রস্তুত পণ্য স্টকে জমা হয়', '— 💾 post puts the finished goods into stock')}</span></div>
       <div class="pcx-bar">
-        <div class="field"><label>${t('তারিখ হইতে', 'From')}</label><input type="date" id="pc_ListFrom" value="${iso(new Date(Date.now() - 60 * 86400000))}"></div>
+        <div class="field"><label>${t('তারিখ হইতে', 'From')}</label><input type="date" id="pc_ListFrom" value="${fyStart}"></div>
         <div class="field"><label>${t('তারিখ পর্যন্ত', 'To')}</label><input type="date" id="pc_ListTo" value="${today}"></div>
         <button type="button" class="btn" id="pc_ListLoad" style="width:auto;">↻ ${t('দেখুন', 'Load')}</button>
         <span id="pc_ListInfo" class="pcx-hint"></span>
@@ -6975,7 +6977,7 @@ async function renderProcCostingPage(content) {
     const raw = gv('pc_Raw');
     if (!raw) { showToast(t('আগে কাঁচামাল বাছাই করুন।', 'Pick the raw material first.'), 'error'); return; }
     const pop = document.createElement('div'); pop.className = 'pcx-pop';
-    const af = st.avgFrom || monthAgo, at = st.avgTo || today;
+    const af = st.avgFrom || fyStart, at = st.avgTo || today;
     pop.innerHTML = `<div class="box" role="dialog">
       <div style="display:flex;justify-content:space-between;align-items:center;"><b>${t('কাঁচামালের দর — ', 'Raw material rate — ')}${escapeHtml(itemName[raw] || raw)}</b><button type="button" class="pcx-x" data-pop="close">✕</button></div>
       <div class="opt"><h5>① ${t('সর্বশেষ ক্রয় ভাউচার অনুযায়ী', 'From the last purchase voucher')}</h5>
@@ -10904,12 +10906,21 @@ const DMY_CSS = `.dmy-wrap{position:relative;display:inline-flex;align-items:cen
   .dmy-in.bad{border-color:#c0392b;background:#fdf0ef;}
   .dmy-cal{position:absolute;right:3px;top:50%;transform:translateY(-50%);border:0;background:transparent;cursor:pointer;font-size:13px;padding:2px 4px;line-height:1;}
   .dmy-native{position:absolute;right:0;bottom:0;width:1px;height:1px;opacity:0;pointer-events:none;border:0;padding:0;}`;
-/** স্টক ওভারভিউর "হইতে" ডিফল্ট — সফটওয়্যারের হিসাব শুরুর তারিখ (বদলানো যায়) */
-const STOCK_OV_FROM_DEFAULT = '2026-10-01';
+/** অর্থবছরের শুরু — সফটওয়্যারের সব তারিখ-রেঞ্জের "হইতে"-এর ডিফল্ট (ঘরে চাইলে বদলানো যায়)।
+    কোম্পানি প্রোফাইলের "ফিসকাল ইয়ার শুরু" থেকে মাস-দিন নেয় (না থাকলে ১ জুলাই); বছর নিজে এগোয় —
+    যেমন ১০-১০-২০২৬ তারিখে → ০১-০৭-২০২৬, ১৫-০৭-২০২৭ তারিখে → ০১-০৭-২০২৭ */
+async function getFiscalYearStart(refIso) {
+  let fy = '';
+  try { const p = await api('getSingleton', { sheet: 'CompanyProfile' }); fy = (p && p.FiscalYearStart) || ''; } catch (e) {}
+  const d = new Date(), ref = refIso || (d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'));
+  const md = /^\d{4}-\d{2}-\d{2}/.test(String(fy)) ? String(fy).slice(5, 10) : '07-01';
+  const y = Number(ref.slice(0, 4));
+  return (ref.slice(5, 10) >= md ? y : y - 1) + '-' + md;
+}
 
 async function renderStockOverview(content) {
   const dNow = new Date(), today = dNow.getFullYear() + '-' + String(dNow.getMonth() + 1).padStart(2, '0') + '-' + String(dNow.getDate()).padStart(2, '0');
-  const monthStart = STOCK_OV_FROM_DEFAULT <= today ? STOCK_OV_FROM_DEFAULT : today.slice(0, 8) + '01';   // "হইতে" ডিফল্ট 01-10-2026
+  const monthStart = await getFiscalYearStart(today);   // "হইতে" ডিফল্টঃ অর্থবছরের শুরু (01-07-2026)
   content.innerHTML = `
     <style>${STOCK_OV_CSS} ${STOCK_OV_FREEZE_CSS} ${DMY_CSS} .so-dates label{font-size:11.5px;} .so-warn{background:#fff3e0;border:1px solid #f0b46a;color:#7a4300;border-radius:8px;padding:9px 12px;font-size:12.5px;margin-bottom:10px;} .so-legend{font-size:11.5px;color:var(--text-muted);margin-top:6px;} @media (max-width:760px){ .so-legend{font-size:10.5px;} }</style>
     <div class="page-head"><div>
