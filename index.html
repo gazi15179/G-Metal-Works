@@ -2522,15 +2522,89 @@ async function deleteMasterRecord(sheetName, idValue) {
    দিয়ে নয় — কারণ এতে সেকশন-ভিত্তিক লেআউট ও লাইভ হিসাব (Decimal
    অটো-ফিল, Value = পরিমাণ×দর) দরকার যা জেনেরিক ইঞ্জিনে নেই।
    ============================================================ */
+/* ============================================================
+   আইটেম মাস্টার — স্টক ওভারভিউর মতোঃ পরিমাণ (কেজি | পিস) · দর (কেজি | পিস) · মূল্য
+   • দরঃ সর্বশেষ পোস্ট করা প্রসেসিং (ফিনিশড গুডসের দর) → পোস্ট করা ক্রয়ের গড় → স্ট্যান্ডার্ড কস্ট;
+     একটা দর না থাকলে গড় ওজন (কেজি ÷ পিস) দিয়ে অন্যটা
+   • মূল্য = মূল এককের পরিমাণ × মূল এককের দর (স্টক ওভারভিউর মতোই — দুই জায়গায় একই মূল্য)
+   • হেডার ও নামের কলাম স্থির; চিকন সারি; খোঁজার ঘর; মোবাইলে মসৃণ; 👁️ দেখুন · ✏️ এডিট · 🗑️ ডিলিট
+   ============================================================ */
+async function itemMasterRates(items, units) {
+  const safe = async function (q) { try { const r = await q; return (r && !r.error && r.data) || []; } catch (e) { return []; } };
+  const [fg, pv, pil, pih] = await Promise.all([
+    safe(supabaseClient.from('ProcessingFG_Lines').select('*')), safe(supabaseClient.from('ProcessingVoucher').select('ProcessingID,Date,Status')),
+    safe(supabaseClient.from('PI_Lines').select('*')), safe(supabaseClient.from('PurchaseInvoice').select('PIID,InvoiceDate,Status'))]);
+  const itemMap = {}; items.forEach(function (i) { itemMap[i.ItemID] = i; });
+  const pvMap = {}; pv.forEach(function (h) { pvMap[h.ProcessingID] = h; });
+  const piMap = {}; pih.forEach(function (h) { piMap[h.PIID] = h; });
+  const rates = {};
+  fg.filter(function (l) { const h = pvMap[l.ProcessingID]; return h && h.Status === 'Posted'; })
+    .sort(function (a, b) { return String(pvMap[a.ProcessingID].Date).localeCompare(String(pvMap[b.ProcessingID].Date)); })
+    .forEach(function (l) { rates[l.ItemID] = { kg: Number(l.RatePerKg) || 0, pc: Number(l.RatePerPc) || 0, src: t('প্রসেসিং', 'processing') }; });
+  const acc = {};   // পোস্ট করা ক্রয়ের গড় দর (মূল এককে)
+  pil.forEach(function (l) {
+    const h = piMap[l.PIID]; if (!h || h.Status !== 'Posted' || !(Number(l.Quantity) > 0) || rates[l.ItemID]) return;
+    const val = (l.NetAmount !== null && l.NetAmount !== undefined && l.NetAmount !== '') ? Number(l.NetAmount) : (Number(l.Amount) || Number(l.Quantity) * (Number(l.Rate) || 0));
+    const a = acc[l.ItemID] = acc[l.ItemID] || { q: 0, v: 0 }; a.q += Number(l.Quantity); a.v += Number(val) || 0;
+  });
+  Object.keys(acc).forEach(function (id) {
+    if (rates[id] || !(acc[id].q > 0)) return;
+    const r = acc[id].v / acc[id].q, piece = isPieceUOM((itemMap[id] || {}).UOMID, units);
+    rates[id] = { kg: piece ? 0 : r, pc: piece ? r : 0, src: t('ক্রয়ের গড়', 'purchase average') };
+  });
+  items.forEach(function (i) {
+    if (rates[i.ItemID]) return;
+    const piece = isPieceUOM(i.UOMID, units), sc = Number(i.StandardCost) || 0;
+    rates[i.ItemID] = { kg: piece ? 0 : sc, pc: piece ? sc : 0, src: t('স্ট্যান্ডার্ড কস্ট', 'standard cost') };
+  });
+  return rates;
+}
+
+const ITEM_MASTER_CSS = `
+  .im-tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;}
+  .im-tools input{flex:1 1 220px;max-width:360px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);font-size:13.5px;}
+  .im-tools .im-cnt{font-size:12px;color:var(--text-muted);}
+  #itemTableWrap{overflow:auto;max-height:calc(100vh - 250px);border-radius:8px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;}
+  .im-tbl{border-collapse:separate !important;border-spacing:0;width:auto !important;min-width:100%;font-size:12px;}
+  .im-tbl th,.im-tbl td{padding:3px 7px !important;line-height:1.25;white-space:nowrap;text-align:center;border-bottom:1px solid var(--border);}
+  .im-tbl thead th{position:sticky;z-index:3;background:var(--bg,#f4f5f7);font-size:11px;font-weight:700;text-align:center !important;vertical-align:middle;}
+  .im-tbl thead tr.h1 th{top:0;} .im-tbl thead tr.h2 th{top:26px;}
+  .im-tbl th.gq{background:#d6efe0 !important;color:#145c38;} .im-tbl th.gr{background:#d8e6f8 !important;color:#16467e;}
+  .im-tbl td.gq{background:#f6fbf8;} .im-tbl td.gr{background:#f5f8fd;}
+  .im-tbl .gstart{border-left:2px solid #8a94a3 !important;} .im-tbl .gend{border-right:2px solid #8a94a3 !important;}
+  .im-tbl td.l{text-align:left;} .im-tbl td.r{text-align:right;} .im-tbl td.mu{font-weight:700;} .im-tbl td.neg{color:#c0392b;font-weight:700;}
+  .im-tbl .fz{position:sticky;left:0;z-index:2;background:var(--surface,#fff);min-width:140px;max-width:220px;white-space:normal;box-shadow:2px 0 0 #c9ced6;text-align:left;}
+  .im-tbl thead th.fz{z-index:5;background:var(--bg,#f4f5f7);}
+  .im-tbl tfoot td{position:sticky;bottom:0;z-index:2;background:#eef0f3;font-weight:700;} .im-tbl tfoot td.fz{z-index:4;background:#eef0f3;}
+  .im-tbl tbody tr:hover td{background:#fffbeb;}
+  .im-tbl .im-ic{border:1px solid var(--border);background:var(--surface);border-radius:6px;min-width:26px;height:22px;font-size:12px;line-height:1;padding:0 4px;cursor:pointer;margin:0 1px;}
+  .im-tbl .badge{padding:1px 7px !important;font-size:10.5px !important;line-height:1.4;}
+  .im-tbl .im-ic:disabled{opacity:.3;cursor:default;}
+  .im-tbl small{color:var(--text-muted);font-size:10.5px;} .im-tbl .im-show-m{display:none;}
+  @media (max-width:760px){
+    #itemTableWrap{max-height:72vh;}
+    .im-tbl{font-size:11px;} .im-tbl th,.im-tbl td{padding:2px 5px !important;}
+    .im-tbl .fz{min-width:104px;max-width:132px;}
+    .im-tbl .im-hide-m{display:none;} .im-tbl .im-show-m{display:block;}
+    .im-tbl .im-ic{min-width:34px;height:32px;font-size:14px;}
+    .im-tools input{font-size:16px;}
+  }`;
+
 async function renderItemMasterPage(content) {
   content.innerHTML = `
+    <style>${ITEM_MASTER_CSS}</style>
     <div class="page-head"><div>
         <h1 class="i18n" data-bn="আইটেম মাস্টার" data-en="Item Master">${t('আইটেম মাস্টার','Item Master')}</h1>
-        <p class="i18n" data-bn="কাঁচামাল, তৈরি পণ্য ও অন্যান্য সব আইটেমের তালিকা" data-en="List of raw materials, finished goods and other items">${t('কাঁচামাল, তৈরি পণ্য ও অন্যান্য সব আইটেমের তালিকা','List of raw materials, finished goods and other items')}</p>
+        <p class="i18n" data-bn="কাঁচামাল, তৈরি পণ্য ও অন্যান্য সব আইটেমের তালিকা — পরিমাণ ও দর কেজি ও পিসে" data-en="All items — quantity and rate in kg and pcs">${t('কাঁচামাল, তৈরি পণ্য ও অন্যান্য সব আইটেমের তালিকা — পরিমাণ ও দর কেজি ও পিসে','All items — quantity and rate in kg and pcs')}</p>
       </div>
       <button class="btn btn-primary" style="width:auto;" id="itemAddBtn">Item +</button></div>
-    <div class="panel"><div id="itemTableWrap"></div></div>`;
+    <div class="panel">
+      <div class="im-tools"><input id="imSearch" type="search" autocomplete="off" placeholder="${attr(t('নাম, কোড, গ্রুপ বা ক্যাটাগরি দিয়ে খুঁজুন…', 'Search by name, code, group or category…'))}"><span class="im-cnt" id="imCount"></span></div>
+      <div id="itemTableWrap"><div class="empty-state">${t('লোড হচ্ছে...', 'Loading...')}</div></div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">${t('মূল একক = যে এককে কেনা-বেচা হয়, পরিমাণ মোটা করে দেখানো। দরঃ সর্বশেষ পোস্ট করা প্রসেসিং বা ক্রয় থেকে (না থাকলে স্ট্যান্ডার্ড কস্ট) — দরে মাউস রাখলে উৎস দেখায়। লাল = মাইনাস স্টক।', 'Main unit = unit it is traded in (bold). Rate from the latest posted processing or purchase (else standard cost). Red = negative stock.')}</div>
+    </div>`;
 
+  let rowsData = [], itemById = {};
   async function loadList() {
     const [items, groups, categories, units, stock, warehouses] = await Promise.all([
       api('list', { sheet:'Items' }), cachedList('ItemGroups'), cachedList('Categories'),
@@ -2540,66 +2614,95 @@ async function renderItemMasterPage(content) {
     const catMap = {}; categories.forEach(function (c) { catMap[c.CategoryID] = c.CategoryName; });
     const unitMap = {}; units.forEach(function (u) { unitMap[u.UOMID] = u; });
     const whMap = {}; warehouses.forEach(function (w) { whMap[w.WarehouseID] = w.WarehouseName; });
-
     const wrap = document.getElementById('itemTableWrap');
-    if (!wrap) return; // ব্যবহারকারী এই ফাঁকে অন্য পেজ/ট্যাবে চলে গেলে এই এলিমেন্ট আর DOM-এ থাকবে না
-    const active = sortItemsBySerial(items.filter(function (r) { return r.Status !== 'Deleted'; }), catMap); // ক্যাটাগরি অনুযায়ী এক জায়গায়, সিরিয়াল ক্রমে
-    if (active.length === 0) {
-      wrap.innerHTML = `<div class="empty-state i18n" data-bn="এখনো কোনো আইটেম যোগ করা হয়নি।" data-en="No items added yet.">${t('এখনো কোনো আইটেম যোগ করা হয়নি।','No items added yet.')}</div>`;
-      return;
-    }
-
-    const headers = [
-      ['কোড','Code'], ['নাম','Name'], ['গ্রুপ','Group'], ['ক্যাটাগরি','Category'], ['একক','Unit'], ['ওয়ারহাউজ','Warehouse'],
-      ['পরিমাণ','Quantity'], ['দর','Rate'], ['মূল্য','Value'], ['স্ট্যাটাস','Status']
-    ];
-    const headCells = headers.map(function (h) { return `<th class="i18n" data-bn="${h[0]}" data-en="${h[1]}">${t(h[0], h[1])}</th>`; }).join('');
-
-    const rowActionsHtml = function (r) {
-      return `<td class="row-actions">
-        <button onclick='openItemForm(${JSON.stringify(r).replace(/'/g,"&apos;")})' title="${t('সম্পাদনা','Edit')}">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="m18.5 2.5 3 3L10 17l-4 1 1-4Z"/></svg>
-        </button>
-        <button onclick='deleteItemRecord(${JSON.stringify(r.ItemID)})' title="${t('ডিলিট','Delete')}">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg>
-        </button>
-      </td>`;
-    };
-
-    const bodyRows = active.map(function (r) {
-      const unit = unitMap[r.UOMID];
-      const rate = Number(r.StandardCost) || 0;
-      const statusCell = isTrue(r.IsActive)
-        ? `<span class="badge active i18n" data-bn="সক্রিয়" data-en="Active">${t('সক্রিয়','Active')}</span>`
-        : `<span class="badge inactive i18n" data-bn="নিষ্ক্রিয়" data-en="Inactive">${t('নিষ্ক্রিয়','Inactive')}</span>`;
-
-      const itemStock = stock.filter(function (s) { return s.ItemID === r.ItemID; });
-      const stockRows = itemStock.length > 0 ? itemStock : [null]; // স্টক না থাকলেও আইটেমটা অন্তত একবার দেখানো হবে
-
-      return stockRows.map(function (s) {
-        const pcsItem = isPieceUOM(r.UOMID, units);
-        const qtyNum = s ? (Number(pcsItem ? s.QtyPieces : s.QtyOnHand) || 0) : 0;
-        const value = qtyNum * rate;
-        return `<tr>
-          <td>${escapeHtml(r.ItemID)}</td><td>${escapeHtml(r.ItemName)}</td>
-          <td>${escapeHtml(groupMap[r.GroupID] || '—')}</td><td>${escapeHtml(catMap[r.CategoryID] || '—')}</td>
-          <td>${escapeHtml(unit ? unit.UOMName : '')}</td>
-          <td>${s ? escapeHtml(whMap[s.WarehouseID] || s.WarehouseID) : '—'}</td>
-          <td><b>${formatQtyByUOM(qtyNum, r.UOMID, units)}</b>${pcsItem && s && Number(s.QtyOnHand) ? `<div style="font-size:11px;color:var(--text-muted);">${(Number(s.QtyOnHand) || 0).toFixed(2)} ${t('কেজি','kg')}</div>` : ''}</td>
-          <td>${rate ? rate.toFixed(2) : '—'}</td>
-          <td><b>${value.toFixed(2)}</b></td>
-          <td>${statusCell}</td>
-          ${rowActionsHtml(r)}
-        </tr>`;
-      }).join('');
-    }).join('');
-
-    wrap.innerHTML = `<table class="data-table"><thead><tr>${headCells}<th></th></tr></thead><tbody>${bodyRows}</tbody></table>`;
+    if (!wrap) return;   // এই ফাঁকে অন্য পেজে চলে গেলে
+    const active = sortItemsBySerial(items.filter(function (r) { return r.Status !== 'Deleted'; }), catMap);
+    itemById = {}; active.forEach(function (r) { itemById[r.ItemID] = r; });
+    if (!active.length) { wrap.innerHTML = `<div class="empty-state">${t('এখনো কোনো আইটেম যোগ করা হয়নি।','No items added yet.')}</div>`; document.getElementById('imCount').textContent = ''; return; }
+    const rates = await itemMasterRates(active, units);
+    rowsData = [];
+    active.forEach(function (r) {
+      const piece = isPieceUOM(r.UOMID, units), unit = unitMap[r.UOMID];
+      const its = stock.filter(function (s) { return s.ItemID === r.ItemID; });
+      (its.length ? its : [null]).forEach(function (s) {
+        const kg = s ? (Number(s.QtyOnHand) || 0) : 0, pc = s ? (Number(s.QtyPieces) || 0) : 0;
+        const base = rates[r.ItemID] || { kg: 0, pc: 0, src: '' }, rt = { kg: base.kg, pc: base.pc, src: base.src };
+        const avg = (kg > 0 && pc > 0) ? kg / pc : 0;
+        if (!rt.kg && rt.pc && avg) rt.kg = rt.pc / avg;
+        if (!rt.pc && rt.kg && avg) rt.pc = rt.kg * avg;
+        const value = piece ? (pc && rt.pc ? pc * rt.pc : kg * rt.kg) : (kg && rt.kg ? kg * rt.kg : pc * rt.pc);
+        rowsData.push({ r: r, s: s, piece: piece, unit: unit ? unit.UOMName : '', wh: s ? (whMap[s.WarehouseID] || s.WarehouseID) : '', kg: kg, pc: pc, rt: rt, value: value,
+          group: groupMap[r.GroupID] || '', cat: catMap[r.CategoryID] || '' });
+      });
+    });
+    renderTable();
   }
+
+  function renderTable() {
+    const wrap = document.getElementById('itemTableWrap'); if (!wrap) return;
+    const qy = String((document.getElementById('imSearch') || {}).value || '').trim().toLowerCase();
+    const list = !qy ? rowsData : rowsData.filter(function (x) { return [x.r.ItemID, x.r.ItemName, x.group, x.cat, x.wh, x.unit].some(function (v) { return String(v || '').toLowerCase().indexOf(qy) !== -1; }); });
+    const itemsShown = new Set(list.map(function (x) { return x.r.ItemID; })).size;
+    document.getElementById('imCount').textContent = t('মোট ', 'Total ') + itemsShown + t('টা আইটেম', ' items') + (qy ? t(' (খোঁজা)', ' (filtered)') : '');
+    if (!list.length) { wrap.innerHTML = `<div class="empty-state">${t('এই খোঁজায় কোনো আইটেম নেই।', 'No items match.')}</div>`; return; }
+    const q3 = function (x) { return Math.abs(x) < 0.0005 ? '—' : (+x.toFixed(3)).toLocaleString('en-IN', { maximumFractionDigits: 3 }); };
+    const m2 = function (x) { return x ? x.toFixed(2) : '—'; };
+    let tKg = 0, tPc = 0, tVal = 0, vk = 0, kgPos = 0, vp = 0, pcPos = 0;
+    const body = list.map(function (x) {
+      tKg += x.kg; tPc += x.pc; tVal += x.value;
+      const known = Math.abs(x.value) > 0.005;
+      if (x.kg > 0.0005 && known) { vk += x.value; kgPos += x.kg; } if (x.pc > 0.0005 && known) { vp += x.value; pcPos += x.pc; }
+      const neg = function (v) { return v < -0.0005 ? 'neg' : ''; };
+      const statusCell = isTrue(x.r.IsActive) ? `<span class="badge active">${t('সক্রিয়','Active')}</span>` : `<span class="badge inactive">${t('নিষ্ক্রিয়','Inactive')}</span>`;
+      const ic = function (act, icon, title, dis) { return `<button type="button" class="im-ic" data-im="${act}" data-id="${attr(x.r.ItemID)}" data-wh="${attr(x.s ? x.s.WarehouseID : '')}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
+      return `<tr>
+        <td class="im-hide-m">${escapeHtml(x.r.ItemID)}</td>
+        <td class="fz">${escapeHtml(x.r.ItemName)}<div class="im-show-m"><small>${escapeHtml(x.cat || '')}</small></div></td>
+        <td class="im-hide-m">${escapeHtml(x.group || '—')}</td><td class="im-hide-m">${escapeHtml(x.cat || '—')}</td>
+        <td>${escapeHtml(x.unit)}</td><td>${escapeHtml(x.wh || '—')}</td>
+        <td class="r gq gstart ${!x.piece ? 'mu' : ''} ${neg(x.kg)}">${q3(x.kg)}</td><td class="r gq gend ${x.piece ? 'mu' : ''} ${neg(x.pc)}">${q3(x.pc)}</td>
+        <td class="r gr" title="${attr(t('দরের উৎসঃ ', 'Rate from: ') + x.rt.src)}">${m2(x.rt.kg)}</td><td class="r gr gend" title="${attr(t('দরের উৎসঃ ', 'Rate from: ') + x.rt.src)}">${m2(x.rt.pc)}</td>
+        <td class="r"><b>${x.value ? x.value.toFixed(2) : '0.00'}</b></td>
+        <td>${statusCell}</td>
+        <td style="white-space:nowrap;">${ic('view', '👁️', t('এই আইটেমের ভাউচার — স্টক কার্ড', 'Vouchers of this item'), !x.s)}${ic('edit', '✏️', t('এডিট', 'Edit'))}${ic('del', '🗑️', t('ডিলিট', 'Delete'))}</td>
+      </tr>`;
+    }).join('');
+    const rk = kgPos > 0 ? vk / kgPos : 0, rp = pcPos > 0 ? vp / pcPos : 0;
+    wrap.innerHTML = `<table class="data-table im-tbl"><thead>
+        <tr class="h1"><th rowspan="2" class="im-hide-m">${t('কোড','Code')}</th><th rowspan="2" class="fz">${t('নাম','Name')}</th><th rowspan="2" class="im-hide-m">${t('গ্রুপ','Group')}</th><th rowspan="2" class="im-hide-m">${t('ক্যাটাগরি','Category')}</th>
+          <th rowspan="2">${t('মূল একক','Main unit')}</th><th rowspan="2">${t('গুদাম','Warehouse')}</th>
+          <th colspan="2" class="gq gstart gend">${t('পরিমাণ','Quantity')}</th><th colspan="2" class="gr gend">${t('দর','Rate')}</th>
+          <th rowspan="2">${t('মূল্য','Value')}</th><th rowspan="2">${t('অবস্থা','Status')}</th><th rowspan="2"></th></tr>
+        <tr class="h2"><th class="gq gstart">${t('কেজি','kg')}</th><th class="gq gend">${t('পিস','pcs')}</th><th class="gr">${t('কেজি','kg')}</th><th class="gr gend">${t('পিস','pcs')}</th></tr>
+      </thead><tbody>${body}</tbody>
+      <tfoot><tr><td class="im-hide-m"></td><td class="fz">${t('মোট', 'Total')}<div><small>${t('দর = গড়', 'rate = average')}</small></div></td><td class="im-hide-m"></td><td class="im-hide-m"></td><td></td><td></td>
+        <td class="r gstart">${q3(tKg)}</td><td class="r gend">${q3(tPc)}</td><td class="r">${m2(rk)}</td><td class="r gend">${m2(rp)}</td><td class="r">${tVal.toFixed(2)}</td><td></td><td></td></tr></tfoot></table>`;
+    // দ্বিতীয় হেডার-সারি ঠিক প্রথমটার নিচে (আসল উচ্চতা মেপে)
+    fitImHead(); requestAnimationFrame(fitImHead); setTimeout(fitImHead, 250);
+  }
+  // দ্বিতীয় হেডার-সারি (কেজি/পিস) ঠিক প্রথম সারির নিচে — প্রথম সারির আসল উচ্চতা মেপে; পেজ তখনো না দেখা গেলে পরে আবার
+  function fitImHead() {
+    const wrap = document.getElementById('itemTableWrap'); if (!wrap) return;
+    const h1 = wrap.querySelector('thead tr.h1'); if (!h1) return;
+    const hh = Math.round(h1.getBoundingClientRect().height); if (!(hh > 0)) return;
+    wrap.querySelectorAll('thead tr.h2 th').forEach(function (th) { th.style.top = hh + 'px'; });
+  }
+  if (!window.__imFitWired) { window.__imFitWired = true; window.addEventListener('resize', function () { if (window.__imFit) window.__imFit(); }); }
+  window.__imFit = fitImHead;
 
   await loadList();
   window.__refreshItemList = loadList;
   document.getElementById('itemAddBtn').addEventListener('click', function () { openItemForm(null); });
+  document.getElementById('imSearch').addEventListener('input', renderTable);
+  document.getElementById('itemTableWrap').addEventListener('click', async function (e) {
+    const b = e.target.closest('[data-im]'); if (!b || b.disabled) return;
+    const id = b.getAttribute('data-id'), act = b.getAttribute('data-im'), rec = itemById[id];
+    try {
+      if (act === 'edit') { if (rec) await openItemForm(rec); }
+      else if (act === 'del') await deleteItemRecord(id);
+      else if (act === 'view') { const fy = await getFiscalYearStart(); const d = new Date(); await openStockItemVouchers(id, b.getAttribute('data-wh'), fy, d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')); }
+    } catch (err) { showToast(err.message, 'error'); }
+  });
 }
 
 async function deleteItemRecord(itemId) {
