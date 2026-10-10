@@ -11240,6 +11240,114 @@ async function renderStockLedger(content) {
 
 /** পার্টি লেজার — একটা কাস্টমার/সাপ্লায়ার বাছাই করলে তার সব হিসাব এন্ট্রি দেখাবে, চলমান ব্যালেন্সসহ।
  *  partyTypeFilter দিলে (যেমন 'Customer') শুধু সেই ধরনের পার্টি দেখাবে — নয়তো দুটোই দেখাবে। */
+/* ===== সব ভাউচারের সাধারণ তালিকা — দেখুন · এডিট · ডিলিট (জোর করে মোছা সহ) · পোস্ট =====
+   পার্টি লেজারের প্রতিটা সারি (আর অন্য যেকোনো জায়গা) এই তালিকা দিয়ে ভাউচার চালায় */
+const VOUCHER_REGISTRY = {
+  PurchaseInvoice: { bn: 'ক্রয়', table: 'PurchaseInvoice', idf: 'PIID', lines: [['PI_Lines', 'PIID']], kind: 'purchase' },
+  PurchaseReturn: { bn: 'ক্রয় ফেরত', table: 'PurchaseReturn', idf: 'PRetID', lines: [['PR_Return_Lines', 'PRetID']], kind: 'purchase' },
+  SalesInvoice: { bn: 'বিক্রয়', table: 'SalesInvoice', idf: 'SIID', lines: [['SI_Lines', 'SIID']], kind: 'sales' },
+  SalesReturn: { bn: 'বিক্রয় ফেরত', table: 'SalesReturn', idf: 'SRID', lines: [['SR_Lines', 'SRID']], kind: 'sales' },
+  PaymentVoucher: { bn: 'পেমেন্ট', table: 'PaymentVoucher', idf: 'PayID', lines: [], kind: 'simple', cfg: 'pv' },
+  ReceiptVoucher: { bn: 'রিসিট', table: 'ReceiptVoucher', idf: 'RecID', lines: [], kind: 'simple', cfg: 'rv' },
+  ContraVoucher: { bn: 'কনট্রা', table: 'ContraVoucher', idf: 'ContraID', lines: [], kind: 'simple', cfg: 'cv' },
+  ProcessingVoucher: { bn: 'প্রসেসিং', table: 'ProcessingVoucher', idf: 'ProcessingID', lines: [['ProcessingByProduct_Lines', 'ProcessingID'], ['ProcessingFG_Lines', 'ProcessingID']], kind: 'processing' },
+  // পুরনো সংস্করণের ভাউচার — এখনকার সফটওয়্যারে ফর্ম নেই; দেখা/এডিট নয়, শুধু মোছা (টেবিল ও আইডির নাম অনুমানে)
+  CollectionVoucher: { bn: 'কালেকশন (পুরনো)', table: 'CollectionVoucher', idf: ['CollectionID', 'ColID', 'CollID', 'VoucherID', 'ID'], lines: [], kind: 'legacy' }
+};
+function voucherBaseType(refModule) { return String(refModule || '').replace(/-(Payment|Receipt|Reversal|RM|FG|ByProduct|In|Out)$/, ''); }
+async function voucherFetchHeader(base, id) {
+  const R = VOUCHER_REGISTRY[base]; if (!R) return null;
+  for (const f of [].concat(R.idf)) {
+    try { const r = await supabaseClient.from(R.table).select('*').eq(f, id).maybeSingle(); if (r && !r.error && r.data) return r.data; } catch (e) {}
+  }
+  return null;
+}
+async function voucherAskAdmin(msg) {
+  if (!currentUser || currentUser.RoleID !== 'ROLE-ADMIN') { showToast(t('শুধু এডমিন এটা করতে পারবেন।', 'Only an Admin can do this.'), 'error'); return false; }
+  const pw = prompt(msg || t('এডমিন পাসওয়ার্ড দিন:', 'Enter admin password:')); if (!pw) return false;
+  const { error } = await supabaseClient.auth.signInWithPassword({ email: currentUser.Email, password: pw });
+  if (error) { showToast(t('পাসওয়ার্ড ভুল — বাতিল।', 'Incorrect password — cancelled.'), 'error'); return false; }
+  return true;
+}
+async function voucherView(base, id) {
+  const R = VOUCHER_REGISTRY[base];
+  if (!R || R.kind === 'legacy') { showToast(t('এই ধরনের ভাউচার দেখার ব্যবস্থা এখনকার সফটওয়্যারে নেই — চাইলে 🗑️ দিয়ে মুছে ফেলুন।', 'This voucher type cannot be opened in this version — delete it with 🗑️ if needed.'), 'error'); return; }
+  if (R.kind === 'purchase' || R.kind === 'sales') return openPrintableVoucherView(base, id);
+  if (R.kind === 'processing') return openProcessingPrintView(id, false, await stockCardProcessingData(id));
+  if (R.kind === 'simple') { const h = await voucherFetchHeader(base, id); if (!h) { showToast(t('ভাউচারটা পাওয়া যায়নি — 🗑️ দিয়ে লেজার থেকে মুছে ফেলতে পারেন।', 'Voucher not found — you can remove it from the ledger with 🗑️.'), 'error'); return; } window.__activeSimpleVoucherConfig = SIMPLE_VOUCHER_CONFIGS[R.cfg]; return openSimpleVoucherForm(h); }
+}
+async function voucherEdit(base, id, posted) {
+  const R = VOUCHER_REGISTRY[base];
+  if (!R || R.kind === 'legacy') { showToast(t('এই ধরনের ভাউচার এডিটের ব্যবস্থা নেই — 🗑️ দিয়ে মুছে নতুন করে দিন।', 'This voucher type cannot be edited — delete it and enter it again.'), 'error'); return false; }
+  const h = await voucherFetchHeader(base, id);
+  if (!h) { showToast(t('ভাউচারটা পাওয়া যায়নি — 🗑️ দিয়ে লেজার থেকে মুছে ফেলতে পারেন।', 'Voucher not found — remove it with 🗑️.'), 'error'); return false; }
+  if (h.Status === 'Posted') {
+    if (!(await voucherAskAdmin(t('পোস্ট করা ভাউচার এডিট করতে এডমিন পাসওয়ার্ড দিন:', 'Admin password to edit a posted voucher:')))) return false;
+    if (!confirm(t('ভাউচার ', 'Voucher ') + id + t(' আনপোস্ট হবে — স্টক, পার্টি লেজার ও ক্যাশ/ব্যাংকের এন্ট্রি ফেরত যাবে, ভাউচার খসড়া হবে। ঠিক করে আবার পোস্ট করবেন। চালিয়ে যাবেন?', ' will be unposted — stock, party and cash/bank entries are reversed and it becomes a draft. Continue?'))) return false;
+    await reversePostedDocumentStock(base, id);
+    const { error } = await supabaseClient.from(R.table).update({ Status: 'Draft' }).eq([].concat(R.idf)[0], id);
+    if (error) throw new Error(error.message);
+    listCache = {};
+  }
+  closeModal();
+  if (R.kind === 'purchase') return openPurchaseVoucherForm(base, id);
+  if (R.kind === 'sales') return openSalesVoucherForm(base, id);
+  if (R.kind === 'processing') { window.__pcEditId = id; return navigateTo('processing', t('প্রোডাকশন', 'Production'), t('প্রসেসিং কষ্টিং', 'Processing Costing')); }
+  if (R.kind === 'simple') { const h2 = await voucherFetchHeader(base, id); window.__activeSimpleVoucherConfig = SIMPLE_VOUCHER_CONFIGS[R.cfg]; return openSimpleVoucherForm(h2); }
+}
+async function voucherPost(base, id) {
+  const R = VOUCHER_REGISTRY[base]; if (!R || R.kind === 'legacy') return;
+  if (R.kind === 'purchase') return postPurchaseVoucherRecord(base, id);
+  if (R.kind === 'sales') return postSalesVoucherRecord(base, id);
+  if (R.kind === 'processing') return postProcessingRecord(id);
+  if (!confirm(t('ভাউচার ', 'Post voucher ') + id + t(' পোস্ট করবেন?', '?'))) return;
+  await postDocumentRecord(base, id);
+}
+/** ভাউচার মোছা — আগে স্বাভাবিকভাবে; এরর হলে বা ভাউচার না থাকলে "জোর করে" (এডমিন):
+    স্টক, পার্টি লেজার, ক্যাশ/ব্যাংকের সব এন্ট্রি মুছে ব্যালান্স ঠিক করা হয়, তারপর লাইন ও ভাউচার (থাকলে) */
+async function voucherDelete(base, id) {
+  const R = VOUCHER_REGISTRY[base] || { bn: base, table: null, idf: [], lines: [], kind: 'unknown' };
+  const h = R.table ? await voucherFetchHeader(base, id) : null;
+  const posted = !h || h.Status === 'Posted';
+  if (posted) { if (!(await voucherAskAdmin(t('পোস্ট করা/ভুল ভাউচার মুছতে এডমিন পাসওয়ার্ড দিন:', 'Admin password to delete a posted/broken voucher:')))) return false; }
+  const what = (R.bn || base) + ' ' + id + (h ? '' : t(' (ভাউচারটা আর নেই — শুধু লেজারের এন্ট্রি আছে)', ' (voucher missing — only ledger entries remain)'));
+  if (!confirm(t('মুছবেনঃ ', 'Delete: ') + what + t('?\nএর স্টক, পার্টি লেজার ও ক্যাশ/ব্যাংকের এন্ট্রিও মুছবে। ফেরানো যাবে না।', '?\nIts stock, party and cash/bank entries are removed too. Cannot be undone.'))) return false;
+  const errs = [];
+  const step = async function (label, fn) { try { await fn(); } catch (e) { errs.push(label + ': ' + (e.message || e)); } };
+  await step(t('স্টক/লেজার ফেরত', 'reverse'), async function () { if (posted) await reversePostedDocumentStock(base, id); });
+  if (R.kind === 'processing') await step('DP', async function () { await supabaseClient.from('DailyProduction').update({ ProcessingID: null }).eq('ProcessingID', id); });
+  for (const ln of R.lines) await step(ln[0], async function () { const { error } = await supabaseClient.from(ln[0]).delete().eq(ln[1], id); if (error) throw new Error(error.message); });
+  if (R.table && h) {
+    await step(R.table, async function () {
+      let done = false;
+      for (const f of [].concat(R.idf)) { if (h[f] === id) { const { error } = await supabaseClient.from(R.table).delete().eq(f, id); if (error) throw new Error(error.message); done = true; break; } }
+      if (!done) throw new Error(t('আইডির ঘর মেলেনি', 'id field not matched'));
+    });
+  }
+  if (errs.length) {
+    // জোর করে — এরর হলেও লেজারের এন্ট্রি সরাসরি মুছে ব্যালান্স ঠিক (যাতে ভুল ভাউচার লেজারে থেকে না যায়)
+    if (!confirm(t('কিছু ধাপে এরর হয়েছেঃ\n', 'Some steps failed:\n') + errs.join('\n') + t('\n\nতবুও জোর করে মুছবেন? (লেজারের সব এন্ট্রি সরাসরি মুছে ব্যালান্স ঠিক করা হবে)', '\n\nForce delete anyway? (all its ledger entries will be removed directly)'))) return false;
+    await voucherForceClean(base, id);
+  }
+  listCache = {};
+  showToast(t('মুছে ফেলা হয়েছে ✅ ', 'Deleted ✅ ') + id, 'success');
+  return true;
+}
+async function voucherForceClean(base, id) {
+  const safe = async function (q) { try { const r = await q; return (r && !r.error && r.data) || []; } catch (e) { return []; } };
+  const st = await safe(supabaseClient.from('stock_ledger').select('*').eq('RefID', id));
+  for (const e of st.filter(function (e) { return voucherBaseType(e.RefModule) === base; })) {
+    try { await adjustCurrentStock(e.ItemID, e.WarehouseID, (Number(e.QtyOut) || 0) - (Number(e.QtyIn) || 0), (Number(e.PiecesOut) || 0) - (Number(e.PiecesIn) || 0)); } catch (x) {}
+    try { await supabaseClient.from('stock_ledger').delete().eq('id', e.id); } catch (x) {}
+  }
+  const pl = await safe(supabaseClient.from('PartyLedger').select('*').eq('RefID', id)), parties = {};
+  for (const e of pl.filter(function (e) { return voucherBaseType(e.RefModule) === base; })) { parties[e.PartyType + '|' + e.PartyID] = e; try { await supabaseClient.from('PartyLedger').delete().eq('id', e.id); } catch (x) {} }
+  const bk = await safe(supabaseClient.from('BankCashBook').select('*').eq('RefID', id)), accs = {};
+  for (const e of bk.filter(function (e) { return voucherBaseType(e.RefModule) === base; })) { accs[e.BankCashAccID] = true; try { await supabaseClient.from('BankCashBook').delete().eq('id', e.id); } catch (x) {} }
+  for (const k of Object.keys(parties)) { try { await rebalancePartyLedger(parties[k].PartyType, parties[k].PartyID); } catch (x) {} }
+  for (const a of Object.keys(accs)) { try { await rebalanceBankCashBook(a); } catch (x) {} }
+}
+
 async function renderPartyLedger(content, partyTypeFilter) {
   const [customers, suppliers] = await Promise.all([cachedList('Customers'), cachedList('Suppliers')]);
 
@@ -11291,6 +11399,7 @@ async function renderPartyLedger(content, partyTypeFilter) {
         <button type="button" id="plPrintBtn" class="btn btn-outline" style="width:auto;display:none;">🖨️ ${t('প্রিন্ট প্রিভিউ','Print Preview')}</button>
       </div>
     </div>
+    <style>.pl-ic{border:1px solid var(--border);background:var(--surface);border-radius:7px;min-width:32px;height:30px;font-size:13px;cursor:pointer;margin:0 1px;} .pl-ic:disabled{opacity:.35;cursor:default;} #plWrap .data-table th{text-align:center;}</style>
     <div class="panel"><div id="plWrap"><div class="empty-state">${t('উপরে একটা পার্টি বাছাই করুন।','Select a party above.')}</div></div></div>`;
 
   const zoneCheck = document.getElementById('plZoneCheck');
@@ -11336,10 +11445,14 @@ async function renderPartyLedger(content, partyTypeFilter) {
       ContraVoucher: { desc:['কন্ট্রা ভাউচার','Contra voucher'], type:['কন্ট্রা','Contra'] },
       PaymentVoucher: { desc:['পেমেন্ট ভাউচার','Payment voucher'], type:['পেমেন্ট','Payment'] },
       ReceiptVoucher: { desc:['রিসিট ভাউচার','Receipt voucher'], type:['রিসিট','Receipt'] },
+      CollectionVoucher: { desc:['কালেকশন ভাউচার (পুরনো)','Collection voucher (old)'], type:['কালেকশন','Collection'] },
+      'PaymentVoucher-Reversal': { desc:['পেমেন্ট ভাউচার বাতিল','Payment voucher reversal'], type:['বাতিল','Reversal'] },
       SalaryIssue: { desc:['সেলারী ইস্যু (বেতন পরিশোধ)','Salary issue'], type:['বেতন','Salary'] },
       'SalaryIssue-Reversal': { desc:['সেলারী ইস্যু বাতিল','Salary issue reversal'], type:['বেতন ফেরত','Salary reversal'] }
     };
-    return map[refModule] || { desc:[refModule, refModule], type:[refModule, refModule] };
+    if (map[refModule]) return map[refModule];
+    if (/-Reversal$/.test(String(refModule || ''))) { const b = map[voucherBaseType(refModule)]; return { desc: [(b ? b.desc[0] : refModule) + ' — বাতিল', (b ? b.desc[1] : refModule) + ' — reversal'], type: ['বাতিল', 'Reversal'] }; }
+    return { desc:[refModule, refModule], type:[refModule, refModule] };
   }
 
   let lastRows = [], lastParty = null, lastPartyName = '';
@@ -11376,11 +11489,16 @@ async function renderPartyLedger(content, partyTypeFilter) {
         custIds.length ? safe(supabaseClient.from('SalesReturn').select('SRID,Date,Status').in('CustomerID', custIds)) : [],
         suppIds.length ? safe(supabaseClient.from('PurchaseInvoice').select('PIID,InvoiceDate,Status').in('SupplierID', suppIds)) : [],
         suppIds.length ? safe(supabaseClient.from('PurchaseReturn').select('PRetID,Date,Status').in('SupplierID', suppIds)) : []]);
-      const all = [].concat(lists[0].map(function (h) { return { no: h.SIID, kind: t('বিক্রয়', 'Sale'), st: h.Status }; }), lists[1].map(function (h) { return { no: h.SRID, kind: t('বিক্রয় ফেরত', 'Sales return'), st: h.Status }; }),
-        lists[2].map(function (h) { return { no: h.PIID, kind: t('ক্রয়', 'Purchase'), st: h.Status }; }), lists[3].map(function (h) { return { no: h.PRetID, kind: t('ক্রয় ফেরত', 'Purchase return'), st: h.Status }; }))
+      const all = [].concat(lists[0].map(function (h) { return { no: h.SIID, base: 'SalesInvoice', kind: t('বিক্রয়', 'Sale'), st: h.Status }; }), lists[1].map(function (h) { return { no: h.SRID, base: 'SalesReturn', kind: t('বিক্রয় ফেরত', 'Sales return'), st: h.Status }; }),
+        lists[2].map(function (h) { return { no: h.PIID, base: 'PurchaseInvoice', kind: t('ক্রয়', 'Purchase'), st: h.Status }; }), lists[3].map(function (h) { return { no: h.PRetID, base: 'PurchaseReturn', kind: t('ক্রয় ফেরত', 'Purchase return'), st: h.Status }; }))
         .filter(function (x) { return x.st !== 'Deleted'; });
       const drafts = all.filter(function (x) { return x.st !== 'Posted'; }), posted = all.filter(function (x) { return x.st === 'Posted'; });
-      const listTxt = function (arr) { return arr.slice(0, 12).map(function (x) { return `<b>${escapeHtml(x.no)}</b> (${escapeHtml(x.kind)})`; }).join(', ') + (arr.length > 12 ? ' …' : ''); };
+      const listTxt = function (arr) {
+        return arr.slice(0, 20).map(function (x) {
+          const ic = function (act, icon, title) { return `<button type="button" class="pl-ic" data-pl="${act}" data-base="${attr(x.base)}" data-id="${attr(x.no)}" title="${attr(title)}">${icon}</button>`; };
+          return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:4px;"><span><b>${escapeHtml(x.no)}</b> (${escapeHtml(x.kind)})</span><span style="white-space:nowrap;">${ic('view', '👁️', t('দেখুন', 'View'))}${ic('edit', '✏️', t('এডিট', 'Edit'))}${ic('del', '🗑️', t('ডিলিট', 'Delete'))}${x.st !== 'Posted' ? ic('post', '💾', t('পোস্ট করুন — লেজারে যাবে', 'Post — goes to the ledger')) : ''}</span></div>`;
+        }).join('') + (arr.length > 20 ? ' …' : '');
+      };
       let why = '';
       if (drafts.length) why += `<div style="margin-top:10px;padding:10px 12px;border:1px solid #f0b46a;background:#fff3e0;color:#7a4300;border-radius:8px;text-align:left;">⚠️ ${t('এই পার্টির ', 'This party has ')}<b>${drafts.length}</b>${t('টা ভাউচার এখনো পোস্ট হয়নি (খসড়া) — খসড়া ভাউচার লেজারে আসে না। ভাউচারের তালিকা থেকে 💾 পোস্ট করলেই এখানে দেখাবে।', ' unposted (draft) voucher(s) — drafts do not reach the ledger. Post them (💾) and they will show here.')}<div style="margin-top:6px;font-size:12px;">${listTxt(drafts)}</div></div>`;
       if (posted.length) why += `<div style="margin-top:10px;padding:10px 12px;border:1px solid #e8a29b;background:#fdf0ef;color:#8a1f12;border-radius:8px;text-align:left;">❗ ${t('এই পার্টির ', 'This party has ')}<b>${posted.length}</b>${t('টা পোস্ট করা ভাউচার আছে, অথচ লেজারে এন্ট্রি নেই — নগদ গ্রাহক/সাপ্লায়ারে পোস্ট হয়েছিল, অথবা এন্ট্রি মুছে গেছে। ভাউচারটা আনপোস্ট করে আবার পোস্ট করলে ঠিক হবে।', ' posted voucher(s) but no ledger entries — posted as a cash party, or entries were removed. Unpost and post again to fix.')}<div style="margin-top:6px;font-size:12px;">${listTxt(posted)}</div></div>`;
@@ -11402,13 +11520,14 @@ async function renderPartyLedger(content, partyTypeFilter) {
       const debit = Number(r.Debit || 0), credit = Number(r.Credit || 0);
       runningBalance += debit - credit;
       totalDebit += debit; totalCredit += credit;
-      const typeLabel = r.PartyType === 'Customer' ? t('বিক্রয়','Sales') : t('ক্রয়','Purchase');
-      const baseType = String(r.RefModule || '').split('-')[0];
-      const viewBtn = viewableTypes[baseType]
-        ? `<button type="button" class="btn btn-outline" style="width:auto;padding:4px 10px;font-size:11px;" onclick='openPrintableVoucherView(${JSON.stringify(baseType)}, ${JSON.stringify(r.RefID)})'>${t('ভিউ','View')}</button>`
-        : '';
-      return `<tr><td>${escapeHtml(r.Date)}</td><td>${typeLabel}</td><td>${escapeHtml(r.RefModule)} — ${escapeHtml(r.RefID)}</td>
-        <td>${debit.toFixed(2)}</td><td>${credit.toFixed(2)}</td><td><b>${formatAmountDrCr(runningBalance, true)}</b></td><td>${viewBtn}</td></tr>`;
+      const info = refModuleInfo(r.RefModule), baseType = voucherBaseType(r.RefModule);
+      const typeLabel = t(info.type[0], info.type[1]);
+      const known = !!VOUCHER_REGISTRY[baseType] && VOUCHER_REGISTRY[baseType].kind !== 'legacy';
+      const ic = function (act, icon, title, dis) { return `<button type="button" class="pl-ic" data-pl="${act}" data-base="${attr(baseType)}" data-id="${attr(r.RefID)}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
+      const icons = ic('view', '👁️', t('দেখুন', 'View'), !known) + ic('edit', '✏️', t('এডিট (এডমিন — আগে আনপোস্ট হবে)', 'Edit (admin — unposts first)'), !known) +
+        ic('del', '🗑️', t('ডিলিট — এরর হলেও জোর করে মোছা যায় (এডমিন)', 'Delete — can force-delete broken vouchers (admin)'), false) + ic('post', '✅', t('পোস্ট হয়ে গেছে', 'Posted'), true);
+      return `<tr><td>${escapeHtml(formatShortDate(r.Date))}</td><td>${escapeHtml(typeLabel)}</td><td style="text-align:left;">${escapeHtml(t(info.desc[0], info.desc[1]))} — <b>${escapeHtml(r.RefID)}</b></td>
+        <td>${debit.toFixed(2)}</td><td>${credit.toFixed(2)}</td><td><b>${formatAmountDrCr(runningBalance, true)}</b></td><td style="white-space:nowrap;">${icons}</td></tr>`;
     }).join('');
     wrap.innerHTML = `
       <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:14px;padding:12px 14px;background:var(--bg);border-radius:8px;font-size:13px;">
@@ -11418,6 +11537,19 @@ async function renderPartyLedger(content, partyTypeFilter) {
       </div>
       <table class="data-table"><thead><tr>${headCells}</tr></thead><tbody>${bodyRows}</tbody></table>`;
   }
+
+  document.getElementById('plWrap').addEventListener('click', async function (ev) {
+    const b = ev.target.closest('[data-pl]'); if (!b || b.disabled || b.__busy) return;
+    b.__busy = true; b.disabled = true;
+    const act = b.getAttribute('data-pl'), base = b.getAttribute('data-base'), id = b.getAttribute('data-id');
+    try {
+      if (act === 'view') await voucherView(base, id);
+      else if (act === 'edit') await voucherEdit(base, id);
+      else if (act === 'post') { await voucherPost(base, id); await loadLedgerForKey(currentPartyKey); }
+      else if (act === 'del') { if (await voucherDelete(base, id)) await loadLedgerForKey(currentPartyKey); }
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { b.__busy = false; if (document.body.contains(b)) b.disabled = false; }
+  });
 
   searchInput.addEventListener('change', function () {
     const key = findPartyByTypedValue(searchInput.value.trim());
