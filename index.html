@@ -918,22 +918,39 @@ async function reversePostedDocumentStock(docType, docId) {
   }
   await supabaseClient.from('stock_ledger').delete().eq('RefModule', docType).eq('RefID', docId);
 
-  // এই ডকুমেন্টের কারণে পার্টি লেজারে যা যা এন্ট্রি পড়েছিল (মূল এন্ট্রি + সাথে সাথে করা
-  // পেমেন্ট এন্ট্রিও), সেগুলো সবই উল্টে দেওয়া হচ্ছে
+  // এই ডকুমেন্টের পার্টি লেজার ও ক্যাশ/ব্যাংক বইয়ের এন্ট্রি (মূল + সাথে সাথে করা প্রদান/গ্রহণ) মুছে ফেলা হয়,
+  // তারপর সংশ্লিষ্ট পার্টি/অ্যাকাউন্টের চলমান ব্যালান্স নতুন করে হিসাব — আলাদা "উল্টো সারি" বসানো হয় না।
+  // (আগে উল্টো সারি বসিয়ে আসলটা মুছে ফেলা হতো; একা উল্টো সারি থেকে গিয়ে আবার পোস্টে ব্যালান্স দ্বিগুণ ভুল হতো)
   const refModules = [docType, docType + '-Payment', docType + '-Receipt'];
+  const parties = {}, accounts = {};
   for (const refMod of refModules) {
-    const { data: partyEntries } = await supabaseClient.from('PartyLedger').select('*').eq('RefModule', refMod).eq('RefID', docId);
-    for (const e of (partyEntries || [])) {
-      await postPartyLedgerEntry(e.PartyType, e.PartyID, nowDate, docType + '-Reversal', docId, Number(e.Credit) || 0, Number(e.Debit) || 0);
-    }
+    const { data: partyEntries } = await supabaseClient.from('PartyLedger').select('PartyType,PartyID').eq('RefModule', refMod).eq('RefID', docId);
+    (partyEntries || []).forEach(function (e) { parties[e.PartyType + '|' + e.PartyID] = e; });
     await supabaseClient.from('PartyLedger').delete().eq('RefModule', refMod).eq('RefID', docId);
-
-    // ব্যাংক/ক্যাশ বইয়ের এন্ট্রিও উল্টে দেওয়া হচ্ছে
-    const { data: bankEntries } = await supabaseClient.from('BankCashBook').select('*').eq('RefModule', refMod).eq('RefID', docId);
-    for (const e of (bankEntries || [])) {
-      await postBankCashBookEntry(e.BankCashAccID, nowDate, docType + '-Reversal', docId, Number(e.Credit) || 0, Number(e.Debit) || 0);
-    }
+    const { data: bankEntries } = await supabaseClient.from('BankCashBook').select('BankCashAccID').eq('RefModule', refMod).eq('RefID', docId);
+    (bankEntries || []).forEach(function (e) { accounts[e.BankCashAccID] = true; });
     await supabaseClient.from('BankCashBook').delete().eq('RefModule', refMod).eq('RefID', docId);
+  }
+  for (const k of Object.keys(parties)) await rebalancePartyLedger(parties[k].PartyType, parties[k].PartyID);
+  for (const a of Object.keys(accounts)) await rebalanceBankCashBook(a);
+}
+/** পার্টি লেজারের চলমান ব্যালান্স নতুন করে (সারি মোছার পর) — যে সারির ব্যালান্স বদলায় শুধু সেটাই হালনাগাদ */
+async function rebalancePartyLedger(partyType, partyId) {
+  if (!partyType || !partyId) return;
+  const { data } = await supabaseClient.from('PartyLedger').select('id,Debit,Credit,Balance').eq('PartyType', partyType).eq('PartyID', partyId).order('id', { ascending: true });
+  let bal = 0;
+  for (const r of (data || [])) {
+    bal += (Number(r.Debit) || 0) - (Number(r.Credit) || 0);
+    if (Math.abs((Number(r.Balance) || 0) - bal) > 0.004) await supabaseClient.from('PartyLedger').update({ Balance: bal }).eq('id', r.id);
+  }
+}
+async function rebalanceBankCashBook(accId) {
+  if (!accId) return;
+  const { data } = await supabaseClient.from('BankCashBook').select('id,Debit,Credit,Balance').eq('BankCashAccID', accId).order('id', { ascending: true });
+  let bal = 0;
+  for (const r of (data || [])) {
+    bal += (Number(r.Debit) || 0) - (Number(r.Credit) || 0);
+    if (Math.abs((Number(r.Balance) || 0) - bal) > 0.004) await supabaseClient.from('BankCashBook').update({ Balance: bal }).eq('id', r.id);
   }
 }
 
@@ -11234,8 +11251,8 @@ async function renderPartyLedger(content, partyTypeFilter) {
     customers.filter(function (c) { return c.Status !== 'Deleted'; }).forEach(function (c) {
       const key = c.Code || c.CustomerID;
       const label = c.CompanyName || c.Name;
-      if (!combined[key]) combined[key] = { name: label, customerId: null, supplierId: null, zone: c.Zone || '' };
-      combined[key].customerId = c.CustomerID;
+      if (!combined[key]) combined[key] = { name: label, customerId: null, supplierId: null, customerIds: [], supplierIds: [], zone: c.Zone || '' };
+      combined[key].customerId = c.CustomerID; combined[key].customerIds.push(c.CustomerID);   // একই কোডের সব গ্রাহক
       if (!combined[key].name) combined[key].name = label;
       if (!combined[key].zone) combined[key].zone = c.Zone || '';
     });
@@ -11244,8 +11261,8 @@ async function renderPartyLedger(content, partyTypeFilter) {
     suppliers.filter(function (s) { return s.Status !== 'Deleted'; }).forEach(function (s) {
       const key = s.Code || s.SupplierID;
       const label = s.CompanyName || s.Name;
-      if (!combined[key]) combined[key] = { name: label, customerId: null, supplierId: null, zone: s.Zone || '' };
-      combined[key].supplierId = s.SupplierID;
+      if (!combined[key]) combined[key] = { name: label, customerId: null, supplierId: null, customerIds: [], supplierIds: [], zone: s.Zone || '' };
+      combined[key].supplierId = s.SupplierID; combined[key].supplierIds.push(s.SupplierID);
       if (!combined[key].name) combined[key].name = label;
       if (!combined[key].zone) combined[key].zone = s.Zone || '';
     });
@@ -11337,14 +11354,40 @@ async function renderPartyLedger(content, partyTypeFilter) {
     lastParty = party; lastPartyName = party.name;
     wrap.innerHTML = `<div class="empty-state">${t('লোড হচ্ছে...','Loading...')}</div>`;
 
-    const allEntries = await api('list', { sheet:'PartyLedger' });
-    const rows = allEntries.filter(function (r) {
-      return (party.customerId && r.PartyType === 'Customer' && r.PartyID === party.customerId) ||
-             (party.supplierId && r.PartyType === 'Supplier' && r.PartyID === party.supplierId);
-    }).sort(function (a, b) { return String(a.Date || '').localeCompare(String(b.Date || '')); });
+    // শুধু এই পার্টির সারি — ডেটাবেসেই ছেঁকে আনা হয় (পুরো লেজার একবারে আনলে ১০০০ সারির পরের এন্ট্রি বাদ পড়ত)
+    const custIds = party.customerIds && party.customerIds.length ? party.customerIds : (party.customerId ? [party.customerId] : []);
+    const suppIds = party.supplierIds && party.supplierIds.length ? party.supplierIds : (party.supplierId ? [party.supplierId] : []);
+    const fetchRows = async function (type, ids) {
+      if (!ids.length) return [];
+      const { data, error } = await supabaseClient.from('PartyLedger').select('*').eq('PartyType', type).in('PartyID', ids).order('id', { ascending: true });
+      if (error) throw new Error(error.message);
+      return data || [];
+    };
+    let rows;
+    try { rows = (await fetchRows('Customer', custIds)).concat(await fetchRows('Supplier', suppIds)); }
+    catch (err) { wrap.innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`; return; }
+    rows.sort(function (a, b) { return String(a.Date || '').localeCompare(String(b.Date || '')) || (Number(a.id) || 0) - (Number(b.id) || 0); });
     lastRows = rows;
 
-    if (rows.length === 0) { wrap.innerHTML = `<div class="empty-state">${t('কোনো এন্ট্রি পাওয়া যায়নি।','No entries found.')}</div>`; return; }
+    if (rows.length === 0) {   // কেন খালি — পোস্ট না হওয়া (খসড়া) ভাউচার আছে কিনা দেখানো
+      const safe = async function (q) { try { const r = await q; return (r && !r.error && r.data) || []; } catch (e) { return []; } };
+      const lists = await Promise.all([
+        custIds.length ? safe(supabaseClient.from('SalesInvoice').select('SIID,InvoiceDate,Status').in('CustomerID', custIds)) : [],
+        custIds.length ? safe(supabaseClient.from('SalesReturn').select('SRID,Date,Status').in('CustomerID', custIds)) : [],
+        suppIds.length ? safe(supabaseClient.from('PurchaseInvoice').select('PIID,InvoiceDate,Status').in('SupplierID', suppIds)) : [],
+        suppIds.length ? safe(supabaseClient.from('PurchaseReturn').select('PRetID,Date,Status').in('SupplierID', suppIds)) : []]);
+      const all = [].concat(lists[0].map(function (h) { return { no: h.SIID, kind: t('বিক্রয়', 'Sale'), st: h.Status }; }), lists[1].map(function (h) { return { no: h.SRID, kind: t('বিক্রয় ফেরত', 'Sales return'), st: h.Status }; }),
+        lists[2].map(function (h) { return { no: h.PIID, kind: t('ক্রয়', 'Purchase'), st: h.Status }; }), lists[3].map(function (h) { return { no: h.PRetID, kind: t('ক্রয় ফেরত', 'Purchase return'), st: h.Status }; }))
+        .filter(function (x) { return x.st !== 'Deleted'; });
+      const drafts = all.filter(function (x) { return x.st !== 'Posted'; }), posted = all.filter(function (x) { return x.st === 'Posted'; });
+      const listTxt = function (arr) { return arr.slice(0, 12).map(function (x) { return `<b>${escapeHtml(x.no)}</b> (${escapeHtml(x.kind)})`; }).join(', ') + (arr.length > 12 ? ' …' : ''); };
+      let why = '';
+      if (drafts.length) why += `<div style="margin-top:10px;padding:10px 12px;border:1px solid #f0b46a;background:#fff3e0;color:#7a4300;border-radius:8px;text-align:left;">⚠️ ${t('এই পার্টির ', 'This party has ')}<b>${drafts.length}</b>${t('টা ভাউচার এখনো পোস্ট হয়নি (খসড়া) — খসড়া ভাউচার লেজারে আসে না। ভাউচারের তালিকা থেকে 💾 পোস্ট করলেই এখানে দেখাবে।', ' unposted (draft) voucher(s) — drafts do not reach the ledger. Post them (💾) and they will show here.')}<div style="margin-top:6px;font-size:12px;">${listTxt(drafts)}</div></div>`;
+      if (posted.length) why += `<div style="margin-top:10px;padding:10px 12px;border:1px solid #e8a29b;background:#fdf0ef;color:#8a1f12;border-radius:8px;text-align:left;">❗ ${t('এই পার্টির ', 'This party has ')}<b>${posted.length}</b>${t('টা পোস্ট করা ভাউচার আছে, অথচ লেজারে এন্ট্রি নেই — নগদ গ্রাহক/সাপ্লায়ারে পোস্ট হয়েছিল, অথবা এন্ট্রি মুছে গেছে। ভাউচারটা আনপোস্ট করে আবার পোস্ট করলে ঠিক হবে।', ' posted voucher(s) but no ledger entries — posted as a cash party, or entries were removed. Unpost and post again to fix.')}<div style="margin-top:6px;font-size:12px;">${listTxt(posted)}</div></div>`;
+      if (!all.length) why = `<div style="margin-top:6px;font-size:12px;color:var(--text-muted);">${t('এই পার্টির নামে এখনো কোনো ক্রয়/বিক্রয় ভাউচার নেই।', 'No purchase/sales vouchers for this party yet.')}</div>`;
+      wrap.innerHTML = `<div class="empty-state">${t('কোনো এন্ট্রি পাওয়া যায়নি।','No entries found.')}${why}</div>`;
+      return;
+    }
 
     // দুই দিকের (ক্রয় + বিক্রয়) এন্ট্রি একসাথে মিলিয়ে, তারিখ অনুযায়ী সাজিয়ে,
     // নতুন করে একটামাত্র চলমান ব্যালেন্স হিসাব করা হচ্ছে — টেবিলে যেটা আলাদা
