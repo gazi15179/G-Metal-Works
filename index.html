@@ -477,7 +477,7 @@ const MODULES = [
   {key:'accounts', bn:'হিসাব', en:'Accounts', sub:[
     {key:'coa', bn:'হিসাবের তালিকা', en:'Chart of Accounts'},{key:'bankCash', bn:'ব্যাংক ও ক্যাশ অ্যাকাউন্ট', en:'Bank & Cash Accounts'},
     {key:'jv', bn:'জার্নাল ভাউচার', en:'Journal Voucher'},{key:'cv', bn:'কনট্রা ভাউচার', en:'Contra Voucher'},
-    {key:'pv', bn:'পেমেন্ট ভাউচার', en:'Payment Voucher'},{key:'rv', bn:'রিসিট ভাউচার', en:'Receipt Voucher'},
+    {key:'pv', bn:'পেমেন্ট ভাউচার', en:'Payment Voucher'},{key:'rv', bn:'রিসিট ভাউচার', en:'Receipt Voucher'},{key:'ownerCapital', bn:'মালিকের মূলধন', en:'Owner Capital'},{key:'fixedAssets', bn:'স্থায়ী সম্পদ', en:'Fixed Assets'},
     {key:'bankBook', bn:'ব্যাংক ও নগদ বই', en:'Bank & Cash Book'},{key:'trialBalance', bn:'ট্রায়াল ব্যালেন্স', en:'Trial Balance'},
   ]},
   {key:'hr', bn:'এইচআর ও পে-রোল', en:'HR & Payroll', sub:[
@@ -504,7 +504,7 @@ const READY_PAGES = ['dashboard','companyProfile','userManagement','roles','acti
   'stockOverview','goodsReceive','materialIssue','stockTransfer','stockAdjust','stockLedger',
   'so','dc','si','sr','custLedger',
   'bom','processing','processingOld','prodDaily','procCosting','pOrder','pmi','fgr',
-  'coa','bankCash','jv','cv','pv','rv','bankBook','trialBalance',
+  'coa','bankCash','jv','cv','pv','rv','ownerCapital','fixedAssets','bankBook','trialBalance',
   'empCategories','empInfo','workRoles','sizeRates','attendance','dailyProduction','leave','payroll','salaryIssue','payHeads','hrReports','payslip',
   'invReport','salesReport','purReport','prodReport','finReport',
   'general','langSettings','companySettings','backup'];
@@ -1433,6 +1433,8 @@ async function navigateTo(pageKey, moduleLabel, pageLabel) {
     else if (pageKey === 'prodDaily') await renderProdDailyPage(content);
     else if (pageKey === 'procCosting') await renderProcCostingPage(content);
     else if (SIMPLE_VOUCHER_CONFIGS[pageKey]) await renderSimpleVoucherPage(content, SIMPLE_VOUCHER_CONFIGS[pageKey]);
+    else if (pageKey === 'ownerCapital') await renderOwnerCapitalPage(content);
+    else if (pageKey === 'fixedAssets') await renderFixedAssetPage(content);
     else if (pageKey === 'bankBook') await renderBankCashBook(content);
     else if (pageKey === 'trialBalance') await renderTrialBalance(content);
     else if (DOC_CONFIGS[pageKey]) await renderDocumentListPage(content, DOC_CONFIGS[pageKey]);
@@ -3676,6 +3678,282 @@ async function openSimpleVoucherForm(existing) {
    ১২.৮) ACCOUNTS মডিউল — Bank & Cash Book, Trial Balance (Read-only)
    ============================================================ */
 /** ব্যাংক ও নগদ বই — প্রতিটা অ্যাকাউন্টের লেনদেনের ইতিহাস, অ্যাকাউন্ট দিয়ে ফিল্টার করা যায় */
+/* ============================================================
+   হিসাব → মালিকের মূলধন · স্থায়ী সম্পদ
+   • মূলধনঃ আনয়ন (জমা) বা উত্তোলন — ক্যাশ/ব্যাংক বইয়ে যায়; ব্যালান্স = মোট মূলধন
+   • স্থায়ী সম্পদঃ মেশিন, ডাইস, জমি, ভবন, যানবাহন… কেনা — ক্যাশ/ব্যাংক থেকে প্রদান; বার্ষিক অবচয়ে বর্তমান মূল্য
+   • দুটোতেঃ খসড়া/পোস্ট, 👁️ দেখুন (A5 প্রিন্ট) · ✏️ এডিট · 🗑️ ডিলিট · 💾 পোস্ট; পোস্ট করা এন্ট্রি বদলাতে এডমিন পাসওয়ার্ড
+   ============================================================ */
+const OWN_CFG = {
+  capital: { table: 'CapitalVoucher', idf: 'CapID', ref: 'CapitalVoucher', bn: 'মালিকের মূলধন', en: 'Owner Capital' },
+  asset: { table: 'FixedAsset', idf: 'AssetID', ref: 'FixedAsset', bn: 'স্থায়ী সম্পদ', en: 'Fixed Asset' }
+};
+const FA_CATEGORIES = [['মেশিন', 10], ['ডাইস', 20], ['জমি', 0], ['ভবন', 5], ['যানবাহন', 15], ['আসবাব', 10], ['অন্যান্য', 10]];
+const OWN_CSS = `
+  .own-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:12px;}
+  .own-card{border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:var(--surface);} .own-card small{display:block;font-size:11px;color:var(--text-muted);} .own-card b{font-size:17px;}
+  .own-card.hl{background:#fff6e0;border-color:#e3b75c;}
+  .own-btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;} .own-btns .btn{width:auto;min-height:42px;}
+  .own-filter{display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin:6px 0 10px;} .own-filter .field{margin:0;}
+  .own-wrap{overflow:auto;max-height:calc(100vh - 230px);-webkit-overflow-scrolling:touch;border-radius:8px;}
+  .own-tbl{border-collapse:separate !important;border-spacing:0;width:100%;font-size:12px;}
+  .own-tbl th,.own-tbl td{padding:4px 7px !important;white-space:nowrap;text-align:center;border-bottom:1px solid var(--border);}
+  .own-tbl thead th{position:sticky;top:0;z-index:2;background:var(--bg,#f4f5f7);font-size:11px;text-align:center !important;}
+  .own-tbl td.l{text-align:left;} .own-tbl td.r{text-align:right;} .own-tbl tfoot td{position:sticky;bottom:0;background:#eef0f3;font-weight:700;}
+  .own-tbl .own-ic{border:1px solid var(--border);background:var(--surface);border-radius:6px;min-width:28px;height:26px;font-size:12px;cursor:pointer;margin:0 1px;} .own-tbl .own-ic:disabled{opacity:.3;cursor:default;}
+  .own-tbl tr.draft td{background:#fffbeb;}
+  @media (max-width:760px){ .own-tbl{font-size:11px;} .own-tbl .own-ic{min-width:34px;height:32px;font-size:14px;} .own-hide-m{display:none;} .own-wrap{max-height:70vh;} }`;
+function ownToday() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+async function ownList(cfg) { const { data, error } = await supabaseClient.from(cfg.table).select('*'); if (error) throw new Error(/does not exist|schema cache/.test(error.message) ? 'টেবিল নেই — আগে Supabase-এ 34 নম্বর SQL চালান।' : error.message); return (data || []).filter(function (r) { return r.Status !== 'Deleted'; }); }
+async function ownPost(cfg, row, bankDebit, bankCredit) {
+  if (row.BankCashAccID && (bankDebit || bankCredit)) await postBankCashBookEntry(row.BankCashAccID, row.Date || ownToday(), cfg.ref, row[cfg.idf], bankDebit, bankCredit);
+  const { error } = await supabaseClient.from(cfg.table).update({ Status: 'Posted' }).eq(cfg.idf, row[cfg.idf]);
+  if (error) throw new Error(error.message);
+}
+async function ownUnpost(cfg, id) {
+  if (!(await voucherAskAdmin(t('পোস্ট করা এন্ট্রি বদলাতে এডমিন পাসওয়ার্ড দিন:', 'Admin password to change a posted entry:')))) return false;
+  await reversePostedDocumentStock(cfg.ref, id);   // ক্যাশ/ব্যাংক বইয়ের এন্ট্রি মুছে ব্যালান্স ঠিক
+  const { error } = await supabaseClient.from(cfg.table).update({ Status: 'Draft' }).eq(cfg.idf, id);
+  if (error) throw new Error(error.message);
+  return true;
+}
+async function ownDelete(cfg, row) {
+  const id = row[cfg.idf], posted = row.Status === 'Posted';
+  if (posted) { if (!(await voucherAskAdmin(t('পোস্ট করা এন্ট্রি মুছতে এডমিন পাসওয়ার্ড দিন:', 'Admin password to delete a posted entry:')))) return false; }
+  if (!confirm(t('মুছবেনঃ ', 'Delete: ') + id + (posted ? t(' — ক্যাশ/ব্যাংক বইয়ের এন্ট্রিও মুছবে।', ' — its cash/bank entry is removed too.') : '') + t(' ফেরানো যাবে না।', ' Cannot be undone.'))) return false;
+  if (posted) await reversePostedDocumentStock(cfg.ref, id);
+  const { error } = await supabaseClient.from(cfg.table).delete().eq(cfg.idf, id);
+  if (error) throw new Error(error.message);
+  return true;
+}
+async function ownPrint(cfg, row, title, pairs) {
+  let company = null; try { company = await api('getSingleton', { sheet: 'CompanyProfile' }); } catch (e) {}
+  const cName = (company && (company.CompanyName || company.Name)) || 'জি মেটাল ওয়ার্কস';
+  const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${escapeHtml(title)} — ${escapeHtml(row[cfg.idf])}</title>
+<link href="https://fonts.googleapis.com/css2?family=Anek+Bangla:wght@400;600;700&display=swap" rel="stylesheet">
+<style>@page{size:A5 portrait;margin:8mm;} body{font-family:'Anek Bangla',sans-serif;color:#111;width:148mm;max-width:100%;margin:14px auto;padding:0 6px;font-size:12px;box-sizing:border-box;}
+  .toolbar{margin-bottom:10px;} .toolbar button{padding:8px 14px;border-radius:8px;border:1px solid #1a2029;background:#1a2029;color:#f2a33c;font-weight:700;cursor:pointer;font-family:inherit;}
+  .head{border:1.5px solid #1a2029;border-radius:10px;padding:8px 12px;text-align:center;} .head h1{margin:0;font-size:19px;} .head .sub{font-size:11px;color:#444;} .badge{display:inline-block;margin-top:6px;background:#1a2029;color:#fff;border-radius:7px;padding:3px 14px;font-weight:700;}
+  table{width:100%;border-collapse:collapse;margin-top:10px;} td{border:1px solid #9aa2ad;padding:6px 9px;} td.k{width:38%;background:#f3f4f6;font-weight:600;}
+  .signs{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:50px;text-align:center;font-size:11px;} .signs div{border-top:1px solid #333;padding-top:4px;}
+  @media print{.toolbar{display:none;}}</style></head><body>
+  <div class="toolbar"><button onclick="window.print()">🖨️ প্রিন্ট</button></div>
+  <div class="head"><h1>${escapeHtml(cName)}</h1><div class="sub">${escapeHtml((company && company.Address) || '')}</div><div class="badge">${escapeHtml(title)}</div></div>
+  <table>${pairs.map(function (p) { return `<tr><td class="k">${escapeHtml(p[0])}</td><td>${p[1]}</td></tr>`; }).join('')}</table>
+  <div class="signs"><div>প্রস্তুতকারী</div><div>হিসাবরক্ষক</div><div>অনুমোদনকারী</div></div>
+</body></html>`;
+  const w = window.open('', '_blank'); if (!w) { showToast(t('পপ-আপ ব্লক হয়েছে — এই সাইটের জন্য পপ-আপ অনুমতি দিন।', 'Pop-up blocked.'), 'error'); return; }
+  w.document.write(html); w.document.close();
+}
+
+/* ---------- মালিকের মূলধন ---------- */
+async function renderOwnerCapitalPage(content) {
+  const cfg = OWN_CFG.capital;
+  const [accounts, fy] = await Promise.all([cachedList('BankCashAccounts'), getFiscalYearStart()]);
+  const accs = accounts.filter(function (a) { return a.Status !== 'Deleted'; });
+  const accName = function (id) { const a = accs.find(function (x) { return x.BankAccID === id; }); return a ? a.AccountName : (id || '—'); };
+  let editId = null, rows = [];
+  content.innerHTML = `<style>${VOUCHER_GRID_CSS}${OWN_CSS}</style>
+    <div class="page-head"><div><h1>${t('মালিকের মূলধন', 'Owner Capital')}</h1><p>${t('মালিক ব্যবসায় টাকা আনলে (আনয়ন) বা তুললে (উত্তোলন) — ক্যাশ/ব্যাংক বইয়ে যায়; ব্যালান্স = মোট মূলধন', 'Owner brings in or draws money — goes to the cash/bank book; balance = total capital')}</p></div></div>
+    <div class="own-cards" id="cap_Cards"></div>
+    <div class="panel"><h4 id="cap_FormTitle" style="margin:0 0 10px;font-size:14px;">${t('নতুন এন্ট্রি', 'New entry')}</h4>
+      <div class="vg2" id="cap_Form">
+        <div class="field"><label>${t('তারিখ', 'Date')}</label><input type="date" id="cap_Date" value="${ownToday()}"></div>
+        <div class="field"><label>${t('ধরন', 'Type')}</label><select id="cap_Type"><option value="In">${t('মূলধন আনয়ন (জমা)', 'Capital in')}</option><option value="Out">${t('উত্তোলন', 'Drawing')}</option></select></div>
+        <div class="field"><label>${t('মালিকের নাম', 'Owner')}</label><input id="cap_Owner" autocomplete="off"></div>
+        <div class="field"><label>${t('ক্যাশ/ব্যাংক', 'Cash/Bank')}</label><select id="cap_Acc"><option value="">${t('— (ক্যাশ বইয়ে যাবে না)', '— (not in cash book)')}</option>${accs.map(function (a) { return `<option value="${attr(a.BankAccID)}">${escapeHtml(a.AccountName)}</option>`; }).join('')}</select></div>
+        <div class="field"><label>${t('টাকা', 'Amount')}</label><input id="cap_Amount" type="number" step="any" min="0" inputmode="decimal"></div>
+        <div class="field"><label>${t('নোট', 'Note')}</label><input id="cap_Note" autocomplete="off"></div>
+      </div>
+      <div class="own-btns"><button type="button" class="btn btn-outline" id="cap_SaveBtn">💾 ${t('সেভ (খসড়া)', 'Save (draft)')}</button><button type="button" class="btn btn-primary" id="cap_PostBtn">✅ ${t('সেভ + পোস্ট', 'Save + post')}</button><button type="button" class="btn btn-outline" id="cap_CancelBtn" style="display:none;">${t('এডিট বাতিল', 'Cancel edit')}</button></div>
+    </div>
+    <div class="panel">
+      <div class="own-filter"><div class="field"><label>${t('তারিখ হইতে', 'From')}</label><input type="date" id="cap_From" value="${fy}"></div><div class="field"><label>${t('তারিখ পর্যন্ত', 'To')}</label><input type="date" id="cap_To" value="${ownToday()}"></div></div>
+      <div class="own-wrap" id="cap_List"><div class="empty-state">${t('লোড হচ্ছে...', 'Loading...')}</div></div>
+    </div>`;
+  if (accs.length) { const cash = accs.find(function (a) { return /নগদ|cash|ক্যাশ/i.test(a.AccountName || ''); }); document.getElementById('cap_Acc').value = (cash || accs[0]).BankAccID; }
+  wireSequentialKeyNav(document.getElementById('cap_Form'));
+  const $ = function (id) { return document.getElementById(id); };
+  function resetForm() { editId = null; $('cap_FormTitle').textContent = t('নতুন এন্ট্রি', 'New entry'); $('cap_Amount').value = ''; $('cap_Note').value = ''; $('cap_Date').value = ownToday(); $('cap_Type').value = 'In'; $('cap_CancelBtn').style.display = 'none'; }
+  async function load() {
+    try { rows = await ownList(cfg); } catch (e) { $('cap_List').innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; return; }
+    if (!$('cap_Owner').value) { const last = rows.slice().sort(function (a, b) { return String(b.Date).localeCompare(String(a.Date)); })[0]; if (last && last.OwnerName) $('cap_Owner').value = last.OwnerName; }
+    render();
+  }
+  function render() {
+    const from = $('cap_From').value || '0000-00-00', to = $('cap_To').value || '9999-12-31';
+    const sorted = rows.slice().sort(function (a, b) { return String(a.Date).localeCompare(String(b.Date)) || String(a[cfg.idf]).localeCompare(String(b[cfg.idf]), undefined, { numeric: true }); });
+    const sign = function (r) { return r.Type === 'Out' ? -1 : 1; };
+    let opening = 0, bal = 0, tIn = 0, tOut = 0;
+    sorted.forEach(function (r) { if (r.Status === 'Posted' && String(r.Date) < from) opening += sign(r) * (Number(r.Amount) || 0); });
+    bal = opening;
+    const shown = sorted.filter(function (r) { const d = String(r.Date || ''); return d >= from && d <= to; });
+    const body = shown.map(function (r, i) {
+      const a = Number(r.Amount) || 0, posted = r.Status === 'Posted';
+      if (posted) { bal += sign(r) * a; if (r.Type === 'Out') tOut += a; else tIn += a; }
+      const ic = function (act, icon, title, dis) { return `<button type="button" class="own-ic" data-ow="${act}" data-id="${attr(r[cfg.idf])}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
+      return `<tr class="${posted ? '' : 'draft'}"><td>${i + 1}</td><td>${escapeHtml(formatShortDate(r.Date))}</td><td><b>${escapeHtml(r[cfg.idf])}</b></td><td>${r.Type === 'Out' ? t('উত্তোলন', 'Drawing') : t('আনয়ন', 'In')}</td>
+        <td class="l own-hide-m">${escapeHtml(r.OwnerName || '')}</td><td class="own-hide-m">${escapeHtml(accName(r.BankCashAccID))}</td>
+        <td class="r">${r.Type !== 'Out' ? a.toFixed(2) : '—'}</td><td class="r">${r.Type === 'Out' ? a.toFixed(2) : '—'}</td><td class="r"><b>${posted ? bal.toFixed(2) : '—'}</b></td>
+        <td>${posted ? `<span class="badge active">${t('পোস্ট করা', 'Posted')}</span>` : `<span class="badge draft">${t('খসড়া', 'Draft')}</span>`}</td>
+        <td style="white-space:nowrap;">${ic('view', '👁️', t('দেখুন / প্রিন্ট', 'View / print'))}${ic('edit', '✏️', posted ? t('এডিট (এডমিন — আগে আনপোস্ট)', 'Edit (admin)') : t('এডিট', 'Edit'))}${ic('del', '🗑️', t('ডিলিট', 'Delete'))}${ic('post', posted ? '✅' : '💾', posted ? t('পোস্ট হয়ে গেছে', 'Posted') : t('পোস্ট করুন', 'Post'), posted)}</td></tr>`;
+    }).join('');
+    const total = sorted.filter(function (r) { return r.Status === 'Posted' && String(r.Date) <= to; }).reduce(function (s, r) { return s + sign(r) * (Number(r.Amount) || 0); }, 0);
+    const drafts = rows.filter(function (r) { return r.Status !== 'Posted'; }).length;
+    $('cap_Cards').innerHTML = `<div class="own-card"><small>${t('এই সময়ে আনয়ন', 'Brought in (period)')}</small><b>৳${tIn.toFixed(2)}</b></div><div class="own-card"><small>${t('এই সময়ে উত্তোলন', 'Drawn (period)')}</small><b>৳${tOut.toFixed(2)}</b></div>
+      <div class="own-card hl"><small>${t('মোট মূলধন (', 'Total capital (')}${escapeHtml(formatShortDate(to))}${t(' পর্যন্ত)', ')')}</small><b>৳${total.toFixed(2)}</b></div>${drafts ? `<div class="own-card"><small>${t('পোস্ট না করা', 'Unposted')}</small><b>${drafts}${t('টা', '')}</b></div>` : ''}`;
+    $('cap_List').innerHTML = !shown.length && !opening ? `<div class="empty-state">${t('এই সময়ে কোনো এন্ট্রি নেই।', 'No entries in this period.')}</div>` :
+      `<table class="own-tbl"><thead><tr><th>${t('ক্রঃ', 'No.')}</th><th>${t('তারিখ', 'Date')}</th><th>${t('নং', 'Voucher')}</th><th>${t('ধরন', 'Type')}</th><th class="own-hide-m">${t('মালিক', 'Owner')}</th><th class="own-hide-m">${t('ক্যাশ/ব্যাংক', 'Cash/Bank')}</th><th>${t('আনয়ন', 'In')}</th><th>${t('উত্তোলন', 'Out')}</th><th>${t('মূলধন', 'Capital')}</th><th>${t('অবস্থা', 'Status')}</th><th></th></tr></thead>
+      <tbody>${opening ? `<tr><td></td><td colspan="3" class="l">${t('পূর্বের জের', 'Brought forward')}</td><td class="own-hide-m"></td><td class="own-hide-m"></td><td></td><td></td><td class="r"><b>${opening.toFixed(2)}</b></td><td></td><td></td></tr>` : ''}${body}</tbody>
+      <tfoot><tr><td></td><td colspan="3" class="l">${t('মোট', 'Total')}</td><td class="own-hide-m"></td><td class="own-hide-m"></td><td class="r">${tIn.toFixed(2)}</td><td class="r">${tOut.toFixed(2)}</td><td class="r">${total.toFixed(2)}</td><td></td><td></td></tr></tfoot></table>`;
+  }
+  async function save(andPost) {
+    const amt = Number($('cap_Amount').value) || 0;
+    if (!$('cap_Date').value) { showToast(t('তারিখ দিন।', 'Enter a date.'), 'error'); return; }
+    if (!(amt > 0)) { showToast(t('টাকার পরিমাণ দিন।', 'Enter the amount.'), 'error'); $('cap_Amount').focus(); return; }
+    const rec = { Date: $('cap_Date').value, Type: $('cap_Type').value, OwnerName: $('cap_Owner').value.trim(), BankCashAccID: $('cap_Acc').value || null, Amount: amt, Note: $('cap_Note').value.trim() };
+    const btns = [$('cap_SaveBtn'), $('cap_PostBtn')]; btns.forEach(function (b) { b.disabled = true; });
+    try {
+      let row;
+      if (editId) { const { data, error } = await supabaseClient.from(cfg.table).update(rec).eq(cfg.idf, editId).select().single(); if (error) throw new Error(error.message); row = data; }
+      else { const { data, error } = await supabaseClient.from(cfg.table).insert(Object.assign({ Status: 'Draft', CreatedBy: (currentUser && currentUser.Email) || '' }, rec)).select().single(); if (error) throw new Error(/does not exist|schema cache/.test(error.message) ? 'টেবিল নেই — আগে Supabase-এ 34 নম্বর SQL চালান।' : error.message); row = data; }
+      if (andPost) await ownPost(cfg, row, rec.Type === 'Out' ? 0 : amt, rec.Type === 'Out' ? amt : 0);
+      showToast((andPost ? t('পোস্ট হয়েছে ✅ ', 'Posted ✅ ') : t('সেভ হয়েছে ✅ ', 'Saved ✅ ')) + row[cfg.idf], 'success');
+      resetForm(); await load();
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { btns.forEach(function (b) { b.disabled = false; }); }
+  }
+  $('cap_SaveBtn').addEventListener('click', function () { save(false); });
+  $('cap_PostBtn').addEventListener('click', function () { save(true); });
+  $('cap_CancelBtn').addEventListener('click', resetForm);
+  ['cap_From', 'cap_To'].forEach(function (id) { $(id).addEventListener('change', render); });
+  $('cap_List').addEventListener('click', async function (e) {
+    const b = e.target.closest('[data-ow]'); if (!b || b.disabled || b.__busy) return; b.__busy = true;
+    const r = rows.find(function (x) { return x[cfg.idf] === b.getAttribute('data-id'); });
+    try {
+      if (!r) return;
+      const act = b.getAttribute('data-ow');
+      if (act === 'view') await ownPrint(cfg, r, r.Type === 'Out' ? 'মূলধন উত্তোলন ভাউচার' : 'মূলধন আনয়ন ভাউচার', [['ভাউচার নং', escapeHtml(r[cfg.idf])], ['তারিখ', escapeHtml(formatShortDate(r.Date))], ['ধরন', r.Type === 'Out' ? 'উত্তোলন' : 'মূলধন আনয়ন (জমা)'], ['মালিকের নাম', escapeHtml(r.OwnerName || '')], ['ক্যাশ/ব্যাংক', escapeHtml(accName(r.BankCashAccID))], ['টাকা', '<b>৳' + (Number(r.Amount) || 0).toFixed(2) + '</b>'], ['নোট', escapeHtml(r.Note || '')], ['অবস্থা', r.Status === 'Posted' ? 'পোস্ট করা' : 'খসড়া']]);
+      else if (act === 'edit') {
+        if (r.Status === 'Posted') { if (!(await ownUnpost(cfg, r[cfg.idf]))) return; await load(); }
+        editId = r[cfg.idf]; $('cap_FormTitle').textContent = t('এডিটঃ ', 'Edit: ') + editId;
+        $('cap_Date').value = String(r.Date || '').slice(0, 10); $('cap_Type').value = r.Type === 'Out' ? 'Out' : 'In'; $('cap_Owner').value = r.OwnerName || ''; $('cap_Acc').value = r.BankCashAccID || ''; $('cap_Amount').value = r.Amount || ''; $('cap_Note').value = r.Note || '';
+        $('cap_CancelBtn').style.display = ''; $('cap_Amount').focus(); content.scrollIntoView && window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+      else if (act === 'del') { if (await ownDelete(cfg, r)) { showToast(t('মুছে ফেলা হয়েছে ✅', 'Deleted ✅'), 'success'); if (editId === r[cfg.idf]) resetForm(); await load(); } }
+      else if (act === 'post') { if (!confirm(t('পোস্ট করবেনঃ ', 'Post: ') + r[cfg.idf] + '?')) return; const a = Number(r.Amount) || 0; await ownPost(cfg, r, r.Type === 'Out' ? 0 : a, r.Type === 'Out' ? a : 0); showToast(t('পোস্ট হয়েছে ✅', 'Posted ✅'), 'success'); await load(); }
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { b.__busy = false; }
+  });
+  await load();
+}
+
+/* ---------- স্থায়ী সম্পদ ---------- */
+function faDepreciation(r, toIso) {
+  const cost = Number(r.Cost) || 0, rate = Number(r.DepRate) || 0;
+  if (!(cost > 0) || !(rate > 0) || !r.Date) return 0;
+  const days = (new Date(toIso + 'T00:00:00') - new Date(String(r.Date).slice(0, 10) + 'T00:00:00')) / 86400000;
+  if (!(days > 0)) return 0;
+  return Math.min(cost, cost * rate / 100 * (days / 365.25));   // সরলরেখা পদ্ধতিঃ প্রতি বছর ক্রয়মূল্যের নির্দিষ্ট %
+}
+async function renderFixedAssetPage(content) {
+  const cfg = OWN_CFG.asset;
+  const [accounts, fy] = await Promise.all([cachedList('BankCashAccounts'), getFiscalYearStart()]);
+  const accs = accounts.filter(function (a) { return a.Status !== 'Deleted'; });
+  const accName = function (id) { const a = accs.find(function (x) { return x.BankAccID === id; }); return a ? a.AccountName : (id ? id : t('বাকি/অন্যভাবে', 'other')); };
+  let editId = null, rows = [];
+  content.innerHTML = `<style>${VOUCHER_GRID_CSS}${OWN_CSS}</style>
+    <div class="page-head"><div><h1>${t('স্থায়ী সম্পদ', 'Fixed Assets')}</h1><p>${t('মেশিন, ডাইস, জমি, ভবন, যানবাহন কেনা — ক্যাশ/ব্যাংক থেকে প্রদান; বার্ষিক অবচয় ধরে বর্তমান মূল্য', 'Machines, dies, land, buildings, vehicles — paid from cash/bank; book value after yearly depreciation')}</p></div></div>
+    <div class="own-cards" id="fa_Cards"></div>
+    <div class="panel"><h4 id="fa_FormTitle" style="margin:0 0 10px;font-size:14px;">${t('নতুন সম্পদ', 'New asset')}</h4>
+      <div class="vg2" id="fa_Form">
+        <div class="field"><label>${t('ক্রয়ের তারিখ', 'Purchase date')}</label><input type="date" id="fa_Date" value="${ownToday()}"></div>
+        <div class="field"><label>${t('ধরন', 'Category')}</label><select id="fa_Cat">${FA_CATEGORIES.map(function (c) { return `<option value="${attr(c[0])}">${escapeHtml(c[0])}</option>`; }).join('')}</select></div>
+        <div class="field vfull"><label>${t('সম্পদের নাম / বিবরণ', 'Asset name / description')}</label><input id="fa_Name" autocomplete="off" placeholder="${attr(t('যেমন: ২০ টন প্রেস মেশিন, R-3 ডাইস সেট', 'e.g. 20-ton press machine'))}"></div>
+        <div class="field"><label>${t('পরিমাণ', 'Qty')}</label><input id="fa_Qty" type="number" step="any" min="0" inputmode="decimal" value="1"></div>
+        <div class="field"><label>${t('ক্রয়মূল্য (মোট)', 'Cost (total)')}</label><input id="fa_Cost" type="number" step="any" min="0" inputmode="decimal"></div>
+        <div class="field"><label>${t('প্রদান — ক্যাশ/ব্যাংক', 'Paid from')}</label><select id="fa_Acc"><option value="">${t('বাকি/অন্যভাবে (ক্যাশ বইয়ে যাবে না)', 'Credit/other (not in cash book)')}</option>${accs.map(function (a) { return `<option value="${attr(a.BankAccID)}">${escapeHtml(a.AccountName)}</option>`; }).join('')}</select></div>
+        <div class="field"><label>${t('বার্ষিক অবচয় (%)', 'Yearly depreciation (%)')}</label><input id="fa_Dep" type="number" step="any" min="0" inputmode="decimal"></div>
+        <div class="field vfull"><label>${t('নোট', 'Note')}</label><input id="fa_Note" autocomplete="off"></div>
+      </div>
+      <div style="font-size:11.5px;color:var(--text-muted);margin-top:4px;">${t('অবচয় = ক্রয়মূল্য × বার্ষিক % × কত বছর হলো (সরলরেখা পদ্ধতি); জমির অবচয় সাধারণত ০।', 'Depreciation = cost × yearly % × years (straight line); land usually 0.')}</div>
+      <div class="own-btns"><button type="button" class="btn btn-outline" id="fa_SaveBtn">💾 ${t('সেভ (খসড়া)', 'Save (draft)')}</button><button type="button" class="btn btn-primary" id="fa_PostBtn">✅ ${t('সেভ + পোস্ট', 'Save + post')}</button><button type="button" class="btn btn-outline" id="fa_CancelBtn" style="display:none;">${t('এডিট বাতিল', 'Cancel edit')}</button></div>
+    </div>
+    <div class="panel">
+      <div class="own-filter"><div class="field"><label>${t('তারিখ হইতে', 'From')}</label><input type="date" id="fa_From" value="${fy}"></div><div class="field"><label>${t('মূল্যায়নের তারিখ', 'Value as of')}</label><input type="date" id="fa_To" value="${ownToday()}"></div>
+        <div class="field"><label>${t('ধরন', 'Category')}</label><select id="fa_CatFilter"><option value="">${t('সব', 'All')}</option>${FA_CATEGORIES.map(function (c) { return `<option value="${attr(c[0])}">${escapeHtml(c[0])}</option>`; }).join('')}</select></div></div>
+      <div class="own-wrap" id="fa_List"><div class="empty-state">${t('লোড হচ্ছে...', 'Loading...')}</div></div>
+    </div>`;
+  const $ = function (id) { return document.getElementById(id); };
+  const defDep = function (cat) { const c = FA_CATEGORIES.find(function (x) { return x[0] === cat; }); return c ? c[1] : 10; };
+  $('fa_Dep').value = defDep($('fa_Cat').value);
+  $('fa_Cat').addEventListener('change', function () { if (!$('fa_Dep').__manual) $('fa_Dep').value = defDep($('fa_Cat').value); });
+  $('fa_Dep').addEventListener('input', function () { $('fa_Dep').__manual = true; });
+  if (accs.length) { const cash = accs.find(function (a) { return /নগদ|cash|ক্যাশ/i.test(a.AccountName || ''); }); $('fa_Acc').value = (cash || accs[0]).BankAccID; }
+  wireSequentialKeyNav($('fa_Form'));
+  function resetForm() { editId = null; $('fa_FormTitle').textContent = t('নতুন সম্পদ', 'New asset'); ['fa_Name', 'fa_Cost', 'fa_Note'].forEach(function (id) { $(id).value = ''; }); $('fa_Qty').value = '1'; $('fa_Date').value = ownToday(); $('fa_Dep').__manual = false; $('fa_Dep').value = defDep($('fa_Cat').value); $('fa_CancelBtn').style.display = 'none'; }
+  async function load() { try { rows = await ownList(cfg); } catch (e) { $('fa_List').innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; return; } render(); }
+  function render() {
+    const from = $('fa_From').value || '0000-00-00', to = $('fa_To').value || ownToday(), cat = $('fa_CatFilter').value;
+    const shown = rows.filter(function (r) { const d = String(r.Date || '').slice(0, 10); return d <= to && (!cat || r.Category === cat) && (d >= from || r.Status === 'Posted'); })
+      .sort(function (a, b) { return String(a.Date).localeCompare(String(b.Date)) || String(a[cfg.idf]).localeCompare(String(b[cfg.idf]), undefined, { numeric: true }); });
+    let tCost = 0, tDep = 0; const byCat = {};
+    const body = shown.map(function (r, i) {
+      const cost = Number(r.Cost) || 0, dep = faDepreciation(r, to), book = cost - dep, posted = r.Status === 'Posted';
+      if (posted) { tCost += cost; tDep += dep; const c = byCat[r.Category || 'অন্যান্য'] = byCat[r.Category || 'অন্যান্য'] || { cost: 0, book: 0 }; c.cost += cost; c.book += book; }
+      const ic = function (act, icon, title, dis) { return `<button type="button" class="own-ic" data-ow="${act}" data-id="${attr(r[cfg.idf])}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
+      return `<tr class="${posted ? '' : 'draft'}"><td>${i + 1}</td><td>${escapeHtml(formatShortDate(r.Date))}</td><td><b>${escapeHtml(r[cfg.idf])}</b></td><td>${escapeHtml(r.Category || '')}</td><td class="l">${escapeHtml(r.AssetName || '')}</td>
+        <td class="own-hide-m">${r.Qty ? +Number(r.Qty).toFixed(3) : '—'}</td><td class="r">${cost.toFixed(2)}</td><td class="own-hide-m">${Number(r.DepRate) || 0}%</td><td class="r own-hide-m">${dep.toFixed(2)}</td><td class="r"><b>${book.toFixed(2)}</b></td>
+        <td>${posted ? `<span class="badge active">${t('পোস্ট করা', 'Posted')}</span>` : `<span class="badge draft">${t('খসড়া', 'Draft')}</span>`}</td>
+        <td style="white-space:nowrap;">${ic('view', '👁️', t('দেখুন / প্রিন্ট', 'View / print'))}${ic('edit', '✏️', posted ? t('এডিট (এডমিন — আগে আনপোস্ট)', 'Edit (admin)') : t('এডিট', 'Edit'))}${ic('del', '🗑️', t('ডিলিট', 'Delete'))}${ic('post', posted ? '✅' : '💾', posted ? t('পোস্ট হয়ে গেছে', 'Posted') : t('পোস্ট করুন', 'Post'), posted)}</td></tr>`;
+    }).join('');
+    $('fa_Cards').innerHTML = `<div class="own-card hl"><small>${t('মোট বর্তমান মূল্য', 'Total book value')}</small><b>৳${(tCost - tDep).toFixed(2)}</b></div><div class="own-card"><small>${t('মোট ক্রয়মূল্য', 'Total cost')}</small><b>৳${tCost.toFixed(2)}</b></div><div class="own-card"><small>${t('মোট অবচয়', 'Total depreciation')}</small><b>৳${tDep.toFixed(2)}</b></div>` +
+      Object.keys(byCat).map(function (k) { return `<div class="own-card"><small>${escapeHtml(k)}</small><b>৳${byCat[k].book.toFixed(2)}</b></div>`; }).join('');
+    $('fa_List').innerHTML = !shown.length ? `<div class="empty-state">${t('কোনো সম্পদ নেই।', 'No assets.')}</div>` :
+      `<table class="own-tbl"><thead><tr><th>${t('ক্রঃ', 'No.')}</th><th>${t('তারিখ', 'Date')}</th><th>${t('নং', 'No.')}</th><th>${t('ধরন', 'Category')}</th><th>${t('সম্পদ', 'Asset')}</th><th class="own-hide-m">${t('পরিমাণ', 'Qty')}</th><th>${t('ক্রয়মূল্য', 'Cost')}</th><th class="own-hide-m">${t('অবচয় %', 'Dep %')}</th><th class="own-hide-m">${t('জমা অবচয়', 'Acc. dep.')}</th><th>${t('বর্তমান মূল্য', 'Book value')}</th><th>${t('অবস্থা', 'Status')}</th><th></th></tr></thead>
+      <tbody>${body}</tbody><tfoot><tr><td></td><td colspan="4" class="l">${t('মোট (পোস্ট করা)', 'Total (posted)')}</td><td class="own-hide-m"></td><td class="r">${tCost.toFixed(2)}</td><td class="own-hide-m"></td><td class="r own-hide-m">${tDep.toFixed(2)}</td><td class="r">${(tCost - tDep).toFixed(2)}</td><td></td><td></td></tr></tfoot></table>`;
+  }
+  async function save(andPost) {
+    const cost = Number($('fa_Cost').value) || 0;
+    if (!$('fa_Name').value.trim()) { showToast(t('সম্পদের নাম দিন।', 'Enter the asset name.'), 'error'); $('fa_Name').focus(); return; }
+    if (!(cost > 0)) { showToast(t('ক্রয়মূল্য দিন।', 'Enter the cost.'), 'error'); $('fa_Cost').focus(); return; }
+    const rec = { Date: $('fa_Date').value, Category: $('fa_Cat').value, AssetName: $('fa_Name').value.trim(), Qty: Number($('fa_Qty').value) || 1, Cost: cost, BankCashAccID: $('fa_Acc').value || null, DepRate: Number($('fa_Dep').value) || 0, Note: $('fa_Note').value.trim() };
+    const btns = [$('fa_SaveBtn'), $('fa_PostBtn')]; btns.forEach(function (b) { b.disabled = true; });
+    try {
+      let row;
+      if (editId) { const { data, error } = await supabaseClient.from(cfg.table).update(rec).eq(cfg.idf, editId).select().single(); if (error) throw new Error(error.message); row = data; }
+      else { const { data, error } = await supabaseClient.from(cfg.table).insert(Object.assign({ Status: 'Draft', CreatedBy: (currentUser && currentUser.Email) || '' }, rec)).select().single(); if (error) throw new Error(/does not exist|schema cache/.test(error.message) ? 'টেবিল নেই — আগে Supabase-এ 34 নম্বর SQL চালান।' : error.message); row = data; }
+      if (andPost) await ownPost(cfg, row, 0, cost);
+      showToast((andPost ? t('পোস্ট হয়েছে ✅ ', 'Posted ✅ ') : t('সেভ হয়েছে ✅ ', 'Saved ✅ ')) + row[cfg.idf], 'success');
+      resetForm(); await load();
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { btns.forEach(function (b) { b.disabled = false; }); }
+  }
+  $('fa_SaveBtn').addEventListener('click', function () { save(false); });
+  $('fa_PostBtn').addEventListener('click', function () { save(true); });
+  $('fa_CancelBtn').addEventListener('click', resetForm);
+  ['fa_From', 'fa_To', 'fa_CatFilter'].forEach(function (id) { $(id).addEventListener('change', render); });
+  $('fa_List').addEventListener('click', async function (e) {
+    const b = e.target.closest('[data-ow]'); if (!b || b.disabled || b.__busy) return; b.__busy = true;
+    const r = rows.find(function (x) { return x[cfg.idf] === b.getAttribute('data-id'); });
+    try {
+      if (!r) return;
+      const act = b.getAttribute('data-ow'), to = $('fa_To').value || ownToday(), dep = faDepreciation(r, to);
+      if (act === 'view') await ownPrint(cfg, r, 'স্থায়ী সম্পদ ক্রয়', [['নং', escapeHtml(r[cfg.idf])], ['ক্রয়ের তারিখ', escapeHtml(formatShortDate(r.Date))], ['ধরন', escapeHtml(r.Category || '')], ['সম্পদের নাম', '<b>' + escapeHtml(r.AssetName || '') + '</b>'], ['পরিমাণ', String(+Number(r.Qty || 0).toFixed(3))], ['ক্রয়মূল্য', '৳' + (Number(r.Cost) || 0).toFixed(2)], ['প্রদান', escapeHtml(accName(r.BankCashAccID))], ['বার্ষিক অবচয়', (Number(r.DepRate) || 0) + '%'], ['জমা অবচয় (' + escapeHtml(formatShortDate(to)) + ')', '৳' + dep.toFixed(2)], ['বর্তমান মূল্য', '<b>৳' + ((Number(r.Cost) || 0) - dep).toFixed(2) + '</b>'], ['নোট', escapeHtml(r.Note || '')]]);
+      else if (act === 'edit') {
+        if (r.Status === 'Posted') { if (!(await ownUnpost(cfg, r[cfg.idf]))) return; await load(); }
+        editId = r[cfg.idf]; $('fa_FormTitle').textContent = t('এডিটঃ ', 'Edit: ') + editId;
+        $('fa_Date').value = String(r.Date || '').slice(0, 10); $('fa_Cat').value = r.Category || FA_CATEGORIES[0][0]; $('fa_Name').value = r.AssetName || ''; $('fa_Qty').value = r.Qty || 1; $('fa_Cost').value = r.Cost || ''; $('fa_Acc').value = r.BankCashAccID || ''; $('fa_Dep').value = r.DepRate || 0; $('fa_Dep').__manual = true; $('fa_Note').value = r.Note || '';
+        $('fa_CancelBtn').style.display = ''; $('fa_Name').focus(); window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+      else if (act === 'del') { if (await ownDelete(cfg, r)) { showToast(t('মুছে ফেলা হয়েছে ✅', 'Deleted ✅'), 'success'); if (editId === r[cfg.idf]) resetForm(); await load(); } }
+      else if (act === 'post') { if (!confirm(t('পোস্ট করবেনঃ ', 'Post: ') + r[cfg.idf] + '?')) return; await ownPost(cfg, r, 0, Number(r.Cost) || 0); showToast(t('পোস্ট হয়েছে ✅', 'Posted ✅'), 'success'); await load(); }
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { b.__busy = false; }
+  });
+  await load();
+}
+
 async function renderBankCashBook(content) {
   const [entries, accounts] = await Promise.all([api('list', { sheet:'BankCashBook' }), api('list', { sheet:'BankCashAccounts' })]);
   const accMap = {}; accounts.forEach(function (a) { accMap[a.BankAccID] = a.AccountName; });
@@ -3707,7 +3985,7 @@ async function renderBankCashBook(content) {
       return `<tr>
         <td>${escapeHtml(r.Date)}</td>
         <td>${escapeHtml(accMap[r.BankCashAccID] || r.BankCashAccID)}</td>
-        <td>${escapeHtml(r.RefModule)} — ${escapeHtml(r.RefID)}</td>
+        <td>${escapeHtml(({ CapitalVoucher: t('মালিকের মূলধন', 'Owner capital'), FixedAsset: t('স্থায়ী সম্পদ ক্রয়', 'Fixed asset purchase') })[r.RefModule] || r.RefModule)} — ${escapeHtml(r.RefID)}</td>
         <td>${Number(r.Debit || 0).toFixed(2)}</td>
         <td>${Number(r.Credit || 0).toFixed(2)}</td>
         <td><b>${formatAmountDrCr(r.Balance, true)}</b></td>
@@ -11426,6 +11704,8 @@ const VOUCHER_REGISTRY = {
   ReceiptVoucher: { bn: 'রিসিট', table: 'ReceiptVoucher', idf: 'RecID', lines: [], kind: 'simple', cfg: 'rv' },
   ContraVoucher: { bn: 'কনট্রা', table: 'ContraVoucher', idf: 'ContraID', lines: [], kind: 'simple', cfg: 'cv' },
   ProcessingVoucher: { bn: 'প্রসেসিং', table: 'ProcessingVoucher', idf: 'ProcessingID', lines: [['ProcessingByProduct_Lines', 'ProcessingID'], ['ProcessingFG_Lines', 'ProcessingID']], kind: 'processing' },
+  CapitalVoucher: { bn: 'মালিকের মূলধন', table: 'CapitalVoucher', idf: 'CapID', lines: [], kind: 'legacy' },
+  FixedAsset: { bn: 'স্থায়ী সম্পদ', table: 'FixedAsset', idf: 'AssetID', lines: [], kind: 'legacy' },
   // পুরনো সংস্করণের ভাউচার — এখনকার সফটওয়্যারে ফর্ম নেই; দেখা/এডিট নয়, শুধু মোছা (টেবিল ও আইডির নাম অনুমানে)
   CollectionVoucher: { bn: 'কালেকশন (পুরনো)', table: 'CollectionVoucher', idf: ['CollectionID', 'ColID', 'CollID', 'VoucherID', 'ID'], lines: [], kind: 'legacy' }
 };
