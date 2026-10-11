@@ -993,7 +993,7 @@ function cleanEmptyDates(obj) {
   return obj;
 }
 // ধাপে ধাপে যোগ হওয়া ঘর — ডেটাবেসে এখনো না থাকলে এগুলো বাদ দিয়ে সেভ (SQL চালানোর আগেও সফটওয়্যার চলে)
-const OPTIONAL_COLS = ['QtyKg', 'QtyPcs', 'RateKg', 'RatePc', 'RateBasis', 'RawMaterialPcs', 'RatePerPc'];
+const OPTIONAL_COLS = ['QtyKg', 'QtyPcs', 'RateKg', 'RatePc', 'RateBasis', 'RawMaterialPcs', 'RatePerPc', 'RefSIID', 'RefPIID'];
 const OPTIONAL_COLS_RE = new RegExp(OPTIONAL_COLS.join('|'));
 function stripOptionalCols(r) { const c = Object.assign({}, r); OPTIONAL_COLS.forEach(function (k) { delete c[k]; }); return c; }
 async function runSupabaseAction(action, p) {
@@ -1120,6 +1120,13 @@ async function runSupabaseAction(action, p) {
 
       const { error } = await supabaseClient.from(cfg.table).update({ Status: 'Posted' }).eq(cfg.idField, p.docId);
       if (error) throw new Error(error.message);
+      // একই ফর্মে দেওয়া ফেরত (জোড়া, খসড়া) — মূল ভাউচারের সাথে পোস্ট
+      const LR = p.docType === 'SalesInvoice' ? ['SalesReturn', 'SRID', 'RefSIID'] : p.docType === 'PurchaseInvoice' ? ['PurchaseReturn', 'PRetID', 'RefPIID'] : null;
+      if (LR) {
+        let lr = [];
+        try { const r = await supabaseClient.from(LR[0]).select('*').eq(LR[2], p.docId); lr = (r && !r.error && r.data) || []; } catch (e) { lr = []; }
+        for (const r of lr) if (r.Status !== 'Posted' && r.Status !== 'Deleted') await runSupabaseAction('postDocument', { docType: LR[0], docId: r[LR[1]] });
+      }
       return {};
     }
 
@@ -9009,28 +9016,30 @@ async function renderPurchaseVoucherPage(content, defaultType) {
         ? `<button onclick='openPurchaseVoucherForm(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' title="${t('সম্পাদনা','Edit')}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="m18.5 2.5 3 3L10 17l-4 1 1-4Z"/></svg>
           </button>`
-        : '';
+        : (currentUser && currentUser.RoleID === 'ROLE-ADMIN'   // পোস্ট করা ভাউচারঃ এডমিন — আনপোস্ট করে এন্ট্রি-ফর্মে খোলে
+            ? `<button onclick='editPostedVoucherFromList(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' title="${t('এডিট — এডমিন পাসওয়ার্ডে আনপোস্ট হয়ে এন্ট্রি-ফর্মে খুলবে','Edit — unposts with admin password and opens in the entry form')}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="m18.5 2.5 3 3L10 17l-4 1 1-4Z"/></svg></button>`
+            : '');
       const deleteBtn = !isPosted
         ? `<button onclick='deletePurchaseVoucherRecord(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' title="${t('ডিলিট','Delete')}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg>
           </button>`
         : (currentUser && currentUser.RoleID === 'ROLE-ADMIN'
             ? `<button onclick='deletePostedPurchaseVoucher(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' title="${t('এডমিন ডিলিট (পাসওয়ার্ড লাগবে)','Admin delete (password required)')}" style="color:var(--danger);">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg>
               </button>`
             : '');
       const previewBtn = `<button onclick='openPrintableVoucherView(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' title="${t('প্রিভিউ/প্রিন্ট/শেয়ার','Preview/Print/Share')}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
         </button>`;
-      return `<tr ondblclick='openPurchaseVoucherForm(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' style="cursor:pointer;" title="${t('এডিট করতে ডাবল-ক্লিক করুন','Double-click to edit')}">
-        <td>${t(r.typeLabel[0], r.typeLabel[1])}</td><td>${escapeHtml(r.id)}</td><td>${escapeHtml(r.date)}</td>
+      return `<tr ondblclick='${isPosted ? 'editPostedVoucherFromList' : 'openPurchaseVoucherForm'}(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' style="cursor:pointer;" title="${t('এডিট করতে ডাবল-ক্লিক করুন','Double-click to edit')}">
+        <td>${t(r.typeLabel[0], r.typeLabel[1])}</td><td>${escapeHtml(r.id)}</td><td>${escapeHtml(formatShortDate(r.date))}</td>
         <td>${escapeHtml(r.supplierId === 'SUP-CASH' && r.walkInName ? ('নগদ (' + r.walkInName + ')') : (supMap[r.supplierId] || r.supplierId))}</td><td>${escapeHtml(purMap[r.purchaserId] || '—')}</td>
         <td>${r.amount !== null ? Number(r.amount).toFixed(2) : '—'}</td>
         <td>${isPosted ? `<span class="badge active">${t('পোস্ট করা','Posted')}</span>` : `<span class="badge draft">${t('খসড়া','Draft')}</span>`}</td>
         <td class="row-actions" onclick="event.stopPropagation();">${postBtn}${previewBtn}${editBtn}${deleteBtn}</td>
       </tr>`;
     }).join('');
-    wrap.innerHTML = `<table class="data-table"><thead><tr>${headCells}<th></th></tr></thead><tbody>${bodyRows}</tbody></table>`;
+    wrap.innerHTML = `<style>.vl-center th{text-align:center !important;}</style><table class="data-table vl-center"><thead><tr>${headCells}<th></th></tr></thead><tbody>${bodyRows}</tbody></table>`;
   }
 
   await loadList();
@@ -9660,10 +9669,20 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     }
     existingHeader = doc.header;
     existingLines = doc.lines;
+    // ফেরত যদি কোনো PurchaseInvoice-এর সাথে জোড়া হয় — পুরো ভাউচার (বিক্রয়/ক্রয় + ফেরত) একই ফর্মে খোলে
+    if (existingDocType === 'PurchaseReturn' && existingHeader.RefPIID) return openPurchaseVoucherForm('PurchaseInvoice', existingHeader.RefPIID);
     if (existingHeader.Status === 'Posted') {
       showToast(t('পোস্ট হয়ে যাওয়া ভাউচার এডিট করা যাবে না।','A posted voucher cannot be edited.'), 'error');
       return;
     }
+  }
+  window.__pv3LinkedReturn = null;
+  if (isEdit && existingDocType === 'PurchaseInvoice') {
+    try {
+      const { data: lr } = await supabaseClient.from('PurchaseReturn').select('*').eq('RefPIID', existingId);
+      const r0 = (lr || []).find(function (x) { return x.Status !== 'Deleted'; });
+      if (r0 && r0.Status !== 'Posted') { const { data: ll } = await supabaseClient.from('PR_Return_Lines').select('*').eq('PRetID', r0.PRetID); window.__pv3LinkedReturn = { header: r0, lines: ll || [] }; }
+    } catch (e) {}   // জোড়ার ঘর (36 নম্বর SQL) না থাকলে আগের মতো
   }
 
   const rec = existingHeader || {};
@@ -9676,11 +9695,13 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
         return { itemId: l.ItemID, warehouseId: rec.WarehouseID, qty: Number(l.Quantity)||0, qtyKg: Number(l.QtyKg)||0, qtyPcs: Number(l.QtyPcs)||0, rateKg: Number(l.RateKg)||0, ratePc: Number(l.RatePc)||0, rateBasis: l.RateBasis || null, rate: Number(l.Rate)||0, amount: amt, commRate: Number(l.CommissionRate)||0, commAmount: commAmt, netAmount: l.NetAmount !== null && l.NetAmount !== undefined ? Number(l.NetAmount) : (amt - commAmt) };
       })
     : [];
-  window.__pv3ReturnLines = (isEdit && existingDocType === 'PurchaseReturn')
-    ? existingLines.map(function (l) {
+  const pv3RetHdr = (isEdit && existingDocType === 'PurchaseReturn') ? rec : (window.__pv3LinkedReturn ? window.__pv3LinkedReturn.header : null);
+  const pv3RetSrc = (isEdit && existingDocType === 'PurchaseReturn') ? existingLines : (window.__pv3LinkedReturn ? window.__pv3LinkedReturn.lines : []);
+  window.__pv3ReturnLines = pv3RetHdr
+    ? pv3RetSrc.map(function (l) {
         const amt = Math.round((Number(l.Quantity)||0) * (Number(l.Rate)||0));
         const commAmt = Number(l.CommissionAmount) || 0;
-        return { itemId: l.ItemID, warehouseId: rec.WarehouseID, qty: Number(l.Quantity)||0, qtyKg: Number(l.QtyKg)||0, qtyPcs: Number(l.QtyPcs)||0, rateKg: Number(l.RateKg)||0, ratePc: Number(l.RatePc)||0, rateBasis: l.RateBasis || null, rate: Number(l.Rate)||0, amount: amt, commRate: Number(l.CommissionRate)||0, commAmount: commAmt, netAmount: l.NetAmount !== null && l.NetAmount !== undefined ? Number(l.NetAmount) : (amt - commAmt) };
+        return { itemId: l.ItemID, warehouseId: pv3RetHdr.WarehouseID, qty: Number(l.Quantity)||0, qtyKg: Number(l.QtyKg)||0, qtyPcs: Number(l.QtyPcs)||0, rateKg: Number(l.RateKg)||0, ratePc: Number(l.RatePc)||0, rateBasis: l.RateBasis || null, rate: Number(l.Rate)||0, amount: amt, commRate: Number(l.CommissionRate)||0, commAmount: commAmt, netAmount: l.NetAmount !== null && l.NetAmount !== undefined ? Number(l.NetAmount) : (amt - commAmt) };
       })
     : [];
   window.__pv3LastStockQty = '';
@@ -9750,7 +9771,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
 
       <div class="vg2 vg2-low">
       <div class="field">
-        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pv3_ExpCheck" style="width:auto;"> ${t('খরচঃ (+)','Expense (+):')}</label>
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pv3_ExpCheck" style="width:auto;" ${rec.CashExpenseAmount ? 'checked' : ''}> ${t('খরচঃ (+)','Expense (+):')}</label>
         <input id="pv3_ExpTotalAmount" type="number" step="any" placeholder="৳">
       </div>
       <div class="field">
@@ -9879,13 +9900,20 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
         }
       }
 
+      const pv3MainId = (isEdit && existingDocType === 'PurchaseInvoice') ? existingId : ((window.__lastCreatedDoc && window.__lastCreatedDoc.sheet === 'PurchaseInvoice') ? window.__lastCreatedDoc.id : null);
+      const pv3RetEditId = (isEdit && existingDocType === 'PurchaseReturn') ? existingId : (window.__pv3LinkedReturn ? window.__pv3LinkedReturn.header.PRetID : null);
+      if (!hasReturn && window.__pv3LinkedReturn) {   // এডিটে ফেরত লাইন সব মুছে দিলে জোড়া ফেরত ভাউচারও মোছে
+        await supabaseClient.from('PR_Return_Lines').delete().eq('PRetID', window.__pv3LinkedReturn.header.PRetID);
+        await supabaseClient.from('PurchaseReturn').delete().eq('PRetID', window.__pv3LinkedReturn.header.PRetID);
+      }
       if (hasReturn) {
         const warehouseId = window.__pv3ReturnLines[0].warehouseId;
         if (!warehouseId) throw new Error(t('ফেরত লাইনে গুদাম আবশ্যক।','Warehouse is required for return lines.'));
         const lineData = window.__pv3ReturnLines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, QtyKg: l.qtyKg || 0, QtyPcs: l.qtyPcs || 0, RateKg: l.rateKg || 0, RatePc: l.ratePc || 0, RateBasis: l.rateBasis || null, Rate: l.rate, CommissionRate: l.commRate || 0, CommissionAmount: l.commAmount || 0, NetAmount: l.netAmount !== undefined ? l.netAmount : l.amount }; });
         const headerData = Object.assign({}, common, { Date: val('pv3_Date'), WarehouseID: warehouseId });
-        if (isEdit && existingDocType === 'PurchaseReturn') {
-          await api('updateDocument', { headerSheet:'PurchaseReturn', idField:'PRetID', linesSheet:'PR_Return_Lines', lineIdField:'PRetID', idValue: existingId, headerData: headerData, lines: lineData });
+        if (hasPurchase && pv3MainId) headerData.RefPIID = pv3MainId;   // কোন PurchaseInvoice-এর সাথে জোড়া
+        if (pv3RetEditId) {
+          await api('updateDocument', { headerSheet:'PurchaseReturn', idField:'PRetID', linesSheet:'PR_Return_Lines', lineIdField:'PRetID', idValue: pv3RetEditId, headerData: headerData, lines: lineData });
         } else {
           await api('createDocument', { headerSheet:'PurchaseReturn', idField:'PRetID', idPrefix:'PRET', requiredFields:['SupplierID','WarehouseID'], linesSheet:'PR_Return_Lines', lineIdField:'PRetID', headerData: headerData, lines: lineData });
         }
@@ -10232,6 +10260,22 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
 
   document.getElementById('pv3_SupplierID').addEventListener('change', toggleCashSupplier);
   toggleCashSupplier();
+  // ===== এডিটঃ নগদ/ব্যাংক প্রদান ফর্মে ফেরত (আগে খালি আসত — আবার সেভ করলে প্রদানের টাকা মুছে যেত) =====
+  if (isEdit && existingDocType === 'PurchaseInvoice') {
+    const cp = Number(rec.CashPaidAmount) || 0, bp = Number(rec.BankPaidAmount) || 0, acc = rec.BankAccIDForPayment || '';
+    document.getElementById('pv3_CashPaidAmount').value = cp ? String(cp) : '';
+    document.getElementById('pv3_CashPaidNote').value = rec.CashPaidNote || '';
+    document.getElementById('pv3_BankPaidAmount').value = bp ? String(bp) : '';
+    document.getElementById('pv3_BankPaidNote').value = rec.BankPaidNote || '';
+    if (bp > 0) {
+      const own = acc && acc !== 'BC-CASH';
+      document.getElementById('pv3_BankPayMethod').value = own ? 'OurBankToSupplierBank' : 'CashToSupplierBank';
+      document.getElementById('pv3_BankAccID').value = own ? acc : '';
+      pv3BankPopupFilled = true; updateBankPaySummary();
+    }
+    document.getElementById('pv3_PayTypeSelect').value = (bp > 0 && !cp) ? 'Bank' : 'Cash';
+    togglePayType();
+  }
 
   function refreshItemDropdown() {
     const groupChecked = document.getElementById('pv3_GroupCheck').checked;
@@ -10520,25 +10564,27 @@ async function renderSalesVoucherPage(content, defaultType) {
         ? `<button onclick='openSalesVoucherForm(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' title="${t('সম্পাদনা','Edit')}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="m18.5 2.5 3 3L10 17l-4 1 1-4Z"/></svg>
           </button>`
-        : '';
+        : (currentUser && currentUser.RoleID === 'ROLE-ADMIN'   // পোস্ট করা ভাউচারঃ এডমিন — আনপোস্ট করে এন্ট্রি-ফর্মে খোলে
+            ? `<button onclick='editPostedVoucherFromList(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' title="${t('এডিট — এডমিন পাসওয়ার্ডে আনপোস্ট হয়ে এন্ট্রি-ফর্মে খুলবে','Edit — unposts with admin password and opens in the entry form')}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="m18.5 2.5 3 3L10 17l-4 1 1-4Z"/></svg></button>`
+            : '');
       const deleteBtn = !isPosted
         ? `<button onclick='deleteSalesVoucherRecord(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' title="${t('ডিলিট','Delete')}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg>
           </button>`
         : (currentUser && currentUser.RoleID === 'ROLE-ADMIN'
             ? `<button onclick='deletePostedSalesVoucher(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' title="${t('এডমিন ডিলিট (পাসওয়ার্ড লাগবে)','Admin delete (password required)')}" style="color:var(--danger);">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg>
               </button>`
             : '');
-      return `<tr ondblclick='openSalesVoucherForm(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' style="cursor:pointer;" title="${t('এডিট করতে ডাবল-ক্লিক করুন','Double-click to edit')}">
-        <td>${t(r.typeLabel[0], r.typeLabel[1])}</td><td>${escapeHtml(r.id)}</td><td>${escapeHtml(r.date)}</td>
+      return `<tr ondblclick='${isPosted ? 'editPostedVoucherFromList' : 'openSalesVoucherForm'}(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' style="cursor:pointer;" title="${t('এডিট করতে ডাবল-ক্লিক করুন','Double-click to edit')}">
+        <td>${t(r.typeLabel[0], r.typeLabel[1])}</td><td>${escapeHtml(r.id)}</td><td>${escapeHtml(formatShortDate(r.date))}</td>
         <td>${escapeHtml(r.customerId === 'CUS-CASH' && r.walkInName ? ('নগদ (' + r.walkInName + ')') : (custMap[r.customerId] || r.customerId))}</td><td>${escapeHtml(slpMap[r.salespersonId] || '—')}</td>
         <td>${r.amount !== null ? Number(r.amount).toFixed(2) : '—'}</td>
         <td>${isPosted ? `<span class="badge active">${t('পোস্ট করা','Posted')}</span>` : `<span class="badge draft">${t('খসড়া','Draft')}</span>`}</td>
         <td class="row-actions" onclick="event.stopPropagation();">${postBtn}${previewBtn}${editBtn}${deleteBtn}</td>
       </tr>`;
     }).join('');
-    wrap.innerHTML = `<table class="data-table"><thead><tr>${headCells}<th></th></tr></thead><tbody>${bodyRows}</tbody></table>`;
+    wrap.innerHTML = `<style>.vl-center th{text-align:center !important;}</style><table class="data-table vl-center"><thead><tr>${headCells}<th></th></tr></thead><tbody>${bodyRows}</tbody></table>`;
   }
 
   await loadList();
@@ -10610,10 +10656,20 @@ async function openSalesVoucherForm(defaultType, existingId) {
     }
     existingHeader = doc.header;
     existingLines = doc.lines;
+    // ফেরত যদি কোনো SalesInvoice-এর সাথে জোড়া হয় — পুরো ভাউচার (বিক্রয়/ক্রয় + ফেরত) একই ফর্মে খোলে
+    if (existingDocType === 'SalesReturn' && existingHeader.RefSIID) return openSalesVoucherForm('SalesInvoice', existingHeader.RefSIID);
     if (existingHeader.Status === 'Posted') {
       showToast(t('পোস্ট হয়ে যাওয়া ভাউচার এডিট করা যাবে না।','A posted voucher cannot be edited.'), 'error');
       return;
     }
+  }
+  window.__sv3LinkedReturn = null;
+  if (isEdit && existingDocType === 'SalesInvoice') {
+    try {
+      const { data: lr } = await supabaseClient.from('SalesReturn').select('*').eq('RefSIID', existingId);
+      const r0 = (lr || []).find(function (x) { return x.Status !== 'Deleted'; });
+      if (r0 && r0.Status !== 'Posted') { const { data: ll } = await supabaseClient.from('SR_Lines').select('*').eq('SRID', r0.SRID); window.__sv3LinkedReturn = { header: r0, lines: ll || [] }; }
+    } catch (e) {}   // জোড়ার ঘর (36 নম্বর SQL) না থাকলে আগের মতো
   }
 
   const rec = existingHeader || {};
@@ -10631,11 +10687,13 @@ async function openSalesVoucherForm(defaultType, existingId) {
         return { itemId: l.ItemID, warehouseId: rec.WarehouseID, qty: Number(l.Quantity)||0, qtyKg: Number(l.QtyKg)||0, qtyPcs: Number(l.QtyPcs)||0, rateKg: Number(l.RateKg)||0, ratePc: Number(l.RatePc)||0, rateBasis: l.RateBasis || null, rate: Number(l.Rate)||0, amount: amt, commRate: Number(l.CommissionRate)||0, commAmount: commAmt, netAmount: l.NetAmount !== null && l.NetAmount !== undefined ? Number(l.NetAmount) : (amt - commAmt), costRate: sv3CostRateOf(l) };
       })
     : [];
-  window.__sv3ReturnLines = (isEdit && existingDocType === 'SalesReturn')
-    ? existingLines.map(function (l) {
+  const sv3RetHdr = (isEdit && existingDocType === 'SalesReturn') ? rec : (window.__sv3LinkedReturn ? window.__sv3LinkedReturn.header : null);
+  const sv3RetSrc = (isEdit && existingDocType === 'SalesReturn') ? existingLines : (window.__sv3LinkedReturn ? window.__sv3LinkedReturn.lines : []);
+  window.__sv3ReturnLines = sv3RetHdr
+    ? sv3RetSrc.map(function (l) {
         const amt = Math.round((Number(l.Quantity)||0) * (Number(l.Rate)||0));
         const commAmt = Number(l.CommissionAmount) || 0;
-        return { itemId: l.ItemID, warehouseId: rec.WarehouseID, qty: Number(l.Quantity)||0, qtyKg: Number(l.QtyKg)||0, qtyPcs: Number(l.QtyPcs)||0, rateKg: Number(l.RateKg)||0, ratePc: Number(l.RatePc)||0, rateBasis: l.RateBasis || null, rate: Number(l.Rate)||0, amount: amt, commRate: Number(l.CommissionRate)||0, commAmount: commAmt, netAmount: l.NetAmount !== null && l.NetAmount !== undefined ? Number(l.NetAmount) : (amt - commAmt), costRate: sv3CostRateOf(l) };
+        return { itemId: l.ItemID, warehouseId: sv3RetHdr.WarehouseID, qty: Number(l.Quantity)||0, qtyKg: Number(l.QtyKg)||0, qtyPcs: Number(l.QtyPcs)||0, rateKg: Number(l.RateKg)||0, ratePc: Number(l.RatePc)||0, rateBasis: l.RateBasis || null, rate: Number(l.Rate)||0, amount: amt, commRate: Number(l.CommissionRate)||0, commAmount: commAmt, netAmount: l.NetAmount !== null && l.NetAmount !== undefined ? Number(l.NetAmount) : (amt - commAmt), costRate: sv3CostRateOf(l) };
       })
     : [];
   window.__sv3LastStockQty = '';
@@ -10705,7 +10763,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
 
       <div class="vg2 vg2-low">
       <div class="field">
-        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="sv3_ExpCheck" style="width:auto;"> ${t('খরচঃ (+)','Expense (+):')}</label>
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="sv3_ExpCheck" style="width:auto;" ${rec.CashExpenseAmount ? 'checked' : ''}> ${t('খরচঃ (+)','Expense (+):')}</label>
         <input id="sv3_ExpTotalAmount" type="number" step="any" placeholder="৳">
       </div>
       <div class="field">
@@ -10823,13 +10881,20 @@ async function openSalesVoucherForm(defaultType, existingId) {
         }
       }
 
+      const sv3MainId = (isEdit && existingDocType === 'SalesInvoice') ? existingId : ((window.__lastCreatedDoc && window.__lastCreatedDoc.sheet === 'SalesInvoice') ? window.__lastCreatedDoc.id : null);
+      const sv3RetEditId = (isEdit && existingDocType === 'SalesReturn') ? existingId : (window.__sv3LinkedReturn ? window.__sv3LinkedReturn.header.SRID : null);
+      if (!hasReturn && window.__sv3LinkedReturn) {   // এডিটে ফেরত লাইন সব মুছে দিলে জোড়া ফেরত ভাউচারও মোছে
+        await supabaseClient.from('SR_Lines').delete().eq('SRID', window.__sv3LinkedReturn.header.SRID);
+        await supabaseClient.from('SalesReturn').delete().eq('SRID', window.__sv3LinkedReturn.header.SRID);
+      }
       if (hasReturn) {
         const warehouseId = window.__sv3ReturnLines[0].warehouseId;
         if (!warehouseId) throw new Error(t('ফেরত লাইনে গুদাম আবশ্যক।','Warehouse is required for return lines.'));
         const lineData = window.__sv3ReturnLines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, QtyKg: l.qtyKg || 0, QtyPcs: l.qtyPcs || 0, RateKg: l.rateKg || 0, RatePc: l.ratePc || 0, RateBasis: l.rateBasis || null, Rate: l.rate, CommissionRate: l.commRate || 0, CommissionAmount: l.commAmount || 0, NetAmount: l.netAmount !== undefined ? l.netAmount : l.amount, CostRate: l.costRate || 0 }; });
         const headerData = Object.assign({}, common, { Date: val('sv3_Date'), WarehouseID: warehouseId });
-        if (isEdit && existingDocType === 'SalesReturn') {
-          await api('updateDocument', { headerSheet:'SalesReturn', idField:'SRID', linesSheet:'SR_Lines', lineIdField:'SRID', idValue: existingId, headerData: headerData, lines: lineData });
+        if (hasSale && sv3MainId) headerData.RefSIID = sv3MainId;   // কোন SalesInvoice-এর সাথে জোড়া
+        if (sv3RetEditId) {
+          await api('updateDocument', { headerSheet:'SalesReturn', idField:'SRID', linesSheet:'SR_Lines', lineIdField:'SRID', idValue: sv3RetEditId, headerData: headerData, lines: lineData });
         } else {
           await api('createDocument', { headerSheet:'SalesReturn', idField:'SRID', idPrefix:'SR', requiredFields:['CustomerID','WarehouseID'], linesSheet:'SR_Lines', lineIdField:'SRID', headerData: headerData, lines: lineData });
         }
@@ -11165,6 +11230,18 @@ async function openSalesVoucherForm(defaultType, existingId) {
 
   document.getElementById('sv3_CustomerID').addEventListener('change', toggleCashCustomer);
   toggleCashCustomer();
+  // ===== এডিটঃ নগদ/ব্যাংক গ্রহণ ফর্মে ফেরত (আগে খালি আসত — আবার সেভ করলে গ্রহণের টাকা মুছে যেত) =====
+  if (isEdit && existingDocType === 'SalesInvoice') {
+    const cr = Number(rec.CashReceivedAmount) || 0, br = Number(rec.BankReceivedAmount) || 0;
+    document.getElementById('sv3_CashReceivedAmount').value = cr ? String(cr) : '';
+    document.getElementById('sv3_CashReceivedNote').value = rec.CashReceivedNote || '';
+    document.getElementById('sv3_BankReceivedAmount').value = br ? String(br) : '';
+    document.getElementById('sv3_BankReceivedNote').value = rec.BankReceivedNote || '';
+    document.getElementById('sv3_BankAccID').value = rec.BankAccIDForReceipt || '';
+    if (br > 0) { sv3BankPopupFilled = true; updateBankRecSummary(); }
+    document.getElementById('sv3_RecTypeSelect').value = (br > 0 && !cr) ? 'Bank' : 'Cash';
+    toggleRecType();
+  }
 
   function refreshItemDropdown() {
     const groupChecked = document.getElementById('sv3_GroupCheck').checked;
@@ -11918,6 +11995,30 @@ const STOCK_CARD_TYPES = {
 function stockCardDocType(l) { const m = String(l.RefModule || l.TransactionType || '').replace(/-(RM|FG|ByProduct|In|Out)$/, ''); return STOCK_CARD_TYPES[m] ? m : ''; }
 
 /** পোস্ট করা ভাউচার আনপোস্ট (এডমিন + পাসওয়ার্ড): স্টক, পার্টি লেজার ও ক্যাশ/ব্যাংকের এন্ট্রি ফেরত, ভাউচার খসড়া */
+/** তালিকা থেকে পোস্ট করা ক্রয়/বিক্রয় ভাউচার এডিটঃ এডমিন পাসওয়ার্ডে আনপোস্ট → পুরো ভাউচার এন্ট্রি-ফর্মে → এডিট করে আবার পোস্ট */
+async function editPostedVoucherFromList(type, id) {
+  const LINK = { SalesReturn: ['SRID', 'RefSIID', 'SalesInvoice'], PurchaseReturn: ['PRetID', 'RefPIID', 'PurchaseInvoice'] };
+  if (LINK[type]) {   // জোড়া ফেরত — মূল ভাউচার ধরে একসাথে
+    const L = LINK[type];
+    try { const { data } = await supabaseClient.from(type).select('*').eq(L[0], id).maybeSingle(); if (data && data[L[1]]) { id = data[L[1]]; type = L[2]; } } catch (e) {}
+  }
+  const { data: mh } = await supabaseClient.from(STOCK_CARD_TYPES[type].table).select('Status').eq(STOCK_CARD_TYPES[type].idf, id).maybeSingle();
+  if (mh && mh.Status === 'Posted') { if (!(await unpostVoucherWithAdminAuth(type, id))) return false; }
+  else if (!(await voucherAskAdmin(t('এডিট করতে এডমিন পাসওয়ার্ড দিন:', 'Admin password to edit:')))) return false;
+  // জোড়া ফেরতও আনপোস্ট — যাতে পুরো ভাউচার একসাথে এন্ট্রি-ফর্মে যায়
+  const R = type === 'SalesInvoice' ? ['SalesReturn', 'SRID', 'RefSIID'] : type === 'PurchaseInvoice' ? ['PurchaseReturn', 'PRetID', 'RefPIID'] : null;
+  if (R) {
+    try {
+      const { data: lr } = await supabaseClient.from(R[0]).select('*').eq(R[2], id);
+      for (const r of (lr || [])) if (r.Status === 'Posted') { await reversePostedDocumentStock(R[0], r[R[1]]); await supabaseClient.from(R[0]).update({ Status: 'Draft' }).eq(R[1], r[R[1]]); }
+    } catch (e) {}
+  }
+  listCache = {};
+  if (typeof window.__refreshSalesVoucherList === 'function') { try { await window.__refreshSalesVoucherList(); } catch (e) {} }
+  if (typeof window.__refreshPurchaseVoucherList === 'function') { try { await window.__refreshPurchaseVoucherList(); } catch (e) {} }
+  if (/^Sales/.test(type)) await openSalesVoucherForm(type, id); else await openPurchaseVoucherForm(type, id);
+  return true;
+}
 async function unpostVoucherWithAdminAuth(docType, docId) {
   const cfg = STOCK_CARD_TYPES[docType]; if (!cfg) return false;
   if (!currentUser || currentUser.RoleID !== 'ROLE-ADMIN') { showToast(t('শুধু এডমিনই পোস্ট করা ভাউচার এডিট করতে পারবেন।', 'Only an Admin can edit a posted voucher.'), 'error'); return false; }
