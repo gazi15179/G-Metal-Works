@@ -477,7 +477,7 @@ const MODULES = [
   {key:'accounts', bn:'হিসাব', en:'Accounts', sub:[
     {key:'coa', bn:'হিসাবের তালিকা', en:'Chart of Accounts'},{key:'bankCash', bn:'ব্যাংক ও ক্যাশ অ্যাকাউন্ট', en:'Bank & Cash Accounts'},
     {key:'jv', bn:'জার্নাল ভাউচার', en:'Journal Voucher'},{key:'cv', bn:'কনট্রা ভাউচার', en:'Contra Voucher'},
-    {key:'pv', bn:'পেমেন্ট ভাউচার', en:'Payment Voucher'},{key:'rv', bn:'রিসিট ভাউচার', en:'Receipt Voucher'},{key:'ownerCapital', bn:'মালিকের মূলধন', en:'Owner Capital'},{key:'fixedAssets', bn:'স্থায়ী সম্পদ', en:'Fixed Assets'},
+    {key:'pv', bn:'পেমেন্ট ভাউচার', en:'Payment Voucher'},{key:'rv', bn:'রিসিট ভাউচার', en:'Receipt Voucher'},{key:'ownerCapital', bn:'মালিকের মূলধন', en:'Owner Capital'},{key:'assetPurchase', bn:'এ্যাসেট ক্রয়', en:'Asset Purchase'},{key:'assetSale', bn:'এ্যাসেট বিক্রয়', en:'Asset Sale'},{key:'fixedAssets', bn:'এ্যাসেট রেজিস্টার', en:'Asset Register'},
     {key:'bankBook', bn:'ব্যাংক ও নগদ বই', en:'Bank & Cash Book'},{key:'trialBalance', bn:'ট্রায়াল ব্যালেন্স', en:'Trial Balance'},
   ]},
   {key:'hr', bn:'এইচআর ও পে-রোল', en:'HR & Payroll', sub:[
@@ -504,7 +504,7 @@ const READY_PAGES = ['dashboard','companyProfile','userManagement','roles','acti
   'stockOverview','goodsReceive','materialIssue','stockTransfer','stockAdjust','stockLedger',
   'so','dc','si','sr','custLedger',
   'bom','processing','processingOld','prodDaily','procCosting','pOrder','pmi','fgr',
-  'coa','bankCash','jv','cv','pv','rv','ownerCapital','fixedAssets','bankBook','trialBalance',
+  'coa','bankCash','jv','cv','pv','rv','ownerCapital','assetPurchase','assetSale','fixedAssets','bankBook','trialBalance',
   'empCategories','empInfo','workRoles','sizeRates','attendance','dailyProduction','leave','payroll','salaryIssue','payHeads','hrReports','payslip',
   'invReport','salesReport','purReport','prodReport','finReport',
   'general','langSettings','companySettings','backup'];
@@ -1435,6 +1435,8 @@ async function navigateTo(pageKey, moduleLabel, pageLabel) {
     else if (SIMPLE_VOUCHER_CONFIGS[pageKey]) await renderSimpleVoucherPage(content, SIMPLE_VOUCHER_CONFIGS[pageKey]);
     else if (pageKey === 'ownerCapital') await renderOwnerCapitalPage(content);
     else if (pageKey === 'fixedAssets') await renderFixedAssetPage(content);
+    else if (pageKey === 'assetPurchase') await renderAssetPurchasePage(content);
+    else if (pageKey === 'assetSale') await renderAssetSalePage(content);
     else if (pageKey === 'bankBook') await renderBankCashBook(content);
     else if (pageKey === 'trialBalance') await renderTrialBalance(content);
     else if (DOC_CONFIGS[pageKey]) await renderDocumentListPage(content, DOC_CONFIGS[pageKey]);
@@ -3848,81 +3850,507 @@ async function renderOwnerCapitalPage(content) {
   await load();
 }
 
-/* ---------- স্থায়ী সম্পদ ---------- */
-function faDepreciation(r, toIso) {
-  const cost = Number(r.Cost) || 0, rate = Number(r.DepRate) || 0;
-  if (!(cost > 0) || !(rate > 0) || !r.Date) return 0;
-  const days = (new Date(toIso + 'T00:00:00') - new Date(String(r.Date).slice(0, 10) + 'T00:00:00')) / 86400000;
-  if (!(days > 0)) return 0;
-  return Math.min(cost, cost * rate / 100 * (days / 365.25));   // সরলরেখা পদ্ধতিঃ প্রতি বছর ক্রয়মূল্যের নির্দিষ্ট %
+/* ============================================================
+   এ্যাসেট (স্থায়ী সম্পদ) — খাত · এ্যাসেট ক্রয় · এ্যাসেট বিক্রয় · এ্যাসেট রেজিস্টার
+   • স্টক বা আইটেম তালিকায় যায় না; পার্টি লেজার ও ক্যাশ/ব্যাংক বইয়ে যায় (ক্রয়/বিক্রয় ভাউচারের একই নিয়মে)
+     ক্রয়ঃ পার্টির খাতায় মোট টাকা ক্রেডিট (পাওনা), প্রদান ডেবিট; ক্যাশ/ব্যাংক থেকে প্রদান
+     বিক্রয়ঃ পার্টির খাতায় মোট টাকা ডেবিট (পাবো), গ্রহণ ক্রেডিট; ক্যাশ/ব্যাংকে গ্রহণ
+   • আংশিক বিক্রিঃ পরিমাণের অনুপাতে ক্রয়মূল্য ও অবচয়; লাভ/লোকসান = বিক্রয়মূল্য − বর্তমান মূল্য
+   ============================================================ */
+const ASSET_DEFAULT_CATS = [['স্পিনার মেশিন', 10], ['মটর', 10], ['টুলস', 20], ['ফ্যান', 15], ['মটরসাইকেল', 15], ['ডাইস', 20], ['জমি', 0], ['ভবন', 5], ['আসবাব', 10], ['অন্যান্য', 10]];
+async function assetCats() {
+  try {
+    const { data, error } = await supabaseClient.from('AssetCategory').select('*');
+    if (error) throw error;
+    return (data || []).filter(function (c) { return c.Status !== 'Deleted'; }).sort(function (a, b) { return (Number(a.SortOrder) || 0) - (Number(b.SortOrder) || 0) || String(a.Name).localeCompare(String(b.Name), 'bn'); });
+  } catch (e) { return ASSET_DEFAULT_CATS.map(function (c, i) { return { CatID: c[0], Name: c[0], DepRate: c[1], SortOrder: i, __fallback: true }; }); }
 }
-async function renderFixedAssetPage(content) {
-  const cfg = OWN_CFG.asset;
-  const [accounts, fy] = await Promise.all([cachedList('BankCashAccounts'), getFiscalYearStart()]);
+function faYears(fromIso, toIso) { const d = (new Date(String(toIso).slice(0, 10) + 'T00:00:00') - new Date(String(fromIso).slice(0, 10) + 'T00:00:00')) / 86400000; return d > 0 ? d / 365.25 : 0; }
+function faDepOf(cost, rate, fromIso, toIso) { cost = Number(cost) || 0; rate = Number(rate) || 0; if (!(cost > 0) || !(rate > 0) || !fromIso) return 0; return Math.min(cost, cost * rate / 100 * faYears(fromIso, toIso)); }
+/** রেজিস্টারের একটা সম্পদ — বাকি পরিমাণ, বাকি অংশের ক্রয়মূল্য, অবচয়, বর্তমান মূল্য (তারিখে) */
+function faState(r, toIso) {
+  const qty = Number(r.Qty) || 1, sold = Math.min(qty, Number(r.QtySold) || 0), rem = qty - sold;
+  const cost = (Number(r.Cost) || 0) * rem / qty, dep = faDepOf(cost, r.DepRate, r.Date, toIso);
+  return { qty: qty, sold: sold, rem: rem, cost: cost, dep: dep, book: cost - dep, status: sold <= 0 ? 'active' : (rem > 1e-9 ? 'partial' : 'sold') };
+}
+async function assetPartyLists() {
+  delete listCache.Customers; delete listCache.Suppliers;
+  const [cs, ss] = await Promise.all([cachedList('Customers'), cachedList('Suppliers')]);
+  const nm = function (p) { return (p.CompanyName || p.Name || '') + (p.Zone ? ' — ' + p.Zone : ''); };
+  return { customers: cs.filter(function (c) { return c.Status !== 'Deleted' && c.CustomerID !== 'CUS-CASH'; }).map(function (c) { return { v: 'Customer|' + c.CustomerID, label: nm(c) }; }),
+           suppliers: ss.filter(function (s) { return s.Status !== 'Deleted' && s.SupplierID !== 'SUP-CASH'; }).map(function (s) { return { v: 'Supplier|' + s.SupplierID, label: nm(s) }; }) };
+}
+async function assetPartyBalance(type, id) {
+  if (!type || !id) return '';
+  try { const { data } = await supabaseClient.from('PartyLedger').select('Balance').eq('PartyType', type).eq('PartyID', id).order('id', { ascending: false }).limit(1); return formatAmountDrCr(data && data[0] ? Number(data[0].Balance) || 0 : 0, true); } catch (e) { return ''; }
+}
+const ASSET_VCFG = {
+  AssetPurchase: { table: 'AssetPurchase', idf: 'APID', lines: 'AssetPurchase_Lines', bn: 'এ্যাসেট ক্রয়', page: 'assetPurchase' },
+  AssetSale: { table: 'AssetSale', idf: 'ASID', lines: 'AssetSale_Lines', bn: 'এ্যাসেট বিক্রয়', page: 'assetSale' }
+};
+async function assetLoad(base, id) {
+  const C = ASSET_VCFG[base];
+  const [h, l] = await Promise.all([supabaseClient.from(C.table).select('*').eq(C.idf, id).maybeSingle(), supabaseClient.from(C.lines).select('*').eq(C.idf, id)]);
+  if (h.error) throw new Error(h.error.message);
+  if (!h.data) throw new Error(t('ভাউচার পাওয়া যায়নি।', 'Voucher not found.'));
+  return { h: h.data, lines: ((l && l.data) || []).sort(function (a, b) { return (Number(a.id) || 0) - (Number(b.id) || 0); }) };
+}
+/** এ্যাসেট ক্রয় পোস্টঃ প্রতিটা লাইন রেজিস্টারে; পার্টির খাতায় মোট ক্রেডিট ও প্রদান ডেবিট; ক্যাশ/ব্যাংক থেকে প্রদান */
+async function postAssetPurchase(id) {
+  const { h, lines } = await assetLoad('AssetPurchase', id);
+  if (h.Status === 'Posted') throw new Error(t('আগেই পোস্ট করা।', 'Already posted.'));
+  if (!lines.length) throw new Error(t('কোনো লাইন নেই।', 'No lines.'));
+  const total = Number(h.TotalAmount) || 0, paid = Number(h.PaidAmount) || 0;
+  if (!h.PartyID && Math.abs(total - paid) > 0.005) throw new Error(t('পার্টি ছাড়া (নগদ) কিনলে পুরো টাকাই প্রদান করতে হবে — বাকি রাখতে পার্টি বাছাই করুন।', 'Without a party the full amount must be paid.'));
+  if (paid > 0 && !h.BankCashAccID) throw new Error(t('প্রদানের ক্যাশ/ব্যাংক বাছাই করুন।', 'Select the cash/bank account.'));
+  const cats = await assetCats();
+  for (const l of lines) {
+    const c = cats.find(function (x) { return x.CatID === l.CategoryID; }) || {};
+    const { error } = await supabaseClient.from('FixedAsset').insert({ Date: h.Date, CategoryID: c.__fallback ? null : (l.CategoryID || null), Category: c.Name || l.CategoryName || '', AssetName: l.Description || '', Qty: Number(l.Qty) || 1, QtySold: 0,
+      Cost: Number(l.Amount) || 0, DepRate: Number(l.DepRate) || 0, BankCashAccID: null, Note: t('এ্যাসেট ক্রয় ', 'Asset purchase ') + id, Status: 'Posted', SourceID: id, SourceLineID: String(l.id || ''), CreatedBy: (currentUser && currentUser.Email) || '' });
+    if (error) throw new Error(error.message);
+  }
+  if (h.PartyType && h.PartyID) {
+    await postPartyLedgerEntry(h.PartyType, h.PartyID, h.Date, 'AssetPurchase', id, 0, total);
+    if (paid > 0) await postPartyLedgerEntry(h.PartyType, h.PartyID, h.Date, 'AssetPurchase-Payment', id, paid, 0);
+  }
+  if (paid > 0) await postBankCashBookEntry(h.BankCashAccID, h.Date, 'AssetPurchase', id, 0, paid);
+  const { error } = await supabaseClient.from('AssetPurchase').update({ Status: 'Posted' }).eq('APID', id); if (error) throw new Error(error.message);
+}
+async function unpostAssetPurchase(id) {
+  const { data: regs } = await supabaseClient.from('FixedAsset').select('*').eq('SourceID', id);
+  const soldSome = (regs || []).filter(function (r) { return (Number(r.QtySold) || 0) > 0; });
+  if (soldSome.length) throw new Error(t('এই ক্রয়ের সম্পদ থেকে বিক্রি হয়েছে (', 'Assets from this purchase were sold (') + soldSome.map(function (r) { return r.AssetID; }).join(', ') + t(') — আগে সেই বিক্রয় ভাউচার বাতিল করুন।', ') — cancel that sale first.'));
+  for (const r of (regs || [])) await supabaseClient.from('FixedAsset').delete().eq('AssetID', r.AssetID);
+  await reversePostedDocumentStock('AssetPurchase', id);   // পার্টি লেজার ও ক্যাশ/ব্যাংক বইয়ের এন্ট্রি মুছে ব্যালান্স ঠিক
+  const { error } = await supabaseClient.from('AssetPurchase').update({ Status: 'Draft' }).eq('APID', id); if (error) throw new Error(error.message);
+}
+/** বিক্রির দিনে এক লাইনের হিসাবঃ এই অংশের ক্রয়মূল্য, অবচয়, বর্তমান মূল্য, লাভ/লোকসান */
+function assetSaleCalc(r, qty, amount, dateIso) {
+  const totalQty = Number(r.Qty) || 1, cost = (Number(r.Cost) || 0) * qty / totalQty, dep = faDepOf(cost, r.DepRate, r.Date, dateIso), book = cost - dep;
+  return { cost: cost, dep: dep, book: book, gain: (Number(amount) || 0) - book };
+}
+/** এ্যাসেট বিক্রয় পোস্টঃ রেজিস্টারে বিক্রিত পরিমাণ; পার্টির খাতায় মোট ডেবিট ও গ্রহণ ক্রেডিট; ক্যাশ/ব্যাংকে গ্রহণ */
+async function postAssetSale(id) {
+  const { h, lines } = await assetLoad('AssetSale', id);
+  if (h.Status === 'Posted') throw new Error(t('আগেই পোস্ট করা।', 'Already posted.'));
+  if (!lines.length) throw new Error(t('কোনো লাইন নেই।', 'No lines.'));
+  const total = Number(h.TotalAmount) || 0, rec = Number(h.ReceivedAmount) || 0;
+  if (!h.PartyID && Math.abs(total - rec) > 0.005) throw new Error(t('পার্টি ছাড়া (নগদ) বেচলে পুরো টাকাই গ্রহণ করতে হবে — বাকি রাখতে পার্টি বাছাই করুন।', 'Without a party the full amount must be received.'));
+  if (rec > 0 && !h.BankCashAccID) throw new Error(t('গ্রহণের ক্যাশ/ব্যাংক বাছাই করুন।', 'Select the cash/bank account.'));
+  const { data: regs } = await supabaseClient.from('FixedAsset').select('*').in('AssetID', lines.map(function (l) { return l.AssetID; }));
+  const need = {}; lines.forEach(function (l) { need[l.AssetID] = (need[l.AssetID] || 0) + (Number(l.Qty) || 0); });
+  for (const aid of Object.keys(need)) {
+    const r = (regs || []).find(function (x) { return x.AssetID === aid; });
+    if (!r) throw new Error(t('সম্পদ পাওয়া যায়নি: ', 'Asset not found: ') + aid);
+    const rem = (Number(r.Qty) || 1) - (Number(r.QtySold) || 0);
+    if (need[aid] > rem + 1e-9) throw new Error(aid + t(' — বাকি আছে ', ' — only ') + (+rem.toFixed(3)) + t(', বিক্রি ধরা হয়েছে ', ' left, selling ') + need[aid]);
+  }
+  let tBook = 0, tGain = 0;
+  for (const l of lines) {
+    const r = regs.find(function (x) { return x.AssetID === l.AssetID; });
+    const c = assetSaleCalc(r, Number(l.Qty) || 0, l.Amount, h.Date);
+    tBook += c.book; tGain += c.gain;
+    await supabaseClient.from('AssetSale_Lines').update({ CostPortion: c.cost, DepPortion: c.dep, BookValue: c.book, GainLoss: c.gain }).eq('id', l.id);
+  }
+  for (const aid of Object.keys(need)) {
+    const r = regs.find(function (x) { return x.AssetID === aid; });
+    const { error } = await supabaseClient.from('FixedAsset').update({ QtySold: (Number(r.QtySold) || 0) + need[aid] }).eq('AssetID', aid); if (error) throw new Error(error.message);
+  }
+  if (h.PartyType && h.PartyID) {
+    await postPartyLedgerEntry(h.PartyType, h.PartyID, h.Date, 'AssetSale', id, total, 0);
+    if (rec > 0) await postPartyLedgerEntry(h.PartyType, h.PartyID, h.Date, 'AssetSale-Receipt', id, 0, rec);
+  }
+  if (rec > 0) await postBankCashBookEntry(h.BankCashAccID, h.Date, 'AssetSale', id, rec, 0);
+  const { error } = await supabaseClient.from('AssetSale').update({ Status: 'Posted', BookValue: tBook, GainLoss: tGain }).eq('ASID', id); if (error) throw new Error(error.message);
+}
+async function unpostAssetSale(id) {
+  const { lines } = await assetLoad('AssetSale', id);
+  const back = {}; lines.forEach(function (l) { back[l.AssetID] = (back[l.AssetID] || 0) + (Number(l.Qty) || 0); });
+  const { data: regs } = await supabaseClient.from('FixedAsset').select('*').in('AssetID', Object.keys(back));
+  for (const r of (regs || [])) await supabaseClient.from('FixedAsset').update({ QtySold: Math.max(0, (Number(r.QtySold) || 0) - back[r.AssetID]) }).eq('AssetID', r.AssetID);
+  await reversePostedDocumentStock('AssetSale', id);
+  const { error } = await supabaseClient.from('AssetSale').update({ Status: 'Draft' }).eq('ASID', id); if (error) throw new Error(error.message);
+}
+async function assetVoucherPost(base, id) { if (!confirm(t('পোস্ট করবেনঃ ', 'Post: ') + id + '?')) return false; if (base === 'AssetPurchase') await postAssetPurchase(id); else await postAssetSale(id); listCache = {}; showToast(t('পোস্ট হয়েছে ✅ ', 'Posted ✅ ') + id, 'success'); return true; }
+async function assetVoucherUnpost(base, id) {
+  if (!(await voucherAskAdmin(t('পোস্ট করা ভাউচার বদলাতে এডমিন পাসওয়ার্ড দিন:', 'Admin password to change a posted voucher:')))) return false;
+  if (base === 'AssetPurchase') await unpostAssetPurchase(id); else await unpostAssetSale(id);
+  listCache = {}; return true;
+}
+async function assetVoucherDelete(base, id) {
+  const C = ASSET_VCFG[base];
+  const { data: h } = await supabaseClient.from(C.table).select('*').eq(C.idf, id).maybeSingle();
+  if (h && h.Status === 'Posted') { if (!(await assetVoucherUnpost(base, id))) return false; }
+  if (!confirm(t('মুছবেনঃ ', 'Delete: ') + id + t('? ফেরানো যাবে না।', '? Cannot be undone.'))) return false;
+  if (!h) { await voucherForceClean(base, id); showToast(t('লেজার থেকে মুছে ফেলা হয়েছে ✅', 'Removed from ledgers ✅'), 'success'); return true; }
+  await supabaseClient.from(C.lines).delete().eq(C.idf, id);
+  const { error } = await supabaseClient.from(C.table).delete().eq(C.idf, id); if (error) throw new Error(error.message);
+  listCache = {}; showToast(t('মুছে ফেলা হয়েছে ✅ ', 'Deleted ✅ ') + id, 'success'); return true;
+}
+async function assetVoucherPrint(base, id) {
+  const { h, lines } = await assetLoad(base, id);
+  let company = null; try { company = await api('getSingleton', { sheet: 'CompanyProfile' }); } catch (e) {}
+  const [cats, accs] = await Promise.all([assetCats(), cachedList('BankCashAccounts')]);
+  const catName = function (cid) { const c = cats.find(function (x) { return x.CatID === cid; }); return c ? c.Name : (cid || ''); };
+  const acc = (accs.find(function (a) { return a.BankAccID === h.BankCashAccID; }) || {}).AccountName || '—';
+  const isP = base === 'AssetPurchase';
+  let regMap = {};
+  if (!isP) { const { data } = await supabaseClient.from('FixedAsset').select('*').in('AssetID', lines.map(function (l) { return l.AssetID; })); (data || []).forEach(function (r) { regMap[r.AssetID] = r; }); }
+  const M = function (v) { return (Number(v) || 0).toFixed(2); };
+  const rowsHtml = lines.map(function (l, i) {
+    if (isP) return `<tr><td>${i + 1}</td><td style="text-align:left;">${escapeHtml(catName(l.CategoryID))}</td><td style="text-align:left;">${escapeHtml(l.Description || '')}</td><td>${+Number(l.Qty || 0).toFixed(3)}</td><td class="r">${M(l.Rate)}</td><td class="r">${M(l.Amount)}</td></tr>`;
+    const r = regMap[l.AssetID] || {}, c = h.Status === 'Posted' ? { book: Number(l.BookValue) || 0, gain: Number(l.GainLoss) || 0 } : assetSaleCalc(r, Number(l.Qty) || 0, l.Amount, h.Date);
+    return `<tr><td>${i + 1}</td><td style="text-align:left;">${escapeHtml(l.AssetID)}</td><td style="text-align:left;">${escapeHtml((r.Category ? r.Category + ' — ' : '') + (r.AssetName || ''))}</td><td>${+Number(l.Qty || 0).toFixed(3)}</td><td class="r">${M(l.Amount)}</td><td class="r">${M(c.book)}</td><td class="r">${c.gain < 0 ? '−' : ''}${M(Math.abs(c.gain))}</td></tr>`;
+  }).join('');
+  const total = Number(h.TotalAmount) || 0, money = isP ? Number(h.PaidAmount) || 0 : Number(h.ReceivedAmount) || 0;
+  const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${escapeHtml(ASSET_VCFG[base].bn)} — ${escapeHtml(id)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Anek+Bangla:wght@400;600;700&display=swap" rel="stylesheet">
+<style id="pg">@page{size:A5 portrait;margin:8mm;}</style>
+<style>body{font-family:'Anek Bangla',sans-serif;color:#111;width:148mm;max-width:100%;margin:14px auto;padding:0 6px;font-size:11.5px;box-sizing:border-box;} body.a5l{width:210mm;}
+  .toolbar{margin-bottom:10px;display:flex;gap:6px;} .toolbar button{padding:8px 12px;border-radius:8px;border:1px solid #c9ced6;background:#fff;font-weight:700;cursor:pointer;font-family:inherit;} .toolbar .p{background:#1a2029;color:#f2a33c;border-color:#1a2029;}
+  .head{border:1.5px solid #1a2029;border-radius:10px;padding:8px 12px;text-align:center;} .head h1{margin:0;font-size:19px;} .head .sub{font-size:11px;color:#444;} .badge{display:inline-block;margin-top:6px;background:#1a2029;color:#fff;border-radius:7px;padding:3px 14px;font-weight:700;}
+  .meta{display:grid;grid-template-columns:1fr 1fr;gap:3px 12px;border:1px solid #c9ced6;border-radius:8px;padding:7px 10px;margin:8px 0;}
+  table{width:100%;border-collapse:collapse;} th,td{border:1px solid #9aa2ad;padding:4px 6px;text-align:center;} th{background:#eef0f3;} td.r{text-align:right;}
+  .sum{margin-top:8px;margin-left:auto;width:62%;} .sum td{text-align:right;} .sum td.k{text-align:left;background:#f6f7f9;}
+  .signs{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:46px;text-align:center;font-size:11px;} .signs div{border-top:1px solid #333;padding-top:4px;}
+  @media print{.toolbar{display:none;}}</style></head><body>
+  <div class="toolbar"><button class="p" onclick="window.print()">🖨️ প্রিন্ট</button><button onclick="document.getElementById('pg').textContent='@page{size:A5 portrait;margin:8mm;}';document.body.classList.remove('a5l');">📄 A5 খাড়া</button><button onclick="document.getElementById('pg').textContent='@page{size:A5 landscape;margin:8mm;}';document.body.classList.add('a5l');">📄 A5 আড়াআড়ি</button></div>
+  <div class="head"><h1>${escapeHtml((company && (company.CompanyName || company.Name)) || 'জি মেটাল ওয়ার্কস')}</h1><div class="sub">${escapeHtml((company && company.Address) || '')}</div><div class="badge">${escapeHtml(ASSET_VCFG[base].bn)} ভাউচার${h.Status === 'Posted' ? '' : ' (খসড়া)'}</div></div>
+  <div class="meta"><div>ভাউচার নংঃ <b>${escapeHtml(id)}</b></div><div style="text-align:right;">তারিখঃ <b>${escapeHtml(formatShortDate(h.Date))}</b></div><div>${isP ? 'বিক্রেতা' : 'ক্রেতা'}ঃ <b>${escapeHtml(h.PartyName || 'নগদ')}</b></div><div style="text-align:right;">${isP ? 'প্রদান' : 'গ্রহণ'}ঃ ${escapeHtml(acc)}</div></div>
+  <table><thead><tr>${isP ? '<th>ক্রঃ</th><th>খাত</th><th>বিবরণ</th><th>পরিমাণ</th><th>দর</th><th>মূল্য</th>' : '<th>ক্রঃ</th><th>নং</th><th>সম্পদ</th><th>পরিমাণ</th><th>বিক্রয়মূল্য</th><th>বর্তমান মূল্য</th><th>লাভ/লোকসান</th>'}</tr></thead><tbody>${rowsHtml}</tbody></table>
+  <table class="sum"><tr><td class="k">মোট</td><td><b>৳${M(total)}</b></td></tr><tr><td class="k">${isP ? 'প্রদান' : 'গ্রহণ'}</td><td>৳${M(money)}</td></tr><tr><td class="k">বাকি</td><td><b>৳${M(total - money)}</b></td></tr>${!isP && h.Status === 'Posted' ? `<tr><td class="k">লাভ/লোকসান</td><td><b>${(Number(h.GainLoss) || 0) < 0 ? '−' : ''}৳${M(Math.abs(Number(h.GainLoss) || 0))}</b></td></tr>` : ''}</table>
+  ${h.Note ? `<p>নোটঃ ${escapeHtml(h.Note)}</p>` : ''}
+  <div class="signs"><div>${isP ? 'বিক্রেতার স্বাঃ' : 'ক্রেতার স্বাঃ'}</div><div>হিসাবরক্ষক</div><div>অনুমোদনকারী</div></div>
+</body></html>`;
+  const w = window.open('', '_blank'); if (!w) { showToast(t('পপ-আপ ব্লক হয়েছে — এই সাইটের জন্য পপ-আপ অনুমতি দিন।', 'Pop-up blocked.'), 'error'); return; }
+  w.document.write(html); w.document.close();
+}
+
+/* ---------- এ্যাসেট ক্রয় / এ্যাসেট বিক্রয় ভাউচার (একই কাঠামো) ---------- */
+async function renderAssetVoucherPage(content, base) {
+  const isP = base === 'AssetPurchase', C = ASSET_VCFG[base];
+  const [cats, parties, accounts, fy] = await Promise.all([assetCats(), assetPartyLists(), cachedList('BankCashAccounts'), getFiscalYearStart()]);
   const accs = accounts.filter(function (a) { return a.Status !== 'Deleted'; });
-  const accName = function (id) { const a = accs.find(function (x) { return x.BankAccID === id; }); return a ? a.AccountName : (id ? id : t('বাকি/অন্যভাবে', 'other')); };
-  let editId = null, rows = [];
-  content.innerHTML = `<style>${VOUCHER_GRID_CSS}${OWN_CSS}</style>
-    <div class="page-head"><div><h1>${t('স্থায়ী সম্পদ', 'Fixed Assets')}</h1><p>${t('মেশিন, ডাইস, জমি, ভবন, যানবাহন কেনা — ক্যাশ/ব্যাংক থেকে প্রদান; বার্ষিক অবচয় ধরে বর্তমান মূল্য', 'Machines, dies, land, buildings, vehicles — paid from cash/bank; book value after yearly depreciation')}</p></div></div>
-    <div class="own-cards" id="fa_Cards"></div>
-    <div class="panel"><h4 id="fa_FormTitle" style="margin:0 0 10px;font-size:14px;">${t('নতুন সম্পদ', 'New asset')}</h4>
-      <div class="vg2" id="fa_Form">
-        <div class="field"><label>${t('ক্রয়ের তারিখ', 'Purchase date')}</label><input type="date" id="fa_Date" value="${ownToday()}"></div>
-        <div class="field"><label>${t('ধরন', 'Category')}</label><select id="fa_Cat">${FA_CATEGORIES.map(function (c) { return `<option value="${attr(c[0])}">${escapeHtml(c[0])}</option>`; }).join('')}</select></div>
-        <div class="field vfull"><label>${t('সম্পদের নাম / বিবরণ', 'Asset name / description')}</label><input id="fa_Name" autocomplete="off" placeholder="${attr(t('যেমন: ২০ টন প্রেস মেশিন, R-3 ডাইস সেট', 'e.g. 20-ton press machine'))}"></div>
-        <div class="field"><label>${t('পরিমাণ', 'Qty')}</label><input id="fa_Qty" type="number" step="any" min="0" inputmode="decimal" value="1"></div>
-        <div class="field"><label>${t('ক্রয়মূল্য (মোট)', 'Cost (total)')}</label><input id="fa_Cost" type="number" step="any" min="0" inputmode="decimal"></div>
-        <div class="field"><label>${t('প্রদান — ক্যাশ/ব্যাংক', 'Paid from')}</label><select id="fa_Acc"><option value="">${t('বাকি/অন্যভাবে (ক্যাশ বইয়ে যাবে না)', 'Credit/other (not in cash book)')}</option>${accs.map(function (a) { return `<option value="${attr(a.BankAccID)}">${escapeHtml(a.AccountName)}</option>`; }).join('')}</select></div>
-        <div class="field"><label>${t('বার্ষিক অবচয় (%)', 'Yearly depreciation (%)')}</label><input id="fa_Dep" type="number" step="any" min="0" inputmode="decimal"></div>
-        <div class="field vfull"><label>${t('নোট', 'Note')}</label><input id="fa_Note" autocomplete="off"></div>
+  let regs = [];
+  const loadRegs = async function () { try { const { data } = await supabaseClient.from('FixedAsset').select('*'); regs = (data || []).filter(function (r) { return r.Status === 'Posted'; }); } catch (e) { regs = []; } };
+  if (!isP) await loadRegs();
+  let editId = null, lines = [], lineEdit = -1, vlist = [];
+  const opt = function (arr) { return arr.map(function (p) { return `<option value="${attr(p.v)}">${escapeHtml(p.label)}</option>`; }).join(''); };
+  const partyOpts = `<option value="">${t('নগদ — পার্টি ছাড়া', 'Cash — no party')}</option>` + (isP
+    ? `<optgroup label="${attr(t('সাপ্লায়ার', 'Suppliers'))}">${opt(parties.suppliers)}</optgroup><optgroup label="${attr(t('গ্রাহক', 'Customers'))}">${opt(parties.customers)}</optgroup>`
+    : `<optgroup label="${attr(t('গ্রাহক', 'Customers'))}">${opt(parties.customers)}</optgroup><optgroup label="${attr(t('সাপ্লায়ার', 'Suppliers'))}">${opt(parties.suppliers)}</optgroup>`);
+  const accOpts = `<option value="">${t('— (বাকি)', '— (on credit)')}</option>` + accs.map(function (a) { return `<option value="${attr(a.BankAccID)}">${escapeHtml(a.AccountName)}</option>`; }).join('');
+  const lineFields = isP
+    ? `<div class="field"><label>${t('খাত', 'Category')}</label><select id="av_Cat">${cats.map(function (c) { return `<option value="${attr(c.CatID)}">${escapeHtml(c.Name)}</option>`; }).join('')}</select></div>
+       <div class="field"><label>${t('বিবরণ', 'Description')}</label><input id="av_Desc" autocomplete="off" placeholder="${attr(t('যেমনঃ মটর ৫ HP', 'e.g. Motor 5 HP'))}"></div>
+       <div class="field"><label>${t('পরিমাণ', 'Qty')}</label><input id="av_Qty" type="number" step="any" min="0" inputmode="decimal" value="1"></div>
+       <div class="field"><label>${t('দর (প্রতিটি)', 'Rate (each)')}</label><input id="av_Rate" type="number" step="any" min="0" inputmode="decimal"></div>
+       <div class="field"><label>${t('মূল্য', 'Amount')}</label><input id="av_Amt" readonly class="vro vbold"></div>
+       <div class="field"><label>${t('বার্ষিক অবচয় (%)', 'Depreciation (%/yr)')}</label><input id="av_Dep" type="number" step="any" min="0" inputmode="decimal"></div>`
+    : `<div class="field vfull"><label>${t('সম্পদ (রেজিস্টার থেকে)', 'Asset (from register)')}</label><select id="av_Asset"></select></div>
+       <div class="field"><label>${t('পরিমাণ', 'Qty')}</label><input id="av_Qty" type="number" step="any" min="0" inputmode="decimal"></div>
+       <div class="field"><label>${t('দর (প্রতিটি)', 'Rate (each)')}</label><input id="av_Rate" type="number" step="any" min="0" inputmode="decimal"></div>
+       <div class="field"><label>${t('বিক্রয়মূল্য', 'Sale amount')}</label><input id="av_Amt" readonly class="vro vbold"></div>
+       <div class="field"><label>${t('বর্তমান মূল্য (এই অংশ)', 'Book value (this part)')}</label><input id="av_Book" readonly class="vro"></div>
+       <div class="field vfull"><label>${t('লাভ / লোকসান', 'Gain / loss')}</label><input id="av_Gain" readonly class="vro vbold"></div>`;
+  content.innerHTML = `<style>${VOUCHER_GRID_CSS}${OWN_CSS} .av-ln{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px;} .av-ln th,.av-ln td{border-bottom:1px solid var(--border);padding:4px 6px;text-align:center;} .av-ln th{background:var(--bg);font-size:11px;} .av-ln td.l{text-align:left;} .av-ln td.r{text-align:right;} .av-gain{color:#15803d;} .av-loss{color:#b42318;}</style>
+    <div class="page-head"><div><h1>${t(C.bn + ' ভাউচার', C.bn)}</h1><p>${isP ? t('মেশিন, মটর, টুলস, ফ্যান, মটরসাইকেল কেনা — রেজিস্টারে ওঠে; স্টকে যায় না। বাকিতে কিনলে পার্টির খাতায় পাওনা।', 'Buy machines, motors, tools — goes to the register, not stock.') : t('রেজিস্টার থেকে সম্পদ বেচা (আংশিক পরিমাণও) — বর্তমান মূল্য ও লাভ/লোকসান নিজে হিসাব হয়।', 'Sell assets from the register (partial qty too) — book value and gain/loss are calculated.')}</p></div></div>
+    <div class="panel"><h4 id="av_Title" style="margin:0 0 10px;font-size:14px;">${t('নতুন ভাউচার', 'New voucher')}</h4>
+      <div id="av_Form">
+        <div class="vg2">
+          <div class="field"><label>${t('তারিখ', 'Date')}</label><input type="date" id="av_Date" value="${ownToday()}"></div>
+          <div class="field"><label>${isP ? t('বিক্রেতা (পার্টি)', 'Seller (party)') : t('ক্রেতা (পার্টি)', 'Buyer (party)')}</label><select id="av_Party">${partyOpts}</select></div>
+          <div class="field"><label>${t('নাম (নগদে)', 'Name (cash)')}</label><input id="av_PName" autocomplete="off"></div>
+          <div class="field"><label>${t('পার্টি ব্যালান্স', 'Party balance')}</label><input id="av_PBal" readonly class="vro"></div>
+        </div>
+        <div class="vg2" style="border-top:1px solid var(--border);padding-top:10px;margin-top:4px;">${lineFields}
+          <label class="vbtn vfull" id="av_AddLine" role="button" tabindex="0" style="cursor:pointer;justify-content:center;">＋ ${t('লাইন যোগ', 'Add line')}</label>
+        </div>
+        <div style="overflow-x:auto;"><table class="av-ln" id="av_Lines"></table></div>
+        <div class="vg2" style="border-top:1px solid var(--border);padding-top:10px;margin-top:8px;">
+          <div class="field"><label>${t('মোট', 'Total')}</label><input id="av_Total" readonly class="vro vbold"></div>
+          <div class="field"><label>${isP ? t('প্রদান (টাকা)', 'Paid') : t('গ্রহণ (টাকা)', 'Received')}</label><input id="av_Paid" type="number" step="any" min="0" inputmode="decimal"></div>
+          <div class="field"><label>${t('ক্যাশ/ব্যাংক', 'Cash/Bank')}</label><select id="av_Acc">${accOpts}</select></div>
+          <div class="field"><label>${t('বাকি', 'Due')}</label><input id="av_Due" readonly class="vro vbold"></div>
+          <div class="field vfull"><label>${t('নোট', 'Note')}</label><input id="av_Note" autocomplete="off"></div>
+        </div>
       </div>
-      <div style="font-size:11.5px;color:var(--text-muted);margin-top:4px;">${t('অবচয় = ক্রয়মূল্য × বার্ষিক % × কত বছর হলো (সরলরেখা পদ্ধতি); জমির অবচয় সাধারণত ০।', 'Depreciation = cost × yearly % × years (straight line); land usually 0.')}</div>
-      <div class="own-btns"><button type="button" class="btn btn-outline" id="fa_SaveBtn">💾 ${t('সেভ (খসড়া)', 'Save (draft)')}</button><button type="button" class="btn btn-primary" id="fa_PostBtn">✅ ${t('সেভ + পোস্ট', 'Save + post')}</button><button type="button" class="btn btn-outline" id="fa_CancelBtn" style="display:none;">${t('এডিট বাতিল', 'Cancel edit')}</button></div>
+      <div class="own-btns"><button type="button" class="btn btn-outline" id="av_SaveBtn">💾 ${t('সেভ (খসড়া)', 'Save (draft)')}</button><button type="button" class="btn btn-primary" id="av_PostBtn">✅ ${t('সেভ + পোস্ট', 'Save + post')}</button><button type="button" class="btn btn-outline" id="av_NewBtn">${t('নতুন ভাউচার', 'New voucher')}</button></div>
     </div>
-    <div class="panel">
-      <div class="own-filter"><div class="field"><label>${t('তারিখ হইতে', 'From')}</label><input type="date" id="fa_From" value="${fy}"></div><div class="field"><label>${t('মূল্যায়নের তারিখ', 'Value as of')}</label><input type="date" id="fa_To" value="${ownToday()}"></div>
-        <div class="field"><label>${t('ধরন', 'Category')}</label><select id="fa_CatFilter"><option value="">${t('সব', 'All')}</option>${FA_CATEGORIES.map(function (c) { return `<option value="${attr(c[0])}">${escapeHtml(c[0])}</option>`; }).join('')}</select></div></div>
-      <div class="own-wrap" id="fa_List"><div class="empty-state">${t('লোড হচ্ছে...', 'Loading...')}</div></div>
-    </div>`;
+    <div class="panel"><div class="own-filter"><div class="field"><label>${t('তারিখ হইতে', 'From')}</label><input type="date" id="av_From" value="${fy}"></div><div class="field"><label>${t('তারিখ পর্যন্ত', 'To')}</label><input type="date" id="av_To" value="${ownToday()}"></div></div>
+      <div class="own-wrap" id="av_List"><div class="empty-state">${t('লোড হচ্ছে...', 'Loading...')}</div></div></div>`;
   const $ = function (id) { return document.getElementById(id); };
-  const defDep = function (cat) { const c = FA_CATEGORIES.find(function (x) { return x[0] === cat; }); return c ? c[1] : 10; };
-  $('fa_Dep').value = defDep($('fa_Cat').value);
-  $('fa_Cat').addEventListener('change', function () { if (!$('fa_Dep').__manual) $('fa_Dep').value = defDep($('fa_Cat').value); });
-  $('fa_Dep').addEventListener('input', function () { $('fa_Dep').__manual = true; });
-  if (accs.length) { const cash = accs.find(function (a) { return /নগদ|cash|ক্যাশ/i.test(a.AccountName || ''); }); $('fa_Acc').value = (cash || accs[0]).BankAccID; }
-  wireSequentialKeyNav($('fa_Form'));
-  function resetForm() { editId = null; $('fa_FormTitle').textContent = t('নতুন সম্পদ', 'New asset'); ['fa_Name', 'fa_Cost', 'fa_Note'].forEach(function (id) { $(id).value = ''; }); $('fa_Qty').value = '1'; $('fa_Date').value = ownToday(); $('fa_Dep').__manual = false; $('fa_Dep').value = defDep($('fa_Cat').value); $('fa_CancelBtn').style.display = 'none'; }
-  async function load() { try { rows = await ownList(cfg); } catch (e) { $('fa_List').innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; return; } render(); }
-  function render() {
-    const from = $('fa_From').value || '0000-00-00', to = $('fa_To').value || ownToday(), cat = $('fa_CatFilter').value;
-    const shown = rows.filter(function (r) { const d = String(r.Date || '').slice(0, 10); return d <= to && (!cat || r.Category === cat) && (d >= from || r.Status === 'Posted'); })
-      .sort(function (a, b) { return String(a.Date).localeCompare(String(b.Date)) || String(a[cfg.idf]).localeCompare(String(b[cfg.idf]), undefined, { numeric: true }); });
-    let tCost = 0, tDep = 0; const byCat = {};
-    const body = shown.map(function (r, i) {
-      const cost = Number(r.Cost) || 0, dep = faDepreciation(r, to), book = cost - dep, posted = r.Status === 'Posted';
-      if (posted) { tCost += cost; tDep += dep; const c = byCat[r.Category || 'অন্যান্য'] = byCat[r.Category || 'অন্যান্য'] || { cost: 0, book: 0 }; c.cost += cost; c.book += book; }
-      const ic = function (act, icon, title, dis) { return `<button type="button" class="own-ic" data-ow="${act}" data-id="${attr(r[cfg.idf])}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
-      return `<tr class="${posted ? '' : 'draft'}"><td>${i + 1}</td><td>${escapeHtml(formatShortDate(r.Date))}</td><td><b>${escapeHtml(r[cfg.idf])}</b></td><td>${escapeHtml(r.Category || '')}</td><td class="l">${escapeHtml(r.AssetName || '')}</td>
-        <td class="own-hide-m">${r.Qty ? +Number(r.Qty).toFixed(3) : '—'}</td><td class="r">${cost.toFixed(2)}</td><td class="own-hide-m">${Number(r.DepRate) || 0}%</td><td class="r own-hide-m">${dep.toFixed(2)}</td><td class="r"><b>${book.toFixed(2)}</b></td>
+  const M = function (v) { return (Number(v) || 0).toFixed(2); };
+  const cash = accs.find(function (a) { return /নগদ|cash|ক্যাশ/i.test(a.AccountName || ''); });
+  const resetAcc = function () { $('av_Acc').value = cash ? cash.BankAccID : (accs[0] ? accs[0].BankAccID : ''); };
+  resetAcc();
+  wireSequentialKeyNav($('av_Form'));
+  const catDep = function (cid) { const c = cats.find(function (x) { return x.CatID === cid; }); return c ? (Number(c.DepRate) || 0) : 10; };
+  function assetOptions() {
+    const used = {}; lines.forEach(function (l, i) { if (i !== lineEdit) used[l.AssetID] = (used[l.AssetID] || 0) + (Number(l.Qty) || 0); });
+    const list = regs.map(function (r) { const st = faState(r, $('av_Date').value || ownToday()); return { r: r, rem: st.rem - (used[r.AssetID] || 0), st: st }; }).filter(function (x) { return x.rem > 1e-9; });
+    return `<option value="">${t('— সম্পদ বাছাই করুন —', '— choose an asset —')}</option>` + list.map(function (x) { return `<option value="${attr(x.r.AssetID)}">${escapeHtml(x.r.AssetID + ' · ' + (x.r.Category || '') + ' — ' + (x.r.AssetName || '') + ' (' + t('বাকি ', 'left ') + (+x.rem.toFixed(3)) + ')')}</option>`; }).join('');
+  }
+  function lineCalc() {
+    const q = Number($('av_Qty').value) || 0, rate = Number($('av_Rate').value) || 0, amt = q * rate;
+    $('av_Amt').value = amt ? M(amt) : '';
+    if (!isP) {
+      const r = regs.find(function (x) { return x.AssetID === $('av_Asset').value; });
+      if (r && q > 0) { const c = assetSaleCalc(r, q, amt, $('av_Date').value || ownToday()); $('av_Book').value = M(c.book); $('av_Gain').value = (c.gain < 0 ? t('লোকসান ', 'loss ') : t('লাভ ', 'gain ')) + M(Math.abs(c.gain)); $('av_Gain').className = 'vro vbold ' + (c.gain < 0 ? 'av-loss' : 'av-gain'); }
+      else { $('av_Book').value = ''; $('av_Gain').value = ''; }
+    }
+  }
+  function totals(autoPaid) {
+    const tot = lines.reduce(function (s, l) { return s + (Number(l.Amount) || 0); }, 0);
+    $('av_Total').value = M(tot);
+    if (autoPaid && !$('av_Party').value) $('av_Paid').value = tot ? M(tot) : '';   // নগদে পুরো টাকা — শুধু লাইন/পার্টি বদলালে; হাতে লেখা বদলানো হয় না
+    const paid = Number($('av_Paid').value) || 0; $('av_Due').value = M(tot - paid);
+  }
+  function renderLines() {
+    if (!lines.length) { $('av_Lines').innerHTML = `<tr><td style="color:var(--text-muted);padding:10px;">${t('এখনো কোনো লাইন নেই — উপরে ঘর পূরণ করে "＋ লাইন যোগ" চাপুন।', 'No lines yet.')}</td></tr>`; totals(true); return; }
+    const ic = function (act, i, icon) { return `<button type="button" class="own-ic" data-ln="${act}" data-i="${i}">${icon}</button>`; };
+    $('av_Lines').innerHTML = isP
+      ? `<thead><tr><th>${t('ক্রঃ', 'No.')}</th><th>${t('খাত', 'Category')}</th><th>${t('বিবরণ', 'Description')}</th><th>${t('পরিমাণ', 'Qty')}</th><th class="own-hide-m">${t('দর', 'Rate')}</th><th>${t('মূল্য', 'Amount')}</th><th class="own-hide-m">${t('অবচয়%', 'Dep%')}</th><th></th></tr></thead><tbody>` +
+        lines.map(function (l, i) { const c = cats.find(function (x) { return x.CatID === l.CategoryID; }); return `<tr><td>${i + 1}</td><td>${escapeHtml(c ? c.Name : l.CategoryID)}</td><td class="l">${escapeHtml(l.Description || '')}</td><td>${+Number(l.Qty).toFixed(3)}</td><td class="r own-hide-m">${M(l.Rate)}</td><td class="r"><b>${M(l.Amount)}</b></td><td class="own-hide-m">${Number(l.DepRate) || 0}</td><td style="white-space:nowrap;">${ic('edit', i, '✏️')}${ic('del', i, '🗑️')}</td></tr>`; }).join('') + '</tbody>'
+      : `<thead><tr><th>${t('ক্রঃ', 'No.')}</th><th>${t('সম্পদ', 'Asset')}</th><th>${t('পরিমাণ', 'Qty')}</th><th>${t('বিক্রয়মূল্য', 'Sale')}</th><th class="own-hide-m">${t('বর্তমান মূল্য', 'Book')}</th><th>${t('লাভ/লোকসান', 'Gain/loss')}</th><th></th></tr></thead><tbody>` +
+        lines.map(function (l, i) { const r = regs.find(function (x) { return x.AssetID === l.AssetID; }) || {}; const c = assetSaleCalc(r, Number(l.Qty) || 0, l.Amount, $('av_Date').value || ownToday()); return `<tr><td>${i + 1}</td><td class="l">${escapeHtml(l.AssetID + ' · ' + (r.Category || '') + ' — ' + (r.AssetName || ''))}</td><td>${+Number(l.Qty).toFixed(3)}</td><td class="r"><b>${M(l.Amount)}</b></td><td class="r own-hide-m">${M(c.book)}</td><td class="r ${c.gain < 0 ? 'av-loss' : 'av-gain'}">${c.gain < 0 ? '−' : ''}${M(Math.abs(c.gain))}</td><td style="white-space:nowrap;">${ic('edit', i, '✏️')}${ic('del', i, '🗑️')}</td></tr>`; }).join('') + '</tbody>';
+    totals(true);
+  }
+  function resetLineEntry() {
+    lineEdit = -1; $('av_AddLine').textContent = '＋ ' + t('লাইন যোগ', 'Add line');
+    if (isP) { $('av_Desc').value = ''; $('av_Qty').value = '1'; $('av_Rate').value = ''; $('av_Dep').value = catDep($('av_Cat').value); }
+    else { $('av_Asset').innerHTML = assetOptions(); $('av_Qty').value = ''; $('av_Rate').value = ''; }
+    lineCalc();
+  }
+  function resetAll() {
+    editId = null; lines = []; $('av_Title').textContent = t('নতুন ভাউচার', 'New voucher');
+    $('av_Date').value = ownToday(); $('av_Party').value = ''; $('av_PName').value = ''; $('av_PName').disabled = false; $('av_PBal').value = ''; $('av_Paid').value = ''; $('av_Note').value = ''; resetAcc();
+    resetLineEntry(); renderLines();
+  }
+  async function partyChanged() {
+    const v = $('av_Party').value;
+    if (!v) { $('av_PName').disabled = false; $('av_PBal').value = ''; }
+    else { const o = $('av_Party').selectedOptions[0]; $('av_PName').value = o ? o.textContent : ''; $('av_PName').disabled = true; const [ty, id] = v.split('|'); $('av_PBal').value = await assetPartyBalance(ty, id); }
+    totals(true);
+  }
+  function addLine() {
+    const q = Number($('av_Qty').value) || 0, rate = Number($('av_Rate').value) || 0;
+    if (!(q > 0)) { showToast(t('পরিমাণ দিন।', 'Enter qty.'), 'error'); $('av_Qty').focus(); return; }
+    if (!(rate > 0)) { showToast(t('দর দিন।', 'Enter the rate.'), 'error'); $('av_Rate').focus(); return; }
+    let l;
+    if (isP) {
+      if (!$('av_Desc').value.trim()) { showToast(t('বিবরণ দিন (যেমনঃ মটর ৫ HP)।', 'Enter a description.'), 'error'); $('av_Desc').focus(); return; }
+      l = { CategoryID: $('av_Cat').value, Description: $('av_Desc').value.trim(), Qty: q, Rate: rate, Amount: q * rate, DepRate: Number($('av_Dep').value) || 0 };
+    } else {
+      const aid = $('av_Asset').value; if (!aid) { showToast(t('সম্পদ বাছাই করুন।', 'Choose an asset.'), 'error'); return; }
+      const r = regs.find(function (x) { return x.AssetID === aid; }), used = lines.reduce(function (s, x, i) { return s + (i !== lineEdit && x.AssetID === aid ? Number(x.Qty) || 0 : 0); }, 0);
+      const rem = faState(r, $('av_Date').value || ownToday()).rem - used;
+      if (q > rem + 1e-9) { showToast(t('এই সম্পদের বাকি আছে ', 'Only ') + (+rem.toFixed(3)) + t(' — এর বেশি বেচা যাবে না।', ' left.'), 'error'); $('av_Qty').focus(); return; }
+      l = { AssetID: aid, Qty: q, Rate: rate, Amount: q * rate };
+    }
+    if (lineEdit >= 0) lines[lineEdit] = l; else lines.push(l);
+    resetLineEntry(); renderLines();
+    (isP ? $('av_Desc') : $('av_Asset')).focus();
+  }
+  async function saveVoucher(andPost) {
+    if (!$('av_Date').value) { showToast(t('তারিখ দিন।', 'Enter a date.'), 'error'); return; }
+    if (!lines.length) { showToast(t('অন্তত একটা লাইন যোগ করুন।', 'Add at least one line.'), 'error'); return; }
+    totals();
+    const pv = $('av_Party').value, [pty, pid] = pv ? pv.split('|') : [null, null];
+    const total = Number($('av_Total').value) || 0, paid = Number($('av_Paid').value) || 0;
+    if (paid > total + 0.005) { showToast(isP ? t('প্রদান মোটের বেশি হতে পারে না।', 'Paid exceeds total.') : t('গ্রহণ মোটের বেশি হতে পারে না।', 'Received exceeds total.'), 'error'); return; }
+    if (!pv && Math.abs(paid - total) > 0.005) { showToast(t('পার্টি ছাড়া (নগদে) পুরো টাকা দিতে/নিতে হবে — বাকি রাখতে পার্টি বাছাই করুন।', 'Without a party, the full amount must be paid.'), 'error'); return; }
+    if (paid > 0 && !$('av_Acc').value) { showToast(t('ক্যাশ/ব্যাংক বাছাই করুন।', 'Select the cash/bank account.'), 'error'); return; }
+    const head = { Date: $('av_Date').value, PartyType: pty, PartyID: pid, PartyName: $('av_PName').value.trim() || (pv ? '' : t('নগদ', 'Cash')), BankCashAccID: paid > 0 ? $('av_Acc').value : null, TotalAmount: total, Note: $('av_Note').value.trim() };
+    head[isP ? 'PaidAmount' : 'ReceivedAmount'] = paid;
+    const btns = [$('av_SaveBtn'), $('av_PostBtn')]; btns.forEach(function (b) { b.disabled = true; });
+    try {
+      let id = editId;
+      if (id) { const { error } = await supabaseClient.from(C.table).update(head).eq(C.idf, id); if (error) throw new Error(error.message); await supabaseClient.from(C.lines).delete().eq(C.idf, id); }
+      else { const { data, error } = await supabaseClient.from(C.table).insert(Object.assign({ Status: 'Draft', CreatedBy: (currentUser && currentUser.Email) || '' }, head)).select().single(); if (error) throw new Error(/does not exist|schema cache/.test(error.message) ? 'টেবিল নেই — আগে Supabase-এ 35 নম্বর SQL চালান।' : error.message); id = data[C.idf]; }
+      const rowsIns = lines.map(function (l) { const r = Object.assign({}, l); r[C.idf] = id; return r; });
+      const { error: le } = await supabaseClient.from(C.lines).insert(rowsIns); if (le) throw new Error(le.message);
+      if (andPost) { if (isP) await postAssetPurchase(id); else await postAssetSale(id); }
+      showToast((andPost ? t('পোস্ট হয়েছে ✅ ', 'Posted ✅ ') : t('সেভ হয়েছে ✅ ', 'Saved ✅ ')) + id, 'success');
+      if (!isP) await loadRegs();
+      resetAll(); await loadList();
+    } catch (err) { showToast(err.message, 'error'); await loadList(); }
+    finally { btns.forEach(function (b) { b.disabled = false; }); }
+  }
+  async function openForEdit(id) {
+    const v = await assetLoad(base, id);
+    if (v.h.Status === 'Posted') { if (!(await assetVoucherUnpost(base, id))) return; if (!isP) await loadRegs(); }
+    const fresh = await assetLoad(base, id);
+    editId = id; $('av_Title').textContent = t('এডিটঃ ', 'Edit: ') + id;
+    $('av_Date').value = String(fresh.h.Date || '').slice(0, 10);
+    $('av_Party').value = fresh.h.PartyID ? fresh.h.PartyType + '|' + fresh.h.PartyID : ''; await partyChanged();
+    if (!fresh.h.PartyID) $('av_PName').value = fresh.h.PartyName || '';
+    lines = fresh.lines.map(function (l) { return isP ? { CategoryID: l.CategoryID, Description: l.Description, Qty: Number(l.Qty) || 0, Rate: Number(l.Rate) || 0, Amount: Number(l.Amount) || 0, DepRate: Number(l.DepRate) || 0 } : { AssetID: l.AssetID, Qty: Number(l.Qty) || 0, Rate: Number(l.Rate) || 0, Amount: Number(l.Amount) || 0 }; });
+    $('av_Note').value = fresh.h.Note || ''; $('av_Acc').value = fresh.h.BankCashAccID || '';
+    resetLineEntry(); renderLines();
+    $('av_Paid').value = M(isP ? fresh.h.PaidAmount : fresh.h.ReceivedAmount); totals();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    await loadList();
+  }
+  async function loadList() {
+    try { const { data, error } = await supabaseClient.from(C.table).select('*'); if (error) throw new Error(/does not exist|schema cache/.test(error.message) ? 'টেবিল নেই — আগে Supabase-এ 35 নম্বর SQL চালান।' : error.message); vlist = data || []; }
+    catch (e) { $('av_List').innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; return; }
+    const from = $('av_From').value || '0000', to = $('av_To').value || '9999';
+    const shown = vlist.filter(function (h) { const d = String(h.Date || ''); return d >= from && d <= to; }).sort(function (a, b) { return String(b.Date).localeCompare(String(a.Date)) || String(b[C.idf]).localeCompare(String(a[C.idf]), undefined, { numeric: true }); });
+    if (!shown.length) { $('av_List').innerHTML = `<div class="empty-state">${t('এই সময়ে কোনো ভাউচার নেই।', 'No vouchers in this period.')}</div>`; return; }
+    let tt = 0, tp = 0, tg = 0;
+    const body = shown.map(function (h, i) {
+      const posted = h.Status === 'Posted', tot = Number(h.TotalAmount) || 0, paid = Number(isP ? h.PaidAmount : h.ReceivedAmount) || 0;
+      if (posted) { tt += tot; tp += paid; tg += Number(h.GainLoss) || 0; }
+      const ic = function (act, icon, title, dis) { return `<button type="button" class="own-ic" data-av="${act}" data-id="${attr(h[C.idf])}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
+      return `<tr class="${posted ? '' : 'draft'}"><td>${i + 1}</td><td>${escapeHtml(formatShortDate(h.Date))}</td><td><b>${escapeHtml(h[C.idf])}</b></td><td class="l">${escapeHtml(h.PartyName || '')}</td>
+        <td class="r">${M(tot)}</td><td class="r own-hide-m">${M(paid)}</td><td class="r"><b>${M(tot - paid)}</b></td>${isP ? '' : `<td class="r own-hide-m ${(Number(h.GainLoss) || 0) < 0 ? 'av-loss' : 'av-gain'}">${posted ? ((Number(h.GainLoss) || 0) < 0 ? '−' : '') + M(Math.abs(Number(h.GainLoss) || 0)) : '—'}</td>`}
         <td>${posted ? `<span class="badge active">${t('পোস্ট করা', 'Posted')}</span>` : `<span class="badge draft">${t('খসড়া', 'Draft')}</span>`}</td>
         <td style="white-space:nowrap;">${ic('view', '👁️', t('দেখুন / প্রিন্ট', 'View / print'))}${ic('edit', '✏️', posted ? t('এডিট (এডমিন — আগে আনপোস্ট)', 'Edit (admin)') : t('এডিট', 'Edit'))}${ic('del', '🗑️', t('ডিলিট', 'Delete'))}${ic('post', posted ? '✅' : '💾', posted ? t('পোস্ট হয়ে গেছে', 'Posted') : t('পোস্ট করুন', 'Post'), posted)}</td></tr>`;
     }).join('');
-    $('fa_Cards').innerHTML = `<div class="own-card hl"><small>${t('মোট বর্তমান মূল্য', 'Total book value')}</small><b>৳${(tCost - tDep).toFixed(2)}</b></div><div class="own-card"><small>${t('মোট ক্রয়মূল্য', 'Total cost')}</small><b>৳${tCost.toFixed(2)}</b></div><div class="own-card"><small>${t('মোট অবচয়', 'Total depreciation')}</small><b>৳${tDep.toFixed(2)}</b></div>` +
-      Object.keys(byCat).map(function (k) { return `<div class="own-card"><small>${escapeHtml(k)}</small><b>৳${byCat[k].book.toFixed(2)}</b></div>`; }).join('');
-    $('fa_List').innerHTML = !shown.length ? `<div class="empty-state">${t('কোনো সম্পদ নেই।', 'No assets.')}</div>` :
-      `<table class="own-tbl"><thead><tr><th>${t('ক্রঃ', 'No.')}</th><th>${t('তারিখ', 'Date')}</th><th>${t('নং', 'No.')}</th><th>${t('ধরন', 'Category')}</th><th>${t('সম্পদ', 'Asset')}</th><th class="own-hide-m">${t('পরিমাণ', 'Qty')}</th><th>${t('ক্রয়মূল্য', 'Cost')}</th><th class="own-hide-m">${t('অবচয় %', 'Dep %')}</th><th class="own-hide-m">${t('জমা অবচয়', 'Acc. dep.')}</th><th>${t('বর্তমান মূল্য', 'Book value')}</th><th>${t('অবস্থা', 'Status')}</th><th></th></tr></thead>
-      <tbody>${body}</tbody><tfoot><tr><td></td><td colspan="4" class="l">${t('মোট (পোস্ট করা)', 'Total (posted)')}</td><td class="own-hide-m"></td><td class="r">${tCost.toFixed(2)}</td><td class="own-hide-m"></td><td class="r own-hide-m">${tDep.toFixed(2)}</td><td class="r">${(tCost - tDep).toFixed(2)}</td><td></td><td></td></tr></tfoot></table>`;
+    $('av_List').innerHTML = `<table class="own-tbl"><thead><tr><th>${t('ক্রঃ', 'No.')}</th><th>${t('তারিখ', 'Date')}</th><th>${t('নং', 'Voucher')}</th><th>${t('পার্টি', 'Party')}</th><th>${t('মোট', 'Total')}</th><th class="own-hide-m">${isP ? t('প্রদান', 'Paid') : t('গ্রহণ', 'Received')}</th><th>${t('বাকি', 'Due')}</th>${isP ? '' : `<th class="own-hide-m">${t('লাভ/লোকসান', 'Gain/loss')}</th>`}<th>${t('অবস্থা', 'Status')}</th><th></th></tr></thead><tbody>${body}</tbody>
+      <tfoot><tr><td></td><td colspan="3" class="l">${t('মোট (পোস্ট করা)', 'Total (posted)')}</td><td class="r">${M(tt)}</td><td class="r own-hide-m">${M(tp)}</td><td class="r">${M(tt - tp)}</td>${isP ? '' : `<td class="r own-hide-m">${tg < 0 ? '−' : ''}${M(Math.abs(tg))}</td>`}<td></td><td></td></tr></tfoot></table>`;
   }
+  $('av_Party').addEventListener('change', partyChanged);
+  ['av_Qty', 'av_Rate'].forEach(function (id) { $(id).addEventListener('input', lineCalc); });
+  $('av_Date').addEventListener('change', function () { lineCalc(); if (!isP) renderLines(); });
+  if (isP) $('av_Cat').addEventListener('change', function () { $('av_Dep').value = catDep($('av_Cat').value); });
+  else $('av_Asset').addEventListener('change', function () { const r = regs.find(function (x) { return x.AssetID === $('av_Asset').value; }); if (r && !$('av_Qty').value) { const st = faState(r, $('av_Date').value || ownToday()); $('av_Qty').value = String(+st.rem.toFixed(3)); } lineCalc(); });
+  $('av_Paid').addEventListener('input', function () { totals(false); });   // হাতে লেখা প্রদান যেমন আছে তেমন
+  $('av_AddLine').addEventListener('click', addLine);
+  $('av_AddLine').addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); addLine(); } });
+  $('av_Lines').addEventListener('click', function (e) {
+    const b = e.target.closest('[data-ln]'); if (!b) return; const i = Number(b.getAttribute('data-i'));
+    if (b.getAttribute('data-ln') === 'del') { lines.splice(i, 1); if (lineEdit === i) resetLineEntry(); renderLines(); if (!isP) $('av_Asset').innerHTML = assetOptions(); return; }
+    const l = lines[i]; lineEdit = i; $('av_AddLine').textContent = '✔ ' + t('লাইন হালনাগাদ', 'Update line');
+    if (isP) { $('av_Cat').value = l.CategoryID; $('av_Desc').value = l.Description; $('av_Dep').value = l.DepRate; }
+    else { $('av_Asset').innerHTML = assetOptions(); $('av_Asset').value = l.AssetID; }
+    $('av_Qty').value = l.Qty; $('av_Rate').value = l.Rate; lineCalc(); $('av_Qty').focus();
+  });
+  $('av_SaveBtn').addEventListener('click', function () { saveVoucher(false); });
+  $('av_PostBtn').addEventListener('click', function () { saveVoucher(true); });
+  $('av_NewBtn').addEventListener('click', resetAll);
+  ['av_From', 'av_To'].forEach(function (id) { $(id).addEventListener('change', loadList); });
+  $('av_List').addEventListener('click', async function (e) {
+    const b = e.target.closest('[data-av]'); if (!b || b.disabled || b.__busy) return; b.__busy = true;
+    const id = b.getAttribute('data-id'), act = b.getAttribute('data-av');
+    try {
+      if (act === 'view') await assetVoucherPrint(base, id);
+      else if (act === 'edit') await openForEdit(id);
+      else if (act === 'del') { if (await assetVoucherDelete(base, id)) { if (editId === id) resetAll(); if (!isP) await loadRegs(); await loadList(); resetLineEntry(); } }
+      else if (act === 'post') { if (await assetVoucherPost(base, id)) { if (!isP) await loadRegs(); resetLineEntry(); await loadList(); } }
+    } catch (err) { showToast(err.message, 'error'); await loadList(); }
+    finally { b.__busy = false; }
+  });
+  resetAll();
+  if (window.__assetEditId && window.__assetEditId.base === base) { const id = window.__assetEditId.id; window.__assetEditId = null; await loadList(); await openForEdit(id); }
+  else await loadList();
+}
+async function renderAssetPurchasePage(content) { return renderAssetVoucherPage(content, 'AssetPurchase'); }
+async function renderAssetSalePage(content) { return renderAssetVoucherPage(content, 'AssetSale'); }
+
+/* ---------- এ্যাসেট রেজিস্টার (খাতের তালিকা + প্রারম্ভিক সম্পদ + রেজিস্টার) ---------- */
+async function renderFixedAssetPage(content) {
+  const cfg = OWN_CFG.asset;
+  let cats = await assetCats();
+  const [accounts, fy] = await Promise.all([cachedList('BankCashAccounts'), getFiscalYearStart()]);
+  const accs = accounts.filter(function (a) { return a.Status !== 'Deleted'; });
+  const accName = function (id) { const a = accs.find(function (x) { return x.BankAccID === id; }); return a ? a.AccountName : (id || t('বাকি/অন্যভাবে', 'other')); };
+  let editId = null, rows = [];
+  const catOpts = function () { return cats.map(function (c) { return `<option value="${attr(c.CatID)}">${escapeHtml(c.Name)}</option>`; }).join(''); };
+  content.innerHTML = `<style>${VOUCHER_GRID_CSS}${OWN_CSS} .ac-tbl{width:100%;border-collapse:collapse;font-size:12.5px;} .ac-tbl th,.ac-tbl td{border-bottom:1px solid var(--border);padding:4px 6px;text-align:center;} .ac-tbl th{background:var(--bg);font-size:11px;} .ac-tbl input{width:100%;min-width:60px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;} .ac-tbl input:disabled{background:transparent;border-color:transparent;color:var(--text);} .ac-tbl td:first-child{min-width:150px;}
+    @media (max-width:760px){ .ac-tbl th:nth-child(3),.ac-tbl td:nth-child(3){display:none;} .ac-tbl th:nth-child(2){width:64px !important;} .ac-tbl th:nth-child(4){width:auto !important;} .ac-tbl td:first-child{min-width:0;width:48%;} .ac-tbl input{font-size:15px;padding:6px;} .ac-tbl .own-ic{min-width:32px;} }
+    details.own-sec{border:1px solid var(--border);border-radius:10px;padding:8px 12px;margin-bottom:10px;background:var(--surface);} details.own-sec summary{cursor:pointer;font-weight:700;font-size:13.5px;padding:4px 0;}</style>
+    <div class="page-head"><div><h1>${t('এ্যাসেট রেজিস্টার', 'Asset Register')}</h1><p>${t('সব স্থায়ী সম্পদ — কেনা (এ্যাসেট ক্রয় থেকে) ও আগের; অবচয় ধরে বর্তমান মূল্য; বিক্রি হলে অবস্থা বদলায়', 'All fixed assets — bought via Asset Purchase or entered as opening; book value after depreciation')}</p></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn btn-primary" style="width:auto;" id="ar_GoBuy">＋ ${t('এ্যাসেট ক্রয়', 'Asset purchase')}</button><button class="btn btn-outline" style="width:auto;" id="ar_GoSell">${t('এ্যাসেট বিক্রয়', 'Asset sale')}</button></div></div>
+    <div class="own-cards" id="fa_Cards"></div>
+    <details class="own-sec" id="ac_Sec"><summary>⚙️ ${t('খাতের তালিকা — ＋ যোগ · ✏️ এডিট · 🗑️ ডিলিট · 💾 সেভ', 'Categories — add · edit · delete · save')}</summary><div id="ac_Wrap" style="margin-top:8px;"></div></details>
+    <details class="own-sec" id="fa_Sec"><summary>＋ ${t('আগের / প্রারম্ভিক সম্পদ যোগ (সফটওয়্যার শুরুর আগে কেনা)', 'Add an opening asset (bought before using the software)')}</summary>
+      <h4 id="fa_FormTitle" style="margin:8px 0;font-size:13px;">${t('নতুন সম্পদ', 'New asset')}</h4>
+      <div class="vg2" id="fa_Form">
+        <div class="field"><label>${t('ক্রয়ের তারিখ', 'Purchase date')}</label><input type="date" id="fa_Date" value="${ownToday()}"></div>
+        <div class="field"><label>${t('খাত', 'Category')}</label><select id="fa_Cat">${catOpts()}</select></div>
+        <div class="field vfull"><label>${t('সম্পদের নাম / বিবরণ', 'Asset name / description')}</label><input id="fa_Name" autocomplete="off" placeholder="${attr(t('যেমনঃ স্পিনার মেশিন ১৮ ইঞ্চি', 'e.g. 18-inch spinner'))}"></div>
+        <div class="field"><label>${t('পরিমাণ', 'Qty')}</label><input id="fa_Qty" type="number" step="any" min="0" inputmode="decimal" value="1"></div>
+        <div class="field"><label>${t('ক্রয়মূল্য (মোট)', 'Cost (total)')}</label><input id="fa_Cost" type="number" step="any" min="0" inputmode="decimal"></div>
+        <div class="field"><label>${t('প্রদান — ক্যাশ/ব্যাংক', 'Paid from')}</label><select id="fa_Acc"><option value="">${t('আগে প্রদান করা (ক্যাশ বইয়ে যাবে না)', 'Paid earlier (not in cash book)')}</option>${accs.map(function (a) { return `<option value="${attr(a.BankAccID)}">${escapeHtml(a.AccountName)}</option>`; }).join('')}</select></div>
+        <div class="field"><label>${t('বার্ষিক অবচয় (%)', 'Yearly depreciation (%)')}</label><input id="fa_Dep" type="number" step="any" min="0" inputmode="decimal"></div>
+        <div class="field vfull"><label>${t('নোট', 'Note')}</label><input id="fa_Note" autocomplete="off"></div>
+      </div>
+      <div class="own-btns"><button type="button" class="btn btn-outline" id="fa_SaveBtn">💾 ${t('সেভ (খসড়া)', 'Save (draft)')}</button><button type="button" class="btn btn-primary" id="fa_PostBtn">✅ ${t('সেভ + পোস্ট', 'Save + post')}</button><button type="button" class="btn btn-outline" id="fa_CancelBtn" style="display:none;">${t('এডিট বাতিল', 'Cancel edit')}</button></div>
+    </details>
+    <div class="panel">
+      <div class="own-filter"><div class="field"><label>${t('মূল্যায়নের তারিখ', 'Value as of')}</label><input type="date" id="fa_To" value="${ownToday()}"></div>
+        <div class="field"><label>${t('খাত', 'Category')}</label><select id="fa_CatFilter"><option value="">${t('সব', 'All')}</option>${catOpts()}</select></div>
+        <div class="field"><label>${t('অবস্থা', 'Status')}</label><select id="fa_StFilter"><option value="live">${t('চালু (বিক্রিত বাদে)', 'In use')}</option><option value="">${t('সব', 'All')}</option><option value="sold">${t('বিক্রিত', 'Sold')}</option></select></div>
+        <input type="hidden" id="fa_From" value="${fy}"></div>
+      <div class="own-wrap" id="fa_List"><div class="empty-state">${t('লোড হচ্ছে...', 'Loading...')}</div></div>
+    </div>`;
+  const $ = function (id) { return document.getElementById(id); };
+  const defDep = function (cid) { const c = cats.find(function (x) { return x.CatID === cid; }); return c ? (Number(c.DepRate) || 0) : 10; };
+  const catName = function (r) { const c = cats.find(function (x) { return x.CatID === r.CategoryID; }); return c ? c.Name : (r.Category || ''); };
+  $('fa_Dep').value = defDep($('fa_Cat').value);
+  $('fa_Cat').addEventListener('change', function () { if (!$('fa_Dep').__manual) $('fa_Dep').value = defDep($('fa_Cat').value); });
+  $('fa_Dep').addEventListener('input', function () { $('fa_Dep').__manual = true; });
+  wireSequentialKeyNav($('fa_Form'));
+  $('ar_GoBuy').addEventListener('click', function () { navigateTo('assetPurchase', t('হিসাব', 'Accounts'), t('এ্যাসেট ক্রয়', 'Asset purchase')); });
+  $('ar_GoSell').addEventListener('click', function () { navigateTo('assetSale', t('হিসাব', 'Accounts'), t('এ্যাসেট বিক্রয়', 'Asset sale')); });
+
+  // ===== খাতের তালিকা =====
+  function renderCats() {
+    if (cats.length && cats[0].__fallback) { $('ac_Wrap').innerHTML = `<div class="empty-state">${t('খাতের তালিকা সেভ করতে আগে Supabase-এ 35 নম্বর SQL চালান। (এখন শুরুর খাতগুলো দেখানো হচ্ছে)', 'Run SQL 35 first to manage categories.')}</div>`; return; }
+    const used = {}; rows.forEach(function (r) { if (r.CategoryID) used[r.CategoryID] = (used[r.CategoryID] || 0) + 1; });
+    const ic = function (act, id, icon, title, dis) { return `<button type="button" class="own-ic" data-ac="${act}" data-id="${attr(id)}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
+    $('ac_Wrap').innerHTML = `<table class="ac-tbl"><thead><tr><th>${t('খাতের নাম', 'Category')}</th><th style="width:110px;">${t('অবচয় %/বছর', 'Dep %/yr')}</th><th style="width:70px;">${t('সম্পদ', 'Assets')}</th><th style="width:130px;"></th></tr></thead><tbody>
+      <tr><td><input id="ac_NewName" placeholder="${attr(t('নতুন খাতের নাম (যেমনঃ জেনারেটর)', 'New category (e.g. Generator)'))}"></td><td><input id="ac_NewDep" type="number" step="any" min="0" inputmode="decimal" value="10"></td><td></td><td><button type="button" class="btn btn-primary" style="width:auto;min-height:32px;padding:4px 12px;" id="ac_AddBtn">＋ ${t('যোগ', 'Add')}</button></td></tr>
+      ${cats.map(function (c) { return `<tr data-cat="${attr(c.CatID)}"><td><input class="ac-name" value="${attr(c.Name)}" disabled></td><td><input class="ac-dep" type="number" step="any" min="0" value="${attr(Number(c.DepRate) || 0)}" disabled></td><td>${used[c.CatID] || 0}</td>
+        <td style="white-space:nowrap;">${ic('edit', c.CatID, '✏️', t('এডিট', 'Edit'))}${ic('del', c.CatID, '🗑️', used[c.CatID] ? t('এই খাতে সম্পদ আছে — মোছা যাবে না', 'Has assets — cannot delete') : t('ডিলিট', 'Delete'), !!used[c.CatID])}${ic('save', c.CatID, '💾', t('সেভ', 'Save'), true)}</td></tr>`; }).join('')}
+      </tbody></table>`;
+  }
+  async function reloadCats() { cats = await assetCats(); ['fa_Cat', 'fa_CatFilter'].forEach(function (id) { const v = $(id).value; $(id).innerHTML = (id === 'fa_CatFilter' ? `<option value="">${t('সব', 'All')}</option>` : '') + catOpts(); $(id).value = v; }); renderCats(); render(); }
+  $('ac_Wrap').addEventListener('click', async function (e) {
+    const b = e.target.closest('button'); if (!b || b.disabled) return;
+    try {
+      if (b.id === 'ac_AddBtn') {
+        const nm = $('ac_NewName').value.trim(); if (!nm) { showToast(t('খাতের নাম দিন।', 'Enter a name.'), 'error'); $('ac_NewName').focus(); return; }
+        if (cats.some(function (c) { return bnKey(c.Name) === bnKey(nm); })) { showToast(t('এই নামে খাত আগেই আছে।', 'Already exists.'), 'error'); return; }
+        const { error } = await supabaseClient.from('AssetCategory').insert({ Name: nm, DepRate: Number($('ac_NewDep').value) || 0, SortOrder: cats.length + 1, Status: 'Active' }); if (error) throw new Error(error.message);
+        showToast(t('খাত যোগ হয়েছে ✅ ', 'Added ✅ ') + nm, 'success'); await reloadCats(); return;
+      }
+      const id = b.getAttribute('data-id'), act = b.getAttribute('data-ac'), tr = b.closest('tr');
+      if (act === 'edit') { tr.querySelectorAll('input').forEach(function (i) { i.disabled = false; }); tr.querySelector('[data-ac="save"]').disabled = false; tr.querySelector('.ac-name').focus(); }
+      else if (act === 'save') {
+        const nm = tr.querySelector('.ac-name').value.trim(), dep = Number(tr.querySelector('.ac-dep').value) || 0;
+        if (!nm) { showToast(t('খাতের নাম দিন।', 'Enter a name.'), 'error'); return; }
+        if (cats.some(function (c) { return c.CatID !== id && bnKey(c.Name) === bnKey(nm); })) { showToast(t('এই নামে খাত আগেই আছে।', 'Already exists.'), 'error'); return; }
+        const { error } = await supabaseClient.from('AssetCategory').update({ Name: nm, DepRate: dep }).eq('CatID', id); if (error) throw new Error(error.message);
+        await supabaseClient.from('FixedAsset').update({ Category: nm }).eq('CategoryID', id);   // নাম বদলালে রেজিস্টারেও
+        showToast(t('খাত সেভ হয়েছে ✅', 'Saved ✅'), 'success'); await load(); await reloadCats();
+      }
+      else if (act === 'del') {
+        const { data: lu } = await supabaseClient.from('AssetPurchase_Lines').select('id').eq('CategoryID', id).limit(1);
+        if (lu && lu.length) { showToast(t('এই খাত এ্যাসেট ক্রয় ভাউচারে ব্যবহার হয়েছে — মোছা যাবে না।', 'Used in an asset purchase — cannot delete.'), 'error'); return; }
+        if (!confirm(t('খাতটা মুছবেন?', 'Delete this category?'))) return;
+        const { error } = await supabaseClient.from('AssetCategory').update({ Status: 'Deleted' }).eq('CatID', id); if (error) throw new Error(error.message);
+        showToast(t('মুছে ফেলা হয়েছে ✅', 'Deleted ✅'), 'success'); await reloadCats();
+      }
+    } catch (err) { showToast(err.message, 'error'); }
+  });
+
+  // ===== প্রারম্ভিক সম্পদ (হাতে) =====
+  function resetForm() { editId = null; $('fa_FormTitle').textContent = t('নতুন সম্পদ', 'New asset'); ['fa_Name', 'fa_Cost', 'fa_Note'].forEach(function (id) { $(id).value = ''; }); $('fa_Qty').value = '1'; $('fa_Date').value = ownToday(); $('fa_Acc').value = ''; $('fa_Dep').__manual = false; $('fa_Dep').value = defDep($('fa_Cat').value); $('fa_CancelBtn').style.display = 'none'; }
   async function save(andPost) {
     const cost = Number($('fa_Cost').value) || 0;
     if (!$('fa_Name').value.trim()) { showToast(t('সম্পদের নাম দিন।', 'Enter the asset name.'), 'error'); $('fa_Name').focus(); return; }
     if (!(cost > 0)) { showToast(t('ক্রয়মূল্য দিন।', 'Enter the cost.'), 'error'); $('fa_Cost').focus(); return; }
-    const rec = { Date: $('fa_Date').value, Category: $('fa_Cat').value, AssetName: $('fa_Name').value.trim(), Qty: Number($('fa_Qty').value) || 1, Cost: cost, BankCashAccID: $('fa_Acc').value || null, DepRate: Number($('fa_Dep').value) || 0, Note: $('fa_Note').value.trim() };
+    const c = cats.find(function (x) { return x.CatID === $('fa_Cat').value; }) || {};
+    const rec = { Date: $('fa_Date').value, CategoryID: c.__fallback ? null : (c.CatID || null), Category: c.Name || '', AssetName: $('fa_Name').value.trim(), Qty: Number($('fa_Qty').value) || 1, Cost: cost, BankCashAccID: $('fa_Acc').value || null, DepRate: Number($('fa_Dep').value) || 0, Note: $('fa_Note').value.trim() };
     const btns = [$('fa_SaveBtn'), $('fa_PostBtn')]; btns.forEach(function (b) { b.disabled = true; });
     try {
       let row;
       if (editId) { const { data, error } = await supabaseClient.from(cfg.table).update(rec).eq(cfg.idf, editId).select().single(); if (error) throw new Error(error.message); row = data; }
-      else { const { data, error } = await supabaseClient.from(cfg.table).insert(Object.assign({ Status: 'Draft', CreatedBy: (currentUser && currentUser.Email) || '' }, rec)).select().single(); if (error) throw new Error(/does not exist|schema cache/.test(error.message) ? 'টেবিল নেই — আগে Supabase-এ 34 নম্বর SQL চালান।' : error.message); row = data; }
+      else { const { data, error } = await supabaseClient.from(cfg.table).insert(Object.assign({ Status: 'Draft', QtySold: 0, CreatedBy: (currentUser && currentUser.Email) || '' }, rec)).select().single(); if (error) throw new Error(/does not exist|schema cache/.test(error.message) ? 'টেবিল নেই — আগে Supabase-এ 34 ও 35 নম্বর SQL চালান।' : error.message); row = data; }
       if (andPost) await ownPost(cfg, row, 0, cost);
       showToast((andPost ? t('পোস্ট হয়েছে ✅ ', 'Posted ✅ ') : t('সেভ হয়েছে ✅ ', 'Saved ✅ ')) + row[cfg.idf], 'success');
       resetForm(); await load();
@@ -3932,22 +4360,56 @@ async function renderFixedAssetPage(content) {
   $('fa_SaveBtn').addEventListener('click', function () { save(false); });
   $('fa_PostBtn').addEventListener('click', function () { save(true); });
   $('fa_CancelBtn').addEventListener('click', resetForm);
-  ['fa_From', 'fa_To', 'fa_CatFilter'].forEach(function (id) { $(id).addEventListener('change', render); });
+
+  // ===== রেজিস্টার =====
+  async function load() { try { rows = await ownList(cfg); } catch (e) { $('fa_List').innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; return; } renderCats(); render(); }
+  function render() {
+    const to = $('fa_To').value || ownToday(), cat = $('fa_CatFilter').value, stF = $('fa_StFilter').value;
+    const shown = rows.filter(function (r) {
+      if (String(r.Date || '').slice(0, 10) > to) return false;
+      if (cat && r.CategoryID !== cat && (r.CategoryID || r.Category !== (cats.find(function (c) { return c.CatID === cat; }) || {}).Name)) return false;
+      const st = faState(r, to).status;
+      return stF === 'live' ? st !== 'sold' : stF === 'sold' ? st !== 'active' : true;
+    }).sort(function (a, b) { return String(a.Date).localeCompare(String(b.Date)) || String(a[cfg.idf]).localeCompare(String(b[cfg.idf]), undefined, { numeric: true }); });
+    let tCost = 0, tDep = 0; const byCat = {};
+    const body = shown.map(function (r, i) {
+      const st = faState(r, to), posted = r.Status === 'Posted', fromAP = !!r.SourceID;
+      if (posted) { tCost += st.cost; tDep += st.dep; const k = catName(r) || 'অন্যান্য'; byCat[k] = (byCat[k] || 0) + st.book; }
+      const ic = function (act, icon, title, dis) { return `<button type="button" class="own-ic" data-ow="${act}" data-id="${attr(r[cfg.idf])}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
+      const stBadge = !posted ? `<span class="badge draft">${t('খসড়া', 'Draft')}</span>` : st.status === 'sold' ? `<span class="badge inactive">${t('বিক্রিত', 'Sold')}</span>` : st.status === 'partial' ? `<span class="badge draft">${t('আংশিক বিক্রিত', 'Part sold')}</span>` : `<span class="badge active">${t('চালু', 'In use')}</span>`;
+      return `<tr class="${posted ? '' : 'draft'}"><td>${i + 1}</td><td>${escapeHtml(formatShortDate(r.Date))}</td><td><b>${escapeHtml(r[cfg.idf])}</b></td><td>${escapeHtml(catName(r))}</td><td class="l">${escapeHtml(r.AssetName || '')}</td>
+        <td>${+st.rem.toFixed(3)}${st.sold ? `<small style="color:var(--text-muted);"> / ${+st.qty.toFixed(3)}</small>` : ''}</td><td class="r">${st.cost.toFixed(2)}</td><td class="own-hide-m">${Number(r.DepRate) || 0}%</td><td class="r own-hide-m">${st.dep.toFixed(2)}</td><td class="r"><b>${st.book.toFixed(2)}</b></td>
+        <td class="own-hide-m">${fromAP ? escapeHtml(r.SourceID) : t('প্রারম্ভিক', 'Opening')}</td><td>${stBadge}</td>
+        <td style="white-space:nowrap;">${ic('view', '👁️', fromAP ? t('এ্যাসেট ক্রয় ভাউচার দেখুন', 'View purchase voucher') : t('দেখুন / প্রিন্ট', 'View / print'))}${ic('edit', '✏️', fromAP ? t('এ্যাসেট ক্রয় ভাউচারে এডিট', 'Edit in the purchase voucher') : t('এডিট', 'Edit'), st.sold > 0)}${ic('del', '🗑️', fromAP ? t('এ্যাসেট ক্রয় ভাউচার থেকে মোছা', 'Delete via the purchase voucher') : t('ডিলিট', 'Delete'), st.sold > 0)}${ic('post', posted ? '✅' : '💾', posted ? t('পোস্ট হয়ে গেছে', 'Posted') : t('পোস্ট করুন', 'Post'), posted)}</td></tr>`;
+    }).join('');
+    $('fa_Cards').innerHTML = `<div class="own-card hl"><small>${t('মোট বর্তমান মূল্য', 'Total book value')}</small><b>৳${(tCost - tDep).toFixed(2)}</b></div><div class="own-card"><small>${t('ক্রয়মূল্য (চালু অংশ)', 'Cost (in use)')}</small><b>৳${tCost.toFixed(2)}</b></div><div class="own-card"><small>${t('মোট অবচয়', 'Total depreciation')}</small><b>৳${tDep.toFixed(2)}</b></div>` +
+      Object.keys(byCat).map(function (k) { return `<div class="own-card"><small>${escapeHtml(k)}</small><b>৳${byCat[k].toFixed(2)}</b></div>`; }).join('');
+    $('fa_List').innerHTML = !shown.length ? `<div class="empty-state">${t('কোনো সম্পদ নেই।', 'No assets.')}</div>` :
+      `<table class="own-tbl"><thead><tr><th>${t('ক্রঃ', 'No.')}</th><th>${t('তারিখ', 'Date')}</th><th>${t('নং', 'No.')}</th><th>${t('খাত', 'Category')}</th><th>${t('বিবরণ', 'Description')}</th><th>${t('পরিমাণ', 'Qty')}</th><th>${t('ক্রয়মূল্য', 'Cost')}</th><th class="own-hide-m">${t('অবচয় %', 'Dep %')}</th><th class="own-hide-m">${t('জমা অবচয়', 'Acc. dep.')}</th><th>${t('বর্তমান মূল্য', 'Book value')}</th><th class="own-hide-m">${t('উৎস', 'Source')}</th><th>${t('অবস্থা', 'Status')}</th><th></th></tr></thead>
+      <tbody>${body}</tbody><tfoot><tr><td></td><td colspan="4" class="l">${t('মোট (পোস্ট করা)', 'Total (posted)')}</td><td></td><td class="r">${tCost.toFixed(2)}</td><td class="own-hide-m"></td><td class="r own-hide-m">${tDep.toFixed(2)}</td><td class="r">${(tCost - tDep).toFixed(2)}</td><td class="own-hide-m"></td><td></td><td></td></tr></tfoot></table>`;
+  }
+  ['fa_To', 'fa_CatFilter', 'fa_StFilter'].forEach(function (id) { $(id).addEventListener('change', render); });
   $('fa_List').addEventListener('click', async function (e) {
     const b = e.target.closest('[data-ow]'); if (!b || b.disabled || b.__busy) return; b.__busy = true;
     const r = rows.find(function (x) { return x[cfg.idf] === b.getAttribute('data-id'); });
     try {
       if (!r) return;
-      const act = b.getAttribute('data-ow'), to = $('fa_To').value || ownToday(), dep = faDepreciation(r, to);
-      if (act === 'view') await ownPrint(cfg, r, 'স্থায়ী সম্পদ ক্রয়', [['নং', escapeHtml(r[cfg.idf])], ['ক্রয়ের তারিখ', escapeHtml(formatShortDate(r.Date))], ['ধরন', escapeHtml(r.Category || '')], ['সম্পদের নাম', '<b>' + escapeHtml(r.AssetName || '') + '</b>'], ['পরিমাণ', String(+Number(r.Qty || 0).toFixed(3))], ['ক্রয়মূল্য', '৳' + (Number(r.Cost) || 0).toFixed(2)], ['প্রদান', escapeHtml(accName(r.BankCashAccID))], ['বার্ষিক অবচয়', (Number(r.DepRate) || 0) + '%'], ['জমা অবচয় (' + escapeHtml(formatShortDate(to)) + ')', '৳' + dep.toFixed(2)], ['বর্তমান মূল্য', '<b>৳' + ((Number(r.Cost) || 0) - dep).toFixed(2) + '</b>'], ['নোট', escapeHtml(r.Note || '')]]);
+      const act = b.getAttribute('data-ow'), to = $('fa_To').value || ownToday(), st = faState(r, to);
+      if (r.SourceID) {   // এ্যাসেট ক্রয় থেকে আসা — ভাউচারেই দেখা/এডিট/মোছা
+        if (act === 'view') await assetVoucherPrint('AssetPurchase', r.SourceID);
+        else if (act === 'edit') { window.__assetEditId = { base: 'AssetPurchase', id: r.SourceID }; await navigateTo('assetPurchase', t('হিসাব', 'Accounts'), t('এ্যাসেট ক্রয়', 'Asset purchase')); }
+        else if (act === 'del') { if (await assetVoucherDelete('AssetPurchase', r.SourceID)) await load(); }
+        return;
+      }
+      if (act === 'view') await ownPrint(cfg, r, 'স্থায়ী সম্পদ', [['নং', escapeHtml(r[cfg.idf])], ['ক্রয়ের তারিখ', escapeHtml(formatShortDate(r.Date))], ['খাত', escapeHtml(catName(r))], ['সম্পদের নাম', '<b>' + escapeHtml(r.AssetName || '') + '</b>'], ['পরিমাণ (বাকি / মোট)', (+st.rem.toFixed(3)) + ' / ' + (+st.qty.toFixed(3))], ['ক্রয়মূল্য (বাকি অংশ)', '৳' + st.cost.toFixed(2)], ['প্রদান', escapeHtml(accName(r.BankCashAccID))], ['বার্ষিক অবচয়', (Number(r.DepRate) || 0) + '%'], ['জমা অবচয় (' + escapeHtml(formatShortDate(to)) + ')', '৳' + st.dep.toFixed(2)], ['বর্তমান মূল্য', '<b>৳' + st.book.toFixed(2) + '</b>'], ['নোট', escapeHtml(r.Note || '')]]);
       else if (act === 'edit') {
         if (r.Status === 'Posted') { if (!(await ownUnpost(cfg, r[cfg.idf]))) return; await load(); }
-        editId = r[cfg.idf]; $('fa_FormTitle').textContent = t('এডিটঃ ', 'Edit: ') + editId;
-        $('fa_Date').value = String(r.Date || '').slice(0, 10); $('fa_Cat').value = r.Category || FA_CATEGORIES[0][0]; $('fa_Name').value = r.AssetName || ''; $('fa_Qty').value = r.Qty || 1; $('fa_Cost').value = r.Cost || ''; $('fa_Acc').value = r.BankCashAccID || ''; $('fa_Dep').value = r.DepRate || 0; $('fa_Dep').__manual = true; $('fa_Note').value = r.Note || '';
+        $('fa_Sec').open = true; editId = r[cfg.idf]; $('fa_FormTitle').textContent = t('এডিটঃ ', 'Edit: ') + editId;
+        $('fa_Date').value = String(r.Date || '').slice(0, 10); $('fa_Cat').value = r.CategoryID || (cats.find(function (c) { return c.Name === r.Category; }) || {}).CatID || (cats[0] || {}).CatID; $('fa_Name').value = r.AssetName || ''; $('fa_Qty').value = r.Qty || 1; $('fa_Cost').value = r.Cost || ''; $('fa_Acc').value = r.BankCashAccID || ''; $('fa_Dep').value = r.DepRate || 0; $('fa_Dep').__manual = true; $('fa_Note').value = r.Note || '';
         $('fa_CancelBtn').style.display = ''; $('fa_Name').focus(); window.scrollTo({ top: 0, behavior: 'smooth' });
       }
       else if (act === 'del') { if (await ownDelete(cfg, r)) { showToast(t('মুছে ফেলা হয়েছে ✅', 'Deleted ✅'), 'success'); if (editId === r[cfg.idf]) resetForm(); await load(); } }
-      else if (act === 'post') { if (!confirm(t('পোস্ট করবেনঃ ', 'Post: ') + r[cfg.idf] + '?')) return; await ownPost(cfg, r, 0, Number(r.Cost) || 0); showToast(t('পোস্ট হয়েছে ✅', 'Posted ✅'), 'success'); await load(); }
+      else if (act === 'post') { if (!confirm(t('পোস্ট করবেনঃ ', 'Post: ') + r[cfg.idf] + '?')) return; await ownPost(cfg, r, 0, r.BankCashAccID ? (Number(r.Cost) || 0) : 0); showToast(t('পোস্ট হয়েছে ✅', 'Posted ✅'), 'success'); await load(); }
     } catch (err) { showToast(err.message, 'error'); }
     finally { b.__busy = false; }
   });
@@ -3985,7 +4447,7 @@ async function renderBankCashBook(content) {
       return `<tr>
         <td>${escapeHtml(r.Date)}</td>
         <td>${escapeHtml(accMap[r.BankCashAccID] || r.BankCashAccID)}</td>
-        <td>${escapeHtml(({ CapitalVoucher: t('মালিকের মূলধন', 'Owner capital'), FixedAsset: t('স্থায়ী সম্পদ ক্রয়', 'Fixed asset purchase') })[r.RefModule] || r.RefModule)} — ${escapeHtml(r.RefID)}</td>
+        <td>${escapeHtml(({ CapitalVoucher: t('মালিকের মূলধন', 'Owner capital'), FixedAsset: t('স্থায়ী সম্পদ ক্রয়', 'Fixed asset purchase'), AssetPurchase: t('এ্যাসেট ক্রয়', 'Asset purchase'), AssetSale: t('এ্যাসেট বিক্রয়', 'Asset sale') })[r.RefModule] || r.RefModule)} — ${escapeHtml(r.RefID)}</td>
         <td>${Number(r.Debit || 0).toFixed(2)}</td>
         <td>${Number(r.Credit || 0).toFixed(2)}</td>
         <td><b>${formatAmountDrCr(r.Balance, true)}</b></td>
@@ -11705,6 +12167,8 @@ const VOUCHER_REGISTRY = {
   ContraVoucher: { bn: 'কনট্রা', table: 'ContraVoucher', idf: 'ContraID', lines: [], kind: 'simple', cfg: 'cv' },
   ProcessingVoucher: { bn: 'প্রসেসিং', table: 'ProcessingVoucher', idf: 'ProcessingID', lines: [['ProcessingByProduct_Lines', 'ProcessingID'], ['ProcessingFG_Lines', 'ProcessingID']], kind: 'processing' },
   CapitalVoucher: { bn: 'মালিকের মূলধন', table: 'CapitalVoucher', idf: 'CapID', lines: [], kind: 'legacy' },
+  AssetPurchase: { bn: 'এ্যাসেট ক্রয়', table: 'AssetPurchase', idf: 'APID', lines: [['AssetPurchase_Lines', 'APID']], kind: 'asset' },
+  AssetSale: { bn: 'এ্যাসেট বিক্রয়', table: 'AssetSale', idf: 'ASID', lines: [['AssetSale_Lines', 'ASID']], kind: 'asset' },
   FixedAsset: { bn: 'স্থায়ী সম্পদ', table: 'FixedAsset', idf: 'AssetID', lines: [], kind: 'legacy' },
   // পুরনো সংস্করণের ভাউচার — এখনকার সফটওয়্যারে ফর্ম নেই; দেখা/এডিট নয়, শুধু মোছা (টেবিল ও আইডির নাম অনুমানে)
   CollectionVoucher: { bn: 'কালেকশন (পুরনো)', table: 'CollectionVoucher', idf: ['CollectionID', 'ColID', 'CollID', 'VoucherID', 'ID'], lines: [], kind: 'legacy' }
@@ -11729,11 +12193,13 @@ async function voucherView(base, id) {
   if (!R || R.kind === 'legacy') { showToast(t('এই ধরনের ভাউচার দেখার ব্যবস্থা এখনকার সফটওয়্যারে নেই — চাইলে 🗑️ দিয়ে মুছে ফেলুন।', 'This voucher type cannot be opened in this version — delete it with 🗑️ if needed.'), 'error'); return; }
   if (R.kind === 'purchase' || R.kind === 'sales') return openPrintableVoucherView(base, id);
   if (R.kind === 'processing') return openProcessingPrintView(id, false, await stockCardProcessingData(id));
+  if (R.kind === 'asset') return assetVoucherPrint(base, id);
   if (R.kind === 'simple') { const h = await voucherFetchHeader(base, id); if (!h) { showToast(t('ভাউচারটা পাওয়া যায়নি — 🗑️ দিয়ে লেজার থেকে মুছে ফেলতে পারেন।', 'Voucher not found — you can remove it from the ledger with 🗑️.'), 'error'); return; } window.__activeSimpleVoucherConfig = SIMPLE_VOUCHER_CONFIGS[R.cfg]; return openSimpleVoucherForm(h); }
 }
 async function voucherEdit(base, id, posted) {
   const R = VOUCHER_REGISTRY[base];
   if (!R || R.kind === 'legacy') { showToast(t('এই ধরনের ভাউচার এডিটের ব্যবস্থা নেই — 🗑️ দিয়ে মুছে নতুন করে দিন।', 'This voucher type cannot be edited — delete it and enter it again.'), 'error'); return false; }
+  if (R.kind === 'asset') { closeModal(); window.__assetEditId = { base: base, id: id }; return navigateTo(ASSET_VCFG[base].page, t('হিসাব', 'Accounts'), ASSET_VCFG[base].bn); }
   const h = await voucherFetchHeader(base, id);
   if (!h) { showToast(t('ভাউচারটা পাওয়া যায়নি — 🗑️ দিয়ে লেজার থেকে মুছে ফেলতে পারেন।', 'Voucher not found — remove it with 🗑️.'), 'error'); return false; }
   if (h.Status === 'Posted') {
@@ -11755,6 +12221,7 @@ async function voucherPost(base, id) {
   if (R.kind === 'purchase') return postPurchaseVoucherRecord(base, id);
   if (R.kind === 'sales') return postSalesVoucherRecord(base, id);
   if (R.kind === 'processing') return postProcessingRecord(id);
+  if (R.kind === 'asset') return assetVoucherPost(base, id);
   if (!confirm(t('ভাউচার ', 'Post voucher ') + id + t(' পোস্ট করবেন?', '?'))) return;
   await postDocumentRecord(base, id);
 }
@@ -11762,6 +12229,7 @@ async function voucherPost(base, id) {
     স্টক, পার্টি লেজার, ক্যাশ/ব্যাংকের সব এন্ট্রি মুছে ব্যালান্স ঠিক করা হয়, তারপর লাইন ও ভাউচার (থাকলে) */
 async function voucherDelete(base, id) {
   const R = VOUCHER_REGISTRY[base] || { bn: base, table: null, idf: [], lines: [], kind: 'unknown' };
+  if (R.kind === 'asset') return assetVoucherDelete(base, id);   // রেজিস্টার ও বিক্রিত পরিমাণও ঠিক করে
   const h = R.table ? await voucherFetchHeader(base, id) : null;
   const posted = !h || h.Status === 'Posted';
   if (posted) { if (!(await voucherAskAdmin(t('পোস্ট করা/ভুল ভাউচার মুছতে এডমিন পাসওয়ার্ড দিন:', 'Admin password to delete a posted/broken voucher:')))) return false; }
@@ -11963,6 +12431,10 @@ async function renderPartyLedger(content, partyTypeFilter) {
       PaymentVoucher: { desc:['পেমেন্ট ভাউচার','Payment voucher'], type:['পেমেন্ট','Payment'] },
       ReceiptVoucher: { desc:['রিসিট ভাউচার','Receipt voucher'], type:['রিসিট','Receipt'] },
       CollectionVoucher: { desc:['কালেকশন ভাউচার (পুরনো)','Collection voucher (old)'], type:['কালেকশন','Collection'] },
+      AssetPurchase: { desc:['এ্যাসেট ক্রয় ভাউচার','Asset purchase voucher'], type:['এ্যাসেট ক্রয়','Asset purchase'] },
+      'AssetPurchase-Payment': { desc:['এ্যাসেট ক্রয়ে প্রদান','Paid on asset purchase'], type:['পেমেন্ট','Payment'] },
+      AssetSale: { desc:['এ্যাসেট বিক্রয় ভাউচার','Asset sale voucher'], type:['এ্যাসেট বিক্রয়','Asset sale'] },
+      'AssetSale-Receipt': { desc:['এ্যাসেট বিক্রয়ে গ্রহণ','Received on asset sale'], type:['রিসিট','Receipt'] },
       'PaymentVoucher-Reversal': { desc:['পেমেন্ট ভাউচার বাতিল','Payment voucher reversal'], type:['বাতিল','Reversal'] },
       SalaryIssue: { desc:['সেলারী ইস্যু (বেতন পরিশোধ)','Salary issue'], type:['বেতন','Salary'] },
       'SalaryIssue-Reversal': { desc:['সেলারী ইস্যু বাতিল','Salary issue reversal'], type:['বেতন ফেরত','Salary reversal'] }
