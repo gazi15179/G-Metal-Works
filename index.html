@@ -7545,8 +7545,9 @@ async function renderProcCostingPage(content) {
       .pcx tr.picked td{background:#eef6ff;}
       .pcx-top{display:flex;justify-content:space-between;align-items:end;gap:10px;flex-wrap:wrap;margin-bottom:10px;}
       .pcx-no{font-size:13px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);} .pcx-no b{font-family:monospace;}
-      .pcx-g{display:grid;gap:10px;margin-bottom:6px;} .pcx-g2{grid-template-columns:repeat(2,minmax(0,1fr));} .pcx-g3{grid-template-columns:repeat(3,minmax(0,1fr));} .pcx-g5{grid-template-columns:repeat(5,minmax(0,1fr));}
-      @media (max-width:760px){ .pcx-g5{grid-template-columns:repeat(2,minmax(0,1fr));} .pcx-g3{grid-template-columns:repeat(2,minmax(0,1fr));} }
+      .pcx-g{display:grid;gap:10px;margin-bottom:6px;} .pcx-g2{grid-template-columns:repeat(2,minmax(0,1fr));} .pcx-g3{grid-template-columns:repeat(3,minmax(0,1fr));} .pcx-g5{grid-template-columns:repeat(5,minmax(0,1fr));} .pcx-g4{grid-template-columns:repeat(4,minmax(0,1fr));}
+      @media (max-width:760px){ .pcx-g5{grid-template-columns:repeat(2,minmax(0,1fr));} .pcx-g3{grid-template-columns:repeat(2,minmax(0,1fr));} .pcx-g4{grid-template-columns:repeat(2,minmax(0,1fr));} }
+      .pcx input.sdrv{border-color:#c27a12;box-shadow:inset 0 0 0 1px #c27a12;}
       .pcx .field{margin:0;} .pcx .field label{font-size:11.5px;font-weight:600;}
       .pcx .ro{background:var(--bg);font-weight:600;}
       .pcx-sec{margin:14px 0 6px;font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;border-top:1px solid var(--border);padding-top:10px;}
@@ -7630,10 +7631,11 @@ async function renderProcCostingPage(content) {
         <div class="field"><label>${t('প্রতি কেজি দর', 'Rate / kg')}</label><input id="pc_RateKg" class="ro" readonly></div>
         <div class="field"><label>${t('প্রতি পিস দর', 'Rate / pc')}</label><input id="pc_RatePc" class="ro" readonly></div>
       </div>
-      <div class="pcx-g pcx-g3">
-        <div class="field"><label>${t('প্রতি কেজি বিক্রয় দর', 'Sale rate / kg')}</label><input type="number" step="any" min="0" id="pc_SaleKg"></div>
-        <div class="field"><label>${t('প্রতি পিস বিক্রয় দর', 'Sale rate / pc')}</label><input type="number" step="any" min="0" id="pc_SalePc"></div>
+      <div class="pcx-g pcx-g4">
+        <div class="field"><label>${t('প্রতি কেজি বিক্রয় দর', 'Sale rate / kg')}</label><input type="number" step="any" min="0" inputmode="decimal" id="pc_SaleKg" title="${attr(t('লিখলে পিসের বিক্রয় দর নিজে বসে', 'Typing here fills the per-piece rate'))}"></div>
+        <div class="field"><label>${t('প্রতি পিস বিক্রয় দর', 'Sale rate / pc')}</label><input type="number" step="any" min="0" inputmode="decimal" id="pc_SalePc" title="${attr(t('লিখলে কেজির বিক্রয় দর নিজে বসে', 'Typing here fills the per-kg rate'))}"></div>
         <div class="field"><label>${t('লাভ', 'Profit')}</label><input id="pc_Profit" class="ro" readonly></div>
+        <div class="field"><label>${t('লাভ (%)', 'Profit (%)')}</label><input id="pc_ProfitPct" class="ro" readonly title="${attr(t('লাভ ÷ নীট মূল্য (খরচ) × ১০০', 'Profit ÷ net value (cost) × 100'))}"></div>
       </div>
 
       <div class="pcx-sec">${t('প্রস্তুত পণ্য (একই সার্কেল থেকে একাধিক পণ্য) — এটাই স্টকে জমা হবে', 'Finished products (several from one circle) — these go into stock')}</div>
@@ -7772,7 +7774,7 @@ async function renderProcCostingPage(content) {
     st.rateSrc = h.DateFrom ? 'avg' : 'saved'; st.avgFrom = h.DateFrom || ''; st.avgTo = h.DateTo || '';
     $('pc_RateSrc').textContent = h.DateFrom ? t('গড় দরঃ ', 'Average: ') + formatShortDate(h.DateFrom) + ' — ' + formatShortDate(h.DateTo) : t('সেভ করা দর', 'saved rate');
     $('pc_ProcSrc').textContent = t('সেভ করা দর', 'saved rate');
-    $('pc_SaleKg').value = h.SaleRatePerKg || ''; $('pc_SalePc').value = h.SaleRatePerPiece || '';
+    $('pc_SaleKg').value = h.SaleRatePerKg ? String(+Number(h.SaleRatePerKg).toFixed(2)) : ''; $('pc_SalePc').value = h.SaleRatePerPiece ? String(+Number(h.SaleRatePerPiece).toFixed(2)) : ''; st.saleBasis = h.SaleRatePerKg ? 'kg' : (h.SaleRatePerPiece ? 'pc' : null);
     st.bp = d.lines.map(function (l) { return { name: l.ByProductName, qty: show(l.Quantity), pcs: l.QtyPcs ? String(l.QtyPcs) : '', rate: l.Rate ? String(+l.Rate.toFixed(4)) : '', ratePc: l.RatePerPc ? l.RatePerPc.toFixed(2) : '', drv: 'kg' }; });
     st.fg = d.fgLines.map(function (l) { return { itemId: l.itemId, kg: show(l.kg), pcs: l.pcs ? String(l.pcs) : '', rateKg: l.rateKg ? l.rateKg.toFixed(2) : '', ratePc: l.ratePc ? l.ratePc.toFixed(2) : '', driver: 'kg', auto: false }; });
     renderBP(); renderFG(); recalc();
@@ -7859,9 +7861,17 @@ async function renderProcCostingPage(content) {
       fk += kg; fv += value;
     });
     $('pc_FGKg').textContent = show(fk) || '0'; $('pc_FGPcs').textContent = show(pcs, 0) || '0'; $('pc_FGVal').textContent = fv.toFixed(2);
-    const saleKg = n(gv('pc_SaleKg')), salePc = n(gv('pc_SalePc'));
-    const profit = saleKg > 0 ? saleKg * w - v : salePc > 0 ? salePc * pcs - v : 0;
+    // বিক্রয় দরঃ যে দর লেখা (কেজি বা পিস) সেটাই ভিত্তি — অন্যটা নিজে বসে (একই বিক্রয় মূল্য: কেজি-দর × নীট ওজন = পিস-দর × মোট পিস)
+    const basis = st.saleBasis || (n(gv('pc_SalePc')) && !n(gv('pc_SaleKg')) ? 'pc' : 'kg');
+    let saleKg = n(gv('pc_SaleKg')), salePc = n(gv('pc_SalePc'));
+    if (basis === 'pc') { saleKg = (salePc > 0 && w > 0 && pcs > 0) ? salePc * pcs / w : 0; setIf('pc_SaleKg', saleKg ? saleKg.toFixed(2) : ''); }
+    else { salePc = (saleKg > 0 && pcs > 0) ? saleKg * w / pcs : 0; setIf('pc_SalePc', salePc ? salePc.toFixed(2) : ''); }
+    $('pc_SaleKg').classList.toggle('sdrv', basis === 'kg' && !!gv('pc_SaleKg')); $('pc_SalePc').classList.toggle('sdrv', basis === 'pc' && !!gv('pc_SalePc'));
+    const saleVal = basis === 'pc' ? salePc * pcs : saleKg * w;
+    const profit = saleVal > 0 ? saleVal - v : 0;
     $('pc_Profit').value = profit.toFixed(2); $('pc_Profit').style.color = profit < 0 ? 'var(--danger)' : '';
+    $('pc_ProfitPct').value = (saleVal > 0 && v > 0) ? (profit / v * 100).toFixed(2) + ' %' : '';
+    $('pc_ProfitPct').style.color = profit < 0 ? 'var(--danger)' : '';
     const row = function (lbl, net, got, unit, dec, tol) {
       const d = net - got, ok = Math.abs(d) <= tol;
       return `<div style="background:${ok ? '#e5f5ec' : '#fdf3e3'};color:${ok ? 'var(--success)' : 'var(--amber-dim)'};"><span>${lbl}: ${t('নীট', 'Net')} <b>${net.toFixed(dec)}</b> ${unit} — ${t('প্রস্তুত পণ্যের মোট', 'finished total')} <b>${got.toFixed(dec)}</b> ${unit}</span><b>${ok ? '✓ ' + t('মিলেছে', 'matched') : t('অমিল', 'Difference') + ': ' + (d > 0 ? '+' : '') + d.toFixed(dec)}</b></div>`;
@@ -7892,6 +7902,7 @@ async function renderProcCostingPage(content) {
     // কাঁচামালের দর ফাঁকা থাকলে সর্বশেষ ক্রয় দর
     if (!gv('pc_RMRate') && gv('pc_Raw')) { const lp = await lastPurchaseRate(gv('pc_Raw')); if (lp.rate > 0) { $('pc_RMRate').value = String(+lp.rate.toFixed(4)); st.rateSrc = 'last'; $('pc_RateSrc').textContent = t('সর্বশেষ ক্রয়ঃ ', 'Last purchase: ') + lp.info; } }
     const dates = rows.map(function (r) { return String(r.ProdDate).slice(0, 10); });
+    if (dates.length) $('pc_Date').value = dates[dates.length - 1];   // ভাউচার তারিখ = টিক দেওয়া লাইনের (একাধিক দিন হলে শেষ দিনের) তারিখ
     $('pc_DPHint').textContent = t('দৈনিক উৎপাদন থেকেঃ ', 'From daily production: ') + rows.length + t('টা লাইন (', ' lines (') + formatShortDate(dates[0]) + (dates[0] !== dates[dates.length - 1] ? ' — ' + formatShortDate(dates[dates.length - 1]) : '') + t(') — সার্কেল ', ') — circle ') + show(qty) + t(' কেজি → তৈরী পণ্য ', ' kg → finished ') + show(sum('FGQty')) + t(' কেজি / ', ' kg / ') + (show(sum('FGPcs'), 0) || 0) + t(' পিস', ' pcs');
     renderBP(); renderFG(); renderRec(); recalc();
     $('pc_Voucher').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -7959,7 +7970,7 @@ async function renderProcCostingPage(content) {
     st.dpIds = []; st.bp = []; st.fg = []; st.rateSrc = ''; st.avgFrom = st.avgTo = ''; st.editId = null;
     $('pc_No').textContent = t('অটো (সেভে বসবে)', 'auto (on save)'); $('pc_Save').innerHTML = '💾 ' + t('সেভ', 'Save');
     if (wasEdit) { loadRec(); loadList(); }
-    ['pc_Qty', 'pc_RawPcs', 'pc_RMRate', 'pc_RMRatePc', 'pc_ProcRate', 'pc_SaleKg', 'pc_SalePc'].forEach(function (id) { $(id).value = ''; }); st.rmBasis = 'kg';
+    ['pc_Qty', 'pc_RawPcs', 'pc_RMRate', 'pc_RMRatePc', 'pc_ProcRate', 'pc_SaleKg', 'pc_SalePc'].forEach(function (id) { $(id).value = ''; }); st.rmBasis = 'kg'; st.saleBasis = null;
     $('pc_Date').value = today; $('pc_RateSrc').textContent = ''; $('pc_ProcSrc').textContent = ''; $('pc_DPHint').textContent = '';
     renderBP(); renderFG(); renderRec(); recalc();
   }
@@ -7989,7 +8000,7 @@ async function renderProcCostingPage(content) {
       ProcessingRate: n(gv('pc_ProcRate')), ProcessingValue: qty * n(gv('pc_ProcRate')), TotalValue: total(),
       ByProductQty: bpQty(), ByProductValue: bpVal(), NetWeight: w, NetValue: v,
       FinishedGoodsItemID: fg[0].itemId, Pieces: pcs, RatePerKg: w > 0 ? v / w : 0, RatePerPiece: pcs > 0 ? v / pcs : 0,
-      SaleRatePerKg: saleKg, SaleRatePerPiece: salePc, Profit: saleKg > 0 ? saleKg * w - v : salePc > 0 ? salePc * pcs - v : 0
+      SaleRatePerKg: saleKg, SaleRatePerPiece: salePc, Profit: (st.saleBasis === 'pc' ? salePc * pcs : saleKg * w) > 0 ? (st.saleBasis === 'pc' ? salePc * pcs : saleKg * w) - v : 0
     };
     const btn = $('pc_Save'); btn.disabled = true;
     try {
@@ -8037,6 +8048,7 @@ async function renderProcCostingPage(content) {
       recalc(); return;
     }
     if (el.id === 'pc_RMRate') st.rmBasis = 'kg'; if (el.id === 'pc_RMRatePc') st.rmBasis = 'pc';
+    if (el.id === 'pc_SaleKg') st.saleBasis = 'kg'; if (el.id === 'pc_SalePc') st.saleBasis = 'pc';
     if (['pc_Qty', 'pc_RawPcs', 'pc_RMRate', 'pc_RMRatePc', 'pc_ProcRate', 'pc_SaleKg', 'pc_SalePc'].indexOf(el.id) !== -1) {
       if (el.id === 'pc_RMRate') { st.rateSrc = el.value ? 'manual' : ''; $('pc_RateSrc').textContent = el.value ? t('হাতে লেখা', 'typed') : ''; }
       if (el.id === 'pc_ProcRate') $('pc_ProcSrc').textContent = el.value ? t('হাতে লেখা', 'typed') : '';
@@ -8782,40 +8794,126 @@ function collectProcessingForm() {
 
 /** প্রসেসিং ভাউচারের A5 প্রিন্ট — ক্রয়/বিক্রয় ভাউচারের একই হেডার ডিজাইন।
  *  autoPrint=true হলে খোলার সাথে সাথে প্রিন্ট ডায়ালগ আসে। লাভ শুধু স্ক্রিনে, প্রিন্টে আসে না। */
+/** প্রসেসিং ভাউচারের A5 প্রিন্ট — ক্রয়/বিক্রয় ভাউচারের একই নকশা।
+ *  প্রতিটা অংশে পরিমাণ (কেজি | পিস) ও দর (কেজি | পিস) আলাদা কলামে।
+ *  ডবল চেকঃ সব মোট আলাদা করে আবার হিসাব করে মিলিয়ে দেখা হয় — ফলাফল শুধু পর্দায় (প্রিন্টে আসে না), লাভও তাই। */
 async function openProcessingPrintView(docId, autoPrint, dIn) {
   const d = dIn || collectProcessingForm();   // dIn: সেভ করা ভাউচারের তথ্য (প্রসেসিং কষ্টিং-এর তালিকা থেকে)
   const h = d.header;
-  // পপ-আপ ব্লক এড়াতে ক্লিকের সাথে সাথেই উইন্ডো খোলা হচ্ছে
-  const win = window.open('', '_blank');
+  const win = window.open('', '_blank');   // পপ-আপ ব্লক এড়াতে ক্লিকের সাথে সাথেই
   if (!win) { showToast(t('পপ-আপ ব্লক হয়েছে — এই সাইটের জন্য পপ-আপ অনুমতি দিন।','Pop-up was blocked — please allow pop-ups for this site.'), 'error'); return; }
   let co = {};
   try { co = await api('getSingleton', { sheet: 'CompanyProfile' }); } catch (e) { co = {}; }
-  const itemMap = window.__procItemMap || {};
-  const whMap = window.__procWhMap || {};
+  const itemMap = window.__procItemMap || {}, whMap = window.__procWhMap || {};
+  const n = function (x) { return Number(x) || 0; };
   const B = function (v) { return escapeHtml(bnDigits(v)); };
-  const M = function (n) { return B(Number(n || 0).toFixed(2)); };
+  const M = function (x) { return B(n(x).toFixed(2)); };
+  const Q3 = function (x) { return n(x) ? B(+n(x).toFixed(3)) : '—'; };
+  const R2 = function (x) { return n(x) ? M(x) : '—'; };
   const nm = function (id) { return escapeHtml((itemMap[id] && itemMap[id].ItemName) || id || '—'); };
   const coName = co.CompanyNameBn || 'জি মেটাল ওয়ার্কস';
   const coAddr = co.AddressBn || 'আলামপুর ব্রীজঘাট বাজার, কোটচাঁদপুর রোড, মহেশপুর, ঝিনাইদহ।';
   const isDraft = !docId;
 
-  const PV_COLS = '<colgroup><col style="width:8%"><col style="width:40%"><col style="width:17%"><col style="width:17%"><col style="width:18%"></colgroup>';
+  // ---------- টেবিলের গঠন (বিক্রয় ভাউচারের মতো দুই সারির হেডার) ----------
+  const COLS = '<colgroup><col style="width:6%"><col style="width:29%"><col style="width:11%"><col style="width:9%"><col style="width:12%"><col style="width:12%"><col style="width:21%"></colgroup>';
+  const head = function (title) {
+    return `<thead><tr class="section-head"><td colspan="7">${escapeHtml(title)}</td></tr>
+      <tr><th rowspan="2">ক্রঃ</th><th rowspan="2">নাম</th><th colspan="2" class="grp">পরিমাণ</th><th colspan="2" class="grp">দর</th><th rowspan="2">মূল্য</th></tr>
+      <tr class="sub"><th>কেজি</th><th>পিস</th><th>কেজি</th><th>পিস</th></tr></thead>`;
+  };
+  const line = function (i, name, kg, pc, rk, rp, val) {
+    return `<tr><td>${B(i)}</td><td class="l">${name}</td><td>${Q3(kg)}</td><td>${Q3(pc)}</td><td class="r">${R2(rk)}</td><td class="r">${R2(rp)}</td><td class="r">${M(val)}</td></tr>`;
+  };
+  const tot = function (label, kg, pc, val, cls) {
+    return `<tr class="${cls || 'total-row'}"><td colspan="2" class="l">${escapeHtml(label)}</td><td>${Q3(kg)}</td><td>${Q3(pc)}</td><td></td><td></td><td class="r">${M(val)}</td></tr>`;
+  };
+  // মূল্য থেকে দর — যে এককের পরিমাণ আছে সেই এককের দর (না থাকলে —)
+  const rateOf = function (val, q) { return n(q) > 0 ? n(val) / n(q) : 0; };
+
+  // ---------- ১) কাঁচামাল ----------
+  const rmKg = n(h.RawMaterialQty), rmPc = n(h.RawMaterialPcs);
+  const rmVal = n(h.RawMaterialValue) || rmKg * n(h.RawMaterialRate);
+  const sec1 = `<table class="items-table">${COLS}${head('কাঁচামাল')}<tbody>
+      ${line(1, nm(h.RawMaterialItemID), rmKg, rmPc, n(h.RawMaterialRate) || rateOf(rmVal, rmKg), rateOf(rmVal, rmPc), rmVal)}
+      ${tot('মোটঃ কাঁচামালঃ', rmKg, rmPc, rmVal)}</tbody></table>`;
+
+  // ---------- ২) উৎপাদন খরচ ----------
+  const prVal = n(h.ProcessingValue) || rmKg * n(h.ProcessingRate);
+  const grossVal = rmVal + prVal;
+  const sec2 = `<table class="items-table">${COLS}${head('উৎপাদন খরচ')}<tbody>
+      ${line(1, 'উৎপাদন খরচ — ' + nm(h.RawMaterialItemID), rmKg, rmPc, n(h.ProcessingRate) || rateOf(prVal, rmKg), rateOf(prVal, rmPc), prVal)}
+      ${tot('মোটঃ উৎপাদন খরচঃ', rmKg, rmPc, prVal)}
+      ${tot('মোটঃ (কাঁচামাল + উৎপাদন খরচ)', rmKg, rmPc, grossVal, 'grand')}</tbody></table>`;
+
+  // ---------- ৩) বাই-প্রডাক্ট ----------
+  let bpKg = 0, bpPc = 0, bpVal = 0;
   const bpRows = d.lines.map(function (l, i) {
-    return `<tr><td>${B(i + 1)}</td><td class="l">${escapeHtml(l.ByProductName || '')}${l.ItemID ? ' (' + nm(l.ItemID) + ')' : ''}</td><td>${B(l.Quantity)}</td><td class="r">${M(l.Rate)}</td><td class="r">${M(l.Value)}</td></tr>`;
+    const kg = n(l.Quantity), pc = n(l.QtyPcs), val = n(l.Value) || kg * n(l.Rate);
+    bpKg += kg; bpPc += pc; bpVal += val;
+    return line(i + 1, escapeHtml(l.ByProductName || '') + (l.ItemID && (itemMap[l.ItemID] || {}).ItemName !== l.ByProductName ? ' (' + nm(l.ItemID) + ')' : ''), kg, pc, n(l.Rate) || rateOf(val, kg), n(l.RatePerPc) || rateOf(val, pc), val);
   }).join('');
+  const netKg = rmKg - bpKg, netVal = grossVal - bpVal;
+  const sec3 = d.lines.length ? `<table class="items-table">${COLS}${head('বাই-প্রডাক্ট (ভাঙারি/কাটিং/অপচয়)')}<tbody>${bpRows}
+      ${tot('মোটঃ বাই-প্রডাক্টঃ', bpKg, bpPc, bpVal)}
+      ${tot('সর্বমোটঃ (বাই-প্রডাক্ট বাদ)', netKg, 0, netVal, 'grand')}</tbody></table>` : '';
+
+  // ---------- ৪) ফিনিশড গুডস ----------
+  let fgKg = 0, fgPc = 0, fgVal = 0;
+  const lineChecks = [];
+  const fgRows = d.fgLines.map(function (l, i) {
+    const kg = n(l.kg), pc = n(l.pcs), val = n(l.value);
+    fgKg += kg; fgPc += pc; fgVal += val;
+    const rk = rateOf(val, kg), rp = rateOf(val, pc);
+    if (kg && n(l.rateKg) && Math.abs(kg * n(l.rateKg) - val) > Math.max(1, kg * 0.006)) lineChecks.push((i + 1) + ' নং লাইনঃ কেজি × দর (' + (kg * n(l.rateKg)).toFixed(2) + ') ≠ মূল্য (' + val.toFixed(2) + ')');
+    if (pc && n(l.ratePc) && Math.abs(pc * n(l.ratePc) - val) > Math.max(1, pc * 0.006)) lineChecks.push((i + 1) + ' নং লাইনঃ পিস × দর (' + (pc * n(l.ratePc)).toFixed(2) + ') ≠ মূল্য (' + val.toFixed(2) + ')');
+    return line(i + 1, nm(l.itemId), kg, pc, rk, rp, val);
+  }).join('');
+  const saleRow = (n(h.SaleRatePerKg) || n(h.SaleRatePerPiece))
+    ? `<tr class="vat-row"><td></td><td class="l">বিক্রয় দর</td><td></td><td></td><td class="r">${R2(h.SaleRatePerKg)}</td><td class="r">${R2(h.SaleRatePerPiece)}</td><td></td></tr>` : '';
+  const sec4 = `<table class="items-table">${COLS}${head('ফিনিশড গুডস')}<tbody>${fgRows}
+      ${tot('মোটঃ ফিনিশড গুডসঃ', fgKg, fgPc, fgVal)}${saleRow}</tbody></table>`;
+
+  // ---------- ডবল চেক (শুধু পর্দায়) ----------
+  const chk = [];
+  const cmp = function (label, a, b, tol, dec, unit) {
+    const ok = Math.abs(a - b) <= tol;
+    chk.push(`<li class="${ok ? 'ok' : 'bad'}">${ok ? '✓' : '⚠️'} ${escapeHtml(label)}: <b>${a.toFixed(dec)}</b> ${ok ? '=' : '≠'} <b>${b.toFixed(dec)}</b> ${unit}</li>`);
+  };
+  cmp('কাঁচামাল + উৎপাদন খরচ = ভাউচারের মোট', grossVal, n(h.TotalValue) || grossVal, 0.5, 2, '৳');
+  if (d.lines.length) cmp('বাই-প্রডাক্টের যোগফল = ভাউচারের বাই-প্রডাক্ট', bpVal, n(h.ByProductValue) || bpVal, 0.5, 2, '৳');
+  cmp('কাঁচামাল − বাই-প্রডাক্ট = নীট ওজন', netKg, n(h.NetWeight), 0.0005, 3, 'কেজি');
+  cmp('মোট − বাই-প্রডাক্ট = নীট মূল্য', netVal, n(h.NetValue), 0.5, 2, '৳');
+  cmp('ফিনিশড গুডসের কেজি = নীট ওজন', fgKg, n(h.NetWeight), 0.0005, 3, 'কেজি');
+  cmp('ফিনিশড গুডসের মূল্য = নীট মূল্য', fgVal, n(h.NetValue), 0.5, 2, '৳');
+  lineChecks.forEach(function (x) { chk.push(`<li class="bad">⚠️ ${escapeHtml(x)}</li>`); });
+  const allOk = chk.every(function (x) { return x.indexOf('class="ok"') !== -1; });
+  const checkBox = `<div class="v-check ${allOk ? 'ok' : 'bad'}"><b>${allOk ? '✓ ডবল চেকঃ সব হিসাব মিলেছে' : '⚠️ ডবল চেকঃ কিছু হিসাব মেলেনি — ভাউচার খুলে দেখুন'}</b> <small>(প্রিন্টে আসবে না)</small><ul>${chk.join('')}</ul></div>`;
+
+  // ---------- লাভ (শুধু পর্দায়) ----------
+  const saleVal = n(h.SaleRatePerKg) ? n(h.SaleRatePerKg) * n(h.NetWeight) : n(h.SaleRatePerPiece) * fgPc;
+  const profit = saleVal > 0 ? saleVal - n(h.NetValue) : 0;
+  const pct = (saleVal > 0 && n(h.NetValue) > 0) ? profit / n(h.NetValue) * 100 : 0;
+  const profitBox = saleVal > 0 ? `<div class="v-profit"><h5>📈 লাভঃ ${profit < 0 ? '−' : ''}${M(Math.abs(profit))} (${profit < 0 ? '−' : ''}${B(Math.abs(pct).toFixed(2))}%) — বিক্রয় মূল্য ${M(saleVal)} − নীট মূল্য ${M(h.NetValue)} <small>(প্রিন্টে আসবে না)</small></h5></div>` : '';
 
   const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>প্রসেসিং ভাউচার${docId ? ' — ' + escapeHtml(docId) : ' (খসড়া)'}</title>
 <link href="https://fonts.googleapis.com/css2?family=Anek+Bangla:wght@400;500;600;700&family=Oswald:wght@600;700&display=swap" rel="stylesheet">
+<style id="pg">@page{size:A5 portrait;margin:8mm;}</style>
 <style>${VOUCHER_TABLE_CSS}
-  .items-table .section-head td{font-size:11px;}
+  .items-table thead tr.section-head td{font-size:10.5px;background:#e8e8e8;}
+  .items-table .grand td{background:#f2f2f2;}
+  .v-check{margin-top:8px;border-radius:6px;padding:6px 8px;font-size:10.5px;}
+  .v-check.ok{border:1.5px solid #15803d;background:#f0fdf4;color:#14532d;} .v-check.bad{border:1.5px solid #d97706;background:#fff7ed;color:#7c2d12;}
+  .v-check ul{margin:4px 0 0;padding-left:16px;} .v-check li{margin:1px 0;} .v-check li.bad{font-weight:700;}
+  @media print { .v-check{display:none !important;} }
 </style></head><body>
   <div class="toolbar">
     <button class="primary" onclick="window.print()">🖨️ প্রিন্ট</button>
-    <style id="pg">@page{size:A5 portrait;margin:8mm;}</style>
     <button onclick="document.getElementById('pg').textContent='@page{size:A5 portrait;margin:8mm;}';document.body.classList.remove('a5l');">📄 A5 খাড়া</button>
     <button onclick="document.getElementById('pg').textContent='@page{size:A5 landscape;margin:8mm;}';document.body.classList.add('a5l');">📄 A5 আড়াআড়ি</button>
   </div>
+  <div class="voucher-watermark">gmetal</div>
   <div class="v-co">
     <div class="v-logo">${co.LogoURL ? `<img src="${attr(co.LogoURL)}" alt="">` : '<span>লোগো</span>'}</div>
     <div class="v-co-info">
@@ -8831,69 +8929,19 @@ async function openProcessingPrintView(docId, autoPrint, dIn) {
       ${isDraft ? '<div class="v-draft">খসড়া — এখনো সেভ হয়নি</div>' : ''}
     </div>
   </div>
-
   <div class="v-party">
     <div class="v-party-name"><span class="lbl">কাঁচামালঃ</span> ${nm(h.RawMaterialItemID)}</div>
     <div class="v-party-sub">
       <span>গুদামঃ ${escapeHtml(whMap[h.WarehouseID] || h.WarehouseID || '—')}</span>
+      <span>নীট ওজনঃ ${Q3(h.NetWeight)} কেজি${fgPc ? ' / ' + B(fgPc) + ' পিস' : ''}</span>
       ${h.DateFrom || h.DateTo ? `<span>গড় দরের সময়ঃ ${B(formatShortDate(h.DateFrom))} হইতে ${B(formatShortDate(h.DateTo))} পর্যন্ত</span>` : ''}
     </div>
   </div>
-
-  <!-- ১) কাঁচামাল -->
-  <table class="items-table">
-    ${PV_COLS}
-    <thead><tr class="section-head"><td colspan="5">কাঁচামাল</td></tr>
-    <tr><th>ক্রঃ</th><th>নাম</th><th>পরিমাণ</th><th class="r">দর</th><th class="r">মূল্য</th></tr></thead>
-    <tbody>
-      <tr><td>${B(1)}</td><td class="l">${nm(h.RawMaterialItemID)}</td><td>${B(h.RawMaterialQty)}</td><td class="r">${M(h.RawMaterialRate)}</td><td class="r">${M(h.RawMaterialValue)}</td></tr>
-      <tr class="total-row"><td colspan="2">মোটঃ কাঁচামালঃ</td><td>${B(h.RawMaterialQty)}</td><td></td><td class="r">${M(h.RawMaterialValue)}</td></tr>
-    </tbody></table>
-
-  <!-- ২) উৎপাদন খরচ -->
-  <table class="items-table">
-    ${PV_COLS}
-    <thead><tr class="section-head"><td colspan="5">উৎপাদন খরচ</td></tr>
-    <tr><th>ক্রঃ</th><th>নাম</th><th>পরিমাণ</th><th class="r">দর</th><th class="r">মূল্য</th></tr></thead>
-    <tbody>
-      <tr><td>${B(1)}</td><td class="l">উৎপাদন খরচ — ${nm(h.RawMaterialItemID)}</td><td>${B(h.RawMaterialQty)}</td><td class="r">${M(h.ProcessingRate)}</td><td class="r">${M(h.ProcessingValue)}</td></tr>
-      <tr class="total-row"><td colspan="2">মোটঃ উৎপাদন খরচঃ</td><td>${B(h.RawMaterialQty)}</td><td></td><td class="r">${M(h.ProcessingValue)}</td></tr>
-      <tr class="grand"><td colspan="2">মোটঃ (কাঁচামাল + উৎপাদন খরচ)</td><td>${B(h.RawMaterialQty)}</td><td></td><td class="r">${M(h.TotalValue)}</td></tr>
-    </tbody></table>
-
-  <!-- ৩) বাই-প্রডাক্ট -->
-  ${d.lines.length ? `<table class="items-table">
-    ${PV_COLS}
-    <thead><tr class="section-head"><td colspan="5">বাই-প্রডাক্ট (ভাঙারি/কাটিং/অপচয়)</td></tr>
-    <tr><th>ক্রঃ</th><th>নাম</th><th>পরিমাণ</th><th class="r">দর</th><th class="r">মূল্য</th></tr></thead>
-    <tbody>${bpRows}
-      <tr class="total-row"><td colspan="2">মোটঃ বাই-প্রডাক্টঃ</td><td>${B(h.ByProductQty)}</td><td></td><td class="r">${M(h.ByProductValue)}</td></tr>
-      <tr class="grand"><td colspan="2">সর্বমোটঃ (বাই-প্রডাক্ট বাদ)</td><td>${B(+(Number(h.RawMaterialQty || 0) - Number(h.ByProductQty || 0)).toFixed(3))}</td><td></td><td class="r">${M(Number(h.TotalValue || 0) - Number(h.ByProductValue || 0))}</td></tr>
-    </tbody></table>` : ''}
-
-  <!-- ৪) ফিনিশড গুডস -->
-  <table class="items-table">
-    ${PV_COLS}
-    <thead><tr class="section-head"><td colspan="5">ফিনিশড গুডস</td></tr>
-    <tr><th>ক্রঃ</th><th>নাম</th><th>পরিমাণ</th><th class="r">দর</th><th class="r">মূল্য</th></tr></thead>
-    <tbody>
-      ${d.fgLines.map(function (l, i) {
-        return `<tr><td>${B(i + 1)}</td><td class="l">${nm(l.itemId)}</td>
-        <td>${l.kg ? B(Number(l.kg).toFixed(3)) + ' কেজি' : ''}${l.kg && l.pcs ? '<br>' : ''}${l.pcs ? B(l.pcs) + ' পিস' : ''}</td>
-        <td class="r">${l.kg ? M(l.rateKg) + '/কেজি' : ''}${l.kg && l.pcs ? '<br>' : ''}${l.pcs ? M(l.ratePc) + '/পিস' : ''}</td>
-        <td class="r">${M(l.value)}</td></tr>`;
-      }).join('')}
-      <tr class="total-row"><td colspan="2">মোটঃ ফিনিশড গুডসঃ</td><td>${B(Number(h.NetWeight).toFixed(3))} কেজি${h.Pieces ? '<br>' + B(h.Pieces) + ' পিস' : ''}</td><td></td><td class="r">${M(h.NetValue)}</td></tr>
-      ${(h.SaleRatePerKg || h.SaleRatePerPiece) ? `<tr class="vat-row"><td></td><td class="l">বিক্রয় দর</td><td></td>
-        <td class="r">${h.SaleRatePerKg ? M(h.SaleRatePerKg) + '/কেজি' : ''}${h.SaleRatePerKg && h.SaleRatePerPiece ? '<br>' : ''}${h.SaleRatePerPiece ? M(h.SaleRatePerPiece) + '/পিস' : ''}</td><td></td></tr>` : ''}
-    </tbody></table>
-
-  ${(h.SaleRatePerKg || h.SaleRatePerPiece) ? `<div class="v-profit"><h5>📈 লাভঃ ${h.Profit < 0 ? '−' : ''}${M(Math.abs(h.Profit))} (প্রিন্টে আসবে না)</h5></div>` : ''}
-
+  ${sec1}${sec2}${sec3}${sec4}
+  ${checkBox}${profitBox}
   <div class="sign-row"><div>প্রস্তুতকারীর স্বাঃ</div><div>হিসাবরক্ষকের স্বাঃ</div><div>অনুমোদনকারীর স্বাঃ</div></div>
   ${autoPrint ? '<script>window.addEventListener("load",function(){setTimeout(function(){window.print();},400);});<\/script>' : ''}
 </body></html>`;
-
   win.document.write(html);
   win.document.close();
 }
@@ -12044,12 +12092,12 @@ async function stockCardProcessingData(id) {   // সেভ করা প্র�
     supabaseClient.from('ProcessingFG_Lines').select('*').eq('ProcessingID', id)]);
   if (hr.error || !hr.data) throw new Error(t('ভাউচার পাওয়া যায়নি।', 'Voucher not found.'));
   const h0 = hr.data, n = function (x) { return Number(x) || 0; }, header = {};
-  ['RawMaterialQty', 'RawMaterialRate', 'RawMaterialValue', 'ProcessingRate', 'ProcessingValue', 'TotalValue', 'ByProductQty', 'ByProductValue', 'NetWeight', 'NetValue', 'Pieces', 'RatePerKg', 'RatePerPiece', 'SaleRatePerKg', 'SaleRatePerPiece', 'Profit'].forEach(function (k) { header[k] = n(h0[k]); });
+  ['RawMaterialQty', 'RawMaterialPcs', 'RawMaterialRate', 'RawMaterialValue', 'ProcessingRate', 'ProcessingValue', 'TotalValue', 'ByProductQty', 'ByProductValue', 'NetWeight', 'NetValue', 'Pieces', 'RatePerKg', 'RatePerPiece', 'SaleRatePerKg', 'SaleRatePerPiece', 'Profit'].forEach(function (k) { header[k] = n(h0[k]); });
   ['Date', 'RawMaterialItemID', 'WarehouseID', 'FinishedGoodsItemID', 'DateFrom', 'DateTo'].forEach(function (k) { header[k] = h0[k] || ''; });
   const [items, whs] = await Promise.all([cachedList('Items'), cachedList('Warehouses')]);
   window.__procItemMap = {}; items.forEach(function (i) { window.__procItemMap[i.ItemID] = i; });
   window.__procWhMap = {}; whs.forEach(function (w) { window.__procWhMap[w.WarehouseID] = w.WarehouseName; });
-  const lines = ((br && br.data) || []).map(function (l) { return { ByProductName: l.ByProductName || '', ItemID: l.ItemID || '', Quantity: n(l.Quantity), Rate: n(l.Rate), Value: n(l.Value) || n(l.Quantity) * n(l.Rate) }; });
+  const lines = ((br && br.data) || []).map(function (l) { return { ByProductName: l.ByProductName || '', ItemID: l.ItemID || '', Quantity: n(l.Quantity), Rate: n(l.Rate), Value: n(l.Value) || n(l.Quantity) * n(l.Rate), QtyPcs: n(l.QtyPcs), RatePerPc: n(l.RatePerPc) }; });
   let fgLines = ((fr && !fr.error && fr.data) || []).map(function (l) { return { itemId: l.ItemID, kg: n(l.QtyKg), pcs: n(l.QtyPcs), rateKg: n(l.RatePerKg), ratePc: n(l.RatePerPc), value: n(l.Value) }; });
   if (!fgLines.length && h0.FinishedGoodsItemID) fgLines = [{ itemId: h0.FinishedGoodsItemID, kg: n(h0.NetWeight), pcs: n(h0.Pieces), rateKg: n(h0.RatePerKg), ratePc: n(h0.RatePerPiece), value: n(h0.NetValue) }];
   return { header: header, lines: lines, fgLines: fgLines };
