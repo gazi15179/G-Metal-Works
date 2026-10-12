@@ -12188,35 +12188,133 @@ async function refreshStockCard(ctx) {   // স্টক ওভারভিউ �
   if (ctx && ctx.reopen !== false) await openStockItemVouchers(ctx.itemId, ctx.warehouseId, ctx.fromDate, ctx.toDate);
 }
 
+/** স্টক ওভারভিউ → 👁️ ভাউচারের তালিকা
+ *  • স্টক ইন | স্টক আউট | স্টক ব্যালান্স (চলমান) — প্রতিটায় কেজি ও পিস
+ *  • প্রতিটা ভাউচারে পার্টি (সাপ্লায়ার/গ্রাহকের প্রতিষ্ঠানের নাম)
+ *  • শুরুতে "পূর্বের জের", ফুটারে যোগফল; ডবল চেক — শেষ জের = পূর্বের জের + ইন − আউট, আর (আজ পর্যন্ত হলে) গুদামের বর্তমান স্টকের সাথে মিল
+ *  • নিচে পোস্ট না হওয়া (খসড়া) ভাউচার */
+async function stockCardPartyNames(rows) {
+  const safe = async function (q) { try { const r = await q; return (r && !r.error && r.data) || []; } catch (e) { return []; } };
+  const byType = {};
+  rows.forEach(function (x) { const dt = x.dt; if (dt && STOCK_CARD_TYPES[dt]) (byType[dt] = byType[dt] || {})[x.id] = true; });
+  const [sups, custs] = await Promise.all([cachedList('Suppliers'), cachedList('Customers')]);
+  const sName = {}; sups.forEach(function (p) { sName[p.SupplierID] = p.CompanyName || p.Name; });
+  const cName = {}; custs.forEach(function (p) { cName[p.CustomerID] = p.CompanyName || p.Name; });
+  const out = {};
+  for (const dt of Object.keys(byType)) {
+    const cfg = STOCK_CARD_TYPES[dt], ids = Object.keys(byType[dt]);
+    if (!/^(Purchase|Sales)/.test(dt)) continue;
+    const hs = await safe(supabaseClient.from(cfg.table).select('*').in(cfg.idf, ids));
+    hs.forEach(function (h) {
+      const sup = /^Purchase/.test(dt), pid = sup ? h.SupplierID : h.CustomerID;
+      const cash = pid === 'SUP-CASH' || pid === 'CUS-CASH';
+      out[dt + '|' + h[cfg.idf]] = cash ? t('নগদ', 'Cash') + (h.WalkInPartyName ? ' (' + h.WalkInPartyName + ')' : '') : ((sup ? sName[pid] : cName[pid]) || pid || '');
+    });
+  }
+  return out;
+}
+
+const STOCK_CARD_CSS = `
+  .sc-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid #d9dde3;border-radius:6px;}
+  .sc-tbl{border-collapse:collapse;width:100%;min-width:760px;font-size:11px;line-height:1.25;}
+  .sc-tbl th,.sc-tbl td{border:.5px solid #e1e4e8;padding:2px 5px;white-space:nowrap;text-align:center;}
+  .sc-tbl thead th{background:#f3f4f6;font-size:10.5px;font-weight:700;}
+  .sc-tbl th.hi{background:#1f7a4d;color:#fff;} .sc-tbl th.ho{background:#b5482a;color:#fff;} .sc-tbl th.hb{background:#1f5fa8;color:#fff;}
+  .sc-tbl th.gi{background:#d6efe0;color:#145c38;} .sc-tbl th.go{background:#f8ddd3;color:#8a3215;} .sc-tbl th.gb{background:#d8e6f8;color:#16467e;}
+  .sc-tbl td.gi{background:#f6fcf8;} .sc-tbl td.go{background:#fdf6f3;} .sc-tbl td.gb{background:#f3f7fd;font-weight:600;}
+  .sc-tbl td.l{text-align:left;} .sc-tbl td.r{text-align:right;} .sc-tbl td.neg{color:#c0392b;font-weight:700;}
+  .sc-tbl td.pty{max-width:150px;overflow:hidden;text-overflow:ellipsis;}
+  .sc-tbl tr.op td{background:#fafafa;font-style:italic;color:#555;}
+  .sc-tbl tfoot td{background:#eef0f3;font-weight:700;border-top:1.5px solid #9aa2ad;}
+  .sc-tbl tr.draft td{background:#fff8eb;}
+  .sc-tbl .sc-ico{border:1px solid #d9dde3;background:#fff;border-radius:5px;padding:1px 5px;font-size:11px;cursor:pointer;margin:0 1px;line-height:1.3;}
+  .sc-tbl .sc-ico:disabled{opacity:.3;cursor:default;}
+  .sc-h{margin:8px 0 4px;font-size:12.5px;font-weight:700;}
+  .sc-chk{margin-top:6px;border-radius:6px;padding:5px 8px;font-size:11px;} .sc-chk.ok{background:#f0fdf4;border:1px solid #86c29a;color:#14532d;} .sc-chk.bad{background:#fff7ed;border:1px solid #f0b46a;color:#7c2d12;}
+  .sc-chk ul{margin:3px 0 0;padding-left:16px;}
+  @media (max-width:760px){ .sc-tbl{font-size:10.5px;} .sc-tbl .sc-ico{padding:3px 6px;font-size:13px;} }`;
+
 async function openStockItemVouchers(itemId, warehouseId, fromDate, toDate) {
   const D = window.__stockOverviewData || await stockOverviewData();
   const it = (D.itemMap || {})[itemId] || {}, piece = isPieceUOM(it.UOMID, D.units || []);
-  const q3 = function (x) { x = Number(x) || 0; return x ? String(+x.toFixed(3)) : '—'; };
-  const ico = function (act, icon, title, dis, dt, id, posted) { return `<button type="button" class="pcx-ico sc-ico" data-sc="${act}" data-dt="${attr(dt)}" data-id="${attr(id)}" data-posted="${posted ? 1 : 0}" title="${attr(title)}" ${dis ? 'disabled' : ''} style="border:1px solid var(--border);background:var(--surface);border-radius:6px;padding:2px 6px;font-size:12px;cursor:pointer;margin:0 1px;${dis ? 'opacity:.35;cursor:default;' : ''}">${icon}</button>`; };
+  const n = function (x) { return Number(x) || 0; };
+  const q3 = function (x) { x = n(x); return Math.abs(x) < 0.0005 ? '—' : String(+x.toFixed(3)); };
+  const bq = function (x) { x = n(x); return `<td class="r gb ${x < -0.0005 ? 'neg' : ''}">${Math.abs(x) < 0.0005 ? '0' : String(+x.toFixed(3))}</td>`; };
+  const ico = function (act, icon, title, dis, dt, id, posted) { return `<button type="button" class="sc-ico" data-sc="${act}" data-dt="${attr(dt)}" data-id="${attr(id)}" data-posted="${posted ? 1 : 0}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
   const icons = function (dt, id, posted) {
     const ok = !!dt;
     return ico('view', '👁️', t('দেখুন', 'View'), !ok, dt, id, posted) + ico('edit', '✏️', posted ? t('এডিট (এডমিন — আগে আনপোস্ট হবে)', 'Edit (admin — unposts first)') : t('এডিট', 'Edit'), !ok, dt, id, posted) +
       ico('del', '🗑️', posted ? t('ডিলিট (এডমিন — স্টক ফেরত যাবে)', 'Delete (admin — stock reversed)') : t('ডিলিট', 'Delete'), !ok, dt, id, posted) +
       ico('post', posted ? '✅' : '💾', posted ? t('পোস্ট হয়ে গেছে — স্টকে আছে', 'Posted — in stock') : t('পোস্ট করুন — স্টকে যোগ হবে', 'Post — adds to stock'), posted || !ok, dt, id, posted);
   };
-  const rows = D.ledger.filter(function (l) { const d = String(l.Date || '').slice(0, 10); return l.ItemID === itemId && l.WarehouseID === warehouseId && d >= fromDate && d <= toDate; })
-    .sort(function (a, b) { return String(a.Date).localeCompare(String(b.Date)); });
   const LBL = { 'ProcessingVoucher-FG': 'প্রসেসিং (প্রস্তুত পণ্য)', 'ProcessingVoucher-RM': 'প্রসেসিং (কাঁচামাল)', 'ProcessingVoucher-ByProduct': 'প্রসেসিং (বাই-প্রোডাক্ট)', 'StockTransfer-In': 'স্টক ট্রান্সফার (আগমন)', 'StockTransfer-Out': 'স্টক ট্রান্সফার (বহির্গমন)', 'Opening': 'ওপেনিং স্টক' };
+
+  // এই আইটেম+গুদামের সব লেজার-সারি, তারিখ ও ক্রম অনুযায়ী
+  const all = D.ledger.filter(function (l) { return l.ItemID === itemId && l.WarehouseID === warehouseId; })
+    .sort(function (a, b) { return String(a.Date).localeCompare(String(b.Date)) || (n(a.id) - n(b.id)); });
+  let opKg = 0, opPc = 0;
+  all.forEach(function (l) { if (String(l.Date || '').slice(0, 10) < fromDate) { opKg += n(l.QtyIn) - n(l.QtyOut); opPc += n(l.PiecesIn) - n(l.PiecesOut); } });
+  const rows = all.filter(function (l) { const d = String(l.Date || '').slice(0, 10); return d >= fromDate && d <= toDate; });
+  const parties = await stockCardPartyNames(rows.map(function (l) { return { dt: stockCardDocType(l), id: l.RefID }; }));
   const drafts = await stockCardDrafts(itemId, warehouseId, piece);
-  const postedHtml = rows.length ? `<div style="overflow-x:auto;"><table class="data-table"><thead><tr><th>${t('তারিখ', 'Date')}</th><th>${t('উৎস', 'Source')}</th><th>${t('ভাউচার', 'Voucher')}</th><th>${t('ইন (কেজি)', 'In (kg)')}</th><th>${t('ইন (পিস)', 'In (pcs)')}</th><th>${t('আউট (কেজি)', 'Out (kg)')}</th><th>${t('আউট (পিস)', 'Out (pcs)')}</th><th></th></tr></thead><tbody>
-      ${rows.map(function (l) { const dt = stockCardDocType(l); return `<tr><td>${escapeHtml(formatShortDate(l.Date))}</td><td>${escapeHtml(LBL[l.TransactionType] || (STOCK_CARD_TYPES[dt] || {}).bn || l.TransactionType || '')}</td><td><b>${escapeHtml(l.RefID || '')}</b></td>
-        <td>${q3(l.QtyIn)}</td><td>${q3(l.PiecesIn)}</td><td>${q3(l.QtyOut)}</td><td>${q3(l.PiecesOut)}</td><td style="white-space:nowrap;">${icons(dt, l.RefID, true)}</td></tr>`; }).join('')}</tbody></table></div>`
-    : `<div class="empty-state" style="padding:12px;">${t('এই সময়ে পোস্ট হওয়া কোনো ভাউচার নেই।', 'No posted vouchers in this period.')}</div>`;
-  const draftHtml = drafts.length ? `<div style="overflow-x:auto;"><table class="data-table"><thead><tr><th>${t('তারিখ', 'Date')}</th><th>${t('ধরন', 'Type')}</th><th>${t('ভাউচার', 'Voucher')}</th><th>${t('পরিমাণ', 'Qty')}</th><th>${t('স্টকে', 'Stock')}</th><th></th></tr></thead><tbody>
-      ${drafts.map(function (x) { return `<tr style="background:#fff8eb;"><td>${escapeHtml(formatShortDate(x.date))}</td><td>${escapeHtml(STOCK_CARD_TYPES[x.docType].bn)}</td><td><b>${escapeHtml(x.id)}</b> <span class="badge draft">${t('খসড়া', 'Draft')}</span></td><td>${escapeHtml(x.txt)}</td><td>${x.dir === 'in' ? t('যোগ হবে', 'will add') : t('কমবে', 'will reduce')}</td><td style="white-space:nowrap;">${icons(x.docType, x.id, false)}</td></tr>`; }).join('')}</tbody></table></div>`
-    : `<div class="empty-state" style="padding:12px;">${t('এই আইটেমের কোনো পোস্ট না হওয়া ভাউচার নেই।', 'No unposted vouchers for this item.')}</div>`;
-  const body = `<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">${escapeHtml(formatShortDate(fromDate))} — ${escapeHtml(formatShortDate(toDate))} · ${t('গুদামঃ ', 'Warehouse: ')}${escapeHtml((D.whMap || {})[warehouseId] || warehouseId)}</div>
-    <h4 style="margin:4px 0 6px;font-size:13px;">✅ ${t('পোস্ট হওয়া — স্টকে আছে', 'Posted — in stock')}</h4>${postedHtml}
-    <h4 style="margin:14px 0 6px;font-size:13px;color:#b45309;">💾 ${t('পোস্ট না হওয়া (খসড়া) — স্টকে এখনো নেই', 'Not posted (draft) — not in stock yet')} ${drafts.length ? '(' + drafts.length + ')' : ''}</h4>${draftHtml}
-    <div style="font-size:11.5px;color:var(--text-muted);margin-top:10px;">${t('👁️ দেখুন · ✏️ এডিট · 🗑️ ডিলিট · 💾 পোস্ট। পোস্ট হওয়া ভাউচার এডিট বা ডিলিট করতে এডমিন পাসওয়ার্ড লাগে; এডিটে আগে আনপোস্ট হয় (স্টক, পার্টি লেজার ও ক্যাশ/ব্যাংক ফেরত), ঠিক করে নিচের তালিকা থেকে আবার 💾 পোস্ট করুন।', 'View · Edit · Delete · Post. Editing or deleting a posted voucher needs the admin password; editing unposts it first — fix it and post again from the list below.')}</div>`;
+  const dParties = await stockCardPartyNames(drafts.map(function (x) { return { dt: x.docType, id: x.id }; }));
+  const partyOf = function (dt, id, l) {
+    if (dt && parties[dt + '|' + id] !== undefined) return parties[dt + '|' + id];
+    if (dt && dParties[dt + '|' + id] !== undefined) return dParties[dt + '|' + id];
+    if (dt === 'ProcessingVoucher') return t('নিজস্ব উৎপাদন', 'Own production');
+    if (dt === 'StockTransfer') return t('গুদাম স্থানান্তর', 'Transfer');
+    if (dt === 'StockAdjustment') return t('স্টক সমন্বয়', 'Adjustment');
+    if (l && l.TransactionType === 'Opening') return t('প্রারম্ভিক জের', 'Opening');
+    return '—';
+  };
+
+  // চলমান জের
+  let bKg = opKg, bPc = opPc, tInKg = 0, tInPc = 0, tOutKg = 0, tOutPc = 0;
+  const body = rows.map(function (l) {
+    const dt = stockCardDocType(l), ik = n(l.QtyIn), ip = n(l.PiecesIn), ok = n(l.QtyOut), op = n(l.PiecesOut);
+    bKg += ik - ok; bPc += ip - op; tInKg += ik; tInPc += ip; tOutKg += ok; tOutPc += op;
+    const pty = partyOf(dt, l.RefID, l);
+    return `<tr><td>${escapeHtml(formatShortDate(l.Date))}</td><td class="l">${escapeHtml(LBL[l.TransactionType] || (STOCK_CARD_TYPES[dt] || {}).bn || l.TransactionType || '')}</td><td><b>${escapeHtml(l.RefID || '')}</b></td><td class="l pty" title="${attr(pty)}">${escapeHtml(pty)}</td>
+      <td class="r gi">${q3(ik)}</td><td class="r gi">${q3(ip)}</td><td class="r go">${q3(ok)}</td><td class="r go">${q3(op)}</td>${bq(bKg)}${bq(bPc)}
+      <td style="white-space:nowrap;">${icons(dt, l.RefID, true)}</td></tr>`;
+  }).join('');
+  const head = `<thead><tr><th rowspan="2">${t('তারিখ', 'Date')}</th><th rowspan="2">${t('উৎস', 'Source')}</th><th rowspan="2">${t('ভাউচার', 'Voucher')}</th><th rowspan="2">${t('পার্টি (প্রতিষ্ঠান)', 'Party')}</th>
+      <th colspan="2" class="hi">⬇ ${t('স্টক ইন', 'Stock in')}</th><th colspan="2" class="ho">⬆ ${t('স্টক আউট', 'Stock out')}</th><th colspan="2" class="hb">= ${t('স্টক ব্যালান্স', 'Balance')}</th><th rowspan="2"></th></tr>
+    <tr><th class="gi">${t('কেজি', 'kg')}</th><th class="gi">${t('পিস', 'pcs')}</th><th class="go">${t('কেজি', 'kg')}</th><th class="go">${t('পিস', 'pcs')}</th><th class="gb">${t('কেজি', 'kg')}</th><th class="gb">${t('পিস', 'pcs')}</th></tr></thead>`;
+  const opRow = `<tr class="op"><td>${escapeHtml(formatShortDate(fromDate))}</td><td class="l" colspan="3">${t('পূর্বের জের (এই তারিখের আগ পর্যন্ত)', 'Brought forward')}</td><td class="gi"></td><td class="gi"></td><td class="go"></td><td class="go"></td>${bq(opKg)}${bq(opPc)}<td></td></tr>`;
+  const foot = `<tfoot><tr><td colspan="4" class="l">${t('মোট', 'Total')} (${rows.length}${t('টা এন্ট্রি', ' entries')})</td><td class="r">${q3(tInKg)}</td><td class="r">${q3(tInPc)}</td><td class="r">${q3(tOutKg)}</td><td class="r">${q3(tOutPc)}</td>${bq(bKg)}${bq(bPc)}<td></td></tr></tfoot>`;
+  const postedHtml = `<div class="sc-wrap"><table class="sc-tbl">${head}<tbody>${opRow}${body || `<tr><td colspan="11" style="color:#888;">${t('এই সময়ে পোস্ট হওয়া কোনো ভাউচার নেই।', 'No posted vouchers in this period.')}</td></tr>`}</tbody>${foot}</table></div>`;
+
+  // ---------- ডবল চেক ----------
+  const chk = [], line = function (ok, txt) { chk.push(`<li>${ok ? '✓' : '⚠️'} ${txt}</li>`); return ok; };
+  const fx = function (x) { return String(+n(x).toFixed(3)); };
+  let allOk = true;
+  allOk = line(Math.abs(opKg + tInKg - tOutKg - bKg) < 0.0005, t('কেজিঃ পূর্বের জের ', 'kg: b/f ') + fx(opKg) + ' + ' + t('ইন ', 'in ') + fx(tInKg) + ' − ' + t('আউট ', 'out ') + fx(tOutKg) + ' = ' + fx(bKg)) && allOk;
+  allOk = line(Math.abs(opPc + tInPc - tOutPc - bPc) < 0.0005, t('পিসঃ পূর্বের জের ', 'pcs: b/f ') + fx(opPc) + ' + ' + t('ইন ', 'in ') + fx(tInPc) + ' − ' + t('আউট ', 'out ') + fx(tOutPc) + ' = ' + fx(bPc)) && allOk;
+  const dNow = new Date(), today = dNow.getFullYear() + '-' + String(dNow.getMonth() + 1).padStart(2, '0') + '-' + String(dNow.getDate()).padStart(2, '0');
+  const after = all.filter(function (l) { return String(l.Date || '').slice(0, 10) > toDate; }).length;
+  if (toDate >= today && !after) {
+    try {
+      const { data: cs } = await supabaseClient.from('current_stock').select('QtyOnHand,QtyPieces').eq('ItemID', itemId).eq('WarehouseID', warehouseId).maybeSingle();
+      const ck = cs ? n(cs.QtyOnHand) : 0, cp = cs ? n(cs.QtyPieces) : 0;
+      allOk = line(Math.abs(ck - bKg) < 0.001 && Math.abs(cp - bPc) < 0.001, t('গুদামের বর্তমান স্টক ', 'Current stock ') + fx(ck) + t(' কেজি / ', ' kg / ') + fx(cp) + t(' পিস — শেষ জেরের সাথে ', ' pcs — vs closing ') + (Math.abs(ck - bKg) < 0.001 && Math.abs(cp - bPc) < 0.001 ? t('মিলেছে', 'matched') : t('মেলেনি (লেজার ও বর্তমান স্টকে পার্থক্য)', 'mismatch (ledger vs current stock)'))) && allOk;
+    } catch (e) {}
+  }
+  const checkHtml = `<div class="sc-chk ${allOk ? 'ok' : 'bad'}"><b>${allOk ? t('✓ ডবল চেকঃ হিসাব মিলেছে', '✓ Double check: all matched') : t('⚠️ ডবল চেকঃ কিছু মেলেনি', '⚠️ Double check: mismatch')}</b><ul>${chk.join('')}</ul></div>`;
+
+  // ---------- খসড়া ----------
+  const draftHtml = drafts.length ? `<div class="sc-wrap"><table class="sc-tbl" style="min-width:600px;"><thead><tr><th>${t('তারিখ', 'Date')}</th><th>${t('ধরন', 'Type')}</th><th>${t('ভাউচার', 'Voucher')}</th><th>${t('পার্টি (প্রতিষ্ঠান)', 'Party')}</th><th>${t('পরিমাণ', 'Qty')}</th><th>${t('স্টকে', 'Stock')}</th><th></th></tr></thead><tbody>
+      ${drafts.map(function (x) { const pty = partyOf(x.docType, x.id); return `<tr class="draft"><td>${escapeHtml(formatShortDate(x.date))}</td><td class="l">${escapeHtml(STOCK_CARD_TYPES[x.docType].bn)}</td><td><b>${escapeHtml(x.id)}</b></td><td class="l pty" title="${attr(pty)}">${escapeHtml(pty)}</td><td>${escapeHtml(x.txt)}</td><td>${x.dir === 'in' ? t('যোগ হবে', 'will add') : t('কমবে', 'will reduce')}</td><td style="white-space:nowrap;">${icons(x.docType, x.id, false)}</td></tr>`; }).join('')}</tbody></table></div>`
+    : `<div style="font-size:11.5px;color:#888;padding:4px 0;">${t('এই আইটেমের কোনো পোস্ট না হওয়া ভাউচার নেই।', 'No unposted vouchers for this item.')}</div>`;
+
+  const bodyHtml = `<style>${STOCK_CARD_CSS}</style>
+    <div style="font-size:11.5px;color:var(--text-muted);margin-bottom:4px;">${escapeHtml(formatShortDate(fromDate))} — ${escapeHtml(formatShortDate(toDate))} · ${t('গুদামঃ ', 'Warehouse: ')}${escapeHtml((D.whMap || {})[warehouseId] || warehouseId)} · ${t('একক ', 'Unit ')}${piece ? t('পিস', 'pcs') : t('কেজি', 'kg')}</div>
+    <div class="sc-h">✅ ${t('পোস্ট হওয়া — স্টকে আছে', 'Posted — in stock')}</div>${postedHtml}${checkHtml}
+    <div class="sc-h" style="color:#b45309;">💾 ${t('পোস্ট না হওয়া (খসড়া) — স্টকে এখনো নেই', 'Not posted (draft)')} ${drafts.length ? '(' + drafts.length + ')' : ''}</div>${draftHtml}
+    <div style="font-size:10.5px;color:var(--text-muted);margin-top:6px;">${t('👁️ দেখুন · ✏️ এডিট · 🗑️ ডিলিট · 💾 পোস্ট। পোস্ট হওয়া ভাউচার এডিট বা ডিলিট করতে এডমিন পাসওয়ার্ড লাগে; এডিটে আগে আনপোস্ট হয়, ঠিক করে আবার 💾 পোস্ট করুন।', 'Editing or deleting a posted voucher needs the admin password; editing unposts it first.')}</div>`;
   if (modalIsOpen && modalIsOpen() && modalCurrentKey === 'stockCard') closeModal();
   modalPendingKey = 'stockCard';
-  openModal({ title: t('ভাউচারের তালিকা — ', 'Vouchers — ') + (it.ItemName || itemId), bodyHtml: body, wide: true, hideSave: true, onSave: async function () {} });
+  openModal({ title: t('ভাউচারের তালিকা — ', 'Vouchers — ') + (it.ItemName || itemId), bodyHtml: bodyHtml, wide: true, hideSave: true, onSave: async function () {} });
   window.__stockCardCtx = { itemId: itemId, warehouseId: warehouseId, fromDate: fromDate, toDate: toDate };
   // ক্লিক-ধরা একবারই জোড়া হয় (কার্ড বারবার খুললেও) — নইলে একটা ক্লিকে কাজ দুবার হতো
   if (!window.__stockCardWired) {
