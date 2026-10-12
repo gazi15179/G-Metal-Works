@@ -3617,7 +3617,7 @@ async function renderSimpleVoucherPage(content, config) {
       const postBtn = r.Status !== 'Posted'
         ? `<button class="btn i18n" style="width:auto;padding:6px 12px;font-size:12px;" data-bn="পোস্ট করুন" data-en="Post" onclick='event.stopPropagation();postDocumentRecord(${JSON.stringify(config.docType)}, ${JSON.stringify(r[config.idField])})'>${t('পোস্ট করুন','Post')}</button>`
         : '';
-      return `<tr onclick='openSimpleVoucherForm(${JSON.stringify(r).replace(/'/g,"&apos;")})' style="cursor:pointer;">${cells}<td class="row-actions">${postBtn}</td></tr>`;
+      return `<tr class="${vkClass(config.docType)}" onclick='openSimpleVoucherForm(${JSON.stringify(r).replace(/'/g,"&apos;")})' style="cursor:pointer;">${cells}<td class="row-actions">${postBtn}</td></tr>`;
     }).join('');
     wrap.innerHTML = `<table class="data-table"><thead><tr>${headCells}<th></th></tr></thead><tbody>${bodyRows}</tbody></table>`;
   }
@@ -4451,8 +4451,8 @@ async function renderBankCashBook(content) {
     const headers = [['তারিখ','Date'],['অ্যাকাউন্ট','Account'],['রেফারেন্স','Reference'],['Debit','Debit'],['Credit','Credit'],['ব্যালেন্স','Balance']];
     const headCells = headers.map(function (h) { return `<th class="i18n" data-bn="${h[0]}" data-en="${h[1]}">${t(h[0], h[1])}</th>`; }).join('');
     const bodyRows = rows.map(function (r) {
-      return `<tr>
-        <td>${escapeHtml(r.Date)}</td>
+      return `<tr class="${vkClass(r.RefModule)}">
+        <td>${escapeHtml(formatShortDate(r.Date))}</td>
         <td>${escapeHtml(accMap[r.BankCashAccID] || r.BankCashAccID)}</td>
         <td>${escapeHtml(({ CapitalVoucher: t('মালিকের মূলধন', 'Owner capital'), FixedAsset: t('স্থায়ী সম্পদ ক্রয়', 'Fixed asset purchase'), AssetPurchase: t('এ্যাসেট ক্রয়', 'Asset purchase'), AssetSale: t('এ্যাসেট বিক্রয়', 'Asset sale') })[r.RefModule] || r.RefModule)} — ${escapeHtml(r.RefID)}</td>
         <td>${Number(r.Debit || 0).toFixed(2)}</td>
@@ -7729,7 +7729,7 @@ async function renderProcCostingPage(content) {
     wrap.innerHTML = `<table><thead><tr><th>${t('ক্রঃ', 'No.')}</th><th>${t('ভাউচার নং', 'Voucher')}</th><th>${t('তারিখ', 'Date')}</th><th>${t('কাঁচামাল', 'Raw')}</th><th>${t('প্রস্তুত পণ্য', 'Finished goods')}</th><th>${t('নীট ওজন', 'Net wt')}</th><th>${t('নীট মূল্য', 'Net value')}</th><th>${t('অবস্থা', 'Status')}</th><th></th></tr></thead>
       <tbody>${st.list.map(function (r, i) {
         const posted = r.Status === 'Posted', fgs = fgBy[r.ProcessingID] || [];
-        return `<tr class="${st.editId === r.ProcessingID ? 'editing' : ''}"><td>${i + 1}</td><td><b>${escapeHtml(r.ProcessingID)}</b></td><td>${escapeHtml(formatShortDate(r.Date))}</td>
+        return `<tr class="vk-ProcessingVoucher ${st.editId === r.ProcessingID ? 'editing' : ''}"><td>${i + 1}</td><td><b>${escapeHtml(r.ProcessingID)}</b></td><td>${escapeHtml(formatShortDate(r.Date))}</td>
           <td class="l">${escapeHtml(itemName[r.RawMaterialItemID] || r.RawMaterialItemID || '')} <small style="color:var(--text-muted)">${show(r.RawMaterialQty)} ${t('কেজি', 'kg')}</small></td>
           <td class="l">${fgs.length ? fgs.map(function (l) { return escapeHtml(itemName[l.ItemID] || l.ItemID) + ` <small style="color:var(--text-muted)">${show(l.QtyKg)}${t('কেজি', 'kg')}${n(l.QtyPcs) ? '/' + show(l.QtyPcs, 0) + t('পিস', 'pc') : ''}</small>`; }).join('<br>') : escapeHtml(itemName[r.FinishedGoodsItemID] || r.FinishedGoodsItemID || '—')}</td>
           <td class="r">${show(r.NetWeight)}</td><td class="r">${n(r.NetValue).toFixed(2)}</td>
@@ -9078,7 +9078,7 @@ async function renderPurchaseVoucherPage(content, defaultType) {
       const previewBtn = `<button onclick='openPrintableVoucherView(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' title="${t('প্রিভিউ/প্রিন্ট/শেয়ার','Preview/Print/Share')}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
         </button>`;
-      return `<tr ondblclick='${isPosted ? 'editPostedVoucherFromList' : 'openPurchaseVoucherForm'}(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' style="cursor:pointer;" title="${t('এডিট করতে ডাবল-ক্লিক করুন','Double-click to edit')}">
+      return `<tr class="${vkClass(r.type)}" ondblclick='${isPosted ? 'editPostedVoucherFromList' : 'openPurchaseVoucherForm'}(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' style="cursor:pointer;" title="${t('এডিট করতে ডাবল-ক্লিক করুন','Double-click to edit')}">
         <td>${t(r.typeLabel[0], r.typeLabel[1])}</td><td>${escapeHtml(r.id)}</td><td>${escapeHtml(formatShortDate(r.date))}</td>
         <td>${escapeHtml(r.supplierId === 'SUP-CASH' && r.walkInName ? ('নগদ (' + r.walkInName + ')') : (supMap[r.supplierId] || r.supplierId))}</td><td>${escapeHtml(purMap[r.purchaserId] || '—')}</td>
         <td>${r.amount !== null ? Number(r.amount).toFixed(2) : '—'}</td>
@@ -9326,6 +9326,66 @@ async function openPrintableVoucherView(docType, docId, opts) {
  *  • Enter  = পরের ঘরে যাওয়া; শেষ ঘরে Enter চাপলে ওই অংশের সেভ বাটনে ফোকাস — আবার Enter চাপলেই সেভ
  *  • Escape = আগের ঘরে ফেরা; প্রথম ঘরে থাকলে (পপআপে) পপআপ বন্ধ
  *  নাম খোঁজার তালিকা খোলা থাকলে Enter সেই তালিকার নাম বাছাই করে, Escape তালিকা বন্ধ করে। */
+/* ===== সারা সফটওয়্যারের সব টেবিল (প্রিন্ট বাদে — প্রিন্টের নিজের নকশা) =====
+   • হেডার ১১ বোল্ড (মাঝখানে), ভিতরের লেখা ১০ নরমাল (মোট/যোগফলের সারি ও <b> মোটা থাকে)
+   • ভাউচারের ধরন অনুযায়ী সারির হালকা রং + বাঁয়ে রঙিন দাগ (tr.vk-<ধরন>)
+   • সারিতে এক ক্লিক / এক টাচ = বাছাই (হলুদ), দুই ক্লিক / দুই টাচ = ভাউচার খোলা (এডিট) */
+const VK_COLORS = {
+  PurchaseInvoice: ['#eef8f0', '#5fb36b'], PurchaseReturn: ['#e8f6f5', '#3aa6a0'],
+  SalesInvoice: ['#fff5e8', '#e09a3e'], SalesReturn: ['#fdeef0', '#d9667a'],
+  ProcessingVoucher: ['#eef1fc', '#6f86d6'], PaymentVoucher: ['#f5effc', '#9b6fd6'], ReceiptVoucher: ['#eaf5fd', '#3a8fd6'],
+  ContraVoucher: ['#f3f4f6', '#9aa2ad'], JournalVoucher: ['#f3f4f6', '#9aa2ad'], AssetPurchase: ['#fbf6e4', '#c9a227'], AssetSale: ['#fbf6e4', '#c9a227'],
+  CapitalVoucher: ['#f3f4f6', '#9aa2ad'], SalaryIssue: ['#f1f9e8', '#7cb342'], MaterialIssue: ['#f3f4f6', '#9aa2ad'], StockTransfer: ['#f3f4f6', '#9aa2ad'], StockAdjustment: ['#f3f4f6', '#9aa2ad'],
+  GRN: ['#eef8f0', '#5fb36b'], PurchaseOrder: ['#eef8f0', '#5fb36b'], PurchaseRequisition: ['#eef8f0', '#5fb36b'], SalesOrder: ['#fff5e8', '#e09a3e'], DeliveryChallan: ['#fff5e8', '#e09a3e']
+};
+function vkClass(type) { const b = voucherBaseTypeSafe(type); return VK_COLORS[b] ? 'vk-' + b : ''; }
+function voucherBaseTypeSafe(x) { return String(x || '').replace(/-(Payment|Receipt|Reversal|RM|FG|ByProduct|In|Out)$/, ''); }
+(function installTableLook() {
+  if (window.__tableLook) return; window.__tableLook = true;
+  const css = [
+    ':where(#pageContent, #modalBody) table th{font-size:11px !important;font-weight:700 !important;text-align:center !important;}',
+    ':where(#pageContent, #modalBody) table td{font-size:10px !important;font-weight:400;}',
+    ':where(#pageContent, #modalBody) table :where(tfoot td, tr.tot td, tr.total-row td, tr.sum td, tr.grand td, tr.grand-all td){font-weight:700;}',
+    ':where(#pageContent, #modalBody) table tbody tr.sel td{background:#fff1b8 !important;}',
+    ':where(#pageContent, #modalBody) table tbody tr.sel td:first-child{box-shadow:inset 3px 0 0 #c27a12 !important;}',
+    ':where(#pageContent, #modalBody) table tbody tr[class*="vk-"]{cursor:pointer;}'
+  ];
+  Object.keys(VK_COLORS).forEach(function (k) { const c = VK_COLORS[k]; css.push('tr.vk-' + k + ' td{background:' + c[0] + ';} tr.vk-' + k + ' td:first-child{box-shadow:inset 3px 0 0 ' + c[1] + ';}'); });
+  const st = document.createElement('style'); st.id = 'tableLookCss'; st.textContent = css.join('\n'); document.head.appendChild(st);
+
+  // সারিতে এক / দুই চাপ — যেসব টেবিলের নিজস্ব ব্যবস্থা আছে (data-rowsel) সেগুলো বাদ
+  const SKIP = 'button,a,input,select,textarea,label,[contenteditable]';
+  let last = null, lastAt = 0;
+  function rowOf(e) {
+    if (!e.target.closest || e.target.closest(SKIP)) return null;
+    const tr = e.target.closest('tbody tr'); if (!tr) return null;
+    if (!tr.closest('#pageContent, #modalBody') || tr.closest('[data-rowsel]')) return null;
+    if (tr.closest('thead, tfoot') || tr.querySelector('th')) return null;
+    return tr;
+  }
+  function openRow(tr, e) {
+    if (tr.getAttribute('ondblclick') && typeof tr.ondblclick === 'function') { tr.ondblclick.call(tr, e); return; }
+    if (tr.getAttribute('onclick') && typeof tr.onclick === 'function') { tr.onclick.call(tr, e); return; }
+    const btns = Array.prototype.slice.call(tr.querySelectorAll('button:not([disabled])'));
+    const lbl = function (b) { return (b.title || '') + ' ' + (b.getAttribute('aria-label') || '') + ' ' + (b.textContent || ''); };
+    const pick = btns.find(function (b) { return /✏|এডিট|সম্পাদনা|Edit|খুলুন|Open/.test(lbl(b)); }) || btns.find(function (b) { return /👁|দেখুন|প্রিভিউ|View|Preview/.test(lbl(b)); });
+    if (pick) pick.click();
+  }
+  document.addEventListener('click', function (e) {
+    const tr = rowOf(e); if (!tr) return;
+    const rowAction = !!tr.getAttribute('onclick');
+    if (rowAction) e.stopPropagation();   // সারিতে এক চাপে আর খুলবে না — শুধু বাছাই
+    const tbody = tr.parentNode;
+    Array.prototype.forEach.call(tbody.querySelectorAll('tr.sel'), function (x) { if (x !== tr) x.classList.remove('sel'); });
+    tr.classList.add('sel');
+    const now = Date.now();
+    if (last === tr && now - lastAt < 400) { last = null; lastAt = 0; openRow(tr, e); return; }
+    last = tr; lastAt = now;
+  }, true);
+  // ব্রাউজারের নিজের ডাবল-ক্লিক বন্ধ — নইলে একই ভাউচার দুবার খুলত
+  document.addEventListener('dblclick', function (e) { if (rowOf(e)) { e.stopPropagation(); e.preventDefault(); try { window.getSelection().removeAllRanges(); } catch (x) {} } }, true);
+})();
+
 (function installGlobalKeyNav() {
   if (window.__globalKeyNav) return; window.__globalKeyNav = true;
   function isField(el) {
@@ -9480,7 +9540,7 @@ async function voucherListRender(P, kind, mode, highlight) {
   el.innerHTML = `<div class="vcards">${cards}</div><div class="vlist"><table><thead><tr><th>${t('ক্রঃ', 'No.')}</th><th>${mode === 'challan' ? t('চালান নং', 'Challan') : t('ভাউচার নং', 'Voucher')}</th><th>${t('তারিখ', 'Date')}</th><th>${t('পার্টি', 'Party')}</th>
       ${mode === 'challan' ? `<th>${t('কেজি', 'kg')}</th><th>${t('পিস', 'pcs')}</th>` : `<th>${t('মোট টাকা', 'Total')}</th>`}<th>${t('অবস্থা', 'Status')}</th><th></th></tr></thead><tbody>
     ${rows.map(function (r, i) {
-      return `<tr class="${r.id === hiId ? 'vnew' : ''}"><td>${i + 1}</td><td><b>${escapeHtml(r.id)}</b><div style="font-size:10px;color:var(--text-muted);">${escapeHtml(r.label)}${r.id === hiId ? ' · ' + t('এইমাত্র সেভ', 'just saved') : ''}</div></td><td>${escapeHtml(formatShortDate(r.date))}</td><td class="l">${escapeHtml(r.party)}</td>
+      return `<tr class="${vkClass(r.dt)} ${r.id === hiId ? 'vnew' : ''}"><td>${i + 1}</td><td><b>${escapeHtml(r.id)}</b><div style="font-size:10px;color:var(--text-muted);">${escapeHtml(r.label)}${r.id === hiId ? ' · ' + t('এইমাত্র সেভ', 'just saved') : ''}</div></td><td>${escapeHtml(formatShortDate(r.date))}</td><td class="l">${escapeHtml(r.party)}</td>
         ${mode === 'challan' ? `<td class="r">${f3(r.kg)}</td><td class="r">${f3(r.pc)}</td>` : `<td class="r"><b>${r.total.toFixed(2)}</b></td>`}
         <td>${r.posted ? `<span class="badge active">${t('পোস্ট করা', 'Posted')}</span>` : `<span class="badge draft">${t('খসড়া', 'Draft')}</span>`}</td>
         <td style="white-space:nowrap;">${ico('view', '👁️', t('দেখুন', 'View'), r)}${ico('edit', '✏️', r.posted ? t('এডিট (এডমিন — আগে আনপোস্ট হবে)', 'Edit (admin — unposts first)') : t('এডিট', 'Edit'), r)}${ico('del', '🗑️', r.posted ? t('ডিলিট (এডমিন — স্টক ও হিসাব ফেরত)', 'Delete (admin)') : t('ডিলিট', 'Delete'), r)}${ico('post', r.posted ? '✅' : '💾', r.posted ? t('পোস্ট হয়ে গেছে', 'Posted') : t('পোস্ট করুন — স্টক ও হিসাবে যাবে', 'Post'), r, r.posted)}${ico('share', '🔗', t('শেয়ার', 'Share'), r)}${ico('print', '🖨️', t('প্রিন্ট', 'Print'), r)}</td></tr>`;
@@ -10623,7 +10683,7 @@ async function renderSalesVoucherPage(content, defaultType) {
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg>
               </button>`
             : '');
-      return `<tr ondblclick='${isPosted ? 'editPostedVoucherFromList' : 'openSalesVoucherForm'}(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' style="cursor:pointer;" title="${t('এডিট করতে ডাবল-ক্লিক করুন','Double-click to edit')}">
+      return `<tr class="${vkClass(r.type)}" ondblclick='${isPosted ? 'editPostedVoucherFromList' : 'openSalesVoucherForm'}(${JSON.stringify(r.type)}, ${JSON.stringify(r.id)})' style="cursor:pointer;" title="${t('এডিট করতে ডাবল-ক্লিক করুন','Double-click to edit')}">
         <td>${t(r.typeLabel[0], r.typeLabel[1])}</td><td>${escapeHtml(r.id)}</td><td>${escapeHtml(formatShortDate(r.date))}</td>
         <td>${escapeHtml(r.customerId === 'CUS-CASH' && r.walkInName ? ('নগদ (' + r.walkInName + ')') : (custMap[r.customerId] || r.customerId))}</td><td>${escapeHtml(slpMap[r.salespersonId] || '—')}</td>
         <td>${r.amount !== null ? Number(r.amount).toFixed(2) : '—'}</td>
@@ -11570,7 +11630,7 @@ async function renderDocumentListPage(content, config) {
       const postBtn = (config.postable && r.Status !== 'Posted')
         ? `<button class="btn" style="width:auto;padding:6px 12px;font-size:12px;" onclick='postDocumentRecord(${JSON.stringify(config.docType)}, ${JSON.stringify(r[config.idField])})'>${t('পোস্ট করুন','Post')}</button>`
         : '';
-      return `<tr>${cells}<td class="row-actions">${postBtn}${editBtn}</td></tr>`;
+      return `<tr class="${vkClass(config.docType || config.headerSheet)}">${cells}<td class="row-actions">${postBtn}${editBtn}</td></tr>`;
     }).join('');
     wrap.innerHTML = `<table class="data-table"><thead><tr>${headCells}<th></th></tr></thead><tbody>${bodyRows}</tbody></table>`;
   }
@@ -12204,7 +12264,7 @@ async function refreshStockCard(ctx) {   // স্টক ওভারভিউ �
 /** টেবিলের সারিঃ এক ক্লিক / এক টাচ = সারি বাছাই (যাচাইয়ের সুবিধা), দুই ক্লিক / দুই টাচ = খোলা।
  *  ডেস্কটপ ও মোবাইল দুটোতে একই — দুই চাপের মাঝে ৪০০ মিলিসেকেন্ডের কম হলে "দুইবার" ধরা হয়। */
 function wireRowSelect(container, rowSel, onOpen) {
-  if (!container || container.__rowSel) return; container.__rowSel = true;
+  if (!container || container.__rowSel) return; container.__rowSel = true; container.setAttribute('data-rowsel', '1');
   let last = null, lastAt = 0;
   container.addEventListener('click', function (e) {
     if (e.target.closest('button,a,input,select,textarea,label')) return;
@@ -12804,7 +12864,7 @@ async function renderPartyLedger(content, partyTypeFilter) {
       const ic = function (act, icon, title, dis) { return `<button type="button" class="pl-ic" data-pl="${act}" data-base="${attr(baseType)}" data-id="${attr(r.RefID)}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
       const icons = ic('view', '👁️', t('দেখুন', 'View'), !known) + ic('edit', '✏️', t('এডিট (এডমিন — আগে আনপোস্ট হবে)', 'Edit (admin — unposts first)'), !known) +
         ic('del', '🗑️', t('ডিলিট — এরর হলেও জোর করে মোছা যায় (এডমিন)', 'Delete — can force-delete broken vouchers (admin)'), false) + ic('post', '✅', t('পোস্ট হয়ে গেছে', 'Posted'), true);
-      return `<tr><td>${escapeHtml(formatShortDate(r.Date))}</td><td>${escapeHtml(typeLabel)}</td><td style="text-align:left;">${escapeHtml(t(info.desc[0], info.desc[1]))} — <b>${escapeHtml(r.RefID)}</b></td>
+      return `<tr class="${vkClass(baseType)}"><td>${escapeHtml(formatShortDate(r.Date))}</td><td>${escapeHtml(typeLabel)}</td><td style="text-align:left;">${escapeHtml(t(info.desc[0], info.desc[1]))} — <b>${escapeHtml(r.RefID)}</b></td>
         <td>${debit.toFixed(2)}</td><td>${credit.toFixed(2)}</td><td><b>${formatAmountDrCr(runningBalance, true)}</b></td><td style="white-space:nowrap;">${icons}</td></tr>`;
     }).join('');
     wrap.innerHTML = `
