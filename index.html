@@ -2,7 +2,7 @@
 <html lang="bn">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>G Metal Works — Production ERP</title>
 <!-- হোম স্ক্রিনে যোগ করলে অ্যাপের মতো (ব্রাউজার বার ছাড়া) খুলবে -->
 <link rel="manifest" href="manifest.json">
@@ -9706,10 +9706,18 @@ function voucherRateSync(p, src) {
   const kg = Number(g(p + '_QtyKg').value) || 0, pcs = Number(g(p + '_QtyPcs').value) || 0, mainQty = Number(g(p + '_Qty').value) || 0;
   if (src) window['__' + p + 'RateBasis'] = src;
   const basis = window['__' + p + 'RateBasis'] || (window['__' + p + 'Piece'] ? 'pc' : 'kg');
-  const amount = basis === 'pc' ? pcs * (Number(rp.value) || 0) : kg * (Number(rk.value) || 0);
-  const other = basis === 'pc' ? rk : rp, otherQty = basis === 'pc' ? kg : pcs;
-  if (document.activeElement !== other) other.value = (otherQty > 0 && amount > 0) ? (amount / otherQty).toFixed(2) : '';
-  rk.classList.toggle('vdrv', basis === 'kg'); rp.classList.toggle('vdrv', basis === 'pc');
+  const am = g(p + '_Amount');
+  let amount;
+  if (basis === 'amt') {   // মূল্যের ঘরে মোট টাকা লেখা — কেজি ও পিস দুটোর দরই সেখান থেকে
+    amount = Number(am.value) || 0;
+    if (document.activeElement !== rk) rk.value = (kg > 0 && amount > 0) ? (amount / kg).toFixed(2) : '';
+    if (document.activeElement !== rp) rp.value = (pcs > 0 && amount > 0) ? (amount / pcs).toFixed(2) : '';
+  } else {
+    amount = basis === 'pc' ? pcs * (Number(rp.value) || 0) : kg * (Number(rk.value) || 0);
+    const other = basis === 'pc' ? rk : rp, otherQty = basis === 'pc' ? kg : pcs;
+    if (document.activeElement !== other) other.value = (otherQty > 0 && amount > 0) ? (amount / otherQty).toFixed(2) : '';
+  }
+  rk.classList.toggle('vdrv', basis === 'kg'); rp.classList.toggle('vdrv', basis === 'pc'); if (am) am.classList.toggle('vdrv', basis === 'amt');
   rate.value = (mainQty > 0 && amount > 0) ? String(amount / mainQty) : '';
   rate.dispatchEvent(new Event('input', { bubbles: true }));
 }
@@ -9718,6 +9726,8 @@ function wireVoucherDual(p) {
   const rk = document.getElementById(p + '_RateKg'), rp = document.getElementById(p + '_RatePc');
   if (rk) rk.addEventListener('input', function () { voucherRateSync(p, 'kg'); });
   if (rp) rp.addEventListener('input', function () { voucherRateSync(p, 'pc'); });
+  const am = document.getElementById(p + '_Amount');
+  if (am) am.addEventListener('input', function () { if (am.value === '') { window['__' + p + 'RateBasis'] = null; return; } voucherRateSync(p, 'amt'); });
   // আঃ দরে চাপলে সেই দর বসে যায়
   [['_AvgRateKg', rk, 'kg'], ['_AvgRatePc', rp, 'pc']].forEach(function (x) {
     const a = document.getElementById(p + x[0]); if (!a || !x[1]) return;
@@ -9748,7 +9758,17 @@ const VOUCHER_GRID_CSS = `
   .vg2-low [id$="_VatWrap"]{gap:6px;} .vg2-low [id$="_VatWrap"] input{min-width:0;}
   .vg2 input.vauto{color:#5a6472;font-style:italic;}
   .vg2 input:disabled{opacity:.55;}
-  @media (pointer:coarse){ .vg2 .field input:not([type=checkbox]),.vg2 .field select{font-size:16px;height:40px;} }
+  .vg2 .vcol{display:flex;flex-direction:column;gap:6px;min-width:0;}
+  .vg2 .vcol .field{margin:0 !important;}
+  @media (max-width:760px){
+    #modalBody{padding:8px 8px !important;}
+    .vg2{gap:3px 6px;margin-bottom:8px;}
+    .vg2 .field label{font-size:10px;min-height:15px;margin-bottom:1px;gap:4px;}
+    .vg2 .field input:not([type=checkbox]),.vg2 .field select{height:30px;font-size:13px;padding:2px 6px;border-radius:6px;}
+    .vg2 input[type=checkbox]{width:15px !important;height:15px !important;}
+    .vg2 .vbtn{min-height:36px;font-size:12.5px;border-radius:8px;}
+    .vg2 .vcol{gap:3px;} .vg2-low{padding-top:6px;}
+  }
   @media (max-width:380px){ .vg2{gap:5px 6px;} .vg2 .field label{font-size:10.5px;} }`;
 
 async function openPurchaseVoucherForm(defaultType, existingId) {
@@ -9867,11 +9887,11 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
         <div class="field"><label>${t('স্টক দর','Stock rate')}</label><input id="pv3_PreviewStockRate" readonly class="vro"></div>
         <div class="field"><label id="pv3_LblKg">${t('পরিমাণ (কেজি)','Qty (kg)')}</label><input id="pv3_QtyKg" type="number" step="any" min="0" inputmode="decimal"></div>
         <div class="field"><label id="pv3_LblPcs">${t('পরিমাণ (পিস)','Qty (pcs)')}</label><input id="pv3_QtyPcs" type="number" step="any" min="0" inputmode="decimal"></div>
-        <div class="field"><label>${t('আঃ ক্রয় দর (কেজি)','Avg. purchase rate (kg)')}</label><input id="pv3_AvgRateKg" readonly class="vro vtap" title="${attr(t('চাপলে এই দর বসবে','Tap to use this rate'))}"></div>
-        <div class="field"><label>${t('আঃ ক্রয় দর (পিস)','Avg. purchase rate (pc)')}</label><input id="pv3_AvgRatePc" readonly class="vro vtap" title="${attr(t('চাপলে এই দর বসবে','Tap to use this rate'))}"></div>
+        <div class="field"><label><input type="checkbox" id="pv3_AvgKgCheck"> ${t('আঃ ক্রয় দর (কেজি)','Avg. purchase rate (kg)')}</label><input id="pv3_AvgRateKg" readonly class="vro vtap" style="display:none;" title="${attr(t('চাপলে এই দর বসবে','Tap to use this rate'))}"></div>
+        <div class="field"><label><input type="checkbox" id="pv3_AvgPcCheck"> ${t('আঃ ক্রয় দর (পিস)','Avg. purchase rate (pc)')}</label><input id="pv3_AvgRatePc" readonly class="vro vtap" style="display:none;" title="${attr(t('চাপলে এই দর বসবে','Tap to use this rate'))}"></div>
         <div class="field"><label>${t('দর/কেজি','Rate/kg')}</label><input id="pv3_RateKg" type="number" step="any" min="0" inputmode="decimal" title="${attr(t('এখানে দর লিখলে মূল্য = কেজি × দর','Typing here: amount = kg × rate'))}"></div>
         <div class="field"><label>${t('দর/পিস','Rate/pc')}</label><input id="pv3_RatePc" type="number" step="any" min="0" inputmode="decimal" title="${attr(t('এখানে দর লিখলে মূল্য = পিস × দর','Typing here: amount = pcs × rate'))}"></div>
-        <div class="field"><label>${t('মূল্য','Amount')}</label><input id="pv3_Amount" readonly class="vro vbold"></div>
+        <div class="field"><label>${t('মূল্য','Amount')}</label><input id="pv3_Amount" type="number" step="any" min="0" inputmode="decimal" class="vbold" title="${attr(t('মোট মূল্য লিখলে কেজি ও পিসের দর নিজে বসে','Typing the total fills both rates'))}"></div>
         <div class="field"><label><input type="checkbox" id="pv3_CommCheck"> ${t('কমিশন (%)','Commission (%)')}</label><input id="pv3_CommRate" type="number" step="any" min="0" inputmode="decimal" placeholder="0" disabled></div>
         <div id="pv3_CommResultRow" class="vfull vcomm" style="display:none;">
           <div class="field"><label>${t('(-) কমিশন','(-) Commission')}</label><input id="pv3_CommAmount" readonly class="vro"></div>
@@ -9884,15 +9904,15 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
       <div style="display:none;"><input type="checkbox" id="pv3_StdPurchaseCheck"><input id="pv3_PreviewStdPurchaseRate" readonly style="background:var(--bg);display:none;"></div>
 
       <div class="vg2 vg2-low">
+      <div class="vcol">
       <div class="field">
         <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pv3_ExpCheck" style="width:auto;" ${rec.CashExpenseAmount ? 'checked' : ''}> ${t('খরচঃ (+)','Expense (+):')}</label>
         <input id="pv3_ExpTotalAmount" type="number" step="any" placeholder="৳">
       </div>
       <div class="field">
         <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pv3_DiscCheck" style="width:auto;" ${rec.DiscountAmount?'checked':''}> ${t('ডিসকাউন্টঃ (-)','Discount (-):')}</label>
-        <input id="pv3_DiscAmount" type="number" step="any" placeholder="৳" value="${attr(rec.DiscountAmount)}">
+        <input id="pv3_DiscAmount" type="number" step="any" placeholder="৳" inputmode="decimal" style="${rec.DiscountAmount ? '' : 'display:none;'}" value="${attr(rec.DiscountAmount)}">
       </div>
-      <div id="pv3_ExpSubWrap" class="vfull" style="display:none;"></div>
       <div class="field">
         <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pv3_VatCheck" style="width:auto;" ${rec.VatAmount?'checked':''}> ${t('ভ্যাটঃ','VAT:')}</label>
         <div id="pv3_VatWrap" style="display:${rec.VatAmount?'flex':'none'};gap:6px;">
@@ -9900,6 +9920,8 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
           <input id="pv3_VatAmount" type="number" step="any" placeholder="${t('পরিমাণ ৳','Amount ৳')}" value="${attr(rec.VatAmount)}" style="flex:1.6;">
         </div>
       </div>
+      </div>
+      <div class="vcol">
       <div class="field vcashbank"><label>${t('নগদ ও ব্যাংক হিসাব','Cash & bank')}</label>
       
       <div class="field">
@@ -9914,6 +9936,8 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
         <div id="pv3_BankPaySummary" style="display:none;font-size:11px;color:var(--text-muted);cursor:pointer;margin-top:6px;">${t('টাকা লিখলে বিস্তারিত জিজ্ঞাসা করা হবে','Details will be asked once you enter an amount')}</div>
       </div>
       </div>
+      </div>
+      <div id="pv3_ExpSubWrap" class="vfull" style="display:none;"></div>
       </div>
       <input type="hidden" id="pv3_CashPaidAmount" value="">
       <input type="hidden" id="pv3_BankPaidAmount" value="">
@@ -10071,6 +10095,19 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   wireRevealCheckbox('pv3_StdPurchaseCheck', 'pv3_PreviewStdPurchaseRate');
   wireSequentialKeyNav(document.getElementById('pv3_TabEntryPanel'));
   wireVoucherDual('pv3');
+  // গুদাম এখন একটাই — "মেইন" নিজে বসে, বদলানো যায় না
+  (function () {
+    const whs = window.__pv3Warehouses || [], sel = document.getElementById('pv3_WarehouseID');
+    const main = whs.find(function (w) { return /মেইন|main/i.test(w.WarehouseName || ''); }) || (whs.length === 1 ? whs[0] : null);
+    window.__pv3FixedWh = main ? main.WarehouseID : '';
+    if (main) { if (!sel.value) sel.value = main.WarehouseID; sel.disabled = true; sel.title = t('গুদাম ফিক্সড — মেইন', 'Warehouse fixed — Main'); }
+  })();
+  // চেক বক্সে টিক দিলে তবেই ঘর দেখা যায় — আঃ দর ও ডিসকাউন্ট
+  [['pv3_AvgKgCheck', 'pv3_AvgRateKg', false], ['pv3_AvgPcCheck', 'pv3_AvgRatePc', false], ['pv3_DiscCheck', 'pv3_DiscAmount', true]].forEach(function (x) {
+    const c = document.getElementById(x[0]), f = document.getElementById(x[1]); if (!c || !f) return;
+    const sync = function (clear) { f.style.display = c.checked ? '' : 'none'; if (!c.checked && x[2] && clear && f.value) { f.value = ''; f.dispatchEvent(new Event('input', { bubbles: true })); } };
+    c.addEventListener('change', function () { sync(true); if (c.checked && x[2]) f.focus(); }); sync(false);
+  });
   voucherBottomWire('pv3', 'purchase', renderFullPreview);   // নিচেঃ লাইভ প্রিভিউ · ভাউচার তালিকা · চালান তালিকা
 
   function refreshPv3SupplierOptions() {
@@ -10445,8 +10482,9 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   function recalcAmount() {
     const qty = Number(val('pv3_Qty')) || 0;
     const rate = Number(val('pv3_Rate')) || 0;
-    const amount = Math.round(qty * rate);
-    document.getElementById('pv3_Amount').value = amount;
+    const byAmt = window.__pv3RateBasis === 'amt';   // মূল্যের ঘরে টোটাল লেখা হলে সেটাই থাকে
+    const amount = byAmt ? Math.round((Number(val('pv3_Amount')) || 0) * 100) / 100 : Math.round(qty * rate);
+    if (!byAmt) document.getElementById('pv3_Amount').value = amount;
     if (document.getElementById('pv3_CommCheck').checked) {
       const commRate = Number(val('pv3_CommRate')) || 0;
       const commAmount = amount * commRate / 100;
@@ -10471,10 +10509,10 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     const catSel = document.getElementById('pv3_CatSelect'); catSel.disabled = true; catSel.style.display = 'none'; catSel.value = '';
     refreshItemDropdown();
     document.getElementById('pv3_ItemID').value = '';
-    document.getElementById('pv3_WarehouseID').value = '';
+    document.getElementById('pv3_WarehouseID').value = window.__pv3FixedWh || '';
     document.getElementById('pv3_Qty').value = '';
     document.getElementById('pv3_QtyKg').value = ''; document.getElementById('pv3_QtyPcs').value = ''; document.getElementById('pv3_QtyKg').placeholder = ''; document.getElementById('pv3_QtyPcs').placeholder = '';
-    document.getElementById('pv3_AvgRateKg').value = ''; document.getElementById('pv3_AvgRatePc').value = '';
+    document.getElementById('pv3_AvgRateKg').value = ''; document.getElementById('pv3_AvgRatePc').value = ''; document.getElementById('pv3_Amount').classList.remove('vdrv');
     document.getElementById('pv3_RateKg').value = ''; document.getElementById('pv3_RatePc').value = ''; window.__pv3RateBasis = null; window.__pv3KgManual = false;
     document.getElementById('pv3_RateKg').classList.remove('vdrv'); document.getElementById('pv3_RatePc').classList.remove('vdrv');
     document.getElementById('pv3_Rate').value = '';
@@ -10498,7 +10536,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     if (!warehouseId) { showToast(t('গুদাম বাছাই করুন।','Select a warehouse.'), 'error'); return null; }
     if (!(qty > 0) && (Number(val('pv3_QtyKg')) || Number(val('pv3_QtyPcs')))) { showToast(window.__pv3Piece ? t('এই আইটেমের মূল একক পিস — পরিমাণ (পিস) দিন।','This item is counted in pieces — enter Qty (pcs).') : t('এই আইটেমের মূল একক কেজি — পরিমাণ (কেজি) দিন।','This item is counted in kg — enter Qty (kg).'), 'error'); return null; }
     if (!(qty > 0 && rate > 0)) { showToast(t('পরিমাণ ও দর দিন।','Enter quantity and rate.'), 'error'); return null; }
-    const amount = Math.round(qty * rate);
+    const amount = window.__pv3RateBasis === 'amt' ? Math.round((Number(val('pv3_Amount')) || 0) * 100) / 100 : Math.round(qty * rate);
     const useComm = document.getElementById('pv3_CommCheck').checked;
     const commRate = useComm ? (Number(val('pv3_CommRate')) || 0) : 0;
     const commAmount = useComm ? Number((amount * commRate / 100).toFixed(2)) : 0;
@@ -10859,11 +10897,11 @@ async function openSalesVoucherForm(defaultType, existingId) {
         <div class="field"><label>${t('স্টক দর','Stock rate')}</label><input id="sv3_PreviewStockRate" readonly class="vro"></div>
         <div class="field"><label id="sv3_LblKg">${t('পরিমাণ (কেজি)','Qty (kg)')}</label><input id="sv3_QtyKg" type="number" step="any" min="0" inputmode="decimal"></div>
         <div class="field"><label id="sv3_LblPcs">${t('পরিমাণ (পিস)','Qty (pcs)')}</label><input id="sv3_QtyPcs" type="number" step="any" min="0" inputmode="decimal"></div>
-        <div class="field"><label>${t('আঃ বিক্রয় দর (কেজি)','Std. sales rate (kg)')}</label><input id="sv3_AvgRateKg" readonly class="vro vtap" title="${attr(t('চাপলে এই দর বসবে','Tap to use this rate'))}"></div>
-        <div class="field"><label>${t('আঃ বিক্রয় দর (পিস)','Std. sales rate (pc)')}</label><input id="sv3_AvgRatePc" readonly class="vro vtap" title="${attr(t('চাপলে এই দর বসবে','Tap to use this rate'))}"></div>
+        <div class="field"><label><input type="checkbox" id="sv3_AvgKgCheck"> ${t('আঃ বিক্রয় দর (কেজি)','Std. sales rate (kg)')}</label><input id="sv3_AvgRateKg" readonly class="vro vtap" style="display:none;" title="${attr(t('চাপলে এই দর বসবে','Tap to use this rate'))}"></div>
+        <div class="field"><label><input type="checkbox" id="sv3_AvgPcCheck"> ${t('আঃ বিক্রয় দর (পিস)','Std. sales rate (pc)')}</label><input id="sv3_AvgRatePc" readonly class="vro vtap" style="display:none;" title="${attr(t('চাপলে এই দর বসবে','Tap to use this rate'))}"></div>
         <div class="field"><label>${t('দর/কেজি','Rate/kg')}</label><input id="sv3_RateKg" type="number" step="any" min="0" inputmode="decimal" title="${attr(t('এখানে দর লিখলে মূল্য = কেজি × দর','Typing here: amount = kg × rate'))}"></div>
         <div class="field"><label>${t('দর/পিস','Rate/pc')}</label><input id="sv3_RatePc" type="number" step="any" min="0" inputmode="decimal" title="${attr(t('এখানে দর লিখলে মূল্য = পিস × দর','Typing here: amount = pcs × rate'))}"></div>
-        <div class="field"><label>${t('মূল্য','Amount')}</label><input id="sv3_Amount" readonly class="vro vbold"></div>
+        <div class="field"><label>${t('মূল্য','Amount')}</label><input id="sv3_Amount" type="number" step="any" min="0" inputmode="decimal" class="vbold" title="${attr(t('মোট মূল্য লিখলে কেজি ও পিসের দর নিজে বসে','Typing the total fills both rates'))}"></div>
         <div class="field"><label><input type="checkbox" id="sv3_CommCheck"> ${t('কমিশন (%)','Commission (%)')}</label><input id="sv3_CommRate" type="number" step="any" min="0" inputmode="decimal" placeholder="0" disabled></div>
         <div id="sv3_CommResultRow" class="vfull vcomm" style="display:none;">
           <div class="field"><label>${t('(-) কমিশন','(-) Commission')}</label><input id="sv3_CommAmount" readonly class="vro"></div>
@@ -10876,15 +10914,15 @@ async function openSalesVoucherForm(defaultType, existingId) {
       <div style="display:none;"><input type="checkbox" id="sv3_StdSalesCheck"><input id="sv3_PreviewStdSalesRate" readonly style="background:var(--bg);display:none;"></div>
 
       <div class="vg2 vg2-low">
+      <div class="vcol">
       <div class="field">
         <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="sv3_ExpCheck" style="width:auto;" ${rec.CashExpenseAmount ? 'checked' : ''}> ${t('খরচঃ (+)','Expense (+):')}</label>
         <input id="sv3_ExpTotalAmount" type="number" step="any" placeholder="৳">
       </div>
       <div class="field">
         <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="sv3_DiscCheck" style="width:auto;" ${rec.DiscountAmount?'checked':''}> ${t('ডিসকাউন্টঃ (-)','Discount (-):')}</label>
-        <input id="sv3_DiscAmount" type="number" step="any" placeholder="৳" value="${attr(rec.DiscountAmount)}">
+        <input id="sv3_DiscAmount" type="number" step="any" placeholder="৳" inputmode="decimal" style="${rec.DiscountAmount ? '' : 'display:none;'}" value="${attr(rec.DiscountAmount)}">
       </div>
-      <div id="sv3_ExpSubWrap" class="vfull" style="display:none;"></div>
       <div class="field">
         <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="sv3_VatCheck" style="width:auto;" ${rec.VatAmount?'checked':''}> ${t('ভ্যাটঃ','VAT:')}</label>
         <div id="sv3_VatWrap" style="display:${rec.VatAmount?'flex':'none'};gap:6px;">
@@ -10892,6 +10930,8 @@ async function openSalesVoucherForm(defaultType, existingId) {
           <input id="sv3_VatAmount" type="number" step="any" placeholder="${t('পরিমাণ ৳','Amount ৳')}" value="${attr(rec.VatAmount)}" style="flex:1.6;">
         </div>
       </div>
+      </div>
+      <div class="vcol">
       <div class="field vcashbank"><label>${t('নগদ ও ব্যাংক হিসাব','Cash & bank')}</label>
       
       <div class="field">
@@ -10906,6 +10946,8 @@ async function openSalesVoucherForm(defaultType, existingId) {
         <div id="sv3_BankRecSummary" style="display:none;font-size:11px;color:var(--text-muted);cursor:pointer;margin-top:6px;">${t('টাকা লিখলে বিস্তারিত জিজ্ঞাসা করা হবে','Details will be asked once you enter an amount')}</div>
       </div>
       </div>
+      </div>
+      <div id="sv3_ExpSubWrap" class="vfull" style="display:none;"></div>
       </div>
       <input type="hidden" id="sv3_CashReceivedAmount" value="">
       <input type="hidden" id="sv3_BankReceivedAmount" value="">
@@ -11052,6 +11094,19 @@ async function openSalesVoucherForm(defaultType, existingId) {
   wireRevealCheckbox('sv3_StdSalesCheck', 'sv3_PreviewStdSalesRate');
   wireSequentialKeyNav(document.getElementById('sv3_TabEntryPanel'));
   wireVoucherDual('sv3');
+  // গুদাম এখন একটাই — "মেইন" নিজে বসে, বদলানো যায় না
+  (function () {
+    const whs = window.__sv3Warehouses || [], sel = document.getElementById('sv3_WarehouseID');
+    const main = whs.find(function (w) { return /মেইন|main/i.test(w.WarehouseName || ''); }) || (whs.length === 1 ? whs[0] : null);
+    window.__sv3FixedWh = main ? main.WarehouseID : '';
+    if (main) { if (!sel.value) sel.value = main.WarehouseID; sel.disabled = true; sel.title = t('গুদাম ফিক্সড — মেইন', 'Warehouse fixed — Main'); }
+  })();
+  // চেক বক্সে টিক দিলে তবেই ঘর দেখা যায় — আঃ দর ও ডিসকাউন্ট
+  [['sv3_AvgKgCheck', 'sv3_AvgRateKg', false], ['sv3_AvgPcCheck', 'sv3_AvgRatePc', false], ['sv3_DiscCheck', 'sv3_DiscAmount', true]].forEach(function (x) {
+    const c = document.getElementById(x[0]), f = document.getElementById(x[1]); if (!c || !f) return;
+    const sync = function (clear) { f.style.display = c.checked ? '' : 'none'; if (!c.checked && x[2] && clear && f.value) { f.value = ''; f.dispatchEvent(new Event('input', { bubbles: true })); } };
+    c.addEventListener('change', function () { sync(true); if (c.checked && x[2]) f.focus(); }); sync(false);
+  });
   voucherBottomWire('sv3', 'sales', renderFullPreview);   // নিচেঃ লাইভ প্রিভিউ · ভাউচার তালিকা · চালান তালিকা
 
   function refreshSv3CustomerOptions() {
@@ -11416,8 +11471,9 @@ async function openSalesVoucherForm(defaultType, existingId) {
   function recalcAmount() {
     const qty = Number(val('sv3_Qty')) || 0;
     const rate = Number(val('sv3_Rate')) || 0;
-    const amount = Math.round(qty * rate);
-    document.getElementById('sv3_Amount').value = amount;
+    const byAmt = window.__sv3RateBasis === 'amt';   // মূল্যের ঘরে টোটাল লেখা হলে সেটাই থাকে
+    const amount = byAmt ? Math.round((Number(val('sv3_Amount')) || 0) * 100) / 100 : Math.round(qty * rate);
+    if (!byAmt) document.getElementById('sv3_Amount').value = amount;
     if (document.getElementById('sv3_CommCheck').checked) {
       const commRate = Number(val('sv3_CommRate')) || 0;
       const commAmount = amount * commRate / 100;
@@ -11442,10 +11498,10 @@ async function openSalesVoucherForm(defaultType, existingId) {
     const catSel = document.getElementById('sv3_CatSelect'); catSel.disabled = true; catSel.style.display = 'none'; catSel.value = '';
     refreshItemDropdown();
     document.getElementById('sv3_ItemID').value = '';
-    document.getElementById('sv3_WarehouseID').value = '';
+    document.getElementById('sv3_WarehouseID').value = window.__sv3FixedWh || '';
     document.getElementById('sv3_Qty').value = '';
     document.getElementById('sv3_QtyKg').value = ''; document.getElementById('sv3_QtyPcs').value = ''; document.getElementById('sv3_QtyKg').placeholder = ''; document.getElementById('sv3_QtyPcs').placeholder = '';
-    document.getElementById('sv3_AvgRateKg').value = ''; document.getElementById('sv3_AvgRatePc').value = '';
+    document.getElementById('sv3_AvgRateKg').value = ''; document.getElementById('sv3_AvgRatePc').value = ''; document.getElementById('sv3_Amount').classList.remove('vdrv');
     document.getElementById('sv3_RateKg').value = ''; document.getElementById('sv3_RatePc').value = ''; window.__sv3RateBasis = null; window.__sv3KgManual = false;
     document.getElementById('sv3_RateKg').classList.remove('vdrv'); document.getElementById('sv3_RatePc').classList.remove('vdrv');
     document.getElementById('sv3_Rate').value = '';
@@ -11469,7 +11525,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
     if (!warehouseId) { showToast(t('গুদাম বাছাই করুন।','Select a warehouse.'), 'error'); return null; }
     if (!(qty > 0) && (Number(val('sv3_QtyKg')) || Number(val('sv3_QtyPcs')))) { showToast(window.__sv3Piece ? t('এই আইটেমের মূল একক পিস — পরিমাণ (পিস) দিন।','This item is counted in pieces — enter Qty (pcs).') : t('এই আইটেমের মূল একক কেজি — পরিমাণ (কেজি) দিন।','This item is counted in kg — enter Qty (kg).'), 'error'); return null; }
     if (!(qty > 0 && rate > 0)) { showToast(t('পরিমাণ ও দর দিন।','Enter quantity and rate.'), 'error'); return null; }
-    const amount = Math.round(qty * rate);
+    const amount = window.__sv3RateBasis === 'amt' ? Math.round((Number(val('sv3_Amount')) || 0) * 100) / 100 : Math.round(qty * rate);
     const useComm = document.getElementById('sv3_CommCheck').checked;
     const commRate = useComm ? (Number(val('sv3_CommRate')) || 0) : 0;
     const commAmount = useComm ? Number((amount * commRate / 100).toFixed(2)) : 0;
