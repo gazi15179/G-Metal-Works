@@ -701,7 +701,7 @@ async function runPostingLogic(docType, header, docId) {
     }
     if (header.SupplierID === 'SUP-CASH') {
       // নগদ ক্রয় — কোনো দেনা তৈরি হবে না, সরাসরি ক্যাশ অ্যাকাউন্ট থেকে টাকা বের হয়ে যাবে
-      await postBankCashBookEntry('BC-CASH', header.InvoiceDate || today, 'PurchaseInvoice', docId, 0, Number(header.TotalAmount) || 0);
+      await postBankCashBookEntry(await cashAccountId(), header.InvoiceDate || today, 'PurchaseInvoice', docId, 0, Number(header.TotalAmount) || 0);
     } else {
       await postPartyLedgerEntry('Supplier', header.SupplierID, header.InvoiceDate || today, 'PurchaseInvoice', docId, 0, Number(header.TotalAmount) || 0);
       // ভাউচারের সাথে সাথেই যদি আংশিক/পূর্ণ নগদ বা ব্যাংকে প্রদান করা হয়ে থাকে,
@@ -710,7 +710,7 @@ async function runPostingLogic(docType, header, docId) {
       const bankPaid = Number(header.BankPaidAmount) || 0;
       if (cashPaid > 0) {
         await postPartyLedgerEntry('Supplier', header.SupplierID, header.InvoiceDate || today, 'PurchaseInvoice-Payment', docId, cashPaid, 0);
-        await postBankCashBookEntry('BC-CASH', header.InvoiceDate || today, 'PurchaseInvoice-Payment', docId, 0, cashPaid);
+        await postBankCashBookEntry(await cashAccountId(), header.InvoiceDate || today, 'PurchaseInvoice-Payment', docId, 0, cashPaid);
       }
       if (bankPaid > 0 && header.BankAccIDForPayment) {
         await postPartyLedgerEntry('Supplier', header.SupplierID, header.InvoiceDate || today, 'PurchaseInvoice-Payment', docId, bankPaid, 0);
@@ -736,7 +736,7 @@ async function runPostingLogic(docType, header, docId) {
     }
     if (header.SupplierID === 'SUP-CASH') {
       // নগদ ক্রয়-ফেরত — টাকা ফেরত আসবে সরাসরি ক্যাশ অ্যাকাউন্টে
-      await postBankCashBookEntry('BC-CASH', header.Date || today, 'PurchaseReturn', docId, returnTotal, 0);
+      await postBankCashBookEntry(await cashAccountId(), header.Date || today, 'PurchaseReturn', docId, returnTotal, 0);
     } else {
       await postPartyLedgerEntry('Supplier', header.SupplierID, header.Date || today, 'PurchaseReturn', docId, returnTotal, 0);
     }
@@ -791,7 +791,7 @@ async function runPostingLogic(docType, header, docId) {
     }
     if (header.CustomerID === 'CUS-CASH') {
       // নগদ বিক্রয় — কোনো পাওনা তৈরি হবে না, সরাসরি ক্যাশ অ্যাকাউন্টে টাকা জমা হবে
-      await postBankCashBookEntry('BC-CASH', header.InvoiceDate || today, 'SalesInvoice', docId, Number(header.TotalAmount) || 0, 0);
+      await postBankCashBookEntry(await cashAccountId(), header.InvoiceDate || today, 'SalesInvoice', docId, Number(header.TotalAmount) || 0, 0);
     } else {
       await postPartyLedgerEntry('Customer', header.CustomerID, header.InvoiceDate || today, 'SalesInvoice', docId, Number(header.TotalAmount) || 0, 0);
       // ভাউচারের সাথে সাথেই যদি আংশিক/পূর্ণ নগদ বা ব্যাংকে গ্রহণ করা হয়ে থাকে,
@@ -800,7 +800,7 @@ async function runPostingLogic(docType, header, docId) {
       const bankReceived = Number(header.BankReceivedAmount) || 0;
       if (cashReceived > 0) {
         await postPartyLedgerEntry('Customer', header.CustomerID, header.InvoiceDate || today, 'SalesInvoice-Receipt', docId, 0, cashReceived);
-        await postBankCashBookEntry('BC-CASH', header.InvoiceDate || today, 'SalesInvoice-Receipt', docId, cashReceived, 0);
+        await postBankCashBookEntry(await cashAccountId(), header.InvoiceDate || today, 'SalesInvoice-Receipt', docId, cashReceived, 0);
       }
       if (bankReceived > 0 && header.BankAccIDForReceipt) {
         await postPartyLedgerEntry('Customer', header.CustomerID, header.InvoiceDate || today, 'SalesInvoice-Receipt', docId, 0, bankReceived);
@@ -821,7 +821,7 @@ async function runPostingLogic(docType, header, docId) {
     }
     if (header.CustomerID === 'CUS-CASH') {
       // নগদ বিক্রয়-ফেরত — টাকা ফেরত দেওয়া হবে সরাসরি ক্যাশ অ্যাকাউন্ট থেকে
-      await postBankCashBookEntry('BC-CASH', header.Date || today, 'SalesReturn', docId, 0, salesReturnTotal);
+      await postBankCashBookEntry(await cashAccountId(), header.Date || today, 'SalesReturn', docId, 0, salesReturnTotal);
     } else {
       await postPartyLedgerEntry('Customer', header.CustomerID, header.Date || today, 'SalesReturn', docId, 0, salesReturnTotal);
     }
@@ -4423,48 +4423,190 @@ async function renderFixedAssetPage(content) {
   await load();
 }
 
-async function renderBankCashBook(content) {
-  const [entries, accounts] = await Promise.all([api('list', { sheet:'BankCashBook' }), api('list', { sheet:'BankCashAccounts' })]);
-  const accMap = {}; accounts.forEach(function (a) { accMap[a.BankAccID] = a.AccountName; });
+/** নগদ (ক্যাশ) অ্যাকাউন্ট — আগে সব জায়গায় 'BC-CASH' লেখা ছিল; কিন্তু সেই আইডির অ্যাকাউন্টের নাম বদলে
+ *  ব্যাংক (যেমন অগ্রণী ব্যাংক সিসি) করা হলে নগদ বিক্রয়/গ্রহণের টাকা ব্যাংকে চলে যেত।
+ *  এখনঃ ধরন "Cash" ও নামে নগদ/ক্যাশ — সেটা; না পেলে প্রথম Cash ধরনের; তাও না থাকলে BC-CASH */
+async function cashAccountId() {
+  let accs = [];
+  try { accs = (await cachedList('BankCashAccounts')).filter(function (a) { return a.Status !== 'Deleted'; }); } catch (e) { accs = []; }
+  const cash = accs.filter(function (a) { return a.Type === 'Cash'; });
+  const pick = cash.find(function (a) { return /নগদ|cash|ক্যাশ/i.test(a.AccountName || ''); }) || cash[0] || accs.find(function (a) { return a.BankAccID === 'BC-CASH'; });
+  const id = pick ? pick.BankAccID : 'BC-CASH';
+  window.__cashAccIdCache = id;
+  return id;
+}
 
-  content.innerHTML = `
-    <div class="page-head"><div>
-        <h1 class="i18n" data-bn="ব্যাংক ও নগদ বই" data-en="Bank & Cash Book">${t('ব্যাংক ও নগদ বই','Bank & Cash Book')}</h1>
-        <p class="i18n" data-bn="প্রতিটা ব্যাংক/ক্যাশ অ্যাকাউন্টের লেনদেনের ইতিহাস" data-en="Transaction history for every bank/cash account">${t('প্রতিটা ব্যাংক/ক্যাশ অ্যাকাউন্টের লেনদেনের ইতিহাস','Transaction history for every bank/cash account')}</p>
-      </div>
-      <select id="bcbAccFilter" style="width:auto;min-width:200px;">
-        <option value="" class="i18n" data-bn="সব অ্যাকাউন্ট" data-en="All Accounts">${t('সব অ্যাকাউন্ট','All Accounts')}</option>
-        ${accounts.filter(function(a){return a.Status!=='Deleted';}).map(function (a) { return `<option value="${attr(a.BankAccID)}">${escapeHtml(a.AccountName)}</option>`; }).join('')}
-      </select>
-    </div>
-    <div class="panel"><div id="bcbWrap"></div></div>`;
+const BOOK_REF_LABEL = {
+  SalesInvoice: 'নগদ বিক্রয়', 'SalesInvoice-Receipt': 'বিক্রয়ে টাকা গ্রহণ', SalesReturn: 'নগদ বিক্রয় ফেরত',
+  PurchaseInvoice: 'নগদ ক্রয়', 'PurchaseInvoice-Payment': 'ক্রয়ে টাকা প্রদান', PurchaseReturn: 'নগদ ক্রয় ফেরত',
+  PaymentVoucher: 'পেমেন্ট ভাউচার', ReceiptVoucher: 'রিসিট ভাউচার', ContraVoucher: 'কনট্রা (অ্যাকাউন্ট বদল)',
+  CapitalVoucher: 'মালিকের মূলধন', FixedAsset: 'স্থায়ী সম্পদ', AssetPurchase: 'এ্যাসেট ক্রয়', AssetSale: 'এ্যাসেট বিক্রয়',
+  SalaryIssue: 'সেলারী ইস্যু (বেতন প্রদান)', 'SalaryIssue-Reversal': 'সেলারী ইস্যু বাতিল (টাকা ফেরত)'
+};
+function bookRefLabel(m) {
+  if (BOOK_REF_LABEL[m]) return BOOK_REF_LABEL[m];
+  if (/-Reversal$/.test(String(m || ''))) return (BOOK_REF_LABEL[voucherBaseTypeSafe(m)] || voucherBaseTypeSafe(m)) + ' — বাতিল';
+  return m || '';
+}
 
-  function renderTable(filterAcc) {
-    const wrap = document.getElementById('bcbWrap');
-    if (!wrap) return; // ব্যবহারকারী এই ফাঁকে অন্য পেজ/ট্যাবে চলে গেলে এই এলিমেন্ট আর DOM-এ থাকবে না
-    let rows = entries.slice().reverse();
-    if (filterAcc) rows = rows.filter(function (r) { return r.BankCashAccID === filterAcc; });
-    if (rows.length === 0) {
-      wrap.innerHTML = `<div class="empty-state i18n" data-bn="কোনো এন্ট্রি নেই।" data-en="No entries.">${t('কোনো এন্ট্রি নেই।','No entries.')}</div>`;
+/** ভুল জায়গায় যাওয়া নগদের এন্ট্রি খোঁজা — BC-CASH এ পড়েছে, কিন্তু নগদ অ্যাকাউন্ট অন্যটা */
+async function findMisplacedCashRows(book) {
+  const cashId = await cashAccountId();
+  if (cashId === 'BC-CASH') return { cashId: cashId, rows: [] };
+  const cand = book.filter(function (r) { return r.BankCashAccID === 'BC-CASH' && /^(Sales|Purchase)(Invoice|Return)(-Receipt|-Payment)?$/.test(r.RefModule || ''); });
+  if (!cand.length) return { cashId: cashId, rows: [] };
+  const safe = async function (q) { try { const r = await q; return (r && !r.error && r.data) || []; } catch (e) { return []; } };
+  const ids = function (re) { return Array.from(new Set(cand.filter(function (r) { return re.test(r.RefModule); }).map(function (r) { return r.RefID; }))); };
+  const [si, pi] = await Promise.all([
+    ids(/^SalesInvoice/).length ? safe(supabaseClient.from('SalesInvoice').select('*').in('SIID', ids(/^SalesInvoice/))) : [],
+    ids(/^PurchaseInvoice/).length ? safe(supabaseClient.from('PurchaseInvoice').select('*').in('PIID', ids(/^PurchaseInvoice/))) : []]);
+  const siMap = {}; si.forEach(function (h) { siMap[h.SIID] = h; });
+  const piMap = {}; pi.forEach(function (h) { piMap[h.PIID] = h; });
+  const n = function (x) { return Number(x) || 0; }, eq = function (a, b) { return Math.abs(n(a) - n(b)) < 0.005; };
+  const out = [];
+  // একই ভাউচারে নগদ ও ব্যাংক দুটোই BC-CASH-এ পড়ে থাকলে — ব্যাংকের অংশ (যদি ব্যাংক হিসেবেই BC-CASH বাছাই হয়ে থাকে) একবার রেখে দেওয়া
+  const keptBank = {};
+  cand.forEach(function (r) {
+    const m = r.RefModule, amt = n(r.Debit) || n(r.Credit);
+    if (m === 'SalesInvoice' || m === 'PurchaseInvoice' || m === 'SalesReturn' || m === 'PurchaseReturn') { out.push({ r: r, why: 'নগদ পার্টির লেনদেন' }); return; }
+    const h = m === 'SalesInvoice-Receipt' ? siMap[r.RefID] : piMap[r.RefID];
+    if (!h) { out.push({ r: r, why: 'ভাউচার পাওয়া যায়নি — নগদ ধরা হলো', doubt: true }); return; }
+    const cashAmt = m === 'SalesInvoice-Receipt' ? h.CashReceivedAmount : h.CashPaidAmount;
+    const bankAmt = m === 'SalesInvoice-Receipt' ? h.BankReceivedAmount : h.BankPaidAmount;
+    const bankAcc = m === 'SalesInvoice-Receipt' ? h.BankAccIDForReceipt : h.BankAccIDForPayment;
+    const k = m + '|' + r.RefID;
+    if (m === 'SalesInvoice-Receipt') {
+      // ব্যাংকে গ্রহণের জন্য এই অ্যাকাউন্টটাই বাছাই করা থাকলে সেই অংশ ঠিক আছে (একবার)
+      if (bankAcc === 'BC-CASH' && eq(amt, bankAmt) && !keptBank[k]) { keptBank[k] = true; return; }
+      if (eq(amt, cashAmt)) out.push({ r: r, why: 'নগদ গ্রহণ' });
       return;
     }
-    const headers = [['তারিখ','Date'],['অ্যাকাউন্ট','Account'],['রেফারেন্স','Reference'],['Debit','Debit'],['Credit','Credit'],['ব্যালেন্স','Balance']];
-    const headCells = headers.map(function (h) { return `<th class="i18n" data-bn="${h[0]}" data-en="${h[1]}">${t(h[0], h[1])}</th>`; }).join('');
-    const bodyRows = rows.map(function (r) {
-      return `<tr class="${vkClass(r.RefModule)}">
-        <td>${escapeHtml(formatShortDate(r.Date))}</td>
-        <td>${escapeHtml(accMap[r.BankCashAccID] || r.BankCashAccID)}</td>
-        <td>${escapeHtml(({ CapitalVoucher: t('মালিকের মূলধন', 'Owner capital'), FixedAsset: t('স্থায়ী সম্পদ ক্রয়', 'Fixed asset purchase'), AssetPurchase: t('এ্যাসেট ক্রয়', 'Asset purchase'), AssetSale: t('এ্যাসেট বিক্রয়', 'Asset sale') })[r.RefModule] || r.RefModule)} — ${escapeHtml(r.RefID)}</td>
-        <td>${Number(r.Debit || 0).toFixed(2)}</td>
-        <td>${Number(r.Credit || 0).toFixed(2)}</td>
-        <td><b>${formatAmountDrCr(r.Balance, true)}</b></td>
-      </tr>`;
-    }).join('');
-    wrap.innerHTML = `<table class="data-table"><thead><tr>${headCells}</tr></thead><tbody>${bodyRows}</tbody></table>`;
+    // ক্রয়ে প্রদানঃ আগে "নগদ থেকে সাপ্লায়ারের ব্যাংকে" দিলে ব্যাংক হিসেবে 'BC-CASH' বসত — সেটাও আসলে নগদ থেকে গেছে
+    if (eq(amt, cashAmt)) out.push({ r: r, why: 'নগদ প্রদান' });
+    else if (bankAcc === 'BC-CASH' && eq(amt, bankAmt)) out.push({ r: r, why: 'নগদ থেকে সাপ্লায়ারের ব্যাংকে', doubt: true });
+  });
+  return { cashId: cashId, rows: out };
+}
+
+async function renderBankCashBook(content) {
+  const fy = await getFiscalYearStart();
+  const d0 = new Date(), today = d0.getFullYear() + '-' + String(d0.getMonth() + 1).padStart(2, '0') + '-' + String(d0.getDate()).padStart(2, '0');
+  content.innerHTML = `
+    <style>
+      .bb-bar{display:flex;gap:8px;align-items:end;flex-wrap:wrap;}
+      .bb-bar .field{margin:0;} .bb-bar label{font-size:11px;font-weight:600;display:block;} .bb-bar select{height:34px;min-width:200px;}
+      .bb-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin-bottom:10px;}
+      .bb-card{border:1px solid var(--border);border-radius:10px;padding:8px 10px;background:var(--surface);cursor:pointer;} .bb-card small{display:block;font-size:11px;color:var(--text-muted);} .bb-card b{font-size:15px;}
+      .bb-card.neg b{color:#c0392b;} .bb-card.tot{background:#fff6e0;border-color:#e3b75c;cursor:default;}
+      .bb-warn{background:#fdf0ef;border:1px solid #e8a29b;color:#8a1f12;border-radius:8px;padding:9px 12px;font-size:12.5px;margin-bottom:10px;line-height:1.5;}
+      .bb-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+      .bb-tbl{width:100%;border-collapse:collapse;min-width:720px;} .bb-tbl th,.bb-tbl td{border-bottom:.5px solid #e1e4e8;padding:3px 6px;white-space:nowrap;}
+      .bb-tbl th{background:#f3f4f6;} .bb-tbl td.r{text-align:right;} .bb-tbl td.l{text-align:left;} .bb-tbl td.c{text-align:center;}
+      .bb-tbl tr.acc td{background:#1a2029 !important;color:#f2a33c;font-weight:700 !important;} .bb-tbl tr.op td{background:#fafafa;font-style:italic;color:#555;}
+      .bb-tbl tr.cl td{background:#eef0f3;font-weight:700 !important;border-bottom:1.5px solid #9aa2ad;} .bb-tbl td.neg{color:#c0392b;font-weight:700;}
+      .bb-tbl .bb-ic{border:1px solid #d9dde3;background:#fff;border-radius:5px;padding:1px 5px;font-size:11px;cursor:pointer;margin:0 1px;} .bb-tbl .bb-ic:disabled{opacity:.3;cursor:default;}
+    </style>
+    <div class="page-head"><div><h1>${t('ব্যাংক ও নগদ বই', 'Bank & Cash Book')}</h1><p>${t('প্রতিটা ব্যাংক/নগদ অ্যাকাউন্টের লেনদেন — তারিখ অনুযায়ী, প্রারম্ভিক জের সহ চলমান ব্যালান্স', 'Each account’s transactions by date, with opening and running balance')}</p></div>
+      <div class="bb-bar">
+        <div class="field"><label>${t('অ্যাকাউন্ট', 'Account')}</label><select id="bb_Acc"><option value="">${t('সব অ্যাকাউন্ট', 'All accounts')}</option></select></div>
+        <div class="field"><label>${t('তারিখ হইতে', 'From')}</label><input type="date" id="bb_From" value="${fy}"></div>
+        <div class="field"><label>${t('তারিখ পর্যন্ত', 'To')}</label><input type="date" id="bb_To" value="${today}"></div>
+        <button type="button" class="btn btn-primary" id="bb_Apply" style="width:auto;">${t('প্রয়োগ করুন', 'Apply')}</button>
+      </div></div>
+    <div id="bb_Warn"></div><div class="bb-cards" id="bb_Cards"></div>
+    <div class="panel"><div class="bb-wrap" id="bb_Wrap"><div class="empty-state">${t('লোড হচ্ছে...', 'Loading...')}</div></div></div>`;
+  const $ = function (id) { return document.getElementById(id); };
+  let accounts = [], book = [];
+  const n = function (x) { return Number(x) || 0; };
+  const money = function (v) { v = n(v); return (v < 0 ? '−' : '') + Math.abs(v).toFixed(2); };
+
+  async function load() {
+    listCache = {};
+    [accounts, book] = await Promise.all([api('list', { sheet: 'BankCashAccounts' }), api('list', { sheet: 'BankCashBook' })]);
+    accounts = accounts.filter(function (a) { return a.Status !== 'Deleted'; });
+    const sel = $('bb_Acc'), cur = sel.value;
+    sel.innerHTML = `<option value="">${t('সব অ্যাকাউন্ট', 'All accounts')}</option>` + accounts.map(function (a) { return `<option value="${attr(a.BankAccID)}">${escapeHtml(a.AccountName)}${a.Type === 'Cash' ? ' (' + t('নগদ', 'cash') + ')' : ''}</option>`; }).join('');
+    sel.value = cur;
+    await checkMisplaced();
+    render();
+  }
+  async function checkMisplaced() {
+    const res = await findMisplacedCashRows(book);
+    const box = $('bb_Warn');
+    if (!res.rows.length) { box.innerHTML = ''; return; }
+    const accName = function (id) { const a = accounts.find(function (x) { return x.BankAccID === id; }); return a ? a.AccountName : id; };
+    const sum = res.rows.reduce(function (s, x) { return s + n(x.r.Debit) - n(x.r.Credit); }, 0);
+    box.innerHTML = `<div class="bb-warn">⚠️ <b>${res.rows.length}${t('টা নগদ লেনদেন ভুল অ্যাকাউন্টে পড়েছে', ' cash entries are in the wrong account')}</b> — ${t('নগদ বিক্রয়/গ্রহণ/প্রদান যাওয়ার কথা', 'cash sales/receipts/payments should go to')} <b>${escapeHtml(accName(res.cashId))}</b>${t('-এ, কিন্তু পড়েছে', ', but went to')} <b>${escapeHtml(accName('BC-CASH'))}</b>${t('-এ (নিট ', ' (net ')}৳${money(sum)}). ${t('কারণঃ সফটওয়্যারে নগদ অ্যাকাউন্টের আইডি "BC-CASH" ধরে রাখা ছিল, আর সেই অ্যাকাউন্টের নাম বদলে ব্যাংক করা হয়েছে। নতুন লেনদেন এখন ঠিক জায়গায় যাবে।', 'Cause: the cash account id was fixed as BC-CASH, which was renamed to a bank. New entries now go to the right place.')}
+      ${currentUser && currentUser.RoleID === 'ROLE-ADMIN' ? `<div style="margin-top:7px;"><button type="button" class="btn btn-outline" id="bb_Fix" style="width:auto;">🔧 ${t('দেখে ঠিক করুন', 'Review & fix')}</button></div>` : `<div style="margin-top:5px;">${t('এডমিন এটা ঠিক করতে পারবেন।', 'An admin can fix this.')}</div>`}</div>`;
+    const fb = $('bb_Fix'); if (fb) fb.addEventListener('click', function () { openFix(res, accName); });
+  }
+  function openFix(res, accName) {
+    const body = `<div style="font-size:12px;margin-bottom:6px;">${t('টিক দেওয়া এন্ট্রিগুলো', 'Ticked entries move from')} <b>${escapeHtml(accName('BC-CASH'))}</b> ${t('থেকে', 'to')} <b>${escapeHtml(accName(res.cashId))}</b>${t('-এ সরবে; দুই অ্যাকাউন্টের ব্যালান্স নতুন করে হিসাব হবে। পার্টি লেজার বা স্টকে কিছু বদলাবে না। "?" চিহ্নের গুলো নিজে দেখে টিক দিন।', '; both balances are recalculated. Party ledger and stock are not touched. Check the "?" ones yourself.')}</div>
+      <div style="overflow-x:auto;"><table class="data-table"><thead><tr><th><input type="checkbox" id="bbf_All" checked></th><th>${t('তারিখ', 'Date')}</th><th>${t('ভাউচার', 'Voucher')}</th><th>${t('ধরন', 'Type')}</th><th>${t('জমা', 'In')}</th><th>${t('খরচ', 'Out')}</th><th>${t('কেন', 'Why')}</th></tr></thead><tbody>
+      ${res.rows.map(function (x, i) { return `<tr><td class="c"><input type="checkbox" data-bbf="${i}" ${x.doubt ? '' : 'checked'}></td><td>${escapeHtml(formatShortDate(x.r.Date))}</td><td><b>${escapeHtml(x.r.RefID)}</b></td><td>${escapeHtml(bookRefLabel(x.r.RefModule))}</td><td class="r">${n(x.r.Debit) ? n(x.r.Debit).toFixed(2) : '—'}</td><td class="r">${n(x.r.Credit) ? n(x.r.Credit).toFixed(2) : '—'}</td><td>${x.doubt ? '❓ ' : ''}${escapeHtml(x.why)}</td></tr>`; }).join('')}
+      </tbody></table></div>`;
+    openModal({ title: t('নগদের ভুল এন্ট্রি ঠিক করা', 'Fix misplaced cash entries'), bodyHtml: body, wide: true, onSave: async function () {
+      const pick = Array.prototype.slice.call(document.querySelectorAll('[data-bbf]:checked')).map(function (c) { return res.rows[Number(c.getAttribute('data-bbf'))].r; });
+      if (!pick.length) throw new Error(t('কোনো এন্ট্রি টিক দেওয়া নেই।', 'Nothing ticked.'));
+      for (const r of pick) { const { error } = await supabaseClient.from('BankCashBook').update({ BankCashAccID: res.cashId }).eq('id', r.id); if (error) throw new Error(error.message); }
+      await rebalanceBankCashBook('BC-CASH'); await rebalanceBankCashBook(res.cashId);
+      listCache = {}; showToast(pick.length + t('টা এন্ট্রি ঠিক জায়গায় সরানো হয়েছে ✅', ' entries moved ✅'), 'success');
+      await load();
+    } });
+    const all = document.getElementById('bbf_All');
+    all.addEventListener('change', function () { document.querySelectorAll('[data-bbf]').forEach(function (c) { c.checked = all.checked; }); });
   }
 
-  renderTable('');
-  document.getElementById('bcbAccFilter').addEventListener('change', function (e) { renderTable(e.target.value); });
+  function render() {
+    const from = $('bb_From').value || '0000-00-00', to = $('bb_To').value || '9999-12-31', only = $('bb_Acc').value;
+    const list = accounts.filter(function (a) { return !only || a.BankAccID === only; });
+    // বইয়ে আছে কিন্তু অ্যাকাউন্ট তালিকায় নেই (মুছে ফেলা) — সেগুলোও দেখানো
+    Array.from(new Set(book.map(function (r) { return r.BankCashAccID; }))).forEach(function (id) {
+      if (!accounts.some(function (a) { return a.BankAccID === id; }) && (!only || only === id)) list.push({ BankAccID: id, AccountName: id + t(' (মুছে ফেলা অ্যাকাউন্ট)', ' (deleted account)'), OpeningBalance: 0 });
+    });
+    let grand = 0, html = '', cards = '';
+    const ic = function (act, icon, title, base, id, dis) { return `<button type="button" class="bb-ic" data-bb="${act}" data-base="${attr(base)}" data-id="${attr(id)}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
+    list.forEach(function (a) {
+      const rows = book.filter(function (r) { return r.BankCashAccID === a.BankAccID; })
+        .sort(function (x, y) { return String(x.Date || '').localeCompare(String(y.Date || '')) || (n(x.id) - n(y.id)); });
+      let bal = n(a.OpeningBalance);
+      rows.forEach(function (r) { if (String(r.Date || '').slice(0, 10) < from) bal += n(r.Debit) - n(r.Credit); });
+      const opening = bal; let tIn = 0, tOut = 0;
+      const shown = rows.filter(function (r) { const d = String(r.Date || '').slice(0, 10); return d >= from && d <= to; });
+      const body = shown.map(function (r) {
+        bal += n(r.Debit) - n(r.Credit); tIn += n(r.Debit); tOut += n(r.Credit);
+        const base = voucherBaseTypeSafe(r.RefModule), reg = VOUCHER_REGISTRY[base], ok = reg && reg.kind !== 'legacy';
+        return `<tr class="${vkClass(r.RefModule)}"><td class="c">${escapeHtml(formatShortDate(r.Date))}</td><td class="l">${escapeHtml(bookRefLabel(r.RefModule))}</td><td class="c"><b>${escapeHtml(r.RefID || '')}</b></td>
+          <td class="r">${n(r.Debit) ? n(r.Debit).toFixed(2) : '—'}</td><td class="r">${n(r.Credit) ? n(r.Credit).toFixed(2) : '—'}</td><td class="r ${bal < -0.005 ? 'neg' : ''}"><b>${money(bal)}</b></td>
+          <td class="c" style="white-space:nowrap;">${ic('view', '👁️', t('দেখুন', 'View'), base, r.RefID, !ok)}${ic('edit', '✏️', t('এডিট', 'Edit'), base, r.RefID, !ok)}${ic('del', '🗑️', t('ডিলিট', 'Delete'), base, r.RefID, !reg)}</td></tr>`;
+      }).join('');
+      if (!only && !shown.length && Math.abs(opening) < 0.005) return;   // সব অ্যাকাউন্ট দেখালে ফাঁকা অ্যাকাউন্ট বাদ
+      grand += bal;
+      cards += `<div class="bb-card ${bal < -0.005 ? 'neg' : ''}" data-acc="${attr(a.BankAccID)}"><small>${a.Type === 'Cash' ? '💵' : '🏦'} ${escapeHtml(a.AccountName)}</small><b>৳${money(bal)}</b></div>`;
+      html += `<tr class="acc"><td colspan="7" class="l">${a.Type === 'Cash' ? '💵' : '🏦'} ${escapeHtml(a.AccountName)}</td></tr>
+        <tr class="op"><td class="c">${escapeHtml(formatShortDate(from === '0000-00-00' ? '' : from))}</td><td class="l" colspan="4">${t('প্রারম্ভিক জের (ওপেনিং ব্যালান্স + আগের লেনদেন)', 'Opening balance')}</td><td class="r ${opening < -0.005 ? 'neg' : ''}"><b>${money(opening)}</b></td><td></td></tr>
+        ${body || `<tr><td colspan="7" class="l" style="color:#888;">${t('এই সময়ে কোনো লেনদেন নেই।', 'No transactions in this period.')}</td></tr>`}
+        <tr class="cl"><td class="l" colspan="3">${t('মোট / শেষ জের', 'Total / closing')} (${shown.length}${t('টা', '')})</td><td class="r">${tIn.toFixed(2)}</td><td class="r">${tOut.toFixed(2)}</td><td class="r ${bal < -0.005 ? 'neg' : ''}">${money(bal)}</td><td></td></tr>`;
+    });
+    $('bb_Cards').innerHTML = cards + (only ? '' : `<div class="bb-card tot"><small>${t('সব অ্যাকাউন্টের মোট', 'All accounts')}</small><b>৳${money(grand)}</b></div>`);
+    $('bb_Wrap').innerHTML = html ? `<table class="bb-tbl"><thead><tr><th>${t('তারিখ', 'Date')}</th><th>${t('বিবরণ', 'Details')}</th><th>${t('ভাউচার', 'Voucher')}</th><th>${t('জমা (ডেবিট)', 'In (Dr)')}</th><th>${t('খরচ (ক্রেডিট)', 'Out (Cr)')}</th><th>${t('ব্যালান্স', 'Balance')}</th><th></th></tr></thead><tbody>${html}</tbody></table>`
+      : `<div class="empty-state">${t('কোনো লেনদেন নেই।', 'No transactions.')}</div>`;
+  }
+
+  $('bb_Apply').addEventListener('click', render);
+  $('bb_Acc').addEventListener('change', render);
+  $('bb_Cards').addEventListener('click', function (e) { const c = e.target.closest('[data-acc]'); if (c) { $('bb_Acc').value = c.getAttribute('data-acc'); render(); } });
+  $('bb_Wrap').addEventListener('click', async function (e) {
+    const b = e.target.closest('[data-bb]'); if (!b || b.disabled || b.__busy) return; b.__busy = true;
+    const act = b.getAttribute('data-bb'), base = b.getAttribute('data-base'), id = b.getAttribute('data-id');
+    try {
+      if (act === 'view') await voucherView(base, id);
+      else if (act === 'edit') await voucherEdit(base, id);
+      else if (act === 'del') { if (await voucherDelete(base, id)) await load(); }
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { b.__busy = false; }
+  });
+  await load();
 }
 
 /** ট্রায়াল ব্যালেন্স — বর্তমানে শুধু পোস্ট করা Journal Voucher-এর হিসাব দেখায় */
@@ -9785,6 +9927,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
   window.__pv3SupplierMap = {}; suppliers.forEach(function (s) { window.__pv3SupplierMap[s.SupplierID] = s; });
   window.__pv3ExpenseCategories = (pvData.ExpenseCategories || []).filter(function (c) { return c.Status !== 'Deleted'; });
   window.__pv3CashExpense = { amount: 0, subAmounts: {} };
+  await cashAccountId();   // এডিটে নগদ/নিজের ব্যাংক চেনার জন্য
   const pv3ZoneList = Array.from(new Set(suppliers.filter(function (s) { return s.Status !== 'Deleted' && s.Zone; }).map(function (s) { return s.Zone; }))).sort(function (a, b) { return String(a).localeCompare(String(b), 'bn'); });
 
   const isEdit = !!existingId;
@@ -10025,7 +10168,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
             if (!ourBankId) throw new Error(t('আমাদের কোন ব্যাংক থেকে টাকা গেল, সেটা বাছাই করুন।','Select which of our banks the money was sent from.'));
             headerData.BankAccIDForPayment = ourBankId;
           } else if (headerData.BankPaidAmount > 0) {
-            headerData.BankAccIDForPayment = 'BC-CASH'; // নগদ টু সাপ্লায়ার ব্যাংক — আমাদের ক্যাশ অ্যাকাউন্ট থেকে যাবে
+            headerData.BankAccIDForPayment = await cashAccountId(); // নগদ টু সাপ্লায়ার ব্যাংক — আমাদের ক্যাশ অ্যাকাউন্ট থেকে যাবে
           } else {
             headerData.BankAccIDForPayment = null;
           }
@@ -10419,7 +10562,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     document.getElementById('pv3_BankPaidAmount').value = bp ? String(bp) : '';
     document.getElementById('pv3_BankPaidNote').value = rec.BankPaidNote || '';
     if (bp > 0) {
-      const own = acc && acc !== 'BC-CASH';
+      const own = acc && acc !== 'BC-CASH' && acc !== window.__cashAccIdCache;
       document.getElementById('pv3_BankPayMethod').value = own ? 'OurBankToSupplierBank' : 'CashToSupplierBank';
       document.getElementById('pv3_BankAccID').value = own ? acc : '';
       pv3BankPopupFilled = true; updateBankPaySummary();
