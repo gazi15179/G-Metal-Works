@@ -8817,11 +8817,10 @@ async function openProcessingPrintView(docId, autoPrint, dIn) {
 
   // ---------- টেবিলের গঠন (বিক্রয় ভাউচারের মতো দুই সারির হেডার) ----------
   const COLS = '<colgroup><col style="width:6%"><col style="width:29%"><col style="width:11%"><col style="width:9%"><col style="width:12%"><col style="width:12%"><col style="width:21%"></colgroup>';
-  const head = function (title) {
-    return `<thead><tr class="section-head"><td colspan="7">${escapeHtml(title)}</td></tr>
-      <tr><th rowspan="2">ক্রঃ</th><th rowspan="2">নাম</th><th colspan="2" class="grp">পরিমাণ</th><th colspan="2" class="grp">দর</th><th rowspan="2">মূল্য</th></tr>
+  // হেডার শুধু একবার — উপরে; নিচে প্রতিটা অংশের নাম একটা সারি হিসেবে
+  const THEAD = `<thead><tr><th rowspan="2">ক্রঃ</th><th rowspan="2">নাম</th><th colspan="2" class="grp">পরিমাণ</th><th colspan="2" class="grp">দর</th><th rowspan="2">মূল্য</th></tr>
       <tr class="sub"><th>কেজি</th><th>পিস</th><th>কেজি</th><th>পিস</th></tr></thead>`;
-  };
+  const head = function (title) { return `<tr class="section-head"><td colspan="7">${escapeHtml(title)}</td></tr>`; };
   const line = function (i, name, kg, pc, rk, rp, val) {
     return `<tr><td>${B(i)}</td><td class="l">${name}</td><td>${Q3(kg)}</td><td>${Q3(pc)}</td><td class="r">${R2(rk)}</td><td class="r">${R2(rp)}</td><td class="r">${M(val)}</td></tr>`;
   };
@@ -8834,17 +8833,17 @@ async function openProcessingPrintView(docId, autoPrint, dIn) {
   // ---------- ১) কাঁচামাল ----------
   const rmKg = n(h.RawMaterialQty), rmPc = n(h.RawMaterialPcs);
   const rmVal = n(h.RawMaterialValue) || rmKg * n(h.RawMaterialRate);
-  const sec1 = `<table class="items-table">${COLS}${head('কাঁচামাল')}<tbody>
+  const sec1 = `${head('কাঁচামাল')}
       ${line(1, nm(h.RawMaterialItemID), rmKg, rmPc, n(h.RawMaterialRate) || rateOf(rmVal, rmKg), rateOf(rmVal, rmPc), rmVal)}
-      ${tot('মোটঃ কাঁচামালঃ', rmKg, rmPc, rmVal)}</tbody></table>`;
+      ${tot('মোটঃ কাঁচামালঃ', rmKg, rmPc, rmVal)}`;
 
   // ---------- ২) উৎপাদন খরচ ----------
   const prVal = n(h.ProcessingValue) || rmKg * n(h.ProcessingRate);
   const grossVal = rmVal + prVal;
-  const sec2 = `<table class="items-table">${COLS}${head('উৎপাদন খরচ')}<tbody>
+  const sec2 = `${head('উৎপাদন খরচ')}
       ${line(1, 'উৎপাদন খরচ — ' + nm(h.RawMaterialItemID), rmKg, rmPc, n(h.ProcessingRate) || rateOf(prVal, rmKg), rateOf(prVal, rmPc), prVal)}
       ${tot('মোটঃ উৎপাদন খরচঃ', rmKg, rmPc, prVal)}
-      ${tot('মোটঃ (কাঁচামাল + উৎপাদন খরচ)', rmKg, rmPc, grossVal, 'grand')}</tbody></table>`;
+      ${tot('মোটঃ (কাঁচামাল + উৎপাদন খরচ)', rmKg, rmPc, grossVal, 'grand')}`;
 
   // ---------- ৩) বাই-প্রডাক্ট ----------
   let bpKg = 0, bpPc = 0, bpVal = 0;
@@ -8854,9 +8853,9 @@ async function openProcessingPrintView(docId, autoPrint, dIn) {
     return line(i + 1, escapeHtml(l.ByProductName || '') + (l.ItemID && (itemMap[l.ItemID] || {}).ItemName !== l.ByProductName ? ' (' + nm(l.ItemID) + ')' : ''), kg, pc, n(l.Rate) || rateOf(val, kg), n(l.RatePerPc) || rateOf(val, pc), val);
   }).join('');
   const netKg = rmKg - bpKg, netVal = grossVal - bpVal;
-  const sec3 = d.lines.length ? `<table class="items-table">${COLS}${head('বাই-প্রডাক্ট (ভাঙারি/কাটিং/অপচয়)')}<tbody>${bpRows}
+  const sec3 = d.lines.length ? `${head('বাই-প্রডাক্ট (ভাঙারি/কাটিং/অপচয়)')}${bpRows}
       ${tot('মোটঃ বাই-প্রডাক্টঃ', bpKg, bpPc, bpVal)}
-      ${tot('সর্বমোটঃ (বাই-প্রডাক্ট বাদ)', netKg, 0, netVal, 'grand')}</tbody></table>` : '';
+      ${tot('সর্বমোটঃ (বাই-প্রডাক্ট বাদ)', netKg, 0, netVal, 'grand')}` : '';
 
   // ---------- ৪) ফিনিশড গুডস ----------
   let fgKg = 0, fgPc = 0, fgVal = 0;
@@ -8871,8 +8870,8 @@ async function openProcessingPrintView(docId, autoPrint, dIn) {
   }).join('');
   const saleRow = (n(h.SaleRatePerKg) || n(h.SaleRatePerPiece))
     ? `<tr class="vat-row"><td></td><td class="l">বিক্রয় দর</td><td></td><td></td><td class="r">${R2(h.SaleRatePerKg)}</td><td class="r">${R2(h.SaleRatePerPiece)}</td><td></td></tr>` : '';
-  const sec4 = `<table class="items-table">${COLS}${head('ফিনিশড গুডস')}<tbody>${fgRows}
-      ${tot('মোটঃ ফিনিশড গুডসঃ', fgKg, fgPc, fgVal)}${saleRow}</tbody></table>`;
+  const sec4 = `${head('ফিনিশড গুডস')}${fgRows}
+      ${tot('মোটঃ ফিনিশড গুডসঃ', fgKg, fgPc, fgVal)}${saleRow}`;
 
   // ---------- ডবল চেক (শুধু পর্দায়) ----------
   const chk = [];
@@ -8937,7 +8936,7 @@ async function openProcessingPrintView(docId, autoPrint, dIn) {
       ${h.DateFrom || h.DateTo ? `<span>গড় দরের সময়ঃ ${B(formatShortDate(h.DateFrom))} হইতে ${B(formatShortDate(h.DateTo))} পর্যন্ত</span>` : ''}
     </div>
   </div>
-  ${sec1}${sec2}${sec3}${sec4}
+  <table class="items-table">${COLS}${THEAD}<tbody>${sec1}${sec2}${sec3}${sec4}</tbody></table>
   ${checkBox}${profitBox}
   <div class="sign-row"><div>প্রস্তুতকারীর স্বাঃ</div><div>হিসাবরক্ষকের স্বাঃ</div><div>অনুমোদনকারীর স্বাঃ</div></div>
   ${autoPrint ? '<script>window.addEventListener("load",function(){setTimeout(function(){window.print();},400);});<\/script>' : ''}
