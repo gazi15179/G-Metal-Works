@@ -11821,7 +11821,7 @@ function stockOverviewTableHtml(rows, fromDate, toDate, forPrint) {
   const body = rows.map(function (R) {
     const c = R.c; tIn += R.val(c.inKg, c.inPc); tOut += R.val(c.outKg, c.outPc); tBal += R.val(c.balKg, c.balPc); if (R.profit) tPf += R.profit;
     acc(G.in, c.inKg, c.inPc, R.val(c.inKg, c.inPc)); acc(G.out, c.outKg, c.outPc, R.val(c.outKg, c.outPc)); acc(G.bal, c.balKg, c.balPc, R.val(c.balKg, c.balPc));
-    return `<tr><td class="l fz">${escapeHtml(R.item.ItemName || c.ItemID)}</td><td title="${attr(t('দরের উৎসঃ ', 'Rate from: ') + R.r.src)}">${escapeHtml(R.unit)}</td><td>${escapeHtml(R.wh)}</td>
+    return `<tr${forPrint ? '' : ` class="so-row" data-item="${attr(c.ItemID)}" data-wh="${attr(c.WarehouseID)}"`}><td class="l fz">${escapeHtml(R.item.ItemName || c.ItemID)}</td><td title="${attr(t('দরের উৎসঃ ', 'Rate from: ') + R.r.src)}">${escapeHtml(R.unit)}</td><td>${escapeHtml(R.wh)}</td>
       ${grp(R, c.inKg, c.inPc, false, 'gi')}${grp(R, c.outKg, c.outPc, false, 'go')}${showPf ? pfCell(R.profit) : ''}${grp(R, c.balKg, c.balPc, true, 'gb')}
       ${forPrint ? '' : `<td class="vw"><button type="button" class="so-eye" title="${attr(t('ভাউচার দেখুন — এডিট, ডিলিট, পোস্ট', 'Vouchers — edit, delete, post'))}" aria-label="${attr(t('দেখুন', 'View'))}" onclick='openStockItemVouchers(${JSON.stringify(c.ItemID)}, ${JSON.stringify(c.WarehouseID)}, ${JSON.stringify(fromDate)}, ${JSON.stringify(toDate)})'>👁️</button></td>`}</tr>`;
   }).join('');
@@ -11832,10 +11832,13 @@ function stockOverviewTableHtml(rows, fromDate, toDate, forPrint) {
     <tbody>${body}</tbody>
     <tfoot><tr><td class="l fz">${t('মোট', 'Total')}<div style="font-size:10px;font-weight:500;color:var(--text-muted);">${t('দর = গড়', 'rate = average')}</div></td><td colspan="2"></td>${totCells(G.in, 'gi', tIn, false)}${totCells(G.out, 'go', tOut, false)}${showPf ? pfCell(tPf) : ''}${totCells(G.bal, 'gb', tBal, true)}${forPrint ? '' : '<td></td>'}</tr></tfoot></table>`;
 }
-const STOCK_OV_CSS = `.so-tbl{font-size:11.5px;border-collapse:separate !important;border-spacing:0;width:auto !important;min-width:100%;}
-  .so-tbl th,.so-tbl td{padding:3px 6px !important;line-height:1.25;height:auto !important;}
-  .so-tbl thead th{font-size:10.5px;padding:4px 5px !important;}
-  .so-tbl td.r{min-width:52px;} .so-tbl .gstart{border-left:2px solid #8a94a3 !important;}
+const STOCK_OV_CSS = `table.so-tbl{font-size:11px !important;} .so-tbl{font-size:11px;border-collapse:separate !important;border-spacing:0;width:auto !important;min-width:100%;}
+  .so-tbl th,.so-tbl td{padding:2px 5px !important;line-height:1.25;height:auto !important;border:0 !important;border-right:.5px solid #e1e4e8 !important;border-bottom:.5px solid #e1e4e8 !important;}
+  .so-tbl thead th{font-size:10.5px;padding:3px 5px !important;background:#f3f4f6;}
+  .so-tbl td.r{min-width:50px;} .so-tbl .gstart{border-left:1px solid #b8bec7 !important;}
+  .so-tbl tbody tr.so-row{cursor:pointer;-webkit-user-select:none;user-select:none;}
+  .so-tbl tbody tr.so-row:hover td{filter:brightness(.98);}
+  .so-tbl tbody tr.sel td{background:#fff1b8 !important;} .so-tbl tbody tr.sel td.fz{box-shadow:inset 3px 0 0 #c27a12, 2px 0 0 #c9ced6;}
   .so-tbl td.vw,.so-tbl th.vw{width:34px;padding:2px 4px !important;}
   .so-eye{border:1px solid var(--border,#d6dae1);background:var(--surface,#fff);border-radius:6px;padding:1px 6px;font-size:13px;line-height:1.3;cursor:pointer;}
   .so-eye:hover{background:#eef3fb;} .so-tbl th{text-align:center;white-space:nowrap;} .so-tbl td{text-align:center;white-space:nowrap;} .so-tbl td.l{text-align:left;} .so-tbl td.r{text-align:right;}
@@ -11844,9 +11847,10 @@ const STOCK_OV_CSS = `.so-tbl{font-size:11.5px;border-collapse:separate !importa
   .so-tbl th.hi{background:#1f7a4d !important;color:#fff !important;} .so-tbl th.ho{background:#b5482a !important;color:#fff !important;} .so-tbl th.hb{background:#1f5fa8 !important;color:#fff !important;}
   .so-tbl th.gi{background:#d6efe0 !important;color:#145c38 !important;} .so-tbl th.go{background:#f8ddd3 !important;color:#8a3215 !important;} .so-tbl th.gb{background:#d8e6f8 !important;color:#16467e !important;}
   .so-tbl td.gi{background:#f1faf4;} .so-tbl td.go{background:#fdf3ef;} .so-tbl td.gb{background:#f0f5fc;}
-  .so-tbl th.hpf{background:#8a5a00 !important;color:#fff !important;} .so-tbl td.gpf{background:#fff8e6;border-right:2px solid #8a94a3 !important;}
+  .so-tbl th.hpf{background:#8a5a00 !important;color:#fff !important;} .so-tbl td.gpf{background:#fff8e6;border-right:1px solid #b8bec7 !important;}
   .so-tbl tfoot td.gi{background:#d6efe0;} .so-tbl tfoot td.go{background:#f8ddd3;} .so-tbl tfoot td.gb{background:#d8e6f8;}
-  .so-tbl .gend{border-right:2px solid #8a94a3 !important;}
+  .so-tbl .gend{border-right:1px solid #b8bec7 !important;}
+  .so-tbl tfoot td{border-top:1.5px solid #9aa2ad !important;}
   .so-tbl th,.so-tbl td{-webkit-print-color-adjust:exact;print-color-adjust:exact;}`;
 /* ফ্রিজ — শুধু পর্দায় (প্রিন্টে নয়): আইটেম কলাম বাঁয়ে, দুই সারির হেডার উপরে, মোট নিচে */
 const STOCK_OV_FREEZE_CSS = `#stockOverviewWrap{overflow:auto !important;max-height:calc(100vh - 250px);border-radius:8px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-x pan-y;contain:paint;}
@@ -12010,6 +12014,10 @@ async function renderStockOverview(content) {
     if (!window.__soFitWired) { window.__soFitWired = true; window.addEventListener('resize', function () { const w2 = document.getElementById('stockOverviewWrap'); if (w2) { const h1 = w2.querySelector('.so-tbl thead tr.h1'); if (h1) { const hh = Math.round(h1.getBoundingClientRect().height); w2.querySelectorAll('.so-tbl thead tr.h2 th').forEach(function (th) { th.style.top = hh + 'px'; }); } } }); }
   }
   renderReport(monthStart, today);
+  // সারিতে এক চাপ = বাছাই, দুই চাপ = এই আইটেমের ভাউচারের তালিকা
+  wireRowSelect(document.getElementById('stockOverviewWrap'), 'tr.so-row', function (tr) {
+    openStockItemVouchers(tr.getAttribute('data-item'), tr.getAttribute('data-wh'), dmyIso('so_DateFrom') || monthStart, dmyIso('so_DateTo') || today);
+  });
   window.__stockOverviewRerender = function () { const Dn = window.__stockOverviewData; if (Dn) { D.ledger = Dn.ledger; D.rates = Dn.rates; D.drafts = Dn.drafts; } if (document.getElementById('stockOverviewWrap')) renderReport(dmyIso('so_DateFrom') || monthStart, dmyIso('so_DateTo') || today); };
   wireDmyFields(content);
   ['so_DateFrom', 'so_DateTo'].forEach(function (id) {   // Enter = পরের ঘর / প্রয়োগ, Escape = আগের ঘর
@@ -12193,6 +12201,23 @@ async function refreshStockCard(ctx) {   // স্টক ওভারভিউ �
  *  • প্রতিটা ভাউচারে পার্টি (সাপ্লায়ার/গ্রাহকের প্রতিষ্ঠানের নাম)
  *  • শুরুতে "পূর্বের জের", ফুটারে যোগফল; ডবল চেক — শেষ জের = পূর্বের জের + ইন − আউট, আর (আজ পর্যন্ত হলে) গুদামের বর্তমান স্টকের সাথে মিল
  *  • নিচে পোস্ট না হওয়া (খসড়া) ভাউচার */
+/** টেবিলের সারিঃ এক ক্লিক / এক টাচ = সারি বাছাই (যাচাইয়ের সুবিধা), দুই ক্লিক / দুই টাচ = খোলা।
+ *  ডেস্কটপ ও মোবাইল দুটোতে একই — দুই চাপের মাঝে ৪০০ মিলিসেকেন্ডের কম হলে "দুইবার" ধরা হয়। */
+function wireRowSelect(container, rowSel, onOpen) {
+  if (!container || container.__rowSel) return; container.__rowSel = true;
+  let last = null, lastAt = 0;
+  container.addEventListener('click', function (e) {
+    if (e.target.closest('button,a,input,select,textarea,label')) return;
+    const tr = e.target.closest(rowSel); if (!tr || !container.contains(tr)) return;
+    const now = Date.now();
+    container.querySelectorAll(rowSel + '.sel').forEach(function (x) { if (x !== tr) x.classList.remove('sel'); });
+    tr.classList.add('sel');
+    if (last === tr && now - lastAt < 400) { last = null; lastAt = 0; onOpen(tr); return; }
+    last = tr; lastAt = now;
+  });
+  container.addEventListener('dblclick', function (e) { if (!e.target.closest('button,a,input,select')) { try { window.getSelection().removeAllRanges(); } catch (x) {} } });
+}
+
 async function stockCardPartyNames(rows) {
   const safe = async function (q) { try { const r = await q; return (r && !r.error && r.data) || []; } catch (e) { return []; } };
   const byType = {};
@@ -12227,6 +12252,14 @@ const STOCK_CARD_CSS = `
   .sc-tbl tr.op td{background:#fafafa;font-style:italic;color:#555;}
   .sc-tbl tfoot td{background:#eef0f3;font-weight:700;border-top:1.5px solid #9aa2ad;}
   .sc-tbl tr.draft td{background:#fff8eb;}
+  /* ভাউচারের ধরন অনুযায়ী সারির হালকা রং (তারিখ থেকে পার্টি পর্যন্ত আর বাটনের ঘর) ও বাঁয়ে রঙিন দাগ */
+  .sc-tbl tr.k-purchase td:not(.gi):not(.go):not(.gb){background:#eef8f0;} .sc-tbl tr.k-purchase td:first-child{box-shadow:inset 3px 0 0 #5fb36b;}
+  .sc-tbl tr.k-processing td:not(.gi):not(.go):not(.gb){background:#eef1fc;} .sc-tbl tr.k-processing td:first-child{box-shadow:inset 3px 0 0 #6f86d6;}
+  .sc-tbl tr.k-sales td:not(.gi):not(.go):not(.gb){background:#fff5e8;} .sc-tbl tr.k-sales td:first-child{box-shadow:inset 3px 0 0 #e09a3e;}
+  .sc-tbl tr.k-doc td:not(.gi):not(.go):not(.gb){background:#f5f5f5;} .sc-tbl tr.k-doc td:first-child{box-shadow:inset 3px 0 0 #9aa2ad;}
+  .sc-tbl tbody tr[data-dt]{cursor:pointer;-webkit-user-select:none;user-select:none;}
+  .sc-tbl tbody tr.sel td{background:#fff1b8 !important;} .sc-tbl tbody tr.sel td:first-child{box-shadow:inset 3px 0 0 #c27a12;}
+  .sc-legend{display:flex;gap:10px;flex-wrap:wrap;font-size:10.5px;color:var(--text-muted);margin:4px 0;} .sc-legend i{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:middle;margin-right:3px;}
   .sc-tbl .sc-ico{border:1px solid #d9dde3;background:#fff;border-radius:5px;padding:1px 5px;font-size:11px;cursor:pointer;margin:0 1px;line-height:1.3;}
   .sc-tbl .sc-ico:disabled{opacity:.3;cursor:default;}
   .sc-h{margin:8px 0 4px;font-size:12.5px;font-weight:700;}
@@ -12274,7 +12307,7 @@ async function openStockItemVouchers(itemId, warehouseId, fromDate, toDate) {
     const dt = stockCardDocType(l), ik = n(l.QtyIn), ip = n(l.PiecesIn), ok = n(l.QtyOut), op = n(l.PiecesOut);
     bKg += ik - ok; bPc += ip - op; tInKg += ik; tInPc += ip; tOutKg += ok; tOutPc += op;
     const pty = partyOf(dt, l.RefID, l);
-    return `<tr><td>${escapeHtml(formatShortDate(l.Date))}</td><td class="l">${escapeHtml(LBL[l.TransactionType] || (STOCK_CARD_TYPES[dt] || {}).bn || l.TransactionType || '')}</td><td><b>${escapeHtml(l.RefID || '')}</b></td><td class="l pty" title="${attr(pty)}">${escapeHtml(pty)}</td>
+    return `<tr class="${dt ? 'k-' + STOCK_CARD_TYPES[dt].kind : ''}" ${dt ? `data-dt="${attr(dt)}" data-id="${attr(l.RefID)}" data-posted="1"` : ''}><td>${escapeHtml(formatShortDate(l.Date))}</td><td class="l">${escapeHtml(LBL[l.TransactionType] || (STOCK_CARD_TYPES[dt] || {}).bn || l.TransactionType || '')}</td><td><b>${escapeHtml(l.RefID || '')}</b></td><td class="l pty" title="${attr(pty)}">${escapeHtml(pty)}</td>
       <td class="r gi">${q3(ik)}</td><td class="r gi">${q3(ip)}</td><td class="r go">${q3(ok)}</td><td class="r go">${q3(op)}</td>${bq(bKg)}${bq(bPc)}
       <td style="white-space:nowrap;">${icons(dt, l.RefID, true)}</td></tr>`;
   }).join('');
@@ -12304,18 +12337,28 @@ async function openStockItemVouchers(itemId, warehouseId, fromDate, toDate) {
 
   // ---------- খসড়া ----------
   const draftHtml = drafts.length ? `<div class="sc-wrap"><table class="sc-tbl" style="min-width:600px;"><thead><tr><th>${t('তারিখ', 'Date')}</th><th>${t('ধরন', 'Type')}</th><th>${t('ভাউচার', 'Voucher')}</th><th>${t('পার্টি (প্রতিষ্ঠান)', 'Party')}</th><th>${t('পরিমাণ', 'Qty')}</th><th>${t('স্টকে', 'Stock')}</th><th></th></tr></thead><tbody>
-      ${drafts.map(function (x) { const pty = partyOf(x.docType, x.id); return `<tr class="draft"><td>${escapeHtml(formatShortDate(x.date))}</td><td class="l">${escapeHtml(STOCK_CARD_TYPES[x.docType].bn)}</td><td><b>${escapeHtml(x.id)}</b></td><td class="l pty" title="${attr(pty)}">${escapeHtml(pty)}</td><td>${escapeHtml(x.txt)}</td><td>${x.dir === 'in' ? t('যোগ হবে', 'will add') : t('কমবে', 'will reduce')}</td><td style="white-space:nowrap;">${icons(x.docType, x.id, false)}</td></tr>`; }).join('')}</tbody></table></div>`
+      ${drafts.map(function (x) { const pty = partyOf(x.docType, x.id); return `<tr class="draft k-${STOCK_CARD_TYPES[x.docType].kind}" data-dt="${attr(x.docType)}" data-id="${attr(x.id)}" data-posted="0"><td>${escapeHtml(formatShortDate(x.date))}</td><td class="l">${escapeHtml(STOCK_CARD_TYPES[x.docType].bn)}</td><td><b>${escapeHtml(x.id)}</b></td><td class="l pty" title="${attr(pty)}">${escapeHtml(pty)}</td><td>${escapeHtml(x.txt)}</td><td>${x.dir === 'in' ? t('যোগ হবে', 'will add') : t('কমবে', 'will reduce')}</td><td style="white-space:nowrap;">${icons(x.docType, x.id, false)}</td></tr>`; }).join('')}</tbody></table></div>`
     : `<div style="font-size:11.5px;color:#888;padding:4px 0;">${t('এই আইটেমের কোনো পোস্ট না হওয়া ভাউচার নেই।', 'No unposted vouchers for this item.')}</div>`;
 
   const bodyHtml = `<style>${STOCK_CARD_CSS}</style>
     <div style="font-size:11.5px;color:var(--text-muted);margin-bottom:4px;">${escapeHtml(formatShortDate(fromDate))} — ${escapeHtml(formatShortDate(toDate))} · ${t('গুদামঃ ', 'Warehouse: ')}${escapeHtml((D.whMap || {})[warehouseId] || warehouseId)} · ${t('একক ', 'Unit ')}${piece ? t('পিস', 'pcs') : t('কেজি', 'kg')}</div>
-    <div class="sc-h">✅ ${t('পোস্ট হওয়া — স্টকে আছে', 'Posted — in stock')}</div>${postedHtml}${checkHtml}
+    <div class="sc-h">✅ ${t('পোস্ট হওয়া — স্টকে আছে', 'Posted — in stock')}</div>
+    <div class="sc-legend"><span><i style="background:#cfe9d4;"></i>${t('ক্রয়', 'Purchase')}</span><span><i style="background:#d3dcf7;"></i>${t('প্রোডাকশন', 'Production')}</span><span><i style="background:#fbe0bd;"></i>${t('বিক্রয়', 'Sales')}</span><span>👆 ${t('এক ক্লিক/টাচ = বাছাই · দুই ক্লিক/টাচ = ভাউচার খুলে এডিট', 'Tap = select · double tap = open voucher to edit')}</span></div>
+    ${postedHtml}${checkHtml}
     <div class="sc-h" style="color:#b45309;">💾 ${t('পোস্ট না হওয়া (খসড়া) — স্টকে এখনো নেই', 'Not posted (draft)')} ${drafts.length ? '(' + drafts.length + ')' : ''}</div>${draftHtml}
     <div style="font-size:10.5px;color:var(--text-muted);margin-top:6px;">${t('👁️ দেখুন · ✏️ এডিট · 🗑️ ডিলিট · 💾 পোস্ট। পোস্ট হওয়া ভাউচার এডিট বা ডিলিট করতে এডমিন পাসওয়ার্ড লাগে; এডিটে আগে আনপোস্ট হয়, ঠিক করে আবার 💾 পোস্ট করুন।', 'Editing or deleting a posted voucher needs the admin password; editing unposts it first.')}</div>`;
   if (modalIsOpen && modalIsOpen() && modalCurrentKey === 'stockCard') closeModal();
   modalPendingKey = 'stockCard';
   openModal({ title: t('ভাউচারের তালিকা — ', 'Vouchers — ') + (it.ItemName || itemId), bodyHtml: bodyHtml, wide: true, hideSave: true, onSave: async function () {} });
   window.__stockCardCtx = { itemId: itemId, warehouseId: warehouseId, fromDate: fromDate, toDate: toDate };
+  // সারিতে এক চাপ = বাছাই, দুই চাপ = ভাউচার খুলে এডিট (পোস্ট করা হলে এডমিন পাসওয়ার্ডে আনপোস্ট হয়ে)
+  document.getElementById('modalBody').querySelectorAll('.sc-wrap').forEach(function (w) {
+    wireRowSelect(w, 'tr[data-dt]', function (tr) {
+      if (window.__stockCardBusy) return; window.__stockCardBusy = true;
+      stockCardAction('edit', tr.getAttribute('data-dt'), tr.getAttribute('data-id'), tr.getAttribute('data-posted') === '1', window.__stockCardCtx)
+        .finally(function () { window.__stockCardBusy = false; });
+    });
+  });
   // ক্লিক-ধরা একবারই জোড়া হয় (কার্ড বারবার খুললেও) — নইলে একটা ক্লিকে কাজ দুবার হতো
   if (!window.__stockCardWired) {
     window.__stockCardWired = true;
