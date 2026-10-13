@@ -9615,10 +9615,10 @@ function wireSequentialKeyNav(container) {
    • প্রতিটা সারিতেঃ 👁️ দেখুন · ✏️ এডিট · 🗑️ ডিলিট · 💾 পোস্ট · 🔗 শেয়ার · 🖨️ প্রিন্ট */
 const VOUCHER_KINDS = {
   purchase: { types: [['PurchaseInvoice', 'PIID', 'InvoiceDate', 'PI_Lines', 'ক্রয়'], ['PurchaseReturn', 'PRetID', 'Date', 'PR_Return_Lines', 'ক্রয় ফেরত']], partySheet: 'Suppliers', partyId: 'SupplierID',
-    open: function (dt, id) { return openPurchaseVoucherForm(dt, id); }, post: function (dt, id) { return postPurchaseVoucherRecord(dt, id); },
+    open: function (dt, id, o) { return openPurchaseVoucherForm(dt, id, o); }, post: function (dt, id) { return postPurchaseVoucherRecord(dt, id); },
     del: function (dt, id) { return deletePurchaseVoucherRecord(dt, id); }, delPosted: function (dt, id) { return deletePostedPurchaseVoucher(dt, id); } },
   sales: { types: [['SalesInvoice', 'SIID', 'InvoiceDate', 'SI_Lines', 'বিক্রয়'], ['SalesReturn', 'SRID', 'Date', 'SR_Lines', 'বিক্রয় ফেরত']], partySheet: 'Customers', partyId: 'CustomerID',
-    open: function (dt, id) { return openSalesVoucherForm(dt, id); }, post: function (dt, id) { return postSalesVoucherRecord(dt, id); },
+    open: function (dt, id, o) { return openSalesVoucherForm(dt, id, o); }, post: function (dt, id) { return postSalesVoucherRecord(dt, id); },
     del: function (dt, id) { return deleteSalesVoucherRecord(dt, id); }, delPosted: function (dt, id) { return deletePostedSalesVoucher(dt, id); } }
 };
 const VOUCHER_BOTTOM_CSS = `
@@ -9913,7 +9913,218 @@ const VOUCHER_GRID_CSS = `
   }
   @media (max-width:380px){ .vg2{gap:5px 6px;} .vg2 .field label{font-size:10.5px;} }`;
 
-async function openPurchaseVoucherForm(defaultType, existingId) {
+/* ===== পার্টি সারাংশ — পার্টি নামের ঠিক নিচের লাইনে ৪টি ঘরঃ পার্টি জের | ভাউচার ক্রয়/বিক্রয় | ভাউচার নগদ | পার্টি ব্যালান্স
+   ডেঃ/ক্রেঃ ঘরের ভিতরেই টাকার সাথে। হিসাব লেজারের নিয়মেঃ ধনাত্মক = ডেঃ, ঋণাত্মক = ক্রেঃ।
+   বিক্রয়ঃ ব্যালান্স = জের + বিক্রয় (ডেঃ) − নগদ/ব্যাংক গ্রহণ (ক্রেঃ)
+   ক্রয়ঃ   ব্যালান্স = জের − ক্রয় (ক্রেঃ) + নগদ/ব্যাংক প্রদান (ডেঃ)
+   শিরোনাম থেকে এই লাইন পর্যন্ত ফ্রিজ (স্ক্রল করলেও উপরে থাকে)।
+   শিরোনামে ◀ ▶ — আগের/পরের ভাউচার ফর্মে খোলে। শুধু স্ক্রিনে — প্রিন্ট/প্রিন্ট প্রিভিউ আগের মতই। ===== */
+const VOUCHER_PSUM_CSS = `
+  #pv3_TabEntryPanel,#sv3_TabEntryPanel,.pv3-compact,.sv3-compact{display:contents;}
+  .vfreeze{position:sticky;top:-18px;z-index:6;background:var(--surface);margin:-18px -20px 10px;padding:18px 20px 8px;border-bottom:1px solid var(--border);box-shadow:0 6px 8px -7px rgba(0,0,0,.35);}
+  .vfreeze .vg2{margin-bottom:0;}
+  .vnavh{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;font-size:13px;color:var(--amber);background:var(--ink-900);padding:4px;border-radius:6px;text-transform:uppercase;}
+  .vnavh span{flex:1;text-align:center;}
+  .vnav{width:38px;height:28px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:var(--amber);border-radius:6px;font-size:14px;line-height:1;cursor:pointer;flex-shrink:0;-webkit-tap-highlight-color:transparent;}
+  .vnav:hover:not(:disabled){background:rgba(255,255,255,.16);} .vnav:active:not(:disabled){transform:scale(.94);}
+  .vnav:disabled{opacity:.28;cursor:default;}
+  .vposted{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:6px 8px;border-radius:7px;background:rgba(46,140,80,.10);border:1px solid rgba(46,140,80,.45);font-size:12px;font-weight:600;}
+  .vposted button{border:0;border-radius:6px;padding:6px 10px;font-weight:700;font-size:12px;background:var(--ink-900);color:var(--amber);cursor:pointer;white-space:nowrap;}
+  .vg2 label.vbtn.vdis{opacity:.4;pointer-events:none;}
+  .vg2 .vpsum{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px 8px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;background:var(--bg);}
+  .vg2 .vpsum .field label{justify-content:center;}
+  .vps-val{height:34px;display:flex;align-items:center;justify-content:flex-start;gap:4px;padding:0 6px;border:1px solid var(--border);border-radius:7px;background:var(--surface);white-space:nowrap;overflow:hidden;font-size:13.5px;box-sizing:border-box;}
+  .vps-val b{font-weight:700;margin-left:auto;}   /* ডানে সাঁটা; জায়গা না ধরলে ডানে ছড়ায় — তখন লেখা ছোট হয় */
+  .vps-tag{font-size:.78em;font-weight:700;padding:1px 4px;border-radius:4px;}
+  .vps-tag.dr{color:#9a5b06;background:rgba(194,122,18,.14);}
+  .vps-tag.cr{color:#1d5a9a;background:rgba(29,90,154,.12);}
+  .vps-tag.zero{opacity:.45;}
+  .vpsum .vps-bal .vps-val{border-color:#c27a12;box-shadow:inset 0 0 0 1px #c27a12;}
+  @media (max-width:760px){
+    .vfreeze{top:-8px;margin:-8px -8px 6px;padding:8px 8px 5px;}
+    .vnavh{margin-bottom:5px;padding:3px;font-size:12.5px;} .vnav{width:34px;height:26px;}
+    .vg2 .vpsum{gap:3px;padding:4px;}
+    .vg2 .vpsum .field label{font-size:9.5px !important;min-height:13px;gap:0;}
+    .vps-val{height:28px;padding:0 3px;gap:2px;font-size:11px;border-radius:5px;}
+    .vps-tag{padding:1px 2px;}
+  }`;
+
+function voucherPartySumHtml(P, kind) {
+  const S = kind === 'sales';
+  const cell = function (key, bn, en, extra) {
+    return `<div class="field ${extra || ''}"><label>${t(bn, en)}</label><div class="vps-val" id="${P}_Ps${key}Box"><b id="${P}_Ps${key}">0.00</b><span id="${P}_Ps${key}T" class="vps-tag zero"></span></div></div>`;
+  };
+  return `<div class="vfull vpsum" id="${P}_PartySum">
+    ${cell('Jer', 'পার্টি জের', 'Party opening')}
+    ${cell('Vch', S ? 'ভাউচার বিক্রয়' : 'ভাউচার ক্রয়', S ? 'Voucher sales' : 'Voucher purchase')}
+    ${cell('Cash', 'ভাউচার নগদ', 'Voucher cash')}
+    ${cell('Bal', 'পার্টি ব্যালান্স', 'Party balance', 'vps-bal')}
+  </div>`;
+}
+
+/** ঘরে টাকা না ধরলে লেখা ছোট করে এক লাইনেই রাখে (মোবাইলে বড় অংক) */
+function voucherPsFit(box) {
+  if (!box) return;
+  box.style.fontSize = '';
+  if (!box.clientWidth) return;
+  let size = parseFloat(getComputedStyle(box).fontSize) || 12;
+  while (box.scrollWidth > box.clientWidth && size > 7.5) { size -= 0.5; box.style.fontSize = size + 'px'; }
+}
+
+function voucherPartySumUpdate(P, kind) {
+  if (!document.getElementById(P + '_PartySum')) return;
+  const S = kind === 'sales';
+  const v = function (id) { const el = document.getElementById(P + id); return el ? Number(el.value) || 0 : 0; };
+  const net = function (arr) { return (arr || []).reduce(function (s, l) { return s + (Number(l.netAmount !== undefined ? l.netAmount : l.amount) || 0); }, 0); };
+  const exp = (window['__' + P + 'CashExpense'] && window['__' + P + 'CashExpense'].amount) || 0;
+  const vatFn = window['__' + P + 'GetVat'];
+  const vat = vatFn ? (Number(vatFn().amount) || 0) : 0;
+  const grand = net(window['__' + P + (S ? 'SaleLines' : 'PurchaseLines')]) + exp - v('_DiscAmount') - net(window['__' + P + 'ReturnLines']) + vat;
+  const partyEl = document.getElementById(P + (S ? '_CustomerID' : '_SupplierID'));
+  const partyId = partyEl ? partyEl.value : '';
+  const isCash = partyId === (S ? 'CUS-CASH' : 'SUP-CASH');
+  const jer = (partyId && !isCash) ? (Number(window['__' + P + 'PartyBalance']) || 0) : 0;
+  let paid;
+  if (isCash) paid = grand;   // নগদ পার্টি — পুরো টাকা নগদে, বকেয়া থাকে না (প্রিন্টের নিয়মের মতই)
+  else {
+    // টাইপ করার সময়ই হিসাব — চোখের সামনের ঘর + অন্য ধরনের (লুকানো) ঘর
+    const typeEl = document.getElementById(P + (S ? '_RecTypeSelect' : '_PayTypeSelect'));
+    const isCashType = !typeEl || typeEl.value === 'Cash';
+    const cashH = S ? '_CashReceivedAmount' : '_CashPaidAmount', bankH = S ? '_BankReceivedAmount' : '_BankPaidAmount';
+    const shown = v(S ? '_RecAmount' : '_PayAmount');
+    paid = isCashType ? (shown + v(bankH)) : (v(cashH) + shown);
+  }
+  const vch = S ? grand : -grand;          // বিক্রয় = ডেঃ, ক্রয় = ক্রেঃ
+  const cash = S ? -paid : paid;           // গ্রহণ = ক্রেঃ, প্রদান = ডেঃ
+  const bal = jer + vch + cash;
+  const natural = S ? 1 : -1;              // শূন্য হলে স্বাভাবিক দিক (হালকা করে)
+  const put = function (key, amt, zeroSign) {
+    const r = Math.round(amt * 100) / 100;
+    const num = document.getElementById(P + '_Ps' + key), tag = document.getElementById(P + '_Ps' + key + 'T');
+    if (!num || !tag) return;
+    num.textContent = Math.abs(r).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const sign = r > 0 ? 1 : r < 0 ? -1 : zeroSign;
+    tag.textContent = sign > 0 ? t('ডেঃ', 'Dr') : t('ক্রেঃ', 'Cr');
+    tag.className = 'vps-tag ' + (sign > 0 ? 'dr' : 'cr') + (r === 0 ? ' zero' : '');
+    voucherPsFit(document.getElementById(P + '_Ps' + key + 'Box'));
+  };
+  put('Jer', jer, natural);
+  put('Vch', vch, natural);
+  put('Cash', cash, -natural);
+  put('Bal', bal, natural);
+}
+
+function voucherPartySumWire(P, kind) {
+  const entry = document.getElementById(P + '_TabEntryPanel');
+  const upd = function () { voucherPartySumUpdate(P, kind); };
+  if (entry) { entry.addEventListener('input', upd); entry.addEventListener('change', upd); }
+  setTimeout(upd, 0);
+}
+window.addEventListener('resize', function () {
+  ['pv3', 'sv3'].forEach(function (P) { ['Jer', 'Vch', 'Cash', 'Bal'].forEach(function (k) { voucherPsFit(document.getElementById(P + '_Ps' + k + 'Box')); }); });
+});
+
+/** পোস্ট করা ভাউচার দেখার সময় পার্টি জের = এই ভাউচারের আগের ব্যালান্স (লেজারে এর প্রথম এন্ট্রির আগে) */
+async function voucherPartyPrevBalance(partyType, partyId, refIds) {
+  try {
+    const { data } = await supabaseClient.from('PartyLedger').select('id,Balance,Debit,Credit').eq('PartyType', partyType).eq('PartyID', partyId).in('RefID', refIds).order('id', { ascending: true }).limit(1);
+    if (!data || !data[0]) return null;
+    return (Number(data[0].Balance) || 0) - (Number(data[0].Debit) || 0) + (Number(data[0].Credit) || 0);
+  } catch (e) { return null; }
+}
+
+/* ===== ◀ ▶ ভাউচার নেভিগেশন — তারিখ ও নম্বরের ক্রমে আগের/পরের ভাউচার।
+   খসড়া খোলে এডিট মোডে; পোস্ট করা খোলে "শুধু দেখা" মোডে + ✏️ এডিট বোতাম (এডমিন পাসওয়ার্ডে আনপোস্ট)।
+   শেষ ভাউচারের পরে ▶ = নতুন খালি ভাউচার। Alt + ← / → দিয়েও চলে। ===== */
+function voucherNavHeader(P, title) {
+  return `<h4 class="vnavh"><button type="button" class="vnav" id="${P}_NavPrev" disabled title="${attr(t('আগের ভাউচার','Previous voucher'))}">◀</button><span>${escapeHtml(title)}</span><button type="button" class="vnav" id="${P}_NavNext" disabled title="${attr(t('পরের ভাউচার','Next voucher'))}">▶</button></h4>`;
+}
+
+async function voucherNavList(kind) {
+  const K = VOUCHER_KINDS[kind];
+  const rows = [];
+  for (const ty of K.types) {
+    const { data, error } = await supabaseClient.from(ty[0]).select('*');
+    if (error) continue;
+    (data || []).forEach(function (h) {
+      if (h.Status === 'Deleted') return;
+      if (h.RefSIID || h.RefPIID) return;   // জোড়া ফেরত — মূল ভাউচারের সাথেই খোলে
+      rows.push({ dt: ty[0], id: h[ty[1]], date: String(h[ty[2]] || h.Date || h.InvoiceDate || ''), posted: h.Status === 'Posted' });
+    });
+  }
+  rows.sort(function (a, b) { return a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id), undefined, { numeric: true }); });
+  return rows;
+}
+
+async function voucherNavWire(P, kind, curDt, curId) {
+  const prev = document.getElementById(P + '_NavPrev'), next = document.getElementById(P + '_NavNext');
+  if (!prev || !next) return;
+  const K = VOUCHER_KINDS[kind];
+  const dirtyKey = '__' + P + 'Dirty';
+  window[dirtyKey] = false;
+  const entry = document.getElementById(P + '_TabEntryPanel');
+  if (entry) {
+    const mark = function (e) { if (e.isTrusted) window[dirtyKey] = true; };   // শুধু ব্যবহারকারীর হাতের বদল
+    entry.addEventListener('input', mark); entry.addEventListener('change', mark);
+  }
+  let rows = [];
+  try { rows = await voucherNavList(kind); } catch (e) { rows = []; }
+  if (!document.body.contains(prev)) return;   // এর মধ্যে ফর্ম বন্ধ হয়ে গেছে
+  let at = curId ? rows.findIndex(function (r) { return r.dt === curDt && r.id === curId; }) : -1;
+  if (at < 0) at = rows.length;   // নতুন ভাউচার = তালিকার শেষে
+  const target = function (dir) {
+    const j = at + dir;
+    if (j < 0) return null;
+    if (j < rows.length) return rows[j];
+    if (curId && j === rows.length) return { isNew: true };
+    return null;
+  };
+  const label = function (r) { return r.isNew ? t('নতুন ভাউচার', 'New voucher') : r.id + ' · ' + formatShortDate(r.date) + ' · ' + (r.posted ? t('পোস্ট করা', 'Posted') : t('খসড়া', 'Draft')); };
+  const p = target(-1), n = target(1);
+  prev.disabled = !p; next.disabled = !n;
+  prev.title = p ? t('আগেরঃ ', 'Previous: ') + label(p) + ' (Alt+←)' : t('এটাই প্রথম ভাউচার', 'This is the first voucher');
+  next.title = n ? t('পরেরঃ ', 'Next: ') + label(n) + ' (Alt+→)' : t('এটাই নতুন ভাউচার', 'This is the new voucher');
+  const go = async function (dir) {
+    const r = target(dir); if (!r) return;
+    if (window[dirtyKey] && !confirm(t('এই ভাউচারে সেভ না করা পরিবর্তন আছে — বাদ দিয়ে ', 'This voucher has unsaved changes — discard and open ') + label(r) + t(' খুলবেন?', '?'))) return;
+    prev.disabled = next.disabled = true;
+    closeModal();
+    try {
+      if (r.isNew) await K.open(K.types[0][0]);
+      else await K.open(r.dt, r.id, { viewPosted: true });
+    } catch (err) { showToast(err.message, 'error'); }
+  };
+  prev.onclick = function () { go(-1); };
+  next.onclick = function () { go(1); };
+}
+
+(function installVoucherNavKeys() {
+  if (window.__vNavKeys) return; window.__vNavKeys = true;
+  document.addEventListener('keydown', function (e) {
+    if (!e.altKey || e.ctrlKey || e.metaKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+    const b = document.querySelector('#modalBody .vnav' + (e.key === 'ArrowLeft' ? '[id$="_NavPrev"]' : '[id$="_NavNext"]'));
+    if (!b || b.disabled) return;
+    e.preventDefault(); b.click();
+  });
+})();
+
+/** পোস্ট করা ভাউচার — শুধু দেখা যায়; ✏️ চাপলে এডমিন পাসওয়ার্ডে আনপোস্ট হয়ে এডিটে খোলে */
+function voucherViewPostedApply(P, kind, dt, id) {
+  const panel = document.getElementById(P + '_TabEntryPanel'); if (!panel) return;
+  panel.querySelectorAll('input, select, textarea, button').forEach(function (el) { if (!el.classList.contains('vnav') && !el.closest('.vposted')) el.disabled = true; });
+  panel.querySelectorAll('label.vbtn').forEach(function (l) { l.classList.add('vdis'); });
+  const sb = document.getElementById('modalSaveBtn'); if (sb) sb.style.display = 'none';
+  const bar = document.getElementById(P + '_PostedBar'); if (!bar) return;
+  bar.innerHTML = `<span>✅ ${escapeHtml(id)} — ${t('পোস্ট করা ভাউচার, শুধু দেখা যাচ্ছে', 'posted voucher, view only')}</span><button type="button">✏️ ${t('এডিট করুন', 'Edit')}</button>`;
+  bar.style.display = '';
+  bar.querySelector('button').addEventListener('click', async function () {
+    if (!(await unpostVoucherWithAdminAuth(dt, id))) return;
+    closeModal();
+    await VOUCHER_KINDS[kind].open(dt, id);
+  });
+}
+
+async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
   const pvData = await cachedListMultiple(['Suppliers', 'Items', 'ItemGroups', 'Categories', 'UOM', 'Warehouses', 'BankCashAccounts', 'ExpenseCategories']);
   const suppliers = pvData.Suppliers, items = pvData.Items,
         groups = pvData.ItemGroups, categories = pvData.Categories, units = pvData.UOM, warehouses = pvData.Warehouses,
@@ -9947,18 +10158,21 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     existingHeader = doc.header;
     existingLines = doc.lines;
     // ফেরত যদি কোনো PurchaseInvoice-এর সাথে জোড়া হয় — পুরো ভাউচার (বিক্রয়/ক্রয় + ফেরত) একই ফর্মে খোলে
-    if (existingDocType === 'PurchaseReturn' && existingHeader.RefPIID) return openPurchaseVoucherForm('PurchaseInvoice', existingHeader.RefPIID);
-    if (existingHeader.Status === 'Posted') {
+    if (existingDocType === 'PurchaseReturn' && existingHeader.RefPIID) return openPurchaseVoucherForm('PurchaseInvoice', existingHeader.RefPIID, navOpts);
+    if (existingHeader.Status === 'Posted' && !(navOpts && navOpts.viewPosted)) {
       showToast(t('পোস্ট হয়ে যাওয়া ভাউচার এডিট করা যাবে না।','A posted voucher cannot be edited.'), 'error');
       return;
     }
   }
+  const pv3ViewPosted = !!(existingHeader && existingHeader.Status === 'Posted');   // ◀ ▶ দিয়ে খোলা পোস্ট করা ভাউচার — শুধু দেখা
+  window.__pv3ViewPostedIds = pv3ViewPosted ? [existingId] : null;
   window.__pv3LinkedReturn = null;
   if (isEdit && existingDocType === 'PurchaseInvoice') {
     try {
       const { data: lr } = await supabaseClient.from('PurchaseReturn').select('*').eq('RefPIID', existingId);
       const r0 = (lr || []).find(function (x) { return x.Status !== 'Deleted'; });
-      if (r0 && r0.Status !== 'Posted') { const { data: ll } = await supabaseClient.from('PR_Return_Lines').select('*').eq('PRetID', r0.PRetID); window.__pv3LinkedReturn = { header: r0, lines: ll || [] }; }
+      if (r0 && pv3ViewPosted && window.__pv3ViewPostedIds) window.__pv3ViewPostedIds.push(r0.PRetID);
+      if (r0 && (r0.Status !== 'Posted' || pv3ViewPosted)) { const { data: ll } = await supabaseClient.from('PR_Return_Lines').select('*').eq('PRetID', r0.PRetID); window.__pv3LinkedReturn = { header: r0, lines: ll || [] }; }
     } catch (e) {}   // জোড়ার ঘর (36 নম্বর SQL) না থাকলে আগের মতো
   }
 
@@ -10006,17 +10220,21 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
         }
       </style>
       <div class="pv3-compact">
-      <h4 style="margin:0 0 12px;font-size:13px;color:var(--amber);text-transform:uppercase;background:var(--ink-900);padding:8px;text-align:center;border-radius:6px;">${t('ক্রয় ভাউচার','Purchase Voucher')}</h4>
-
-      <style>${VOUCHER_GRID_CSS}</style>
+      <style>${VOUCHER_GRID_CSS}${VOUCHER_PSUM_CSS}</style>
+      <div class="vfreeze" id="pv3_Freeze">
+      ${voucherNavHeader('pv3', t('ক্রয় ভাউচার','Purchase Voucher'))}
+      <div id="pv3_PostedBar" class="vposted" style="display:none;"></div>
       <div class="vg2">
         <div class="field"><label>${t('ভাউচার তারিখ','Voucher date')}</label><input type="date" id="pv3_Date" value="${attr(rec.InvoiceDate || rec.Date) || new Date().toISOString().slice(0,10)}"></div>
         <div class="field"><label><input type="checkbox" id="pv3_SNDateCheck" ${rec.SupplierInvoiceDate?'checked':''}> ${t('নিঃ তারিখ','Manual date')}</label><input type="date" id="pv3_SupplierInvoiceDate" value="${attr(rec.SupplierInvoiceDate)}" ${rec.SupplierInvoiceDate?'':'disabled'}></div>
         <div class="field"><label>${t('ভাউচার নম্বর','Voucher no')}</label><input id="pv3_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো তৈরি হবে','Auto')}" readonly style="background:var(--bg);"></div>
         <div class="field"><label><input type="checkbox" id="pv3_SNNoCheck" ${rec.SupplierInvoiceNo?'checked':''}> ${t('নিঃ নম্বর','Manual no')}</label><input id="pv3_SupplierInvoiceNo" value="${attr(rec.SupplierInvoiceNo)}" ${rec.SupplierInvoiceNo?'':'disabled'}></div>
-        <div class="field"><label>${t('পার্টি জোন','Party zone')}<input type="checkbox" id="pv3_ZoneCheck" checked class="vhide" tabindex="-1"></label><select id="pv3_ZoneFilter"><option value="">${t('সব জোন','All Zones')}</option>${pv3ZoneList.map(function(z){return `<option value="${attr(z)}">${escapeHtml(z)}</option>`;}).join('')}</select></div>
-        <div class="field"><label>${t('পার্টি ব্যালান্স','Party balance')}</label><input id="pv3_SupplierBalance" readonly class="vro vbold"></div>
+        <div class="field vfull"><label>${t('পার্টি জোন','Party zone')}<input type="checkbox" id="pv3_ZoneCheck" checked class="vhide" tabindex="-1"></label><select id="pv3_ZoneFilter"><option value="">${t('সব জোন','All Zones')}</option>${pv3ZoneList.map(function(z){return `<option value="${attr(z)}">${escapeHtml(z)}</option>`;}).join('')}</select></div>
+        <input type="hidden" id="pv3_SupplierBalance">
         <div class="field vfull"><label>${t('সাপ্লায়ার নাম','Supplier')}</label><select id="pv3_SupplierID"><option value="">—</option>${suppliers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.SupplierID)}" data-zone="${attr(r.Zone||'')}" ${rec.SupplierID===r.SupplierID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select></div>
+        ${voucherPartySumHtml('pv3', 'purchase')}
+      </div></div>
+      <div class="vg2">
         <div id="pv3_CashSupplierCard" class="vfull vcash" style="display:none;">
         <div class="field"><label>${t('নগদ পার্টির আসল নাম','Actual Cash Party Name')}</label><input id="pv3_CashName" value="${attr(rec.WalkInPartyName)}"></div>
         <div class="field"><label>${t('ঠিকানা','Address')}</label><input id="pv3_CashAddress" value="${attr(rec.WalkInPartyAddress)}"></div>
@@ -10111,6 +10329,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     bodyHtml: bodyHtml,
     wide: true,
     onSave: async function () {
+      if (pv3ViewPosted) throw new Error(t('পোস্ট করা ভাউচার — বদলাতে উপরের ✏️ এডিট চাপুন।','Posted voucher — press ✏️ Edit above to change it.'));
       const supplierId = val('pv3_SupplierID');
       if (!supplierId) throw new Error(t('সাপ্লায়ার তথ্য আবশ্যক।','Supplier information is required.'));
 
@@ -10384,13 +10603,19 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
     if (!supplierId || isCash) {
       balInput.value = '';
       window.__pv3PartyBalance = 0;
+      voucherPartySumUpdate('pv3', 'purchase');
       return;
     }
     balInput.value = t('লোড হচ্ছে...','Loading...');
     const { data } = await supabaseClient.from('PartyLedger').select('Balance').eq('PartyType', 'Supplier').eq('PartyID', supplierId).order('id', { ascending: false }).limit(1);
-    const balance = (data && data[0]) ? Number(data[0].Balance) || 0 : 0;
+    let balance = (data && data[0]) ? Number(data[0].Balance) || 0 : 0;
+    if (window.__pv3ViewPostedIds) {   // পোস্ট করা ভাউচার — জের = এই ভাউচারের আগের ব্যালান্স
+      const pb = await voucherPartyPrevBalance('Supplier', supplierId, window.__pv3ViewPostedIds);
+      if (pb !== null) balance = pb;
+    }
     balInput.value = formatAmountDrCr(balance, true);
     window.__pv3PartyBalance = balance;
+    voucherPartySumUpdate('pv3', 'purchase');
 
     const supRec = window.__pv3SupplierMap[supplierId];
     const bankNameEl = document.getElementById('pv3_SupplierBankName');
@@ -10554,6 +10779,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
 
   document.getElementById('pv3_SupplierID').addEventListener('change', toggleCashSupplier);
   toggleCashSupplier();
+  voucherPartySumWire('pv3', 'purchase');
   // ===== এডিটঃ নগদ/ব্যাংক প্রদান ফর্মে ফেরত (আগে খালি আসত — আবার সেভ করলে প্রদানের টাকা মুছে যেত) =====
   if (isEdit && existingDocType === 'PurchaseInvoice') {
     const cp = Number(rec.CashPaidAmount) || 0, bp = Number(rec.BankPaidAmount) || 0, acc = rec.BankAccIDForPayment || '';
@@ -10721,6 +10947,7 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
 
   function renderRightSummary() {
     if (window.__pv3SchedulePreview) window.__pv3SchedulePreview();   // লাইভ প্রিভিউ হালনাগাদ
+    voucherPartySumUpdate('pv3', 'purchase');   // পার্টি সারাংশ (জের/ভাউচার/নগদ/ব্যালান্স)
     document.getElementById('pv3_PreviewStockQty').value = window.__pv3LastStockQty;
     document.getElementById('pv3_PreviewStockRate').value = window.__pv3LastStockRate;
   }
@@ -10812,6 +11039,8 @@ async function openPurchaseVoucherForm(defaultType, existingId) {
 
   renderRightSummary();
   showTab('entry');
+  if (pv3ViewPosted) voucherViewPostedApply('pv3', 'purchase', existingDocType, existingId);
+  voucherNavWire('pv3', 'purchase', existingDocType, existingId);   // ◀ ▶ আগের/পরের ভাউচার
 }
 async function renderSalesVoucherPage(content, defaultType) {
   defaultType = defaultType || 'SalesInvoice';
@@ -10919,7 +11148,7 @@ async function deletePostedSalesVoucher(docType, docId) {
   await deletePostedVoucherWithAdminAuth(docType, docId, config.sheet, config.idField, config.linesSheet, config.lineIdField, window.__refreshSalesVoucherList);
 }
 
-async function openSalesVoucherForm(defaultType, existingId) {
+async function openSalesVoucherForm(defaultType, existingId, navOpts) {
   const svData = await cachedListMultiple(['Customers', 'Items', 'ItemGroups', 'Categories', 'UOM', 'Warehouses', 'BankCashAccounts', 'ExpenseCategories']);
   const customers = svData.Customers, items = svData.Items,
         groups = svData.ItemGroups, categories = svData.Categories, units = svData.UOM, warehouses = svData.Warehouses,
@@ -10952,18 +11181,21 @@ async function openSalesVoucherForm(defaultType, existingId) {
     existingHeader = doc.header;
     existingLines = doc.lines;
     // ফেরত যদি কোনো SalesInvoice-এর সাথে জোড়া হয় — পুরো ভাউচার (বিক্রয়/ক্রয় + ফেরত) একই ফর্মে খোলে
-    if (existingDocType === 'SalesReturn' && existingHeader.RefSIID) return openSalesVoucherForm('SalesInvoice', existingHeader.RefSIID);
-    if (existingHeader.Status === 'Posted') {
+    if (existingDocType === 'SalesReturn' && existingHeader.RefSIID) return openSalesVoucherForm('SalesInvoice', existingHeader.RefSIID, navOpts);
+    if (existingHeader.Status === 'Posted' && !(navOpts && navOpts.viewPosted)) {
       showToast(t('পোস্ট হয়ে যাওয়া ভাউচার এডিট করা যাবে না।','A posted voucher cannot be edited.'), 'error');
       return;
     }
   }
+  const sv3ViewPosted = !!(existingHeader && existingHeader.Status === 'Posted');   // ◀ ▶ দিয়ে খোলা পোস্ট করা ভাউচার — শুধু দেখা
+  window.__sv3ViewPostedIds = sv3ViewPosted ? [existingId] : null;
   window.__sv3LinkedReturn = null;
   if (isEdit && existingDocType === 'SalesInvoice') {
     try {
       const { data: lr } = await supabaseClient.from('SalesReturn').select('*').eq('RefSIID', existingId);
       const r0 = (lr || []).find(function (x) { return x.Status !== 'Deleted'; });
-      if (r0 && r0.Status !== 'Posted') { const { data: ll } = await supabaseClient.from('SR_Lines').select('*').eq('SRID', r0.SRID); window.__sv3LinkedReturn = { header: r0, lines: ll || [] }; }
+      if (r0 && sv3ViewPosted && window.__sv3ViewPostedIds) window.__sv3ViewPostedIds.push(r0.SRID);
+      if (r0 && (r0.Status !== 'Posted' || sv3ViewPosted)) { const { data: ll } = await supabaseClient.from('SR_Lines').select('*').eq('SRID', r0.SRID); window.__sv3LinkedReturn = { header: r0, lines: ll || [] }; }
     } catch (e) {}   // জোড়ার ঘর (36 নম্বর SQL) না থাকলে আগের মতো
   }
 
@@ -11016,17 +11248,21 @@ async function openSalesVoucherForm(defaultType, existingId) {
         }
       </style>
       <div class="sv3-compact">
-      <h4 style="margin:0 0 12px;font-size:13px;color:var(--amber);text-transform:uppercase;background:var(--ink-900);padding:8px;text-align:center;border-radius:6px;">${t('বিক্রয় ভাউচার','Sales Voucher')}</h4>
-
-      <style>${VOUCHER_GRID_CSS}</style>
+      <style>${VOUCHER_GRID_CSS}${VOUCHER_PSUM_CSS}</style>
+      <div class="vfreeze" id="sv3_Freeze">
+      ${voucherNavHeader('sv3', t('বিক্রয় ভাউচার','Sales Voucher'))}
+      <div id="sv3_PostedBar" class="vposted" style="display:none;"></div>
       <div class="vg2">
         <div class="field"><label>${t('ভাউচার তারিখ','Voucher date')}</label><input type="date" id="sv3_Date" value="${attr(rec.InvoiceDate || rec.Date) || new Date().toISOString().slice(0,10)}"></div>
         <div class="field"><label><input type="checkbox" id="sv3_ManualDateCheck" ${rec.ManualVoucherDate?'checked':''}> ${t('নিঃ তারিখ','Manual date')}</label><input type="date" id="sv3_ManualVoucherDate" value="${attr(rec.ManualVoucherDate)}" ${rec.ManualVoucherDate?'':'disabled'}></div>
         <div class="field"><label>${t('ভাউচার নম্বর','Voucher no')}</label><input id="sv3_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো তৈরি হবে','Auto')}" readonly style="background:var(--bg);"></div>
         <div class="field"><label><input type="checkbox" id="sv3_ManualNoCheck" ${rec.ManualVoucherNo?'checked':''}> ${t('নিঃ নম্বর','Manual no')}</label><input id="sv3_ManualVoucherNo" value="${attr(rec.ManualVoucherNo)}" ${rec.ManualVoucherNo?'':'disabled'}></div>
-        <div class="field"><label>${t('পার্টি জোন','Party zone')}<input type="checkbox" id="sv3_ZoneCheck" checked class="vhide" tabindex="-1"></label><select id="sv3_ZoneFilter"><option value="">${t('সব জোন','All Zones')}</option>${sv3ZoneList.map(function(z){return `<option value="${attr(z)}">${escapeHtml(z)}</option>`;}).join('')}</select></div>
-        <div class="field"><label>${t('পার্টি ব্যালান্স','Party balance')}</label><input id="sv3_CustomerBalance" readonly class="vro vbold"></div>
+        <div class="field vfull"><label>${t('পার্টি জোন','Party zone')}<input type="checkbox" id="sv3_ZoneCheck" checked class="vhide" tabindex="-1"></label><select id="sv3_ZoneFilter"><option value="">${t('সব জোন','All Zones')}</option>${sv3ZoneList.map(function(z){return `<option value="${attr(z)}">${escapeHtml(z)}</option>`;}).join('')}</select></div>
+        <input type="hidden" id="sv3_CustomerBalance">
         <div class="field vfull"><label>${t('গ্রাহকের নাম','Customer')}</label><select id="sv3_CustomerID"><option value="">—</option>${customers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.CustomerID)}" data-zone="${attr(r.Zone||'')}" ${rec.CustomerID===r.CustomerID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select></div>
+        ${voucherPartySumHtml('sv3', 'sales')}
+      </div></div>
+      <div class="vg2">
         <div id="sv3_CashCustomerCard" class="vfull vcash" style="display:none;">
         <div class="field"><label>${t('নগদ পার্টির আসল নাম','Actual Cash Party Name')}</label><input id="sv3_CashName" value="${attr(rec.WalkInPartyName)}"></div>
         <div class="field"><label>${t('ঠিকানা','Address')}</label><input id="sv3_CashAddress" value="${attr(rec.WalkInPartyAddress)}"></div>
@@ -11121,6 +11357,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
     bodyHtml: bodyHtml,
     wide: true,
     onSave: async function () {
+      if (sv3ViewPosted) throw new Error(t('পোস্ট করা ভাউচার — বদলাতে উপরের ✏️ এডিট চাপুন।','Posted voucher — press ✏️ Edit above to change it.'));
       const customerId = val('sv3_CustomerID');
       if (!customerId) throw new Error(t('গ্রাহক তথ্য আবশ্যক।','Customer information is required.'));
 
@@ -11381,13 +11618,19 @@ async function openSalesVoucherForm(defaultType, existingId) {
     if (!customerId || isCash) {
       balInput.value = '';
       window.__sv3PartyBalance = 0;
+      voucherPartySumUpdate('sv3', 'sales');
       return;
     }
     balInput.value = t('লোড হচ্ছে...','Loading...');
     const { data } = await supabaseClient.from('PartyLedger').select('Balance').eq('PartyType', 'Customer').eq('PartyID', customerId).order('id', { ascending: false }).limit(1);
-    const balance = (data && data[0]) ? Number(data[0].Balance) || 0 : 0;
+    let balance = (data && data[0]) ? Number(data[0].Balance) || 0 : 0;
+    if (window.__sv3ViewPostedIds) {   // পোস্ট করা ভাউচার — জের = এই ভাউচারের আগের ব্যালান্স
+      const pb = await voucherPartyPrevBalance('Customer', customerId, window.__sv3ViewPostedIds);
+      if (pb !== null) balance = pb;
+    }
     balInput.value = formatAmountDrCr(balance, true);
     window.__sv3PartyBalance = balance;
+    voucherPartySumUpdate('sv3', 'sales');
 
     const custRec = window.__sv3CustomerMap[customerId];
     const bankNameEl = document.getElementById('sv3_CustomerBankName');
@@ -11542,6 +11785,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
 
   document.getElementById('sv3_CustomerID').addEventListener('change', toggleCashCustomer);
   toggleCashCustomer();
+  voucherPartySumWire('sv3', 'sales');
   // ===== এডিটঃ নগদ/ব্যাংক গ্রহণ ফর্মে ফেরত (আগে খালি আসত — আবার সেভ করলে গ্রহণের টাকা মুছে যেত) =====
   if (isEdit && existingDocType === 'SalesInvoice') {
     const cr = Number(rec.CashReceivedAmount) || 0, br = Number(rec.BankReceivedAmount) || 0;
@@ -11700,6 +11944,7 @@ async function openSalesVoucherForm(defaultType, existingId) {
 
   function renderRightSummary() {
     if (window.__sv3SchedulePreview) window.__sv3SchedulePreview();   // লাইভ প্রিভিউ হালনাগাদ
+    voucherPartySumUpdate('sv3', 'sales');   // পার্টি সারাংশ (জের/ভাউচার/নগদ/ব্যালান্স)
     document.getElementById('sv3_PreviewStockQty').value = window.__sv3LastStockQty;
     document.getElementById('sv3_PreviewStockRate').value = window.__sv3LastStockRate;
   }
@@ -11793,6 +12038,8 @@ async function openSalesVoucherForm(defaultType, existingId) {
 
   renderRightSummary();
   showTab('entry');
+  if (sv3ViewPosted) voucherViewPostedApply('sv3', 'sales', existingDocType, existingId);
+  voucherNavWire('sv3', 'sales', existingDocType, existingId);   // ◀ ▶ আগের/পরের ভাউচার
 }
 
 /* ============================================================
