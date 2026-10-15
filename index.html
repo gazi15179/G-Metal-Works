@@ -10141,6 +10141,7 @@ const SV_FIELD_SETTINGS_KEY = 'SalesVoucherFields';
 // [key, বাংলা, English, ধরন, ঘরগুলো] — ধরনঃ 'in' = ইনপুট বন্ধ, 'show' = শুধু-দেখার ঘর (অংক লুকায়), বাকিগুলো আলাদা নিয়মে
 const SV_FIELD_SETTINGS = [
   ['zone', 'পার্টি জোন', 'Party zone', 'in', ['sv3_ZoneFilter']],
+  ['cust', 'গ্রাহকের নাম', 'Customer', 'in', ['sv3_CustomerID']],
   ['jer', 'পার্টি জের', 'Party opening', 'show', ['sv3_PsJerBox']],
   ['vch', 'ভাউচার বিক্রয়', 'Voucher sales', 'show', ['sv3_PsVchBox']],
   ['vcash', 'ভাউচার নগদ', 'Voucher cash', 'show', ['sv3_PsCashBox']],
@@ -10157,11 +10158,13 @@ const SV_FIELD_SETTINGS = [
   ['qtyKg', 'পরিমান(কেজি)', 'Qty (kg)', 'in', ['sv3_QtyKg']],
   ['ratePc', 'দর(পিস)', 'Rate (pc)', 'in', ['sv3_RatePc']],
   ['rateKg', 'দর(কেজি)', 'Rate (kg)', 'in', ['sv3_RateKg']],
+  ['stdRate', 'আঃ বিক্রয় দর', 'Std. sales rate', 'in', ['sv3_AvgKgCheck', 'sv3_AvgPcCheck', 'sv3_AvgRateKg', 'sv3_AvgRatePc']],
   ['stkPcs', 'স্টক(পিস)', 'Stock (pcs)', 'stock', []],
   ['stkKg', 'স্টক(কেজি)', 'Stock (kg)', 'stock', []],
   ['stkRatePc', 'স্টক দর(পিস)', 'Stock rate (pc)', 'stock', []],
   ['stkRateKg', 'স্টক দর(কেজি)', 'Stock rate (kg)', 'stock', []],
   ['amount', 'মূল্য', 'Amount', 'in', ['sv3_Amount']],
+  ['comm', 'কমিশন', 'Commission', 'in', ['sv3_CommCheck', 'sv3_CommRate']],
   ['exp', 'খরচ(+)', 'Expense (+)', 'in', ['sv3_ExpCheck', 'sv3_ExpTotalAmount']],
   ['disc', 'ডিসকাউন্ট(-)', 'Discount (-)', 'in', ['sv3_DiscCheck', 'sv3_DiscAmount']],
   ['vat', 'ভ্যাট', 'VAT', 'in', ['sv3_VatCheck', 'sv3_VatRate', 'sv3_VatAmount']],
@@ -10259,13 +10262,14 @@ async function svFieldSettingsWire(setPromise) {
 /** বিক্রয় → বিক্রয় ভাউচার সেটিং পেজ */
 async function renderSalesVoucherSettingsPage(content) {
   const set = await svFieldSettingsLoad();
-  const half = Math.ceil(SV_FIELD_SETTINGS.length / 2);
+  const half = SV_FIELD_SETTINGS.findIndex(function (f) { return f[0] === 'ratePc'; });   // বাম কলামঃ পার্টি জোন … পরিমান(কেজি); ডানঃ দর(পিস) … বিক্রয় ফেরৎ +
+  const rowCount = Math.max(half, SV_FIELD_SETTINGS.length - half);
   const cell = function (f) {
     if (!f) return '<td></td><td></td>';
     return `<td class="svs-c"><input type="checkbox" id="svs_${f[0]}" data-k="${f[0]}" ${set[f[0]] ? 'checked' : ''}></td><td class="svs-l"><label for="svs_${f[0]}">${escapeHtml(t(f[1], f[2]))}</label></td>`;
   };
   let rows = '';
-  for (let i = 0; i < half; i++) rows += `<tr>${cell(SV_FIELD_SETTINGS[i])}${cell(SV_FIELD_SETTINGS[i + half])}</tr>`;
+  for (let i = 0; i < rowCount; i++) rows += `<tr>${cell(i < half ? SV_FIELD_SETTINGS[i] : null)}${cell(SV_FIELD_SETTINGS[i + half])}</tr>`;
   content.innerHTML = `
     <style>
       .svs-wrap{max-width:560px;margin:0 auto;}
@@ -10292,7 +10296,7 @@ async function renderSalesVoucherSettingsPage(content) {
           <button type="button" class="btn btn-outline" id="svsNone" data-perm-safe="1">☐ ${t('সব টিক তুলুন', 'Untick all')}</button>
           <button type="button" class="btn btn-primary" id="svsSave" style="margin-left:auto;">💾 ${t('সেভ করুন', 'Save')}</button>
         </div>
-        <div class="svs-note">${t('Enter = পরের ঘর, Escape = আগের ঘর, Space = টিক দেওয়া/তোলা। সেভ করার পর নতুন খোলা বিক্রয় ভাউচারে প্রয়োগ হবে। গ্রাহকের নাম ও কমিশন সবসময় চালু থাকে। প্রিন্ট ও প্রিন্ট প্রিভিউ আগের মতই।', 'Enter = next, Escape = previous, Space = tick/untick. Applies to sales vouchers opened after saving. Customer and commission always stay on. Print is unchanged.')}</div>
+        <div class="svs-note">${t('Enter = পরের ঘর, Escape = আগের ঘর, Space = টিক দেওয়া/তোলা। সেভ করার পর নতুন খোলা বিক্রয় ভাউচারে প্রয়োগ হবে। গ্রাহকের নাম বন্ধ থাকলে নতুন ভাউচার সেভ করা যাবে না (গ্রাহক আবশ্যক)। প্রিন্ট ও প্রিন্ট প্রিভিউ আগের মতই।', 'Enter = next, Escape = previous, Space = tick/untick. Applies to sales vouchers opened after saving. With Customer off a new voucher cannot be saved (customer is required). Print is unchanged.')}</div>
       </div>
     </div></div>`;
   const boxes = function () { return SV_FIELD_SETTINGS.map(function (f) { return document.getElementById('svs_' + f[0]); }); };   // ক্রমঃ বাম কলাম উপর→নিচ, তারপর ডান কলাম
@@ -11349,6 +11353,7 @@ async function deletePostedSalesVoucher(docType, docId) {
 }
 
 async function openSalesVoucherForm(defaultType, existingId, navOpts) {
+  window.__sv3FieldSet = null;   // আগের খোলা ফর্মের সেটিং যেন না লাগে — নতুন করে পড়া হবে
   const svSetP = svFieldSettingsLoad();   // বিক্রয় ভাউচার সেটিং — কোন ঘর চালু/বন্ধ
   const svData = await cachedListMultiple(['Customers', 'Items', 'ItemGroups', 'Categories', 'UOM', 'Warehouses', 'BankCashAccounts', 'ExpenseCategories']);
   const customers = svData.Customers, items = svData.Items,
