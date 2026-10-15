@@ -466,6 +466,7 @@ const MODULES = [
     {key:'so', bn:'বিক্রয় আদেশ', en:'Sales Order'},{key:'dc', bn:'ডেলিভারি চালান', en:'Delivery Challan'},
     {key:'si', bn:'বিক্রয় চালান (ইনভয়েস)', en:'Sales Invoice'},{key:'sr', bn:'বিক্রয় ফেরত', en:'Sales Return'},
     {key:'custLedger', bn:'গ্রাহক লেজার', en:'Customer Ledger'},
+    {key:'svSettings', bn:'বিক্রয় ভাউচার সেটিং', en:'Sales Voucher Settings'},
   ]},
   {key:'production', bn:'প্রোডাকশন', en:'Production', sub:[
     {key:'bom', bn:'বিল অফ ম্যাটেরিয়ালস (BOM)', en:'Bill of Materials'},
@@ -1408,6 +1409,7 @@ async function navigateTo(pageKey, moduleLabel, pageLabel) {
     else if (pageKey === 'party') await renderPartyMasterPage(content);
     else if (pageKey === 'partyLedger') await renderPartyLedger(content);
     else if (pageKey === 'custLedger') await renderPartyLedger(content, 'Customer');
+    else if (pageKey === 'svSettings') await renderSalesVoucherSettingsPage(content);
     else if (pageKey === 'stockOverview') await renderStockOverview(content);
     else if (pageKey === 'stockLedger') await renderStockLedger(content);
     else if (pageKey === 'goodsReceive') await renderDocumentListPage(content, DOC_CONFIGS.grn);
@@ -9804,6 +9806,7 @@ async function voucherDualRefresh(p, kind) {
   const txt = (!item || !wh) ? '' : (!has ? t('কোনো স্টক নেই', 'No stock') : f3(kg) + ' ' + t('কেজি', 'kg') + ((pcs || piece) ? ' / ' + f3(pcs) + ' ' + t('পিস', 'pcs') : ''));
   window['__' + p + 'LastStockQty'] = txt; $(p + '_PreviewStockQty').value = txt;
   const avg = (kg > 0 && pcs > 0) ? kg / pcs : 0; window['__' + p + 'AvgKgPc'] = avg;
+  window['__' + p + 'LastStockKP'] = (!item || !wh) ? null : { has: has, kg: kg, pcs: pcs, piece: piece, avg: avg };   // বিক্রয় ভাউচার সেটিং-এর স্টক ঘরের জন্য
   let main = 0;   // মূল এককের দর
   if (item) {
     if (kind === 'purchase') {   // পোস্ট করা ক্রয়ের গড় দর (না থাকলে স্ট্যান্ডার্ড কস্ট)
@@ -9826,6 +9829,7 @@ async function voucherDualRefresh(p, kind) {
   const hr = $(p + '_Rate'), rk0 = $(p + '_RateKg'), rp0 = $(p + '_RatePc');
   if (hr && rk0 && rp0 && hr.value && !rk0.value && !rp0.value) { if (piece) { rp0.value = hr.value; window['__' + p + 'RateBasis'] = 'pc'; } else { rk0.value = hr.value; window['__' + p + 'RateBasis'] = 'kg'; } }
   voucherDualSync(p);
+  if (p === 'sv3') svFieldSettingsApply();   // উপরে পিস/দর ঘর আবার চালু হতে পারে — সেটিং আবার প্রয়োগ
 }
 function voucherDualSync(p) {
   const kgEl = document.getElementById(p + '_QtyKg'), pcEl = document.getElementById(p + '_QtyPcs'), q = document.getElementById(p + '_Qty');
@@ -9947,7 +9951,11 @@ const VOUCHER_PSUM_CSS = `
     .vg2 .vpsum .field label{font-size:9.5px !important;min-height:13px;gap:0;}
     .vps-val{height:28px;padding:0 3px;gap:2px;font-size:11px;border-radius:5px;}
     .vps-tag{padding:1px 2px;}
-  }`;
+  }
+  .vps-val.vset-off{opacity:.45;} .vps-val.vset-off > *{visibility:hidden;}
+  .vg2 input.vset-off,.vg2 select.vset-off{opacity:.45 !important;cursor:not-allowed;}
+  .vg2 label.vbtn.vset-off{opacity:.35;}
+  #sv3_PreviewStockQty.vset-off,#sv3_PreviewStockRate.vset-off{opacity:.45;}`;
 
 function voucherPartySumHtml(P, kind) {
   const S = kind === 'sales';
@@ -10122,6 +10130,198 @@ function voucherViewPostedApply(P, kind, dt, id) {
     closeModal();
     await VOUCHER_KINDS[kind].open(dt, id);
   });
+}
+
+/* ===== বিক্রয় ভাউচার সেটিং — বিক্রয় মেনু → "বিক্রয় ভাউচার সেটিং"
+   চেক বক্সে টিক = বিক্রয় ভাউচারের ঐ ঘর চালু; টিক না থাকলে ঘর বন্ধ (ধূসর, এডিট করা যায় না)।
+   শুধু-দেখার ঘর (পার্টি জের/ভাউচার বিক্রয়/নগদ/ব্যালান্স, স্টক, স্টক দর) বন্ধ থাকলে অংক দেখায় না।
+   সেটিং থাকে system_settings টেবিলে, Key = 'SalesVoucherFields' (JSON) — নতুন SQL লাগে না।
+   কোনো সেটিং না থাকলে সব ঘর চালু (আগের মতো)। প্রিন্ট/প্রিন্ট প্রিভিউতে কোনো প্রভাব নেই। ===== */
+const SV_FIELD_SETTINGS_KEY = 'SalesVoucherFields';
+// [key, বাংলা, English, ধরন, ঘরগুলো] — ধরনঃ 'in' = ইনপুট বন্ধ, 'show' = শুধু-দেখার ঘর (অংক লুকায়), বাকিগুলো আলাদা নিয়মে
+const SV_FIELD_SETTINGS = [
+  ['zone', 'পার্টি জোন', 'Party zone', 'in', ['sv3_ZoneFilter']],
+  ['jer', 'পার্টি জের', 'Party opening', 'show', ['sv3_PsJerBox']],
+  ['vch', 'ভাউচার বিক্রয়', 'Voucher sales', 'show', ['sv3_PsVchBox']],
+  ['vcash', 'ভাউচার নগদ', 'Voucher cash', 'show', ['sv3_PsCashBox']],
+  ['vbal', 'ভাউচার ব্যালান্স', 'Voucher balance', 'show', ['sv3_PsBalBox']],
+  ['date', 'তারিখ', 'Date', 'in', ['sv3_Date']],
+  ['no', 'নম্বর', 'Voucher no', 'in', ['sv3_VoucherNo']],
+  ['mdate', 'নিঃ তারিখ', 'Manual date', 'in', ['sv3_ManualDateCheck', 'sv3_ManualVoucherDate']],
+  ['mno', 'নিঃ নম্বর', 'Manual no', 'in', ['sv3_ManualNoCheck', 'sv3_ManualVoucherNo']],
+  ['item', 'আইটেম', 'Item', 'in', ['sv3_ItemID']],
+  ['wh', 'গুদাম', 'Warehouse', 'in', ['sv3_WarehouseID']],
+  ['group', 'গ্রুপ', 'Group', 'in', ['sv3_GroupCheck', 'sv3_GroupSelect']],
+  ['cat', 'ক্যাটাগরি', 'Category', 'in', ['sv3_CatCheck', 'sv3_CatSelect']],
+  ['qtyPcs', 'পরিমান(পিস)', 'Qty (pcs)', 'in', ['sv3_QtyPcs']],
+  ['qtyKg', 'পরিমান(কেজি)', 'Qty (kg)', 'in', ['sv3_QtyKg']],
+  ['ratePc', 'দর(পিস)', 'Rate (pc)', 'in', ['sv3_RatePc']],
+  ['rateKg', 'দর(কেজি)', 'Rate (kg)', 'in', ['sv3_RateKg']],
+  ['stkPcs', 'স্টক(পিস)', 'Stock (pcs)', 'stock', []],
+  ['stkKg', 'স্টক(কেজি)', 'Stock (kg)', 'stock', []],
+  ['stkRatePc', 'স্টক দর(পিস)', 'Stock rate (pc)', 'stock', []],
+  ['stkRateKg', 'স্টক দর(কেজি)', 'Stock rate (kg)', 'stock', []],
+  ['amount', 'মূল্য', 'Amount', 'in', ['sv3_Amount']],
+  ['exp', 'খরচ(+)', 'Expense (+)', 'in', ['sv3_ExpCheck', 'sv3_ExpTotalAmount']],
+  ['disc', 'ডিসকাউন্ট(-)', 'Discount (-)', 'in', ['sv3_DiscCheck', 'sv3_DiscAmount']],
+  ['vat', 'ভ্যাট', 'VAT', 'in', ['sv3_VatCheck', 'sv3_VatRate', 'sv3_VatAmount']],
+  ['cash', 'নগদ', 'Cash', 'pay', []],
+  ['bank', 'ব্যাংক', 'Bank', 'pay', []],
+  ['profit', 'লাভ', 'Profit', 'in', ['sv3_ShowProfitCheck']],
+  ['addLine', 'বিক্রয় লাইন +', 'Sale line +', 'in', ['sv3_ConfirmSaleCheck']],
+  ['addRet', 'বিক্রয় ফেরৎ +', 'Sale return +', 'in', ['sv3_AddReturnLineBtn']]
+];
+
+/** সেভ করা সেটিং — না থাকলে / কোনো key না থাকলে সেটা চালু (true) */
+async function svFieldSettingsLoad() {
+  const set = {};
+  SV_FIELD_SETTINGS.forEach(function (f) { set[f[0]] = true; });
+  try {
+    const all = await api('getSystemSettings', {});
+    const raw = all && all[SV_FIELD_SETTINGS_KEY];
+    const saved = raw ? (typeof raw === 'object' ? raw : JSON.parse(raw)) : null;
+    if (saved && typeof saved === 'object') Object.keys(set).forEach(function (k) { if (saved[k] === false) set[k] = false; });
+  } catch (e) {}   // পড়তে না পারলে সব চালু — ভাউচারের কাজ আটকাবে না
+  return set;
+}
+
+/** স্টক ও স্টক দরের ঘর — সেটিং অনুযায়ী কেজি/পিস অংশ দেখায় */
+function svStockDisplay(set) {
+  const q = document.getElementById('sv3_PreviewStockQty'), r = document.getElementById('sv3_PreviewStockRate');
+  if (!q || !r) return;
+  const kp = window.__sv3LastStockKP;   // voucherDualRefresh থেকেঃ {has, kg, pcs, piece, avg}; আইটেম/গুদাম না থাকলে null
+  const f3 = function (x) { return String(+(Number(x) || 0).toFixed(3)); };
+  let qty = '', rate = '';
+  if (kp) {
+    if (!kp.has) qty = t('কোনো স্টক নেই', 'No stock');
+    else {
+      const parts = [];
+      if (set.stkKg) parts.push(f3(kp.kg) + ' ' + t('কেজি', 'kg'));
+      if (set.stkPcs && (kp.pcs || kp.piece)) parts.push(f3(kp.pcs) + ' ' + t('পিস', 'pcs'));
+      qty = parts.join(' / ');
+    }
+    const main = Number(window.__sv3LastStockRate) || 0;   // আইটেমের মূল এককের স্টক দর
+    const rKg = kp.piece ? (kp.avg ? main / kp.avg : 0) : main, rPc = kp.piece ? main : (kp.avg ? main * kp.avg : 0);
+    const rp = [];
+    if (set.stkRateKg && rKg) rp.push(rKg.toFixed(2) + '/' + t('কেজি', 'kg'));
+    if (set.stkRatePc && rPc) rp.push(rPc.toFixed(2) + '/' + t('পিস', 'pc'));
+    rate = rp.join(' · ');
+  }
+  q.value = qty; r.value = rate;
+  q.classList.toggle('vset-off', !set.stkKg && !set.stkPcs);
+  r.classList.toggle('vset-off', !set.stkRateKg && !set.stkRatePc);
+}
+
+/** বিক্রয় ভাউচার ফর্মে সেটিং প্রয়োগ — শুধু বন্ধ করে; চালু ঘরে হাত দেয় না
+ *  (যেমন গুদাম "মেইন" ফিক্সড থাকলে সেটা আগের মতোই বন্ধ থাকে)। বারবার ডাকা নিরাপদ। */
+function svFieldSettingsApply(set) {
+  set = set || window.__sv3FieldSet;
+  if (!set || !document.getElementById('sv3_TabEntryPanel')) return;
+  const off = function (el) { if (!el) return; el.disabled = true; el.classList.add('vset-off'); el.title = t('বিক্রয় ভাউচার সেটিং-এ বন্ধ', 'Turned off in Sales Voucher Settings'); };
+  SV_FIELD_SETTINGS.forEach(function (f) {
+    if (set[f[0]]) return;
+    if (f[3] === 'in') f[4].forEach(function (id) {
+      const el = document.getElementById(id); off(el);
+      const lb = el && el.closest('label.vbtn'); if (lb) lb.classList.add('vdis', 'vset-off');   // "বিক্রয় লাইন +" বোতাম
+    });
+    else if (f[3] === 'show') f[4].forEach(function (id) { const el = document.getElementById(id); if (el) el.classList.add('vset-off'); });
+  });
+  // নগদ / ব্যাংক — গ্রহণের ধরন
+  const sel = document.getElementById('sv3_RecTypeSelect');
+  if (sel) {
+    const oc = sel.querySelector('option[value="Cash"]'), ob = sel.querySelector('option[value="Bank"]');
+    if (oc && !set.cash) oc.disabled = true;
+    if (ob && !set.bank) ob.disabled = true;
+    if (!set.cash && !set.bank) {
+      ['sv3_RecTypeSelect', 'sv3_RecAmount', 'sv3_CashReceivedNote'].forEach(function (id) { off(document.getElementById(id)); });
+      const bs = document.getElementById('sv3_BankRecSummary'); if (bs) bs.style.pointerEvents = 'none';
+    } else if (!window.__sv3ViewPostedIds && ((sel.value === 'Cash' && !set.cash) || (sel.value === 'Bank' && !set.bank))) {   // পোস্ট করা (শুধু দেখা) হলে বদলায় না
+      sel.value = set.cash ? 'Cash' : 'Bank';
+      sel.dispatchEvent(new Event('change', { bubbles: true }));   // নিজের নিয়মে ঘর বদলায় (নোট/ব্যাংক সারাংশ)
+    }
+  }
+  svStockDisplay(set);
+}
+
+/** বিক্রয় ভাউচার ফর্ম খোলার শেষে — সেটিং আনা, প্রয়োগ, আর পরে কোনো ঘর আবার চালু হলে আবার বন্ধ */
+async function svFieldSettingsWire(setPromise) {
+  const set = await setPromise;
+  if (!document.getElementById('sv3_TabEntryPanel')) return;
+  window.__sv3FieldSet = set;
+  svFieldSettingsApply(set);
+  const entry = document.getElementById('sv3_TabEntryPanel');
+  if (entry && !entry.__svSetWired) {
+    entry.__svSetWired = true;
+    entry.addEventListener('change', function () { setTimeout(function () { svFieldSettingsApply(); }, 0); });
+  }
+}
+
+/** বিক্রয় → বিক্রয় ভাউচার সেটিং পেজ */
+async function renderSalesVoucherSettingsPage(content) {
+  const set = await svFieldSettingsLoad();
+  const half = Math.ceil(SV_FIELD_SETTINGS.length / 2);
+  const cell = function (f) {
+    if (!f) return '<td></td><td></td>';
+    return `<td class="svs-c"><input type="checkbox" id="svs_${f[0]}" data-k="${f[0]}" ${set[f[0]] ? 'checked' : ''}></td><td class="svs-l"><label for="svs_${f[0]}">${escapeHtml(t(f[1], f[2]))}</label></td>`;
+  };
+  let rows = '';
+  for (let i = 0; i < half; i++) rows += `<tr>${cell(SV_FIELD_SETTINGS[i])}${cell(SV_FIELD_SETTINGS[i + half])}</tr>`;
+  content.innerHTML = `
+    <style>
+      .svs-wrap{max-width:560px;margin:0 auto;}
+      .svs-tbl{width:100%;border-collapse:collapse;border:2px solid var(--text);background:var(--surface);font-size:13.5px;}
+      .svs-tbl th{text-align:center;font-size:15px;font-weight:700;padding:8px;border:1px solid var(--text);}
+      .svs-tbl td{border:1px solid var(--text);padding:0;height:34px;}
+      .svs-tbl td.svs-c{width:34px;text-align:center;}
+      .svs-tbl td.svs-l label{display:flex;align-items:center;height:34px;padding:0 8px;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;}
+      .svs-tbl input[type=checkbox]{width:18px;height:18px;margin:0;accent-color:#c27a12;cursor:pointer;}
+      .svs-tbl tr:has(input:not(:checked)) td.svs-l label{color:var(--text-muted);}
+      .svs-tbl td.svs-l:has(input:focus){outline:none;}
+      .svs-tbl td.svs-c:focus-within{box-shadow:inset 0 0 0 2px #c27a12;}
+      .svs-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0;}
+      .svs-bar .btn{width:auto;margin:0;}
+      .svs-note{font-size:12px;color:var(--text-muted);margin-top:10px;line-height:1.6;}
+      @media (max-width:520px){ .svs-tbl{font-size:12px;} .svs-tbl td{height:38px;} .svs-tbl td.svs-c{width:30px;} .svs-tbl td.svs-l label{height:38px;padding:0 5px;} }
+    </style>
+    <div class="page-head"><div><h1>${t('বিক্রয় ভাউচার সেটিং', 'Sales Voucher Settings')}</h1><p>${t('টিক দেওয়া ঘর বিক্রয় ভাউচারে চালু থাকবে, টিক না থাকলে বন্ধ — এডিট করা যাবে না', 'Ticked fields are active on the sales voucher; unticked ones are locked')}</p></div></div>
+    <div class="panel"><div class="modal-body" style="padding:16px;">
+      <div class="svs-wrap" id="svsWrap" data-keynav="1">
+        <table class="svs-tbl"><thead><tr><th colspan="4">${t('বিক্রয় ভাউচার সেটিং', 'Sales Voucher Settings')}</th></tr></thead><tbody>${rows}</tbody></table>
+        <div class="svs-bar">
+          <button type="button" class="btn btn-outline" id="svsAll" data-perm-safe="1">☑ ${t('সব টিক দিন', 'Tick all')}</button>
+          <button type="button" class="btn btn-outline" id="svsNone" data-perm-safe="1">☐ ${t('সব টিক তুলুন', 'Untick all')}</button>
+          <button type="button" class="btn btn-primary" id="svsSave" style="margin-left:auto;">💾 ${t('সেভ করুন', 'Save')}</button>
+        </div>
+        <div class="svs-note">${t('Enter = পরের ঘর, Escape = আগের ঘর, Space = টিক দেওয়া/তোলা। সেভ করার পর নতুন খোলা বিক্রয় ভাউচারে প্রয়োগ হবে। গ্রাহকের নাম ও কমিশন সবসময় চালু থাকে। প্রিন্ট ও প্রিন্ট প্রিভিউ আগের মতই।', 'Enter = next, Escape = previous, Space = tick/untick. Applies to sales vouchers opened after saving. Customer and commission always stay on. Print is unchanged.')}</div>
+      </div>
+    </div></div>`;
+  const boxes = function () { return SV_FIELD_SETTINGS.map(function (f) { return document.getElementById('svs_' + f[0]); }); };   // ক্রমঃ বাম কলাম উপর→নিচ, তারপর ডান কলাম
+  document.getElementById('svsAll').addEventListener('click', function () { boxes().forEach(function (b) { b.checked = true; }); });
+  document.getElementById('svsNone').addEventListener('click', function () { boxes().forEach(function (b) { b.checked = false; }); });
+  const wrap = document.getElementById('svsWrap');
+  wrap.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' && e.key !== 'Escape') return;
+    const list = boxes(), i = list.indexOf(document.activeElement);
+    if (i === -1) return;
+    e.preventDefault(); e.stopPropagation();
+    if (e.key === 'Enter') { if (list[i + 1]) list[i + 1].focus(); else document.getElementById('svsSave').focus(); }
+    else if (list[i - 1]) list[i - 1].focus();
+  });
+  document.getElementById('svsSave').addEventListener('click', async function () {
+    const btn = this, data = {};
+    boxes().forEach(function (b) { data[b.getAttribute('data-k')] = b.checked; });
+    btn.disabled = true;
+    try {
+      await api('saveSystemSetting', { key: SV_FIELD_SETTINGS_KEY, value: JSON.stringify(data) });
+      // সেভ ঠিকমতো হলো কিনা — আবার পড়ে মিলিয়ে দেখা
+      const chk = await svFieldSettingsLoad();
+      const bad = Object.keys(data).filter(function (k) { return chk[k] !== data[k]; });
+      if (bad.length) throw new Error(t('সেটিং সেভ হয়নি — আবার চেষ্টা করুন।', 'Settings were not saved — try again.'));
+      showToast(t('বিক্রয় ভাউচার সেটিং সেভ হয়েছে ✅', 'Sales voucher settings saved ✅'), 'success');
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { btn.disabled = false; }
+  });
+  const first = document.getElementById('svs_' + SV_FIELD_SETTINGS[0][0]); if (first && window.matchMedia && !window.matchMedia('(max-width: 760px)').matches) first.focus();
 }
 
 async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
@@ -11149,6 +11349,7 @@ async function deletePostedSalesVoucher(docType, docId) {
 }
 
 async function openSalesVoucherForm(defaultType, existingId, navOpts) {
+  const svSetP = svFieldSettingsLoad();   // বিক্রয় ভাউচার সেটিং — কোন ঘর চালু/বন্ধ
   const svData = await cachedListMultiple(['Customers', 'Items', 'ItemGroups', 'Categories', 'UOM', 'Warehouses', 'BankCashAccounts', 'ExpenseCategories']);
   const customers = svData.Customers, items = svData.Items,
         groups = svData.ItemGroups, categories = svData.Categories, units = svData.UOM, warehouses = svData.Warehouses,
@@ -11225,6 +11426,7 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
     : [];
   window.__sv3LastStockQty = '';
   window.__sv3LastStockRate = '';
+  window.__sv3LastStockKP = null;
 
   function optsHtml(list, idF, labelF, selected) {
     return list.map(function (r) { return `<option value="${attr(r[idF])}" ${selected===r[idF]?'selected':''}>${escapeHtml(r[labelF])}</option>`; }).join('');
@@ -11947,6 +12149,7 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
     voucherPartySumUpdate('sv3', 'sales');   // পার্টি সারাংশ (জের/ভাউচার/নগদ/ব্যালান্স)
     document.getElementById('sv3_PreviewStockQty').value = window.__sv3LastStockQty;
     document.getElementById('sv3_PreviewStockRate').value = window.__sv3LastStockRate;
+    svFieldSettingsApply();   // বিক্রয় ভাউচার সেটিং (স্টক ঘর ও বন্ধ ঘর)
   }
 
   function miniLinesTable(lines, removeFnName, showComm) {
@@ -12038,6 +12241,7 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
 
   renderRightSummary();
   showTab('entry');
+  svFieldSettingsWire(svSetP);   // বিক্রয় ভাউচার সেটিং — বন্ধ ঘর এডিট করা যাবে না
   if (sv3ViewPosted) voucherViewPostedApply('sv3', 'sales', existingDocType, existingId);
   voucherNavWire('sv3', 'sales', existingDocType, existingId);   // ◀ ▶ আগের/পরের ভাউচার
 }
