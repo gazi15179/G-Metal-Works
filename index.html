@@ -9806,7 +9806,6 @@ async function voucherDualRefresh(p, kind) {
   const txt = (!item || !wh) ? '' : (!has ? t('কোনো স্টক নেই', 'No stock') : f3(kg) + ' ' + t('কেজি', 'kg') + ((pcs || piece) ? ' / ' + f3(pcs) + ' ' + t('পিস', 'pcs') : ''));
   window['__' + p + 'LastStockQty'] = txt; $(p + '_PreviewStockQty').value = txt;
   const avg = (kg > 0 && pcs > 0) ? kg / pcs : 0; window['__' + p + 'AvgKgPc'] = avg;
-  window['__' + p + 'LastStockKP'] = (!item || !wh) ? null : { has: has, kg: kg, pcs: pcs, piece: piece, avg: avg };   // বিক্রয় ভাউচার সেটিং-এর স্টক ঘরের জন্য
   let main = 0;   // মূল এককের দর
   if (item) {
     if (kind === 'purchase') {   // পোস্ট করা ক্রয়ের গড় দর (না থাকলে স্ট্যান্ডার্ড কস্ট)
@@ -9828,6 +9827,8 @@ async function voucherDualRefresh(p, kind) {
   // আগে থেকে বসানো দর (যেমন বিক্রয়ের স্ট্যান্ডার্ড দর) — মূল এককের দরের ঘরে দেখানো
   const hr = $(p + '_Rate'), rk0 = $(p + '_RateKg'), rp0 = $(p + '_RatePc');
   if (hr && rk0 && rp0 && hr.value && !rk0.value && !rp0.value) { if (piece) { rp0.value = hr.value; window['__' + p + 'RateBasis'] = 'pc'; } else { rk0.value = hr.value; window['__' + p + 'RateBasis'] = 'kg'; } }
+  // স্টক ঘরের তথ্য — খরচ-দর (CostRate) হিসাব শেষ হওয়ার পরে বসে, যাতে আগের আইটেমের দর না দেখায়
+  window['__' + p + 'LastStockKP'] = (!item || !wh) ? null : { has: has, kg: kg, pcs: pcs, piece: piece, avg: avg, cost: kind === 'purchase' ? main : (Number(window['__' + p + 'CostRate']) || 0) };
   voucherDualSync(p);
   if (p === 'sv3') svFieldSettingsApply();   // উপরে পিস/দর ঘর আবার চালু হতে পারে — সেটিং আবার প্রয়োগ
 }
@@ -10247,9 +10248,10 @@ function svStockDisplay(set) {
   if (kp) {
     if (!kp.has) sKg = t('স্টক নেই', 'No stock');
     else { sKg = f3(kp.kg); sPc = (kp.pcs || kp.piece) ? f3(kp.pcs) : '—'; }
-    const main = Number(window.__sv3LastStockRate) || 0;   // আইটেমের মূল এককের স্টক দর
+    // স্টক দর = আইটেমের খরচ-দর (মূল এককে): সর্বশেষ পোস্ট করা প্রসেসিংয়ের দর → পোস্ট করা ক্রয়ের গড় → স্ট্যান্ডার্ড কস্ট
+    const main = Number(kp.cost) || Number(window.__sv3LastStockRate) || 0;
     const rKg = kp.piece ? (kp.avg ? main / kp.avg : 0) : main, rPc = kp.piece ? main : (kp.avg ? main * kp.avg : 0);
-    rKgT = rKg ? rKg.toFixed(2) : ''; rPcT = rPc ? rPc.toFixed(2) : '';
+    rKgT = rKg ? rKg.toFixed(2) : '—'; rPcT = rPc ? rPc.toFixed(2) : ((kp.piece || kp.pcs) ? '—' : '');
   }
   const put = function (id, v, on) { const el = g(id); if (!el) return; el.value = on ? v : ''; el.classList.toggle('vset-off', !on); };
   put('sv3_StkPcs', sPc, set.stkPcs); put('sv3_StkKg', sKg, set.stkKg);
@@ -10257,7 +10259,7 @@ function svStockDisplay(set) {
   // পুরনো মিলিত ঘর (লুকানো) — অন্য কোড যেন আগের মতো পায়
   const q = g('sv3_PreviewStockQty'), r = g('sv3_PreviewStockRate');
   if (q) q.value = [set.stkKg && sKg ? sKg + (kp && kp.has ? ' ' + t('কেজি', 'kg') : '') : '', set.stkPcs && sPc && sPc !== '—' ? sPc + ' ' + t('পিস', 'pcs') : ''].filter(Boolean).join(' / ');
-  if (r) r.value = [set.stkRateKg && rKgT ? rKgT + '/' + t('কেজি', 'kg') : '', set.stkRatePc && rPcT ? rPcT + '/' + t('পিস', 'pc') : ''].filter(Boolean).join(' · ');
+  if (r) r.value = [set.stkRateKg && rKgT && rKgT !== '—' ? rKgT + '/' + t('কেজি', 'kg') : '', set.stkRatePc && rPcT && rPcT !== '—' ? rPcT + '/' + t('পিস', 'pc') : ''].filter(Boolean).join(' · ');
 }
 
 /** বিক্রয় ভাউচার ফর্মে সেটিং প্রয়োগ — শুধু বন্ধ করে; চালু ঘরে হাত দেয় না
