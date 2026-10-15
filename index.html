@@ -13966,6 +13966,8 @@ async function renderPartyLedger(content, partyTypeFilter) {
       PurchaseReturn: { desc:['ক্রয় ফেরত ভাউচার পোস্টিং','Purchase return posting'], type:['ক্রয় ফেরত','Purchase Return'] },
       SalesInvoice: { desc:['বিক্রয় ভাউচার পোস্টিং','Sales voucher posting'], type:['বিক্রয়','Sales'] },
       'SalesInvoice-Receipt': { desc:['বিক্রয় ভাউচারে গ্রহণ','Receipt against sales voucher'], type:['রিসিট','Receipt'] },
+      'SalesReturn-Payment': { desc:['বিক্রয় ফেরতে নগদ ফেরত','Cash refunded on sales return'], type:['পেমেন্ট','Payment'] },
+      'PurchaseReturn-Receipt': { desc:['ক্রয় ফেরতে নগদ ফেরত পাওয়া','Cash received on purchase return'], type:['রিসিট','Receipt'] },
       SalesReturn: { desc:['বিক্রয় ফেরত ভাউচার পোস্টিং','Sales return posting'], type:['বিক্রয় ফেরত','Sales Return'] },
       ContraVoucher: { desc:['কন্ট্রা ভাউচার','Contra voucher'], type:['কন্ট্রা','Contra'] },
       PaymentVoucher: { desc:['পেমেন্ট ভাউচার','Payment voucher'], type:['পেমেন্ট','Payment'] },
@@ -13985,6 +13987,39 @@ async function renderPartyLedger(content, partyTypeFilter) {
   }
 
   let lastRows = [], lastParty = null, lastPartyName = '';
+
+  /** নগদ পার্টির লেজার সারি — পোস্ট করা ভাউচার থেকে (পোস্টিংয়ের নিয়মেই টাকা) */
+  async function cashPartyLedgerRows(cust, supp) {
+    const get = async function (table, col, val) {
+      const { data, error } = await supabaseClient.from(table).select('*').eq(col, val).eq('Status', 'Posted');
+      if (error) throw new Error(error.message);
+      return data || [];
+    };
+    const lineTotal = async function (table, idCol, ids) {   // ফেরতের টাকা = Σ পরিমাণ × দর (পোস্টিংয়ের মতোই)
+      const tot = {}; if (!ids.length) return tot;
+      const { data, error } = await supabaseClient.from(table).select('*').in(idCol, ids);
+      if (error) throw new Error(error.message);
+      (data || []).forEach(function (l) { tot[l[idCol]] = (tot[l[idCol]] || 0) + (Number(l.Quantity) || 0) * (Number(l.Rate) || 0); });
+      return tot;
+    };
+    const out = [];
+    const pair = function (date, mod1, mod2, id, amt, inFirst, note) {   // inFirst: প্রথম সারি Debit (বিক্রয়/ক্রয়-ফেরত), নইলে Credit
+      if (!(amt > 0)) return;
+      out.push({ Date: date, RefModule: mod1, RefID: id, Debit: inFirst ? amt : 0, Credit: inFirst ? 0 : amt, id: 0, __note: note });
+      out.push({ Date: date, RefModule: mod2, RefID: id, Debit: inFirst ? 0 : amt, Credit: inFirst ? amt : 0, id: 0, __note: note });
+    };
+    if (cust) {
+      (await get('SalesInvoice', 'CustomerID', 'CUS-CASH')).forEach(function (h) { pair(h.InvoiceDate || h.Date, 'SalesInvoice', 'SalesInvoice-Receipt', h.SIID, Number(h.TotalAmount) || 0, true, h.WalkInPartyName); });
+      const sr = await get('SalesReturn', 'CustomerID', 'CUS-CASH'), st = await lineTotal('SR_Lines', 'SRID', sr.map(function (h) { return h.SRID; }));
+      sr.forEach(function (h) { pair(h.Date, 'SalesReturn', 'SalesReturn-Payment', h.SRID, st[h.SRID] || 0, false, h.WalkInPartyName); });
+    }
+    if (supp) {
+      (await get('PurchaseInvoice', 'SupplierID', 'SUP-CASH')).forEach(function (h) { pair(h.InvoiceDate || h.Date, 'PurchaseInvoice', 'PurchaseInvoice-Payment', h.PIID, Number(h.TotalAmount) || 0, false, h.WalkInPartyName); });
+      const pr = await get('PurchaseReturn', 'SupplierID', 'SUP-CASH'), pt = await lineTotal('PR_Return_Lines', 'PRetID', pr.map(function (h) { return h.PRetID; }));
+      pr.forEach(function (h) { pair(h.Date, 'PurchaseReturn', 'PurchaseReturn-Receipt', h.PRetID, pt[h.PRetID] || 0, true, h.WalkInPartyName); });
+    }
+    return out;
+  }
 
   async function loadLedgerForKey(key) {
     const wrap = document.getElementById('plWrap');
@@ -14008,6 +14043,12 @@ async function renderPartyLedger(content, partyTypeFilter) {
     let rows;
     try { rows = (await fetchRows('Customer', custIds)).concat(await fetchRows('Supplier', suppIds)); }
     catch (err) { wrap.innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`; return; }
+    // নগদ পার্টি (CUS-CASH / SUP-CASH) — পোস্টিংয়ে এদের PartyLedger এন্ট্রি হয় না (টাকা সরাসরি ক্যাশ বইতে যায়),
+    // তাই পোস্ট করা ভাউচার থেকেই হিসাব বানানো হয়ঃ প্রতিটা ভাউচারে মোট টাকা ও সমান নগদ — ব্যালান্স শূন্য থাকে
+    if (custIds.indexOf('CUS-CASH') !== -1 || suppIds.indexOf('SUP-CASH') !== -1) {
+      try { rows = rows.concat(await cashPartyLedgerRows(custIds.indexOf('CUS-CASH') !== -1, suppIds.indexOf('SUP-CASH') !== -1)); }
+      catch (err) { wrap.innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`; return; }
+    }
     rows.sort(function (a, b) { return String(a.Date || '').localeCompare(String(b.Date || '')) || (Number(a.id) || 0) - (Number(b.id) || 0); });
     lastRows = rows;
 
@@ -14030,7 +14071,7 @@ async function renderPartyLedger(content, partyTypeFilter) {
       };
       let why = '';
       if (drafts.length) why += `<div style="margin-top:10px;padding:10px 12px;border:1px solid #f0b46a;background:#fff3e0;color:#7a4300;border-radius:8px;text-align:left;">⚠️ ${t('এই পার্টির ', 'This party has ')}<b>${drafts.length}</b>${t('টা ভাউচার এখনো পোস্ট হয়নি (খসড়া) — খসড়া ভাউচার লেজারে আসে না। ভাউচারের তালিকা থেকে 💾 পোস্ট করলেই এখানে দেখাবে।', ' unposted (draft) voucher(s) — drafts do not reach the ledger. Post them (💾) and they will show here.')}<div style="margin-top:6px;font-size:12px;">${listTxt(drafts)}</div></div>`;
-      if (posted.length) why += `<div style="margin-top:10px;padding:10px 12px;border:1px solid #e8a29b;background:#fdf0ef;color:#8a1f12;border-radius:8px;text-align:left;">❗ ${t('এই পার্টির ', 'This party has ')}<b>${posted.length}</b>${t('টা পোস্ট করা ভাউচার আছে, অথচ লেজারে এন্ট্রি নেই — নগদ গ্রাহক/সাপ্লায়ারে পোস্ট হয়েছিল, অথবা এন্ট্রি মুছে গেছে। ভাউচারটা আনপোস্ট করে আবার পোস্ট করলে ঠিক হবে।', ' posted voucher(s) but no ledger entries — posted as a cash party, or entries were removed. Unpost and post again to fix.')}<div style="margin-top:6px;font-size:12px;">${listTxt(posted)}</div></div>`;
+      if (posted.length) why += `<div style="margin-top:10px;padding:10px 12px;border:1px solid #e8a29b;background:#fdf0ef;color:#8a1f12;border-radius:8px;text-align:left;">❗ ${t('এই পার্টির ', 'This party has ')}<b>${posted.length}</b>${t('টা পোস্ট করা ভাউচার আছে, অথচ লেজারে এন্ট্রি নেই — এন্ট্রি মুছে গেছে। ভাউচারটা আনপোস্ট করে আবার পোস্ট করলে ঠিক হবে।', ' posted voucher(s) but no ledger entries — posted as a cash party, or entries were removed. Unpost and post again to fix.')}<div style="margin-top:6px;font-size:12px;">${listTxt(posted)}</div></div>`;
       if (!all.length) why = `<div style="margin-top:6px;font-size:12px;color:var(--text-muted);">${t('এই পার্টির নামে এখনো কোনো ক্রয়/বিক্রয় ভাউচার নেই।', 'No purchase/sales vouchers for this party yet.')}</div>`;
       wrap.innerHTML = `<div class="empty-state">${t('কোনো এন্ট্রি পাওয়া যায়নি।','No entries found.')}${why}</div>`;
       return;
@@ -14055,7 +14096,7 @@ async function renderPartyLedger(content, partyTypeFilter) {
       const ic = function (act, icon, title, dis) { return `<button type="button" class="pl-ic" data-pl="${act}" data-base="${attr(baseType)}" data-id="${attr(r.RefID)}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
       const icons = ic('view', '👁️', t('দেখুন', 'View'), !known) + ic('edit', '✏️', t('এডিট (এডমিন — আগে আনপোস্ট হবে)', 'Edit (admin — unposts first)'), !known) +
         ic('del', '🗑️', t('ডিলিট — এরর হলেও জোর করে মোছা যায় (এডমিন)', 'Delete — can force-delete broken vouchers (admin)'), false) + ic('post', '✅', t('পোস্ট হয়ে গেছে', 'Posted'), true);
-      return `<tr class="${vkClass(baseType)}"><td>${escapeHtml(formatShortDate(r.Date))}</td><td>${escapeHtml(typeLabel)}</td><td style="text-align:left;">${escapeHtml(t(info.desc[0], info.desc[1]))} — <b>${escapeHtml(r.RefID)}</b></td>
+      return `<tr class="${vkClass(baseType)}"><td>${escapeHtml(formatShortDate(r.Date))}</td><td>${escapeHtml(typeLabel)}</td><td style="text-align:left;">${escapeHtml(t(info.desc[0], info.desc[1]))} — <b>${escapeHtml(r.RefID)}</b>${r.__note ? ` <small style="color:var(--text-muted);">(${escapeHtml(r.__note)})</small>` : ''}</td>
         <td>${debit.toFixed(2)}</td><td>${credit.toFixed(2)}</td><td><b>${formatAmountDrCr(runningBalance, true)}</b></td><td style="white-space:nowrap;">${icons}</td></tr>`;
     }).join('');
     wrap.innerHTML = `
