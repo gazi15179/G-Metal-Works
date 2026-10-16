@@ -243,7 +243,7 @@ table.data-table{width:100%;border-collapse:collapse;font-size:13px;}
 .field-error.show{display:block;}
 
 /* ===== Toast ===== */
-.toast-wrap{position:fixed;bottom:20px;right:20px;z-index:150;display:flex;flex-direction:column;gap:8px;}
+.toast-wrap{position:fixed;bottom:20px;right:20px;z-index:10050;display:flex;flex-direction:column;gap:8px;}
 .toast{background:var(--ink-900);color:#fff;padding:12px 16px;border-radius:9px;font-size:13px;box-shadow:0 10px 25px rgba(0,0,0,.25);border-left:4px solid var(--amber);max-width:320px;}
 .toast.error{border-left-color:var(--danger);}
 .toast.success{border-left-color:var(--success);}
@@ -4657,24 +4657,41 @@ function hvFieldsFor(P) {
   ];
 }
 
-/** খাতের তালিকা — এক্সপেন্সঃ ExpenseCategories টেবিল; রিসিপ্টঃ system_settings 'IncomeHeads' (JSON) */
+/** খাতের তালিকা — এক্সপেন্সঃ ExpenseCategories টেবিল (ক্রয়/বিক্রয়ের খরচের খাতও এটাই) + system_settings 'ExpenseHeads'
+ *  (টেবিলে লেখা না গেলে খাত সেখানেই থাকে); রিসিপ্টঃ system_settings 'IncomeHeads' (JSON)। প্রতিটা খাতে src = 'tbl' / 'set' */
+async function hvSettingHeads(key) {
+  try {
+    const all = await api('getSystemSettings', {});
+    const raw = all && all[key];
+    const list = raw ? (typeof raw === 'object' ? raw : JSON.parse(raw)) : null;
+    return Array.isArray(list) ? list : null;
+  } catch (e) { return null; }
+}
 async function hvLoadHeads(K) {
   if (K.P === 'expv') {
     delete listCache.ExpenseCategories;
     let rows = [];
     try { rows = await cachedList('ExpenseCategories'); } catch (e) { rows = []; }
-    return rows.filter(function (c) { return c.Status !== 'Deleted'; }).map(function (c) { return { id: c.ExpCatID, name: c.ExpCatName }; });
+    const tbl = rows.filter(function (c) { return c.Status !== 'Deleted' && c.ExpCatName; }).map(function (c) { return { id: c.ExpCatID, name: c.ExpCatName, src: 'tbl' }; });
+    const extra = (await hvSettingHeads('ExpenseHeads') || []).map(function (h) { return { id: h.id, name: h.name, src: 'set' }; });
+    return tbl.concat(extra.filter(function (h) { return !tbl.some(function (x) { return x.id === h.id; }); }));
   }
-  let list = null;
-  try {
-    const all = await api('getSystemSettings', {});
-    const raw = all && all.IncomeHeads;
-    list = raw ? (typeof raw === 'object' ? raw : JSON.parse(raw)) : null;
-  } catch (e) { list = null; }
-  if (!Array.isArray(list) || !list.length) list = HV_DEFAULT_INCOME_HEADS.map(function (n, i) { return { id: 'INC-H' + (i + 1), name: n }; });
-  return list;
+  let list = await hvSettingHeads('IncomeHeads');
+  if (!list || !list.length) list = HV_DEFAULT_INCOME_HEADS.map(function (n, i) { return { id: 'INC-H' + (i + 1), name: n }; });
+  return list.map(function (h) { return { id: h.id, name: h.name, src: 'set' }; });
 }
-async function hvSaveIncomeHeads(list) { await api('saveSystemSetting', { key: 'IncomeHeads', value: JSON.stringify(list) }); }
+async function hvSaveIncomeHeads(list) { await api('saveSystemSetting', { key: 'IncomeHeads', value: JSON.stringify(list.map(function (h) { return { id: h.id, name: h.name }; })) }); }
+/** সেটিং-এ রাখা খাত সেভ — এক্সপেন্সে শুধু src='set' খাতগুলো ('ExpenseHeads'), রিসিপ্টে সব ('IncomeHeads') */
+async function hvSaveSettingHeads(K, heads) {
+  if (K.P !== 'expv') return hvSaveIncomeHeads(heads);
+  await api('saveSystemSetting', { key: 'ExpenseHeads', value: JSON.stringify(heads.filter(function (h) { return h.src === 'set'; }).map(function (h) { return { id: h.id, name: h.name }; })) });
+}
+/** নতুন এক্সপেন্স খাত — আগে ExpenseCategories টেবিলে (আইডি না দিলে না হলে নিজে আইডি দিয়ে); তাও না হলে সেটিং-এ */
+async function hvAddExpenseHead(name) {
+  try { const rec = await api('create', { sheet: 'ExpenseCategories', idField: 'ExpCatID', idPrefix: 'EXPCAT', requiredFields: ['ExpCatName'], data: { ExpCatName: name } }); if (rec && rec.ExpCatID) { listCache = {}; return { id: rec.ExpCatID, name: rec.ExpCatName || name, src: 'tbl' }; } } catch (e) {}
+  try { const id = 'EXPCAT-' + Date.now().toString(36).toUpperCase(); const rec = await api('create', { sheet: 'ExpenseCategories', idField: 'ExpCatID', data: { ExpCatID: id, ExpCatName: name } }); if (rec) { listCache = {}; return { id: rec.ExpCatID || id, name: rec.ExpCatName || name, src: 'tbl' }; } } catch (e) {}
+  return { id: 'EXPH-' + Date.now().toString(36).toUpperCase(), name: name, src: 'set' };   // টেবিলে লেখা গেল না — সেটিং-এ রাখা হবে
+}
 
 /** A5 প্রিন্ট — ক্রয়/বিক্রয়/পেমেন্ট ভাউচারের মত (প্রতিষ্ঠান · মেথড/নোট · খাতের টেবিল · স্বাক্ষর) */
 async function hvPrint(K, rec, lines, ctx) {
@@ -4943,7 +4960,10 @@ async function renderHeadVoucherPage(content, kind) {
         <h3 style="margin:0 0 10px;font-size:15px;">⚙ ${t(K.headBn, K.headEn)}</h3>
         <div style="display:flex;flex-direction:column;gap:6px;">${heads.map(function (h, i) { return `<div style="display:flex;gap:6px;align-items:center;"><input data-hn="${i}" value="${attr(h.name)}" style="flex:1;height:32px;"><button type="button" class="btn" data-hs="${i}" style="width:auto;padding:4px 10px;" data-perm-safe="1">💾</button><button type="button" class="btn" data-hd="${i}" style="width:auto;padding:4px 10px;">🗑️</button></div>`; }).join('')}</div>
         <div style="display:flex;gap:6px;margin-top:10px;"><input id="${P}_NewHead" placeholder="${attr(t('নতুন খাতের নাম', 'New head name'))}" style="flex:1;height:32px;"><button type="button" class="btn btn-primary" id="${P}_NewHeadBtn" style="width:auto;padding:4px 12px;">＋ ${t('যোগ', 'Add')}</button></div>
-        <div style="margin-top:12px;text-align:right;"><button type="button" class="btn" id="${P}_HeadClose" style="width:auto;" data-perm-safe="1">${t('বন্ধ করুন', 'Close')}</button></div></div>`;
+        <div id="${P}_HeadMsg" style="margin-top:8px;font-size:12px;min-height:16px;"></div>
+        <div style="margin-top:6px;text-align:right;"><button type="button" class="btn" id="${P}_HeadClose" style="width:auto;" data-perm-safe="1">${t('বন্ধ করুন', 'Close')}</button></div></div>`;
+      const ni = ov.querySelector('#' + P + '_NewHead');
+      if (ni) { ni.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); ov.querySelector('#' + P + '_NewHeadBtn').click(); } }); setTimeout(function () { ni.focus(); }, 0); }
     };
     const refreshSelects = function () {
       const keep = $('_Head').value === '__manage' ? '' : $('_Head').value;
@@ -4953,30 +4973,39 @@ async function renderHeadVoucherPage(content, kind) {
       $('_LHead').value = lk;
     };
     draw(); document.body.appendChild(ov);
+    const msg = function (txt, ok) { const m = ov.querySelector('#' + P + '_HeadMsg'); if (m) { m.textContent = txt; m.style.color = ok ? '#1d7a3e' : '#b3261e'; } };
     ov.addEventListener('click', async function (e) {
-      const b = e.target.closest('button'); if (!b) return;
+      const b = e.target.closest('button'); if (!b || b.disabled) return;
+      b.disabled = true;
       try {
         if (b.id === P + '_HeadClose') { ov.remove(); refreshSelects(); $('_Head').focus(); return; }
         if (b.id === P + '_NewHeadBtn') {
-          const name = ov.querySelector('#' + P + '_NewHead').value.trim(); if (!name) return;
-          if (K.P === 'expv') { const rec = await api('create', { sheet: 'ExpenseCategories', idField: 'ExpCatID', idPrefix: 'EXPCAT', requiredFields: ['ExpCatName'], data: { ExpCatName: name } }); heads.push({ id: rec.ExpCatID, name: rec.ExpCatName }); }
-          else { const id = 'INC-H' + (Date.now() % 1e9); heads.push({ id: id, name: name }); await hvSaveIncomeHeads(heads); }
-          draw(); refreshSelects(); return;
+          const name = ov.querySelector('#' + P + '_NewHead').value.trim();
+          if (!name) { msg(t('খাতের নাম লিখুন।', 'Enter a head name.')); return; }
+          if (heads.some(function (h) { return h.name === name; })) { msg(t('এই নামের খাত আগেই আছে।', 'A head with this name already exists.')); return; }
+          let h;
+          if (K.P === 'expv') h = await hvAddExpenseHead(name);
+          else h = { id: 'INC-H' + Date.now().toString(36).toUpperCase(), name: name, src: 'set' };
+          heads.push(h);
+          if (h.src === 'set') await hvSaveSettingHeads(K, heads);
+          draw(); refreshSelects(); msg(t('যোগ হয়েছে ✅ ', 'Added ✅ ') + name, true); return;
         }
         if (b.hasAttribute('data-hs')) {
           const i = Number(b.getAttribute('data-hs')), name = ov.querySelector(`[data-hn="${i}"]`).value.trim(); if (!name) return;
-          if (K.P === 'expv') await api('update', { sheet: 'ExpenseCategories', idField: 'ExpCatID', idValue: heads[i].id, data: { ExpCatName: name } });
-          heads[i].name = name; if (K.P !== 'expv') await hvSaveIncomeHeads(heads);
-          showToast(t('খাতের নাম সেভ হয়েছে ✅', 'Head renamed ✅'), 'success'); draw(); refreshSelects(); return;
+          if (heads[i].src === 'tbl') await api('update', { sheet: 'ExpenseCategories', idField: 'ExpCatID', idValue: heads[i].id, data: { ExpCatName: name } });
+          heads[i].name = name; if (heads[i].src === 'set') await hvSaveSettingHeads(K, heads);
+          draw(); refreshSelects(); msg(t('খাতের নাম সেভ হয়েছে ✅', 'Head renamed ✅'), true); return;
         }
         if (b.hasAttribute('data-hd')) {
           const i = Number(b.getAttribute('data-hd'));
           if (!confirm(t('খাত "', 'Delete head "') + heads[i].name + t('" মুছবেন? (আগের ভাউচারে নাম থেকে যাবে)', '"? (old vouchers keep the name)'))) return;
-          if (K.P === 'expv') await api('delete', { sheet: 'ExpenseCategories', idField: 'ExpCatID', idValue: heads[i].id });
-          heads.splice(i, 1); if (K.P !== 'expv') await hvSaveIncomeHeads(heads);
-          draw(); refreshSelects();
+          const src = heads[i].src;
+          if (src === 'tbl') await api('delete', { sheet: 'ExpenseCategories', idField: 'ExpCatID', idValue: heads[i].id });
+          heads.splice(i, 1); if (src === 'set') await hvSaveSettingHeads(K, heads);
+          draw(); refreshSelects(); msg(t('মুছে ফেলা হয়েছে', 'Deleted'), true);
         }
-      } catch (err) { showToast(err.message, 'error'); }
+      } catch (err) { msg(err.message || String(err)); }
+      finally { if (document.body.contains(b)) b.disabled = false; }
     });
   };
   $('_Head').addEventListener('change', function () { if (this.value === '__manage') { this.value = ''; manageHeads(); } });
