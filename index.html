@@ -479,7 +479,7 @@ const MODULES = [
   {key:'accounts', bn:'হিসাব', en:'Accounts', sub:[
     {key:'coa', bn:'হিসাবের তালিকা', en:'Chart of Accounts'},{key:'bankCash', bn:'ব্যাংক ও ক্যাশ অ্যাকাউন্ট', en:'Bank & Cash Accounts'},
     {key:'jv', bn:'জার্নাল ভাউচার', en:'Journal Voucher'},{key:'cv', bn:'কনট্রা ভাউচার', en:'Contra Voucher'},
-    {key:'pv', bn:'পেমেন্ট ভাউচার', en:'Payment Voucher'},{key:'rv', bn:'রিসিট ভাউচার', en:'Receipt Voucher'},{key:'ownerCapital', bn:'মালিকের মূলধন', en:'Owner Capital'},{key:'assetPurchase', bn:'এ্যাসেট ক্রয়', en:'Asset Purchase'},{key:'assetSale', bn:'এ্যাসেট বিক্রয়', en:'Asset Sale'},{key:'fixedAssets', bn:'এ্যাসেট রেজিস্টার', en:'Asset Register'},
+    {key:'pv', bn:'পেমেন্ট ভাউচার', en:'Payment Voucher'},{key:'payvSettings', bn:'পেমেন্ট ভাউচার সেটিং', en:'Payment Voucher Settings'},{key:'rv', bn:'রিসিট ভাউচার', en:'Receipt Voucher'},{key:'ownerCapital', bn:'মালিকের মূলধন', en:'Owner Capital'},{key:'assetPurchase', bn:'এ্যাসেট ক্রয়', en:'Asset Purchase'},{key:'assetSale', bn:'এ্যাসেট বিক্রয়', en:'Asset Sale'},{key:'fixedAssets', bn:'এ্যাসেট রেজিস্টার', en:'Asset Register'},
     {key:'bankBook', bn:'ব্যাংক ও নগদ বই', en:'Bank & Cash Book'},{key:'trialBalance', bn:'ট্রায়াল ব্যালেন্স', en:'Trial Balance'},
   ]},
   {key:'hr', bn:'এইচআর ও পে-রোল', en:'HR & Payroll', sub:[
@@ -500,7 +500,7 @@ const MODULES = [
 ];
 
 // এখন পর্যন্ত যেসব পেজ সত্যিই কাজ করে (Phase 3 — Core মডিউল)
-const READY_PAGES = ['dashboard','svSettings','pvSettings','companyProfile','userManagement','roles','activityLog',
+const READY_PAGES = ['dashboard','svSettings','pvSettings','payvSettings','companyProfile','userManagement','roles','activityLog',
   'items','customers','suppliers','warehouses','uom','categories','employees','party','partyLedger','zones','groups','purchasers','salespersons','bankMaster',
   'pr','po','grn','pi','pret','pvoucherList',
   'stockOverview','goodsReceive','materialIssue','stockTransfer','stockAdjust','stockLedger',
@@ -1415,6 +1415,7 @@ async function navigateTo(pageKey, moduleLabel, pageLabel) {
     else if (pageKey === 'custLedger') await renderPartyLedger(content, 'Customer');
     else if (pageKey === 'svSettings') await renderSalesVoucherSettingsPage(content);
     else if (pageKey === 'pvSettings') await renderVoucherFieldSettingsPage(content, 'pv3');
+    else if (pageKey === 'payvSettings') await renderVoucherFieldSettingsPage(content, 'payv');   // হিসাব → পেমেন্ট ভাউচার সেটিং
     else if (pageKey === 'stockOverview') await renderStockOverview(content);
     else if (pageKey === 'stockLedger') await renderStockLedger(content);
     else if (pageKey === 'goodsReceive') await renderDocumentListPage(content, DOC_CONFIGS.grn);
@@ -3699,10 +3700,16 @@ async function openSimpleVoucherForm(existing) {
    • ৩য় লাইনঃ তারিখ | নম্বর | মেথড (নগদ/ব্যাংক) | পরিমান(৳) | ডিসকাউন্ট(-) | নীট পরিমান(৳) | বিবরন | বাতিল/সেভ
      (মোবাইলে ৪টা করে দুই লাইনে)
    • নিচে লাইভ প্রিভিউ পেনেল, তারপর ভাউচার তালিকা — সারিতে দুই চাপ = উপরের ঘরে এসে এডিট, সেভ করলে সেভ
+     সারিতেঃ 👁️ প্রিন্ট প্রিভিউ (A5) · ✏️ এডিট · 🗑️ ডিলিট · 💾 পোস্ট (শুধু খসড়ায়)
+   • মেথডঃ নগদ / ব্যাংক — ব্যাংক বাছাই করে পরিমান দিলে পপ-আপ (ক্রয়/বিক্রয় ভাউচারের মত)ঃ
+     "নগদ টু সাপ্লায়ার ব্যাংক" (নগদ থেকে যায়) বা "নিজের ব্যাংক টু সাপ্লায়ার ব্যাংক" (কোন ব্যাংক — বাছাই), নোট আবশ্যক, তারপর নিশ্চিত করুন
+     (ধরনটা থাকে PayMethod ঘরে — 38 নম্বর SQL; না থাকলেও পোস্টিং ঠিক থাকে)
    • শুধু সাপ্লায়ার ও কাস্টমার (একই কোডের সাপ্লায়ার+কাস্টমার এক পার্টি)
    • সেভ = সেভ + পোস্টঃ পার্টি লেজারে মোট পরিমান ডেঃ (দেনা কমে / পাওনা বাড়ে), নগদ/ব্যাংক বইয়ে নীট পরিমান ক্রেঃ
    • পোস্ট করা ভাউচার বদলাতে এডমিন পাসওয়ার্ড — আগের এন্ট্রি ফেরত দিয়ে নতুন করে পোস্ট
+   • হিসাব → "পেমেন্ট ভাউচার সেটিং" — টিক দেওয়া ঘর দেখা যায়, টিক না থাকলে দেখা যায় না (system_settings, Key 'PaymentVoucherFields')
    • ডিসকাউন্টের ঘর ডেটাবেসেঃ 37 নম্বর SQL — ALTER TABLE "PaymentVoucher" ADD COLUMN IF NOT EXISTS "Discount" numeric DEFAULT 0;
+   • প্রদানের ধরনঃ 38 নম্বর SQL — ALTER TABLE "PaymentVoucher" ADD COLUMN IF NOT EXISTS "PayMethod" text;
    ============================================================ */
 const PAYV_CSS = `
   .payv{overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;margin:-8px -6px 0;padding:0 6px 24px;}
@@ -3710,6 +3717,7 @@ const PAYV_CSS = `
   .payv-freeze{position:sticky;top:0;z-index:8;background:var(--bg);padding:6px 0 6px;box-shadow:0 6px 8px -8px rgba(0,0,0,.4);}
   .payv .vnavh{margin:0 0 6px;}
   .payv .svt{margin:0;} .payv .svt + .svt{border-top:0;}
+  .payv .svt th.wide,.payv .svt td.wide{width:40%;}
   .payv .svt td.ps .vps-val{border:0;border-radius:0;background:transparent;justify-content:center;}
   .payv .svt td.ps .vps-val b{margin-left:0;}
   .payv .svt td.pvx-bal .vps-val{box-shadow:inset 0 0 0 2px #c27a12;}
@@ -3720,7 +3728,8 @@ const PAYV_CSS = `
   .payv .pvx-cancel{background:#7a2e1a;color:#fff;} .payv .pvx-save{background:var(--ink-900);color:var(--amber);border-left:1px solid #6b7079 !important;}
   .payv .pvx-btns button:disabled{opacity:.45;cursor:default;}
   .payv .pvx-mode{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:6px 0 0;padding:4px 8px;border-radius:6px;background:#fff1b8;color:#1b1f24;border:1px solid #e3b75c;font-size:12px;font-weight:600;}
-  .payv .pvx-mode button{border:0;border-radius:5px;padding:3px 9px;font-weight:700;font-size:11.5px;background:var(--ink-900);color:var(--amber);cursor:pointer;}
+  .payv .pvx-mode span{flex:1;min-width:0;}
+  .payv .pvx-mode button{border:0;border-radius:5px;padding:3px 9px;font-weight:700;font-size:11.5px;background:var(--ink-900);color:var(--amber);cursor:pointer;white-space:nowrap;}
   .payv .pvx-sec{margin-top:10px;}
   .payv .pvx-lh{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0 0 6px;}
   .payv .pvx-lh h4{margin:0;font-size:13px;flex:1 1 auto;}
@@ -3737,6 +3746,7 @@ const PAYV_CSS = `
   .payv .pvl tr.draft td{font-style:italic;}
   .payv .pvl tr.cur td{outline:1.5px solid #c27a12;outline-offset:-1.5px;}
   .payv .pvl .pvx-ic{border:1px solid var(--border);background:var(--surface);border-radius:6px;min-width:28px;height:24px;font-size:12px;cursor:pointer;margin:0 1px;padding:0;}
+  .payv .pvl .pvx-ic:disabled{opacity:.3;cursor:default;}
   .payv .pvl .badge-d{font-size:9.5px;border-radius:999px;padding:0 6px;background:#fff3d6;color:#7a5200;border:1px solid #e3b75c;font-style:normal;}
   .payv .svp td.pvx-amt{text-align:right;white-space:nowrap;}
   @media (max-width:760px){
@@ -3746,10 +3756,139 @@ const PAYV_CSS = `
     .payv .pvl-wrap{max-height:none;}
   }`;
 
+/** পেমেন্ট ভাউচার সেটিং-এর ঘরের তালিকা — [key, বাংলা, English]; পার্টি নাম, পরিমান ও সেভ সবসময় থাকে */
+const PAYV_FIELDS = [
+  ['zone', 'পার্টি জোন', 'Party zone'],
+  ['mobile', 'পার্টি মোবাইল', 'Party mobile'],
+  ['jer', 'পার্টি জের', 'Party opening'],
+  ['vch', 'ভাউচার প্রদান', 'Voucher payment'],
+  ['vbal', 'ভাউচার ব্যালান্স', 'Voucher balance'],
+  ['date', 'তারিখ', 'Date'],
+  ['no', 'নম্বর', 'Voucher no'],
+  ['method', 'মেথড', 'Method'],
+  ['bank', 'ব্যাংক (মেথডে)', 'Bank (in method)'],
+  ['disc', 'ডিসকাউন্ট(-)', 'Discount(-)'],
+  ['net', 'নীট পরিমান(৳)', 'Net amount(৳)'],
+  ['note', 'বিবরন', 'Narration'],
+  ['cancel', 'বাতিল বোতাম', 'Cancel button'],
+  ['preview', 'লাইভ প্রিভিউ পেনেল', 'Live preview panel'],
+  ['list', 'ভাউচার তালিকা', 'Voucher list'],
+  ['print', 'প্রিন্ট (👁️ বোতাম)', 'Print (👁️ button)']
+];
+
+/** পার্টির জের — একই কোডের সাপ্লায়ার+কাস্টমার সব হিসাব মিলিয়ে।
+ *  payId দিলে (পোস্ট করা ভাউচার) = ঐ ভাউচারের লেজার-এন্ট্রির ঠিক আগের ব্যালান্স; না দিলে বর্তমান ব্যালান্স। */
+async function payvPartyJer(p, payId) {
+  if (!p) return 0;
+  const ids = p.supIds.concat(p.custIds);
+  if (!ids.length) return 0;
+  let ownId = null;
+  if (payId) {
+    try {
+      const { data: own } = await supabaseClient.from('PartyLedger').select('id').eq('RefModule', 'PaymentVoucher').eq('RefID', payId).order('id', { ascending: true }).limit(1);
+      if (own && own[0]) ownId = Number(own[0].id);
+    } catch (e) {}
+  }
+  const { data } = await supabaseClient.from('PartyLedger').select('id,PartyType,PartyID,Balance').in('PartyID', ids).order('id', { ascending: false });
+  const seen = {}; let total = 0;
+  (data || []).forEach(function (e) {
+    const ok = (e.PartyType === 'Supplier' && p.supIds.indexOf(e.PartyID) !== -1) || (e.PartyType === 'Customer' && p.custIds.indexOf(e.PartyID) !== -1);
+    if (!ok) return;
+    if (ownId !== null && Number(e.id) >= ownId) return;   // এই ভাউচার ও পরের এন্ট্রি বাদ
+    const k = e.PartyType + '|' + e.PartyID;
+    if (seen[k]) return; seen[k] = true; total += Number(e.Balance) || 0;
+  });
+  return total;
+}
+
+/** পেমেন্ট ভাউচার — A5 প্রিন্ট প্রিভিউ (ক্রয়/বিক্রয় ভাউচারের মত ৩ অংশঃ প্রতিষ্ঠান · পার্টি · টেবিল, তারপর জের-বক্স)।
+ *  সব লেখা বাংলায়, শুধু ভাউচার নং, তারিখ ও মোবাইল ইংরেজিতে। ctx = {party, accLabel, jer} */
+async function payvPrint(rec, ctx) {
+  const w = window.open('', '_blank');
+  if (!w) { showToast(t('পপ-আপ ব্লক হয়েছে — এই সাইটের জন্য পপ-আপ অনুমতি দিন।', 'Pop-up was blocked — please allow pop-ups for this site.'), 'error'); return; }
+  w.document.write('<p style="font-family:sans-serif;padding:20px;">লোড হচ্ছে...</p>');
+  let co = {}; try { co = (await api('getSingleton', { sheet: 'CompanyProfile' })) || {}; } catch (e) {}
+  const p = ctx.party || null;
+  const B = function (v) { return escapeHtml(bnDigits(v)); };
+  const M = function (n) { return B((Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })); };
+  const DC = function (v) { const r = Math.round((Number(v) || 0) * 100) / 100; return M(Math.abs(r)) + ' ' + (r < 0 ? 'ক্রেঃ' : 'ডেঃ'); };
+  const gross = Number(rec.Amount) || 0, disc = Number(rec.Discount) || 0, net = gross - disc;
+  const jer = Number(ctx.jer) || 0, bal = jer + gross;
+  const isSup = !!(p && p.supIds.length);
+  // বকেয়ার ভাষায়ঃ সাপ্লায়ারের ক্রেঃ = আমরা দেব (বকেয়া), ডেঃ = অগ্রিম; কাস্টমারের উল্টো
+  const dueTxt = function (v) {
+    const r = Math.round((Number(v) || 0) * 100) / 100;
+    if (!r) return M(0);
+    const owe = isSup ? r < 0 : r > 0;
+    return M(Math.abs(r)) + (owe ? '' : ' (অগ্রিম)');
+  };
+  const _n = new Date(), _p = function (x) { return String(x).padStart(2, '0'); };
+  const stamp = _p(_n.getDate()) + '-' + _p(_n.getMonth() + 1) + '-' + _n.getFullYear() + ' ' + _p(_n.getHours() % 12 || 12) + ':' + _p(_n.getMinutes()) + (_n.getHours() < 12 ? ' AM' : ' PM');
+  const coName = co.CompanyNameBn || 'জি মেটাল ওয়ার্কস';
+  const coAddr = co.AddressBn || 'আলামপুর ব্রীজঘাট বাজার, কোটচাঁদপুর রোড, মহেশপুর, ঝিনাইদহ।';
+  const draft = rec.Status !== 'Posted';
+  const partyName = p ? p.name : (rec.PartyID || '—');
+  const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>পেমেন্ট ভাউচার — ${escapeHtml(rec.PayID)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Anek+Bangla:wght@400;500;600;700&family=Oswald:wght@600;700&display=swap" rel="stylesheet">
+<style>${VOUCHER_TABLE_CSS}
+  .pay-words{margin-top:6px;font-size:10px;border:.5px dashed #777;border-radius:5px;padding:3px 8px;position:relative;z-index:1;}</style>
+<style id="pg">@page{size:A5 portrait;margin:8mm;}</style></head><body>
+  <div class="toolbar">
+    <button class="primary" onclick="window.print()">🖨️ প্রিন্ট</button>
+    <button onclick="document.getElementById('pg').textContent='@page{size:A5 portrait;margin:8mm;}';document.body.classList.remove('a5l');">📄 A5 খাড়া</button>
+    <button onclick="document.getElementById('pg').textContent='@page{size:A5 landscape;margin:8mm;}';document.body.classList.add('a5l');">📄 A5 আড়াআড়ি</button>
+  </div>
+  <div class="voucher-watermark">gmetal</div>
+  <div class="v-co">
+    <div class="v-logo">${co.LogoURL ? `<img src="${attr(co.LogoURL)}" alt="">` : '<span>লোগো</span>'}</div>
+    <div class="v-co-info">
+      <div class="v-co-name">${escapeHtml(coName)}</div>
+      <div class="v-co-addr">${escapeHtml(coAddr)}</div>
+      ${co.Phone ? `<div class="v-co-mob">মোবাইলঃ <span class="en">${escapeHtml(co.Phone)}</span></div>` : ''}
+      <div class="v-type">পেমেন্ট ভাউচার</div>
+    </div>
+    <div class="v-meta">
+      <div class="v-print">প্রিন্টঃ <span class="en">${escapeHtml(stamp)}</span></div>
+      <div class="v-meta-row"><span>ভাউচার নংঃ</span><b class="en">${escapeHtml(rec.PayID || '')}</b></div>
+      <div class="v-meta-row"><span>তারিখঃ</span><b class="en">${escapeHtml(formatShortDate(rec.Date))}</b></div>
+      ${draft ? '<div class="v-draft">খসড়া — এখনো পোস্ট হয়নি</div>' : ''}
+    </div>
+  </div>
+  <div class="v-party">
+    <div class="v-party-name"><span class="lbl">${isSup ? 'সাপ্লায়ারের নামঃ' : 'পার্টির নামঃ'}</span> ${escapeHtml(partyName)}</div>
+    <div class="v-party-sub">
+      <span>ঠিকানাঃ ${escapeHtml((p && p.address) || '—')}</span>
+      <span>মোবাইলঃ <span class="en">${escapeHtml((p && p.phone) || '—')}</span></span>
+      ${p && p.zone ? `<span>জোনঃ ${escapeHtml(p.zone)}</span>` : ''}
+      ${ctx.partyBank ? `<span>ব্যাংকঃ ${escapeHtml(ctx.partyBank.name || '—')} · হিসাব নংঃ <span class="en">${escapeHtml(ctx.partyBank.acc || '—')}</span></span>` : ''}
+    </div>
+  </div>
+  <table class="items-table">
+    <colgroup><col style="width:8%"><col style="width:44%"><col style="width:26%"><col style="width:22%"></colgroup>
+    <thead><tr><th>ক্রঃ</th><th>বিবরণ</th><th>মেথড</th><th>টাকা</th></tr></thead>
+    <tbody><tr><td>${B(1)}</td><td class="l">${escapeHtml(rec.Narration || 'পরিশোধ')}</td><td>${escapeHtml(ctx.accLabel || '—')}</td><td class="r">${M(gross)}</td></tr></tbody>
+    <tbody>
+      <tr class="total-row"><td colspan="3" class="r">মোট পরিমানঃ</td><td class="r">${M(gross)}</td></tr>
+      ${disc ? `<tr><td colspan="3" class="r">ডিসকাউন্টঃ</td><td class="r">− ${M(disc)}</td></tr>` : ''}
+      <tr class="grand-all"><td colspan="3" class="r">নীট প্রদানঃ (${escapeHtml(ctx.accLabel || '')})</td><td class="r">${M(net)}</td></tr>
+    </tbody>
+  </table>
+  <div class="v-sum"><table>
+    <tr><td class="k" colspan="3">পূর্বের জেরঃ</td><td class="v">${DC(jer)}</td></tr>
+    <tr><td class="k" colspan="3">ভাউচার প্রদানঃ${disc ? ' (ডিসকাউন্টসহ)' : ''}</td><td class="v">${DC(gross)}</td></tr>
+    <tr class="thick big"><td class="k" colspan="3">বর্তমান জেরঃ</td><td class="v">${DC(bal)}</td></tr>
+    <tr><td class="k" colspan="3">${(isSup ? bal < 0 : bal > 0) || !Math.round(bal * 100) ? 'অবশিষ্ট বকেয়াঃ' : 'অগ্রিমঃ'}</td><td class="v">${dueTxt(bal)}</td></tr>
+  </table></div>
+  <div class="sign-row"><div>প্রাপকের স্বাঃ</div><div>অথরাইজেশন স্বাঃ<br>${escapeHtml(currentUser ? (currentUser.FullName || '') : '')}</div><div>প্রস্তুতকারীর স্বাঃ<br>${escapeHtml(currentUser ? (currentUser.FullName || '') : '')}</div></div>
+</body></html>`;
+  w.document.open(); w.document.write(html); w.document.close();
+}
+
 async function renderPaymentVoucherPage(content) {
   const P = 'payv';
   delete listCache.Customers; delete listCache.Suppliers;   // নতুন পার্টি সাথে সাথে আসে
-  const [custs, sups, accsAll] = await Promise.all([cachedList('Customers'), cachedList('Suppliers'), cachedList('BankCashAccounts')]);
+  const [custs, sups, accsAll, set] = await Promise.all([cachedList('Customers'), cachedList('Suppliers'), cachedList('BankCashAccounts'), vfsLoad('payv')]);
   const cashId = await cashAccountId();
   const today = ownToday();
   const fyStart = await getFiscalYearStart(today);
@@ -3757,6 +3896,7 @@ async function renderPaymentVoucherPage(content) {
   const r2 = function (x) { return Math.round(n2(x) * 100) / 100; };
   const fmt = function (x) { return n2(x).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
   const $ = function (s) { return document.getElementById(P + s); };
+  const on = function (k) { return set[k] !== false; };   // পেমেন্ট ভাউচার সেটিং — টিক থাকলে দেখা যায়
 
   /* ---- নগদ / ব্যাংক অ্যাকাউন্ট ---- */
   const accs = (accsAll || []).filter(function (a) { return a.Status !== 'Deleted'; });
@@ -3765,9 +3905,29 @@ async function renderPaymentVoucherPage(content) {
     if (a.BankAccID === cashId) return t('নগদ', 'Cash');
     return (a.Type === 'Cash' ? t('নগদ', 'Cash') : t('ব্যাংক', 'Bank')) + ' — ' + (a.AccountName || a.BankAccID);
   };
+  const accLabelBn = function (id) {   // প্রিন্ট সবসময় বাংলায়
+    const a = accMap[id]; if (!a) return id || '—';
+    if (a.BankAccID === cashId) return 'নগদ';
+    return (a.Type === 'Cash' ? 'নগদ' : 'ব্যাংক') + ' — ' + (a.AccountName || a.BankAccID);
+  };
   const accMap = {}; accs.forEach(function (a) { accMap[a.BankAccID] = a; });
-  const methodList = [accMap[cashId] || { BankAccID: cashId, AccountName: 'নগদ', Type: 'Cash' }].concat(accs.filter(function (a) { return a.BankAccID !== cashId; }));
-  if (!accMap[cashId]) accMap[cashId] = methodList[0];
+  if (!accMap[cashId]) accMap[cashId] = { BankAccID: cashId, AccountName: 'নগদ', Type: 'Cash' };
+  const ownBanks = accs.filter(function (a) { return a.BankAccID !== cashId && a.Type !== 'Cash'; });   // পপ-আপে "নিজের ব্যাংক"
+  /* প্রদানের ধরনঃ Cash = নগদ · CashToPartyBank = নগদ টু সাপ্লায়ার ব্যাংক · OwnBankToPartyBank = নিজের ব্যাংক টু সাপ্লায়ার ব্যাংক */
+  const pmOf = function (rec) {   // পুরনো ভাউচারে PayMethod নেই — অ্যাকাউন্ট দেখে
+    if (rec && rec.PayMethod) return rec.PayMethod;
+    const a = rec ? accMap[rec.BankCashAccID] : null;
+    return (rec && rec.BankCashAccID && rec.BankCashAccID !== cashId && a && a.Type !== 'Cash') ? 'OwnBankToPartyBank' : 'Cash';
+  };
+  const partyWord = function (p, bnOnly) { const sup = p ? p.supIds.length > 0 : true; return bnOnly ? (sup ? 'সাপ্লায়ার' : 'কাস্টমার') : (sup ? t('সাপ্লায়ার', 'Supplier') : t('কাস্টমার', 'Customer')); };
+  const pmLabel = function (pm, accId, p, bnOnly) {
+    const T = bnOnly ? function (b) { return b; } : t, w = partyWord(p, bnOnly);
+    if (pm === 'CashToPartyBank') return T('ব্যাংক — নগদ টু ', 'Bank — Cash to ') + w + T(' ব্যাংক', ' bank');
+    if (pm === 'OwnBankToPartyBank') { const a = accMap[accId]; return T('ব্যাংক — নিজের ব্যাংক', 'Bank — Own bank') + (a ? ' (' + (a.AccountName || accId) + ')' : '') + T(' টু ', ' to ') + w + T(' ব্যাংক', ' bank'); }
+    if (pm === 'Bank') return T('ব্যাংক — বিবরণ দেওয়া হয়নি', 'Bank — details not given');
+    if (accId && accId !== cashId && accMap[accId]) return bnOnly ? accLabelBn(accId) : accLabel(accMap[accId]);   // পুরনো — অন্য নগদ অ্যাকাউন্ট
+    return T('নগদ', 'Cash');
+  };
 
   /* ---- পার্টি — শুধু সাপ্লায়ার ও কাস্টমার; একই কোড + একই নাম = এক পার্টি (পার্টি লেজারের নিয়মে) ---- */
   const normName = function (x) { return String(x || '').replace(/\s+/g, ' ').trim().toLowerCase(); };
@@ -3778,9 +3938,9 @@ async function renderPaymentVoucherPage(content) {
     if (!id || id === 'CUS-CASH' || id === 'SUP-CASH') return;   // নগদ (ওয়াক-ইন) পার্টি পেমেন্ট ভাউচারে নয়
     const label = r.CompanyName || r.Name || id;
     const key = r.Code ? r.Code + '|' + normName(label) : id;
-    if (!combined[key]) combined[key] = { key: key, name: label, zone: '', phone: '', code: r.Code || '', supIds: [], custIds: [] };
+    if (!combined[key]) combined[key] = { key: key, name: label, zone: '', phone: '', address: '', bankName: '', bankAcc: '', code: r.Code || '', supIds: [], custIds: [] };
     const p = combined[key];
-    if (!p.zone) p.zone = r.Zone || ''; if (!p.phone) p.phone = r.Phone || r.Mobile || '';
+    if (!p.zone) p.zone = r.Zone || ''; if (!p.phone) p.phone = r.Phone || r.Mobile || ''; if (!p.address) p.address = r.Address || ''; if (!p.bankName) p.bankName = r.BankName || ''; if (!p.bankAcc) p.bankAcc = r.BankAccountNumber || '';
     (kind === 'C' ? p.custIds : p.supIds).push(id);
   };
   (sups || []).forEach(function (s) { addParty(s, 'S'); });
@@ -3799,34 +3959,24 @@ async function renderPaymentVoucherPage(content) {
   /* ---- পেজ ---- */
   const H = function (bn, en) { return `<th>${t(bn, en)}</th>`; };
   const psCell = function (key, extra) { return `<td class="ps ${extra || ''}"><div class="vps-val" id="${P}_Ps${key}Box"><b id="${P}_Ps${key}">0.00</b><span id="${P}_Ps${key}T" class="vps-tag zero"></span></div></td>`; };
-  const methodOpts = methodList.map(function (a) { return `<option value="${attr(a.BankAccID)}">${escapeHtml(accLabel(a))}</option>`; }).join('');
+  const methodOpts = `<option value="Cash">${t('নগদ', 'Cash')}</option>` + (on('bank') ? `<option value="Bank">${t('ব্যাংক', 'Bank')}</option>` : '');   // সেটিং-এ ব্যাংক বন্ধ থাকলে শুধু নগদ
   content.innerHTML = `
     <style>${SV_TABLE_CSS}${SV_PANEL_CSS}${VOUCHER_PSUM_CSS}${PAYV_CSS}</style>
     <div class="payv" id="${P}_Root"><div class="payv-in" id="${P}_Form" data-keynav="1">
       <div class="payv-freeze">
         ${voucherNavHeader(P, t('পেমেন্ট ভাউচার', 'Payment Voucher'))}
-        <table class="svt"><colgroup><col><col style="width:40%"><col></colgroup>
-          <tr class="h">${H('পার্টি জোন', 'Party zone')}${H('পার্টি নাম', 'Party name')}${H('পার্টি মোবাইল', 'Party mobile')}</tr>
-          <tr>
-            <td><select id="${P}_Zone">${zoneOpts(t('সব জোন', 'All zones'))}</select></td>
-            <td class="tl"><select id="${P}_Party"></select></td>
-            <td><input id="${P}_Mobile" class="ro" readonly tabindex="-1"></td>
-          </tr>
-        </table>
-        <table class="svt"><colgroup><col><col style="width:40%"><col></colgroup>
-          <tr class="h">${H('পার্টি জের', 'Party opening')}${H('ভাউচার প্রদান', 'Voucher payment')}${H('ভাউচার ব্যালান্স', 'Voucher balance')}</tr>
-          <tr>${psCell('Jer')}${psCell('Vch')}${psCell('Bal', 'pvx-bal')}</tr>
-        </table>
+        <table class="svt"><tbody id="${P}_L1Body"></tbody></table>
+        <table class="svt" id="${P}_L2"><tbody id="${P}_L2Body"></tbody></table>
       </div>
       <table class="svt" id="${P}_L3"><tbody id="${P}_L3Body"></tbody></table>
       <div class="pvx-mode" id="${P}_Mode" style="display:none;"></div>
 
-      <div class="pvx-sec"><table class="svp" data-rowsel="1"><colgroup><col style="width:34px"><col><col style="width:32%"></colgroup>
+      <div class="pvx-sec" id="${P}_PreviewSec"${on('preview') ? '' : ' style="display:none;"'}><table class="svp" data-rowsel="1"><colgroup><col style="width:34px"><col><col style="width:32%"></colgroup>
         <thead><tr><th colspan="3">${t('লাইভ প্রিভিউ পেনেল', 'Live preview panel')}</th></tr>
           <tr class="h2"><th>${t('ক্রঃ', 'Sl')}</th><th>${t('বিবরন', 'Description')}</th><th>${t('টাকা', 'Amount')}</th></tr></thead>
         <tbody id="${P}_Preview"></tbody></table></div>
 
-      <div class="pvx-sec">
+      <div class="pvx-sec" id="${P}_ListSec"${on('list') ? '' : ' style="display:none;"'}>
         <div class="pvx-lh"><h4>📋 ${t('ভাউচার তালিকা', 'Voucher list')}</h4>
           <select id="${P}_LZone" title="${attr(t('জোন', 'Zone'))}">${zoneOpts(t('সব জোন', 'All zones'))}</select>
           <label>${t('হইতে', 'From')} <input type="date" id="${P}_LFrom" value="${attr(fyStart)}"></label>
@@ -3838,49 +3988,74 @@ async function renderPaymentVoucherPage(content) {
       </div>
     </div></div>`;
 
-  /* ---- ৩য় লাইন — ডেস্কটপে এক লাইনে ৮ ঘর, মোবাইলে ৪টা করে দুই লাইন (ঘরগুলো সরানো হয়, নতুন করে বানানো নয়) ---- */
-  const L3 = [
-    [t('তারিখ', 'Date'), `<input type="date" id="${P}_Date" value="${attr(today)}">`, 'date'],
-    [t('নম্বর', 'No'), `<input id="${P}_No" class="ro" readonly tabindex="-1">`, ''],
-    [t('মেথড', 'Method'), `<select id="${P}_Method">${methodOpts}</select>`, ''],
-    [t('পরিমান(৳)', 'Amount(৳)'), `<input type="number" step="any" min="0" inputmode="decimal" id="${P}_Amount" placeholder="0.00">`, ''],
-    [t('ডিসকাউন্ট(-)', 'Discount(-)'), `<input type="number" step="any" min="0" inputmode="decimal" id="${P}_Disc" placeholder="0.00">`, ''],
-    [t('পরিমান(৳)', 'Amount(৳)'), `<input id="${P}_Net" class="ro vbold" readonly tabindex="-1" placeholder="0.00">`, ''],
-    [t('বিবরন', 'Narration'), `<input id="${P}_Note" autocomplete="off">`, ''],
-    [t('বাতিল/ সেভ', 'Cancel/ Save'), `<div class="pvx-btns"><button type="button" class="pvx-cancel" id="${P}_Cancel" data-perm-safe="1">✖ ${t('বাতিল', 'Cancel')}</button><button type="button" class="pvx-save" id="${P}_Save">💾 ${t('সেভ', 'Save')}</button></div>`, '']
-  ];
-  const heads = [], cells = [];
-  L3.forEach(function (c) {
-    const th = document.createElement('th'); th.innerHTML = c[0]; heads.push(th);
-    const td = document.createElement('td'); td.innerHTML = c[1]; cells.push(td);
-  });
-  let l3Per = 0;
-  const layoutL3 = function () {
-    const per = (window.matchMedia && window.matchMedia('(max-width: 760px)').matches) ? 4 : 8;
-    if (per === l3Per) return; l3Per = per;
-    const body = $('_L3Body'); if (!body) return;
-    body.innerHTML = '';
-    for (let i = 0; i < heads.length; i += per) {
-      const hr = document.createElement('tr'); hr.className = 'h';
-      const vr = document.createElement('tr');
-      heads.slice(i, i + per).forEach(function (h) { hr.appendChild(h); });
-      cells.slice(i, i + per).forEach(function (c) { vr.appendChild(c); });
-      body.appendChild(hr); body.appendChild(vr);
-    }
+  /* ---- ঘরগুলো — সেটিং-এ টিক না থাকা ঘর বাদ; ডেস্কটপে এক লাইনে, মোবাইলে ৪টা করে (ঘর সরানো হয়, নতুন করে বানানো নয়) ---- */
+  const mk = function (key, head, html, cls) {
+    const th = document.createElement('th'); th.innerHTML = head;
+    const td = document.createElement('td'); td.innerHTML = html;
+    if (cls) { th.className = cls; td.className = cls; }
+    return { key: key, th: th, td: td };
   };
-  layoutL3();
+  const mkPs = function (key, id, head, extra) {
+    const c = mk(key, head, '');   // td বদলে psCell
+    const tmp = document.createElement('tbody'); tmp.innerHTML = `<tr>${psCell(id, extra)}</tr>`;
+    c.td = tmp.querySelector('td');
+    return c;
+  };
+  const L1 = [
+    mk('zone', t('পার্টি জোন', 'Party zone'), `<select id="${P}_Zone">${zoneOpts(t('সব জোন', 'All zones'))}</select>`),
+    mk('party', t('পার্টি নাম', 'Party name'), `<select id="${P}_Party"></select>`, 'tl wide'),
+    mk('mobile', t('পার্টি মোবাইল', 'Party mobile'), `<input id="${P}_Mobile" class="ro" readonly tabindex="-1">`)
+  ];
+  const L2 = [
+    mkPs('jer', 'Jer', t('পার্টি জের', 'Party opening')),
+    mkPs('vch', 'Vch', t('ভাউচার প্রদান', 'Voucher payment')),
+    mkPs('vbal', 'Bal', t('ভাউচার ব্যালান্স', 'Voucher balance'), 'pvx-bal')
+  ];
+  const L3 = [
+    mk('date', t('তারিখ', 'Date'), `<input type="date" id="${P}_Date" value="${attr(today)}">`),
+    mk('no', t('নম্বর', 'No'), `<input id="${P}_No" class="ro" readonly tabindex="-1">`),
+    mk('method', t('মেথড', 'Method'), `<select id="${P}_Method">${methodOpts}</select>`),
+    mk('amount', t('পরিমান(৳)', 'Amount(৳)'), `<input type="number" step="any" min="0" inputmode="decimal" id="${P}_Amount" placeholder="0.00">`),
+    mk('disc', t('ডিসকাউন্ট(-)', 'Discount(-)'), `<input type="number" step="any" min="0" inputmode="decimal" id="${P}_Disc" placeholder="0.00">`),
+    mk('net', t('পরিমান(৳)', 'Amount(৳)'), `<input id="${P}_Net" class="ro vbold" readonly tabindex="-1" placeholder="0.00">`),
+    mk('note', t('বিবরন', 'Narration'), `<input id="${P}_Note" autocomplete="off">`),
+    mk('save', on('cancel') ? t('বাতিল/ সেভ', 'Cancel/ Save') : t('সেভ', 'Save'), `<div class="pvx-btns"><button type="button" class="pvx-cancel" id="${P}_Cancel" data-perm-safe="1"${on('cancel') ? '' : ' style="display:none;"'}>✖ ${t('বাতিল', 'Cancel')}</button><button type="button" class="pvx-save" id="${P}_Save">💾 ${t('সেভ', 'Save')}</button></div>`)
+  ];
+  const ALWAYS = { party: 1, amount: 1, save: 1 };
+  const shown = function (list) { return list.filter(function (c) { return ALWAYS[c.key] || on(c.key); }); };
+  const hiddenHold = document.createElement('div'); hiddenHold.style.display = 'none';   // বন্ধ ঘর — DOM-এ থাকে (মান পড়া যায়), দেখা যায় না
+  $('_Root').appendChild(hiddenHold);
+  [L1, L2, L3].forEach(function (list) { list.forEach(function (c) { if (!(ALWAYS[c.key] || on(c.key))) { hiddenHold.appendChild(c.th); hiddenHold.appendChild(c.td); } }); });
+  if (!shown(L2).length) $('_L2').style.display = 'none';
+  let perNow = 0;
+  const layout = function () {
+    const per = (window.matchMedia && window.matchMedia('(max-width: 760px)').matches) ? 4 : 8;
+    if (per === perNow) return; perNow = per;
+    [[L1, '_L1Body', 8], [L2, '_L2Body', 8], [L3, '_L3Body', per]].forEach(function (g) {
+      const body = $(g[1]); if (!body) return;
+      const list = shown(g[0]); body.innerHTML = '';
+      for (let i = 0; i < list.length; i += g[2]) {
+        const hr = document.createElement('tr'); hr.className = 'h';
+        const vr = document.createElement('tr');
+        const part = list.slice(i, i + g[2]);
+        part.forEach(function (c) { hr.appendChild(c.th); vr.appendChild(c.td); });
+        if (i > 0) for (let k = part.length; k < g[2]; k++) { hr.appendChild(document.createElement('th')); vr.appendChild(document.createElement('td')); }   // শেষ সারি ছোট হলে ফাঁকা ঘর — টেবিল সমান থাকে
+        body.appendChild(hr); body.appendChild(vr);
+      }
+    });
+  };
+  layout();
   if (window.enhanceDateInputs) window.enhanceDateInputs($('_Root'));   // দিন-মাস-বছর ঘর এখনই (পরে সরালেও সাথে যায়)
 
   /* ---- পাতার উচ্চতা — ভিতরে স্ক্রল, তাই উপরের অংশ ফ্রিজ থাকে (মোবাইলেও) ---- */
   const root = $('_Root');
   const sizeRoot = function () {
     if (!document.body.contains(root)) { window.removeEventListener('resize', onResize); return; }
-    const top = root.getBoundingClientRect().top + window.scrollY;
     const tb = document.querySelector('.topbar'), bar = document.getElementById('tabBar');
     const fixedTop = (tb ? tb.offsetHeight : 0) + (bar ? bar.offsetHeight : 0);
-    root.style.height = Math.max(320, window.innerHeight - Math.max(top - window.scrollY, fixedTop) - 6) + 'px';
+    root.style.height = Math.max(320, window.innerHeight - Math.max(root.getBoundingClientRect().top, fixedTop) - 6) + 'px';
   };
-  const onResize = function () { layoutL3(); sizeRoot(); };
+  const onResize = function () { layout(); sizeRoot(); };
   window.addEventListener('resize', onResize);
   window.scrollTo(0, 0);
   setTimeout(sizeRoot, 0);
@@ -3888,10 +4063,14 @@ async function renderPaymentVoucherPage(content) {
   /* ---- অবস্থা ---- */
   let rows = [];          // সব ভাউচার (মোছা বাদ), তারিখ+নম্বরের ক্রমে
   let editRec = null;     // যেটা এডিট হচ্ছে (নতুন হলে null)
-  let jer = 0;            // পার্টি জের (এই ভাউচার বাদে)
+  let jer = 0;            // পার্টি জের (পোস্ট করা ভাউচারে — এর আগের ব্যালান্স)
   let balToken = 0;
   let dirty = false;
   let busy = false;
+  let bank = null;        // ব্যাংক পপ-আপে নিশ্চিত করা — {pm, accId, amt}
+  let cashAcc = cashId;   // নগদ — পুরনো ভাউচারে অন্য নগদ অ্যাকাউন্ট থাকলে সেটাই
+  const curPM = function () { return $('_Method').value === 'Bank' ? (bank ? bank.pm : 'Bank') : 'Cash'; };
+  const curAcc = function () { const pm = curPM(); return pm === 'OwnBankToPartyBank' ? bank.accId : pm === 'CashToPartyBank' ? cashId : cashAcc; };
 
   const fillPartyOptions = function (keepKey) {
     const z = $('_Zone').value;
@@ -3932,50 +4111,37 @@ async function renderPaymentVoucherPage(content) {
     putPs('Jer', p ? jer : 0, natural);
     putPs('Vch', gross, 1);
     putPs('Bal', p ? jer + gross : gross, natural);
-    renderPreview(p, gross, disc, net);
+    if (on('preview')) renderPreview(p, gross, disc, net);
   };
 
   const renderPreview = function (p, gross, disc, net) {
-    const acc = accMap[$('_Method').value];
+    const mLbl = pmLabel(curPM(), curAcc(), p);
     const no = $('_No').value || '';
     const dt = $('_Date').value ? isoToDmy($('_Date').value) : '—';
     const row = function (i, desc, amt, cls) { return `<tr class="${cls || ''}"><td class="c">${i}</td><td class="l">${desc}</td><td class="pvx-amt">${amt}</td></tr>`; };
     let h = '';
     h += row(1, `<b>${p ? escapeHtml(p.name) : '—'}</b>${p && p.zone ? ' <small>(' + escapeHtml(p.zone) + ')</small>' : ''}${p && p.phone ? ' <small>· ' + escapeHtml(p.phone) + '</small>' : ''}`, p ? escapeHtml(p.supIds.length ? (p.custIds.length ? t('সাপ্লায়ার+কাস্টমার', 'Supplier+Customer') : t('সাপ্লায়ার', 'Supplier')) : t('কাস্টমার', 'Customer')) : '');
     h += row(2, t('তারিখ', 'Date') + ': ' + dt + ' &nbsp;·&nbsp; ' + t('নম্বর', 'No') + ': ' + escapeHtml(no), '');
-    h += row(3, t('মেথড', 'Method'), escapeHtml(accLabel(acc)));
+    h += row(3, t('মেথড', 'Method') + (bank && curPM() !== 'Cash' && p && (p.bankName || p.bankAcc) ? ' <small>(' + escapeHtml(partyWord(p)) + t('ের ব্যাংকঃ ', ' bank: ') + escapeHtml([p.bankName, p.bankAcc].filter(Boolean).join(' · ')) + ')</small>' : ''), escapeHtml(mLbl));
     h += row(4, t('পার্টি জের', 'Party opening'), p ? drcr(jer) : '—');
     h += row(5, t('পরিমান (ভাউচার প্রদান)', 'Amount (voucher payment)'), fmt(gross));
     h += row(6, t('ডিসকাউন্ট (-)', 'Discount (-)'), disc ? '(-) ' + fmt(disc) : '—');
-    h += row(7, `<b>${t('নীট পরিমান', 'Net amount')} — ${escapeHtml(accLabel(acc))} ${t('থেকে প্রদান', 'paid')}</b>`, `<b>${fmt(net)}</b>`, 'tot');
+    h += row(7, `<b>${t('নীট পরিমান', 'Net amount')} — ${escapeHtml(mLbl)} ${t('প্রদান', 'paid')}</b>`, `<b>${fmt(net)}</b>`, 'tot');
     h += row(8, `<b>${t('ভাউচার ব্যালান্স', 'Voucher balance')}</b>`, `<b>${p ? drcr(jer + gross) : '—'}</b>`, 'grand');
     const note = $('_Note').value.trim();
     if (note) h += row(9, t('বিবরন', 'Narration') + ': ' + escapeHtml(note), '');
     $('_Preview').innerHTML = h;
   };
 
-  /* পার্টি জের — একই কোডের সাপ্লায়ার+কাস্টমার সব হিসাব মিলিয়ে; এডিটের সময় এই ভাউচারের নিজের এন্ট্রি বাদ */
+  /* পার্টি জের — নতুন/খসড়ায় বর্তমান ব্যালান্স; পোস্ট করা ভাউচারে ঐ ভাউচারের আগের ব্যালান্স */
   const loadBalance = async function () {
     const p = partyByKey[$('_Party').value];
     $('_Mobile').value = p ? (p.phone || '') : '';
     const my = ++balToken;
     jer = 0; calc();
     if (!p) return;
-    const ids = p.supIds.concat(p.custIds);
     let total = 0;
-    try {
-      const { data } = await supabaseClient.from('PartyLedger').select('id,PartyType,PartyID,Balance').in('PartyID', ids).order('id', { ascending: false });
-      const seen = {};
-      (data || []).forEach(function (e) {
-        const ok = (e.PartyType === 'Supplier' && p.supIds.indexOf(e.PartyID) !== -1) || (e.PartyType === 'Customer' && p.custIds.indexOf(e.PartyID) !== -1);
-        const k = e.PartyType + '|' + e.PartyID;
-        if (!ok || seen[k]) return; seen[k] = true; total += n2(e.Balance);
-      });
-      if (editRec && editRec.Status === 'Posted') {
-        const { data: own } = await supabaseClient.from('PartyLedger').select('Debit,Credit').eq('RefModule', 'PaymentVoucher').eq('RefID', editRec.PayID);
-        (own || []).forEach(function (e) { total -= n2(e.Debit) - n2(e.Credit); });
-      }
-    } catch (e) { total = 0; }
+    try { total = await payvPartyJer(p, editRec && editRec.Status === 'Posted' && partyOfRec(editRec) === p ? editRec.PayID : null); } catch (e) { total = 0; }
     if (my !== balToken) return;   // এর মধ্যে অন্য পার্টি বাছাই হয়েছে
     jer = total; calc();
   };
@@ -3983,9 +4149,10 @@ async function renderPaymentVoucherPage(content) {
   const modeBar = function () {
     const bar = $('_Mode');
     if (!editRec) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
-    bar.innerHTML = `<span>✏️ ${t('এডিট হচ্ছে', 'Editing')} — ${escapeHtml(editRec.PayID)} (${editRec.Status === 'Posted' ? t('পোস্ট করা — সেভে এডমিন পাসওয়ার্ড লাগবে', 'posted — admin password needed to save') : t('খসড়া', 'draft')})</span><button type="button" id="${P}_NewBtn" data-perm-safe="1">➕ ${t('নতুন ভাউচার', 'New voucher')}</button>`;
+    bar.innerHTML = `<span>✏️ ${t('এডিট হচ্ছে', 'Editing')} — ${escapeHtml(editRec.PayID)} (${editRec.Status === 'Posted' ? t('পোস্ট করা — সেভে এডমিন পাসওয়ার্ড লাগবে', 'posted — admin password needed to save') : t('খসড়া', 'draft')})</span>${on('print') ? `<button type="button" id="${P}_PrintBtn" data-perm-safe="1">👁️ ${t('প্রিন্ট প্রিভিউ', 'Print preview')}</button>` : ''}<button type="button" id="${P}_NewBtn" data-perm-safe="1">➕ ${t('নতুন ভাউচার', 'New voucher')}</button>`;
     bar.style.display = '';
     $('_NewBtn').addEventListener('click', function () { if (confirmDiscard()) resetForm(true); });
+    if ($('_PrintBtn')) $('_PrintBtn').addEventListener('click', function () { printRec(editRec); });
   };
 
   const confirmDiscard = function () { return !dirty || confirm(t('সেভ না করা পরিবর্তন আছে — বাদ দেবেন?', 'There are unsaved changes — discard them?')); };
@@ -3996,10 +4163,12 @@ async function renderPaymentVoucherPage(content) {
     $('_Mobile').value = '';
     $('_Date').value = today;
     $('_No').value = nextNo();
-    $('_Method').value = cashId;
+    $('_Method').value = 'Cash'; bank = null; cashAcc = cashId;
     $('_Amount').value = ''; $('_Disc').value = ''; $('_Note').value = '';
     modeBar(); calc(); wireNav(); markListCurrent();
-    if (focus && !(window.matchMedia && window.matchMedia('(max-width: 760px)').matches)) $('_Zone').focus();
+    if (focus && !(window.matchMedia && window.matchMedia('(max-width: 760px)').matches)) {
+      const f = on('zone') ? $('_Zone') : $('_Party'); if (f) f.focus();
+    }
   };
 
   const fillForm = function (rec) {
@@ -4010,15 +4179,28 @@ async function renderPaymentVoucherPage(content) {
     if (!p) showToast(t('এই ভাউচারের পার্টি তালিকায় নেই (মোছা/নগদ পার্টি?) — পার্টি বাছাই করে সেভ করুন।', 'This voucher\'s party is not in the list — pick a party and save.'), 'error');
     $('_Date').value = String(rec.Date || '').slice(0, 10);
     $('_No').value = rec.PayID || '';
-    if (rec.BankCashAccID && !$('_Method').querySelector(`option[value="${CSS.escape(rec.BankCashAccID)}"]`)) {
-      const o = document.createElement('option'); o.value = rec.BankCashAccID; o.textContent = rec.BankCashAccID; $('_Method').appendChild(o);
+    const pm = pmOf(rec);
+    if (pm !== 'Cash' && !$('_Method').querySelector('option[value="Bank"]')) {   // সেটিং-এ ব্যাংক বন্ধ, কিন্তু ভাউচারটা ব্যাংকের
+      const o = document.createElement('option'); o.value = 'Bank'; o.textContent = t('ব্যাংক', 'Bank'); $('_Method').appendChild(o);
     }
-    $('_Method').value = rec.BankCashAccID || cashId;
+    $('_Method').value = pm === 'Cash' ? 'Cash' : 'Bank';
+    bank = pm === 'Cash' ? null : { pm: pm, accId: pm === 'OwnBankToPartyBank' ? rec.BankCashAccID : cashId, amt: r2(rec.Amount) };
+    cashAcc = pm === 'Cash' ? (rec.BankCashAccID || cashId) : cashId;
     $('_Amount').value = n2(rec.Amount) ? n2(rec.Amount) : '';
     $('_Disc').value = n2(rec.Discount) ? n2(rec.Discount) : '';
     $('_Note').value = rec.Narration || '';
     modeBar(); calc(); loadBalance(); wireNav(); markListCurrent();
     root.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  /* ---- 👁️ প্রিন্ট প্রিভিউ (A5) ---- */
+  const printRec = async function (rec) {
+    if (!rec) return;
+    const p = partyOfRec(rec);
+    let j = 0;
+    try { j = await payvPartyJer(p, rec.Status === 'Posted' ? rec.PayID : null); } catch (e) { j = 0; }
+    const pm = pmOf(rec);
+    await payvPrint(rec, { party: p, accLabel: pmLabel(pm, rec.BankCashAccID, p, true), jer: j, partyBank: pm !== 'Cash' && p && (p.bankName || p.bankAcc) ? { name: p.bankName, acc: p.bankAcc } : null });
   };
 
   /* ---- ◀ ▶ ---- */
@@ -4075,14 +4257,14 @@ async function renderPaymentVoucherPage(content) {
       const p = partyOfRec(r), g = n2(r.Amount), d = n2(r.Discount), net = g - d;
       tg += g; tn += net;
       const name = p ? p.name : (r.PartyID || '—');
-      const sub = [p && p.zone ? p.zone : '', accLabel(accMap[r.BankCashAccID]) || r.BankCashAccID || '', d ? t('ডিসকাউন্ট ', 'Disc ') + fmt(d) : '', r.Narration || ''].filter(Boolean).map(escapeHtml).join(' · ');
+      const sub = [p && p.zone ? p.zone : '', pmLabel(pmOf(r), r.BankCashAccID, p), d ? t('ডিসকাউন্ট ', 'Disc ') + fmt(d) : '', r.Narration || ''].filter(Boolean).map(escapeHtml).join(' · ');
       const draft = r.Status !== 'Posted';
       return `<tr class="vk-PaymentVoucher${draft ? ' draft' : ''}" data-id="${attr(r.PayID)}">
         <td class="c">${i + 1}</td><td class="c">${isoToDmy(r.Date)}</td>
         <td class="c">${escapeHtml(r.PayID)}${draft ? ' <span class="badge-d">' + t('খসড়া', 'Draft') + '</span>' : ''}</td>
         <td class="l"><b>${escapeHtml(name)}</b>${sub ? '<small>' + sub + '</small>' : ''}</td>
         <td class="r">${fmt(g)}</td><td class="r">${fmt(net)}</td>
-        <td class="c"><button type="button" class="pvx-ic" data-ed="${attr(r.PayID)}" title="${attr(t('এডিট', 'Edit'))}">✏️</button><button type="button" class="pvx-ic" data-del="${attr(r.PayID)}" title="${attr(t('ডিলিট', 'Delete'))}">🗑️</button></td>
+        <td class="c">${on('print') ? `<button type="button" class="pvx-ic" data-pr="${attr(r.PayID)}" data-perm-safe="1" title="${attr(t('প্রিন্ট প্রিভিউ (A5)', 'Print preview (A5)'))}">👁️</button>` : ''}<button type="button" class="pvx-ic" data-ed="${attr(r.PayID)}" title="${attr(t('এডিট', 'Edit'))}">✏️</button><button type="button" class="pvx-ic" data-del="${attr(r.PayID)}" title="${attr(t('ডিলিট', 'Delete'))}">🗑️</button><button type="button" class="pvx-ic" data-post="${attr(r.PayID)}" title="${attr(draft ? t('পোস্ট', 'Post') : t('পোস্ট হয়ে গেছে', 'Already posted'))}"${draft ? '' : ' disabled'}>💾</button></td>
       </tr>`;
     }).join('');
     $('_List').innerHTML = html || `<tr><td colspan="7" class="c" style="padding:14px;color:var(--text-muted);">${t('এই সময়ে কোনো পেমেন্ট ভাউচার নেই।', 'No payment vouchers in this period.')}</td></tr>`;
@@ -4094,10 +4276,24 @@ async function renderPaymentVoucherPage(content) {
     }
   };
   $('_List').addEventListener('click', async function (e) {
-    const ed = e.target.closest('[data-ed]'), del = e.target.closest('[data-del]');
+    const ed = e.target.closest('[data-ed]'), del = e.target.closest('[data-del]'), pr = e.target.closest('[data-pr]'), po = e.target.closest('[data-post]');
+    const recOf = function (el, a) { return rows.find(function (r) { return r.PayID === el.getAttribute(a); }); };
+    if (pr) { const rec = recOf(pr, 'data-pr'); if (rec) printRec(rec); return; }
     if (ed) {
-      const rec = rows.find(function (r) { return r.PayID === ed.getAttribute('data-ed'); });
+      const rec = recOf(ed, 'data-ed');
       if (rec && (!editRec || editRec.PayID !== rec.PayID) && confirmDiscard()) fillForm(rec);
+      return;
+    }
+    if (po) {
+      const rec = recOf(po, 'data-post'); if (!rec || rec.Status === 'Posted') return;
+      if (!confirm(t('ভাউচার ', 'Post voucher ') + rec.PayID + t(' পোস্ট করবেন?', '?'))) return;
+      try {
+        await api('postDocument', { docType: 'PaymentVoucher', docId: rec.PayID });
+        showToast(t('পোস্ট হয়েছে ✅ ', 'Posted ✅ ') + rec.PayID, 'success');
+        await loadRows();
+        if (editRec && editRec.PayID === rec.PayID) { const nr = rows.find(function (r) { return r.PayID === rec.PayID; }); if (nr) fillForm(nr); } else wireNav();
+        renderList(rec.PayID);
+      } catch (err) { showToast(err.message, 'error'); }
       return;
     }
     if (del) {
@@ -4118,10 +4314,15 @@ async function renderPaymentVoucherPage(content) {
       return id ? supabaseClient.from('PaymentVoucher').update(r).eq('PayID', id).select().single()
                 : supabaseClient.from('PaymentVoucher').insert(r).select().single();
     };
-    let res = await go(rec);
-    if (res.error && /Discount/i.test(res.error.message || '')) {   // 37 নম্বর SQL এখনো চালানো হয়নি
-      if (n2(rec.Discount) > 0) throw new Error(t('ডিসকাউন্টের ঘর ডেটাবেসে নেই — আগে Supabase-এ 37 নম্বর SQL চালান।', 'The Discount column is missing — run SQL 37 in Supabase first.'));
-      const r = Object.assign({}, rec); delete r.Discount; res = await go(r);
+    let r = Object.assign({}, rec), res = await go(r);
+    for (let k = 0; k < 2 && res.error; k++) {
+      const m = res.error.message || '';
+      if (/Discount/i.test(m) && 'Discount' in r) {   // 37 নম্বর SQL এখনো চালানো হয়নি
+        if (n2(r.Discount) > 0) throw new Error(t('ডিসকাউন্টের ঘর ডেটাবেসে নেই — আগে Supabase-এ 37 নম্বর SQL চালান।', 'The Discount column is missing — run SQL 37 in Supabase first.'));
+        delete r.Discount;
+      } else if (/PayMethod/i.test(m) && 'PayMethod' in r) delete r.PayMethod;   // 38 নম্বর SQL না থাকলে — ধরনটা ছাড়া (পোস্টিং ঠিকই থাকে)
+      else break;
+      res = await go(r);
     }
     if (res.error) throw new Error(res.error.message);
     return res.data;
@@ -4129,16 +4330,16 @@ async function renderPaymentVoucherPage(content) {
   const save = async function () {
     if (busy) return;
     const p = partyByKey[$('_Party').value];
-    const date = $('_Date').value, method = $('_Method').value;
-    const gross = r2($('_Amount').value), disc = r2($('_Disc').value);
-    const fail = function (msg, el) { showToast(msg, 'error'); if (el) el.focus(); };
+    const date = $('_Date').value || (editRec ? String(editRec.Date || '').slice(0, 10) : today);
+    const gross = r2($('_Amount').value), disc = on('disc') ? r2($('_Disc').value) : (editRec ? r2(editRec.Discount) : 0);
+    const fail = function (msg, el) { showToast(msg, 'error'); if (el && el.offsetParent !== null) el.focus(); };
     if (!p) return fail(t('পার্টি বাছাই করুন।', 'Select a party.'), $('_Party'));
     if (!date) return fail(t('তারিখ দিন (দিন-মাস-বছর)।', 'Enter the date (dd-mm-yyyy).'), document.querySelector('#' + P + '_L3 .dmy-in') || $('_Date'));
-    if (!method) return fail(t('মেথড বাছাই করুন।', 'Select a method.'), $('_Method'));
     if (!(gross > 0)) return fail(t('পরিমান দিন।', 'Enter the amount.'), $('_Amount'));
     if (disc < 0 || disc > gross) return fail(t('ডিসকাউন্ট পরিমানের চেয়ে বেশি হতে পারবে না।', 'Discount cannot exceed the amount.'), $('_Disc'));
+    if ($('_Method').value === 'Bank' && (!bank || bank.amt !== gross)) { openBankPopup(save); return; }   // ব্যাংক — আগে পপ-আপে নিশ্চিত, তারপর সেভ
     const pr = primaryOf(p);
-    const data = { Date: date, PartyType: pr[0], PartyID: pr[1], BankCashAccID: method, Amount: gross, Discount: disc, Narration: $('_Note').value.trim() };
+    const data = { Date: date, PartyType: pr[0], PartyID: pr[1], BankCashAccID: curAcc(), PayMethod: curPM(), Amount: gross, Discount: disc, Narration: $('_Note').value.trim() };
     const btn = $('_Save');
     busy = true; btn.disabled = true;
     try {
@@ -4172,6 +4373,87 @@ async function renderPaymentVoucherPage(content) {
   $('_Save').addEventListener('click', save);
   $('_Cancel').addEventListener('click', function () { if (confirmDiscard()) resetForm(true); });
 
+  /* ---- ব্যাংক পপ-আপ (ক্রয়/বিক্রয় ভাউচারের মত) — মেথডে ব্যাংক + পরিমান দিলে খোলে ---- */
+  let popAfter = null;   // নিশ্চিত করার পর যা হবে (সেভ বোতাম থেকে খুললে = সেভ)
+  const openBankPopup = function (after) {
+    const amt = r2($('_Amount').value);
+    if (document.getElementById(P + '_BankPop')) { if (after) popAfter = after; return; }   // আগেই খোলা (যেমন পরিমান থেকে বেরোতেই) — সেভ চাপলে নিশ্চিতের পর সেভ
+    if (!(amt > 0)) return;
+    popAfter = after || null;
+    const p = partyByKey[$('_Party').value];
+    const w = partyWord(p);
+    const cur = bank || { pm: 'CashToPartyBank', accId: '' };
+    const overlay = document.createElement('div');
+    overlay.id = P + '_BankPop';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+    overlay.innerHTML = `
+      <div style="background:var(--surface);border-radius:12px;max-width:380px;width:100%;padding:20px;max-height:90vh;overflow-y:auto;">
+        <h3 style="margin:0 0 14px;font-size:15px;">${t('ব্যাংক প্রদানের বিবরণ', 'Bank Payment Details')}</h3>
+        <div class="field"><label>${t('পরিমাণ', 'Amount')}</label><input value="৳ ${fmt(amt)}" readonly style="background:var(--bg);"></div>
+        <div class="field"><label>${t('প্রদানের ধরন', 'Payment Method')} *</label>
+          <select id="${P}_PopMethod" data-order="0">
+            <option value="CashToPartyBank"${cur.pm === 'CashToPartyBank' ? ' selected' : ''}>${t('নগদ টু ', 'Cash to ')}${escapeHtml(w)}${t(' ব্যাংক', ' Bank')}</option>
+            <option value="OwnBankToPartyBank"${cur.pm === 'OwnBankToPartyBank' ? ' selected' : ''}>${t('নিজের ব্যাংক টু ', 'Our Bank to ')}${escapeHtml(w)}${t(' ব্যাংক', ' Bank')}</option>
+          </select></div>
+        <div class="field" id="${P}_PopOurBankField" style="display:none;"><label>${t('আমাদের ব্যাংক', 'Our Bank')} *</label>
+          <select id="${P}_PopBankAcc" data-order="1"><option value="">—</option>${ownBanks.map(function (a) { return `<option value="${attr(a.BankAccID)}"${cur.accId === a.BankAccID ? ' selected' : ''}>${escapeHtml(a.AccountName || a.BankAccID)}</option>`; }).join('')}</select></div>
+        <div class="field"><label>${escapeHtml(w)}${t('ের ব্যাংক', '’s Bank')}</label><input value="${attr((p && p.bankName) || t('তথ্য নেই', 'No info'))}" readonly style="background:var(--bg);"></div>
+        <div class="field"><label>${t('অ্যাকাউন্ট নম্বর', 'Account No')}</label><input value="${attr((p && p.bankAcc) || t('তথ্য নেই', 'No info'))}" readonly style="background:var(--bg);"></div>
+        <div class="field"><label>${t('বিবরণ/নোট', 'Note')} *</label><input id="${P}_PopNote" data-order="2" value="${attr($('_Note').value)}" placeholder="${attr(t('যেমন: বকেয়া পরিশোধ', 'e.g. Payment of dues'))}" autocomplete="off"></div>
+        <div style="display:flex;gap:8px;margin-top:16px;">
+          <button type="button" id="${P}_PopCancel" class="btn" style="flex:1;" data-perm-safe="1">${t('বাতিল', 'Cancel')}</button>
+          <button type="button" id="${P}_PopConfirm" data-order="3" class="btn btn-primary" style="flex:1;" data-perm-safe="1">${t('নিশ্চিত করুন', 'Confirm')}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const g = function (id) { return document.getElementById(P + id); };
+    const toggleOwn = function () { g('_PopOurBankField').style.display = g('_PopMethod').value === 'OwnBankToPartyBank' ? '' : 'none'; };
+    g('_PopMethod').addEventListener('change', toggleOwn); toggleOwn();
+    // Enter = পরের ঘর (শেষে নিশ্চিত), Escape = আগের ঘর (প্রথমে বাতিল)
+    const keyNav = function (e) {
+      if (e.key !== 'Enter' && e.key !== 'Escape') return;
+      if (!overlay.contains(document.activeElement)) return;
+      const fields = Array.from(overlay.querySelectorAll('[data-order]')).filter(function (el) { return el.offsetParent !== null; });
+      const i = fields.indexOf(document.activeElement); if (i === -1) return;
+      e.preventDefault(); e.stopPropagation();
+      if (e.key === 'Enter') { if (fields[i + 1]) fields[i + 1].focus(); else g('_PopConfirm').click(); }
+      else if (fields[i - 1]) fields[i - 1].focus(); else g('_PopCancel').click();
+    };
+    document.addEventListener('keydown', keyNav, true);
+    const close = function () { document.removeEventListener('keydown', keyNav, true); overlay.remove(); };
+    g('_PopCancel').addEventListener('click', function () {
+      close(); popAfter = null;
+      if (bank) $('_Amount').value = bank.amt;   // আগে নিশ্চিত করা ছিল — সেই পরিমানে ফেরত
+      else $('_Amount').value = '';
+      calc(); $('_Amount').focus();
+    });
+    g('_PopConfirm').addEventListener('click', function () {
+      const pm = g('_PopMethod').value, acc = g('_PopBankAcc').value, note = g('_PopNote').value.trim();
+      if (pm === 'OwnBankToPartyBank' && !acc) { showToast(t('আমাদের ব্যাংক বাছাই করুন।', 'Select our bank.'), 'error'); g('_PopBankAcc').focus(); return; }
+      if (!note) { showToast(t('বিবরণ/নোট লিখুন।', 'Enter a note.'), 'error'); g('_PopNote').focus(); return; }
+      bank = { pm: pm, accId: pm === 'OwnBankToPartyBank' ? acc : cashId, amt: amt };
+      $('_Note').value = note; dirty = true;
+      close(); calc();
+      const fn = popAfter; popAfter = null;
+      if (typeof fn === 'function') { fn(); return; }
+      const nx = [$('_Disc'), $('_Note'), $('_Save')].find(function (el) { return el && el.offsetParent !== null; });
+      if (nx) nx.focus();
+    });
+    setTimeout(function () { g('_PopMethod').focus(); }, 0);
+  };
+  $('_Method').addEventListener('change', function () {
+    if (this.value === 'Bank') { if (r2($('_Amount').value) > 0) openBankPopup(); }
+    else { bank = null; cashAcc = cashId; calc(); }
+  });
+  let saveDownAt = 0;   // সেভ বোতামে চাপ শুরু — তখন পরিমান থেকে বেরোনোয় পপ-আপ নয়, সেভ নিজেই খুলবে (নইলে পপ-আপ সেভের চাপ খেয়ে ফেলে)
+  $('_Save').addEventListener('pointerdown', function () { saveDownAt = Date.now(); });
+  $('_Save').addEventListener('mousedown', function () { saveDownAt = Date.now(); });
+  $('_Amount').addEventListener('change', function () {
+    const amt = r2(this.value);
+    if (Date.now() - saveDownAt < 800) return;
+    if ($('_Method').value === 'Bank' && amt > 0 && (!bank || bank.amt !== amt)) openBankPopup();
+  });
+
   /* ---- ঘরের ঘটনা ---- */
   $('_Zone').addEventListener('change', function () {
     const keep = $('_Party').value;
@@ -4189,7 +4471,8 @@ async function renderPaymentVoucherPage(content) {
   form.addEventListener('keydown', function (e) {
     if (e.key !== 'Enter' && e.key !== 'Escape') return;
     if (e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return;
-    const order = [$('_Zone'), $('_Party'), cells[0].querySelector('.dmy-in') || $('_Date'), $('_Method'), $('_Amount'), $('_Disc'), $('_Note'), $('_Save')]
+    const dateTxt = L3[0].td.querySelector('.dmy-in') || $('_Date');
+    const order = [$('_Zone'), $('_Party'), dateTxt, $('_Method'), $('_Amount'), $('_Disc'), $('_Note'), $('_Save')]
       .filter(function (el) { return el && !el.disabled && el.offsetParent !== null; });
     const el = document.activeElement, i = order.indexOf(el);
     if (i === -1) return;
@@ -10750,10 +11033,14 @@ const VFS_CFG = {
          payType: '_RecTypeSelect', payAmt: '_RecAmount', payNote: '_CashReceivedNote', paySum: '_BankRecSummary', profit: true },
   pv3: { key: 'PurchaseVoucherFields', bn: 'ক্রয়', en: 'Purchase', party: '_SupplierID', partyBn: 'সাপ্লায়ারের নাম', partyEn: 'Supplier',
          mdate: ['_SNDateCheck', '_SupplierInvoiceDate'], mno: ['_SNNoCheck', '_SupplierInvoiceNo'], addLine: '_ConfirmPurchaseCheck',
-         payType: '_PayTypeSelect', payAmt: '_PayAmount', payNote: '_CashPaidNote', paySum: '_BankPaySummary', profit: false }
+         payType: '_PayTypeSelect', payAmt: '_PayAmount', payNote: '_CashPaidNote', paySum: '_BankPaySummary', profit: false },
+  // পেমেন্ট ভাউচার — ঘরের তালিকা PAYV_FIELDS-এ; ফর্ম নিজেই টিক না থাকা ঘর বাদ দেয় (renderPaymentVoucherPage)
+  payv: { key: 'PaymentVoucherFields', bn: 'পেমেন্ট', en: 'Payment', partyBn: 'পার্টি নাম', partyEn: 'Party',
+          note: ['Enter = পরের ঘর, Escape = আগের ঘর, Space = টিক দেওয়া/তোলা। সেভ করার পর নতুন খোলা পেমেন্ট ভাউচারে প্রয়োগ হবে। পার্টি নাম, পরিমান ও সেভ সবসময় থাকে। তারিখ বন্ধ থাকলে আজকের তারিখ, মেথড বন্ধ থাকলে নগদ, ডিসকাউন্ট বন্ধ থাকলে শূন্য ধরা হবে। "ব্যাংক (মেথডে)" বন্ধ থাকলে মেথডে শুধু নগদ।', 'Enter = next, Escape = previous, Space = tick/untick. Applies to vouchers opened after saving. Party, amount and save always show. With date off today is used, with method off cash, with discount off zero.'] }
 };
 /** ঘরের তালিকা — [key, বাংলা, English, ধরন, ঘরের id] — ধরনঃ 'in' = ইনপুট, 'show' = শুধু-দেখার ঘর, 'stock'/'pay' = আলাদা নিয়ম */
 function vfsFields(P) {
+  if (P === 'payv') return PAYV_FIELDS.map(function (f) { return [f[0], f[1], f[2], 'in', []]; });
   const C = VFS_CFG[P], x = function (ids) { return ids.map(function (s) { return P + s; }); };
   const list = [
     ['zone', 'পার্টি জোন', 'Party zone', 'in', x(['_ZoneFilter'])],
@@ -10904,7 +11191,8 @@ async function renderVoucherFieldSettingsPage(content, P) {
   const C = VFS_CFG[P], FL = vfsFields(P);
   const set = await vfsLoad(P);
   const title = t(C.bn + ' ভাউচার সেটিং', C.en + ' Voucher Settings');
-  const half = FL.findIndex(function (f) { return f[0] === 'ratePc'; });   // বাম কলামঃ পার্টি জোন … পরিমান(কেজি); ডানঃ দর(পিস) … ফেরৎ +
+  let half = FL.findIndex(function (f) { return f[0] === 'ratePc'; });
+  if (half < 0) half = Math.ceil(FL.length / 2);   // পেমেন্ট ভাউচারঃ অর্ধেক অর্ধেক   // বাম কলামঃ পার্টি জোন … পরিমান(কেজি); ডানঃ দর(পিস) … ফেরৎ +
   const rowCount = Math.max(half, FL.length - half);
   const cell = function (f) {
     if (!f) return '<td></td><td></td>';
@@ -10937,7 +11225,7 @@ async function renderVoucherFieldSettingsPage(content, P) {
           <button type="button" class="btn btn-outline" id="svsNone" data-perm-safe="1">☐ ${t('সব টিক তুলুন', 'Untick all')}</button>
           <button type="button" class="btn btn-primary" id="svsSave" style="margin-left:auto;">💾 ${t('সেভ করুন', 'Save')}</button>
         </div>
-        <div class="svs-note">${t('Enter = পরের ঘর, Escape = আগের ঘর, Space = টিক দেওয়া/তোলা। সেভ করার পর নতুন খোলা ' + C.bn + ' ভাউচারে প্রয়োগ হবে। ' + C.partyBn + ' বন্ধ থাকলে নতুন ভাউচার সেভ করা যাবে না (পার্টি আবশ্যক)। প্রিন্ট ও প্রিন্ট প্রিভিউ আগের মতই।', 'Enter = next, Escape = previous, Space = tick/untick. Applies to vouchers opened after saving. With the party off a new voucher cannot be saved. Print is unchanged.')}</div>
+        <div class="svs-note">${C.note ? t(C.note[0], C.note[1]) : t('Enter = পরের ঘর, Escape = আগের ঘর, Space = টিক দেওয়া/তোলা। সেভ করার পর নতুন খোলা ' + C.bn + ' ভাউচারে প্রয়োগ হবে। ' + C.partyBn + ' বন্ধ থাকলে নতুন ভাউচার সেভ করা যাবে না (পার্টি আবশ্যক)। প্রিন্ট ও প্রিন্ট প্রিভিউ আগের মতই।', 'Enter = next, Escape = previous, Space = tick/untick. Applies to vouchers opened after saving. With the party off a new voucher cannot be saved. Print is unchanged.')}</div>
       </div>
     </div></div>`;
   const boxes = function () { return FL.map(function (f) { return document.getElementById('svs_' + f[0]); }); };   // ক্রমঃ বাম কলাম উপর→নিচ, তারপর ডান কলাম
