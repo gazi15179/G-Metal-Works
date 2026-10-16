@@ -478,7 +478,7 @@ const MODULES = [
   ]},
   {key:'accounts', bn:'হিসাব', en:'Accounts', sub:[
     {key:'coa', bn:'হিসাবের তালিকা', en:'Chart of Accounts'},{key:'bankCash', bn:'ব্যাংক ও ক্যাশ অ্যাকাউন্ট', en:'Bank & Cash Accounts'},
-    {key:'jv', bn:'জার্নাল ভাউচার', en:'Journal Voucher'},{key:'cv', bn:'কনট্রা ভাউচার', en:'Contra Voucher'},
+    {key:'jv', bn:'জার্নাল ভাউচার', en:'Journal Voucher'},{key:'cv', bn:'কনট্রা ভাউচার', en:'Contra Voucher'},{key:'cvSettings', bn:'কনট্রা ভাউচার সেটিং', en:'Contra Voucher Settings'},
     {key:'pv', bn:'পেমেন্ট ভাউচার', en:'Payment Voucher'},{key:'payvSettings', bn:'পেমেন্ট ভাউচার সেটিং', en:'Payment Voucher Settings'},{key:'rv', bn:'কালেকশন ভাউচার', en:'Collection Voucher'},{key:'recvSettings', bn:'কালেকশন ভাউচার সেটিং', en:'Collection Voucher Settings'},{key:'ev', bn:'এক্সপেন্স ভাউচার', en:'Expense Voucher'},{key:'evSettings', bn:'এক্সপেন্স ভাউচার সেটিং', en:'Expense Voucher Settings'},{key:'icv', bn:'রিসিপ্ট ভাউচার', en:'Receipt Voucher'},{key:'icvSettings', bn:'রিসিপ্ট ভাউচার সেটিং', en:'Receipt Voucher Settings'},{key:'costLedger', bn:'খরচ খাত লেজার', en:'Cost Head Ledger'},{key:'ownerCapital', bn:'মালিকের মূলধন', en:'Owner Capital'},{key:'assetPurchase', bn:'এ্যাসেট ক্রয়', en:'Asset Purchase'},{key:'assetSale', bn:'এ্যাসেট বিক্রয়', en:'Asset Sale'},{key:'fixedAssets', bn:'এ্যাসেট রেজিস্টার', en:'Asset Register'},
     {key:'bankBook', bn:'ব্যাংক ও নগদ বই', en:'Bank & Cash Book'},{key:'trialBalance', bn:'ট্রায়াল ব্যালেন্স', en:'Trial Balance'},
   ]},
@@ -500,7 +500,7 @@ const MODULES = [
 ];
 
 // এখন পর্যন্ত যেসব পেজ সত্যিই কাজ করে (Phase 3 — Core মডিউল)
-const READY_PAGES = ['dashboard','svSettings','pvSettings','payvSettings','recvSettings','ev','evSettings','icv','icvSettings','costLedger','companyProfile','userManagement','roles','activityLog',
+const READY_PAGES = ['dashboard','svSettings','pvSettings','payvSettings','recvSettings','ev','evSettings','icv','icvSettings','costLedger','cvSettings','companyProfile','userManagement','roles','activityLog',
   'items','customers','suppliers','warehouses','uom','categories','employees','party','partyLedger','zones','groups','purchasers','salespersons','bankMaster',
   'pr','po','grn','pi','pret','pvoucherList',
   'stockOverview','goodsReceive','materialIssue','stockTransfer','stockAdjust','stockLedger',
@@ -1470,6 +1470,8 @@ async function navigateTo(pageKey, moduleLabel, pageLabel) {
     else if (pageKey === 'prodDaily') await renderProdDailyPage(content);
     else if (pageKey === 'procCosting') await renderProcCostingPage(content);
     else if (pageKey === 'pv') await renderPaymentVoucherPage(content);   // নতুন পেমেন্ট ভাউচার (বিক্রয় ভাউচারের মত)
+    else if (pageKey === 'cv') await renderContraVoucherPage(content);   // কনট্রা ভাউচার — নতুন নকশা
+    else if (pageKey === 'cvSettings') await renderVoucherFieldSettingsPage(content, 'conv');
     else if (pageKey === 'costLedger') await renderCostHeadLedger(content);   // দৈনিক উৎপাদনের খরচ — খাতওয়ারি বকেয়া ও সমন্বয়
     else if (pageKey === 'ev') await renderExpenseVoucherPage(content);   // এক্সপেন্স ভাউচার (খাত ভিত্তিক)
     else if (pageKey === 'icv') await renderIncomeVoucherPage(content);   // রিসিপ্ট ভাউচার — অন্যান্য আয়
@@ -5543,6 +5545,433 @@ async function renderCostHeadLedger(content) {
 
   try { await load(); render(); }
   catch (err) { $('chl_Sum').innerHTML = `<tr><td colspan="7" class="c">${escapeHtml(err.message)}</td></tr>`; }
+}
+
+/* ============================================================
+   হিসাব → কনট্রা ভাউচার (নতুন নকশা — পেমেন্ট ভাউচারের মত) — নিজের নগদ/ব্যাংক অ্যাকাউন্টের মধ্যে টাকা বদল
+   • নগদ → ব্যাংক (জমা), ব্যাংক → নগদ (উত্তোলন), ব্যাংক → ব্যাংক (যেমন সিসি অ্যাকাউন্টে) — খরচ/আয় নয়, পার্টিও নয়
+   • উপরেঃ ◀ ▶ · তারিখ | নম্বর | উৎস অ্যাকাউন্ট | গন্তব্য অ্যাকাউন্ট · উৎসের জের | গন্তব্যের জের — এই পর্যন্ত ফ্রিজ
+     তারপরঃ পরিমান | রেফারেন্স নং | বিবরন | বাতিল | সেভ · লাইভ প্রিভিউ · ভাউচার তালিকা (দুই চাপ = এডিট) · A5 প্রিন্ট
+   • সেভ = সেভ + পোস্টঃ উৎসের বইয়ে ক্রেঃ, গন্তব্যের বইয়ে ডেঃ; পোস্ট করা বদলাতে এডমিন পাসওয়ার্ড
+   • সেটিংঃ হিসাব → "কনট্রা ভাউচার সেটিং" (system_settings Key 'ContraVoucherFields'); নতুন SQL লাগে না
+   ============================================================ */
+function cvFieldsFor() {
+  return [
+    ['nav', '◀ ▶ আগের/পরের ভাউচার', '◀ ▶ previous/next'],
+    ['date', 'তারিখ', 'Date'],
+    ['no', 'নম্বর', 'Voucher no'],
+    ['bal', 'উৎস ও গন্তব্যের জের', 'From / to balances'],
+    ['ref', 'রেফারেন্স নং', 'Reference no'],
+    ['note', 'বিবরন', 'Narration'],
+    ['cancel', 'বাতিল বোতাম', 'Cancel button'],
+    ['preview', 'লাইভ প্রিভিউ পেনেল', 'Live preview panel'],
+    ['list', 'ভাউচার তালিকা', 'Voucher list'],
+    ['listFilter', 'তালিকার অ্যাকাউন্ট/তারিখ ফিল্টার', 'List account/date filter'],
+    ['print', 'প্রিন্ট (👁️ বোতাম)', 'Print (👁️ button)']
+  ];
+}
+
+/** নগদ/ব্যাংক অ্যাকাউন্টের জের — exclRef দিলে ঐ কনট্রা ভাউচারের নিজের এন্ট্রি বাদ দিয়ে */
+async function cvAccBalance(accId, exclRef) {
+  if (!accId) return 0;
+  try {
+    const { data } = await supabaseClient.from('BankCashBook').select('id,Balance').eq('BankCashAccID', accId).order('id', { ascending: false }).limit(1);
+    let b = (data && data[0]) ? Number(data[0].Balance) || 0 : 0;
+    if (exclRef) {
+      const { data: own } = await supabaseClient.from('BankCashBook').select('Debit,Credit').eq('BankCashAccID', accId).eq('RefModule', 'ContraVoucher').eq('RefID', exclRef);
+      (own || []).forEach(function (e) { b -= (Number(e.Debit) || 0) - (Number(e.Credit) || 0); });
+    }
+    return b;
+  } catch (e) { return 0; }
+}
+
+async function cvPrint(rec, ctx) {
+  const w = window.open('', '_blank');
+  if (!w) { showToast(t('পপ-আপ ব্লক হয়েছে — এই সাইটের জন্য পপ-আপ অনুমতি দিন।', 'Pop-up was blocked — please allow pop-ups for this site.'), 'error'); return; }
+  w.document.write('<p style="font-family:sans-serif;padding:20px;">লোড হচ্ছে...</p>');
+  let co = {}; try { co = (await api('getSingleton', { sheet: 'CompanyProfile' })) || {}; } catch (e) {}
+  const B = function (v) { return escapeHtml(bnDigits(v)); };
+  const M = function (n) { return B((Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })); };
+  const _n = new Date(), _p = function (x) { return String(x).padStart(2, '0'); };
+  const stamp = _p(_n.getDate()) + '-' + _p(_n.getMonth() + 1) + '-' + _n.getFullYear() + ' ' + _p(_n.getHours() % 12 || 12) + ':' + _p(_n.getMinutes()) + (_n.getHours() < 12 ? ' AM' : ' PM');
+  const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>কনট্রা ভাউচার — ${escapeHtml(rec.ContraID)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Anek+Bangla:wght@400;500;600;700&family=Oswald:wght@600;700&display=swap" rel="stylesheet">
+<style>${VOUCHER_TABLE_CSS}</style><style id="pg">@page{size:A5 portrait;margin:8mm;}</style></head><body>
+  <div class="toolbar">
+    <button class="primary" onclick="window.print()">🖨️ প্রিন্ট</button>
+    <button onclick="document.getElementById('pg').textContent='@page{size:A5 portrait;margin:8mm;}';document.body.classList.remove('a5l');">📄 A5 খাড়া</button>
+    <button onclick="document.getElementById('pg').textContent='@page{size:A5 landscape;margin:8mm;}';document.body.classList.add('a5l');">📄 A5 আড়াআড়ি</button>
+  </div>
+  <div class="voucher-watermark">gmetal</div>
+  <div class="v-co">
+    <div class="v-logo">${co.LogoURL ? `<img src="${attr(co.LogoURL)}" alt="">` : '<span>লোগো</span>'}</div>
+    <div class="v-co-info">
+      <div class="v-co-name">${escapeHtml(co.CompanyNameBn || 'জি মেটাল ওয়ার্কস')}</div>
+      <div class="v-co-addr">${escapeHtml(co.AddressBn || 'আলামপুর ব্রীজঘাট বাজার, কোটচাঁদপুর রোড, মহেশপুর, ঝিনাইদহ।')}</div>
+      ${co.Phone ? `<div class="v-co-mob">মোবাইলঃ <span class="en">${escapeHtml(co.Phone)}</span></div>` : ''}
+      <div class="v-type">কনট্রা ভাউচার</div>
+    </div>
+    <div class="v-meta">
+      <div class="v-print">প্রিন্টঃ <span class="en">${escapeHtml(stamp)}</span></div>
+      <div class="v-meta-row"><span>ভাউচার নংঃ</span><b class="en">${escapeHtml(rec.ContraID || '')}</b></div>
+      <div class="v-meta-row"><span>তারিখঃ</span><b class="en">${escapeHtml(formatShortDate(rec.Date))}</b></div>
+      ${rec.Status !== 'Posted' ? '<div class="v-draft">খসড়া — এখনো পোস্ট হয়নি</div>' : ''}
+    </div>
+  </div>
+  <div class="v-party">
+    <div class="v-party-name"><span class="lbl">অ্যাকাউন্ট বদলঃ</span> ${escapeHtml(ctx.fromName)} → ${escapeHtml(ctx.toName)}</div>
+    <div class="v-party-sub">${rec.RefNo ? `<span>রেফারেন্স নংঃ <span class="en">${escapeHtml(rec.RefNo)}</span></span>` : ''}${rec.Narration ? `<span>বিবরণঃ ${escapeHtml(rec.Narration)}</span>` : ''}</div>
+  </div>
+  <table class="items-table">
+    <colgroup><col style="width:8%"><col style="width:46%"><col style="width:23%"><col style="width:23%"></colgroup>
+    <thead><tr><th>ক্রঃ</th><th>অ্যাকাউন্ট</th><th>জমা (ডেঃ)</th><th>খরচ (ক্রেঃ)</th></tr></thead>
+    <tbody>
+      <tr><td>${B(1)}</td><td class="l">${escapeHtml(ctx.toName)} — গন্তব্য</td><td class="r">${M(rec.Amount)}</td><td></td></tr>
+      <tr><td>${B(2)}</td><td class="l">${escapeHtml(ctx.fromName)} — উৎস</td><td></td><td class="r">${M(rec.Amount)}</td></tr>
+    </tbody>
+    <tbody><tr class="grand-all"><td colspan="2" class="r">মোট বদলঃ</td><td class="r">${M(rec.Amount)}</td><td class="r">${M(rec.Amount)}</td></tr></tbody>
+  </table>
+  <div class="sign-row"><div>জমাকারীর স্বাঃ</div><div>অথরাইজেশন স্বাঃ<br>${escapeHtml(currentUser ? (currentUser.FullName || '') : '')}</div><div>প্রস্তুতকারীর স্বাঃ<br>${escapeHtml(currentUser ? (currentUser.FullName || '') : '')}</div></div>
+</body></html>`;
+  w.document.open(); w.document.write(html); w.document.close();
+}
+
+async function renderContraVoucherPage(content) {
+  const P = 'conv', TBL = 'ContraVoucher', IDF = 'ContraID';
+  const [accsAll, set] = await Promise.all([cachedList('BankCashAccounts'), vfsLoad(P)]);
+  const cashId = await cashAccountId();
+  const today = ownToday();
+  const fyStart = await getFiscalYearStart(today);
+  const n2 = function (x) { return Number(x) || 0; };
+  const r2 = function (x) { return Math.round(n2(x) * 100) / 100; };
+  const fmt = function (x) { return n2(x).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+  const $ = function (s) { return document.getElementById(P + s); };
+  const on = function (k) { return set[k] !== false; };
+  const accs = (accsAll || []).filter(function (a) { return a.Status !== 'Deleted'; })
+    .sort(function (a, b) { return (a.BankAccID === cashId ? -1 : b.BankAccID === cashId ? 1 : 0) || String(a.AccountName || '').localeCompare(String(b.AccountName || ''), 'bn'); });
+  const accMap = {}; accs.forEach(function (a) { accMap[a.BankAccID] = a; });
+  const accName = function (id) { const a = accMap[id]; return a ? (a.AccountName || id) : (id || '—'); };
+  const accLbl = function (a) { return (a.BankAccID === cashId || a.Type === 'Cash' ? '💵 ' : '🏦 ') + (a.AccountName || a.BankAccID); };
+  const accOpts = `<option value="">— ${t('বাছাই করুন', 'Select')} —</option>` + accs.map(function (a) { return `<option value="${attr(a.BankAccID)}">${escapeHtml(accLbl(a))}</option>`; }).join('');
+
+  content.innerHTML = `
+    <style>${SV_TABLE_CSS}${SV_PANEL_CSS}${VOUCHER_PSUM_CSS}${PAYV_CSS}</style>
+    <div class="payv" id="${P}_Root"><div class="payv-in" id="${P}_Form" data-keynav="1">
+      <div class="payv-freeze">
+        ${voucherNavHeader(P, t('কনট্রা ভাউচার', 'Contra Voucher'))}
+        <table class="svt"><tbody id="${P}_L1Body"></tbody></table>
+        <table class="svt" id="${P}_L2"><tbody id="${P}_L2Body"></tbody></table>
+      </div>
+      <table class="svt" id="${P}_L3"><tbody id="${P}_L3Body"></tbody></table>
+      <div class="pvx-mode" id="${P}_Mode" style="display:none;"></div>
+      <div class="pvx-sec" id="${P}_PreviewSec"${on('preview') ? '' : ' style="display:none;"'}><table class="svp" data-rowsel="1"><colgroup><col style="width:30px"><col><col style="width:30%"></colgroup>
+        <thead><tr><th colspan="3">${t('লাইভ প্রিভিউ পেনেল', 'Live preview panel')}</th></tr>
+          <tr class="h2"><th>${t('ক্রঃ', 'Sl')}</th><th>${t('বিবরন', 'Description')}</th><th>${t('টাকা', 'Amount')}</th></tr></thead>
+        <tbody id="${P}_Preview"></tbody></table></div>
+      <div class="pvx-sec" id="${P}_ListSec"${on('list') ? '' : ' style="display:none;"'}>
+        <div class="pvx-lh"><h4>📋 ${t('ভাউচার তালিকা', 'Voucher list')}</h4>
+          <select id="${P}_LAcc" title="${attr(t('অ্যাকাউন্ট', 'Account'))}"><option value="">${t('সব অ্যাকাউন্ট', 'All accounts')}</option>${accs.map(function (a) { return `<option value="${attr(a.BankAccID)}">${escapeHtml(a.AccountName || a.BankAccID)}</option>`; }).join('')}</select>
+          <label>${t('হইতে', 'From')} <input type="date" id="${P}_LFrom" value="${attr(fyStart)}"></label>
+          <label>${t('পর্যন্ত', 'To')} <input type="date" id="${P}_LTo" value=""></label>
+        </div>
+        <div class="pvl-wrap"><table class="pvl"><thead><tr>
+          <th>${t('ক্রঃ', 'Sl')}</th><th>${t('তারিখ', 'Date')}</th><th>${t('ভাউচার নং', 'Voucher no')}</th><th>${t('বিবরনী', 'Particulars')}</th><th>${t('পরিমান', 'Amount')}</th><th></th>
+        </tr></thead><tbody id="${P}_List"><tr><td colspan="6" class="c">${t('লোড হচ্ছে...', 'Loading...')}</td></tr></tbody><tfoot id="${P}_ListFoot"></tfoot></table></div>
+      </div>
+    </div></div>`;
+
+  const mk = function (key, head, html, cls) {
+    const th = document.createElement('th'); th.innerHTML = head;
+    const td = document.createElement('td'); td.innerHTML = html;
+    if (cls) { th.className = cls; td.className = cls; }
+    return { key: key, th: th, td: td };
+  };
+  const psCell = function (key) { return `<div class="vps-val" id="${P}_Ps${key}Box"><b id="${P}_Ps${key}">0.00</b><span id="${P}_Ps${key}T" class="vps-tag zero"></span></div>`; };
+  const L1 = [
+    mk('date', t('তারিখ', 'Date'), `<input type="date" id="${P}_Date" value="${attr(today)}">`),
+    mk('no', t('নম্বর', 'No'), `<input id="${P}_No" class="ro" readonly tabindex="-1">`),
+    mk('fromAcc', t('উৎস অ্যাকাউন্ট', 'From account'), `<select id="${P}_From">${accOpts}</select>`, 'tl'),
+    mk('toAcc', t('গন্তব্য অ্যাকাউন্ট', 'To account'), `<select id="${P}_To">${accOpts}</select>`, 'tl')
+  ];
+  const L2 = [
+    mk('bal', t('উৎসের জের', 'From balance'), psCell('From'), 'ps'),
+    mk('bal', t('পরিমান (বদল)', 'Amount (transfer)'), psCell('Amt'), 'ps'),
+    mk('bal', t('গন্তব্যের জের', 'To balance'), psCell('To'), 'ps')
+  ];
+  const L3 = [
+    mk('amount', t('পরিমান(৳)', 'Amount(৳)'), `<input type="number" step="any" min="0" inputmode="decimal" id="${P}_Amount" placeholder="0.00">`, 'num'),
+    mk('ref', t('রেফারেন্স নং', 'Reference no'), `<input id="${P}_Ref" autocomplete="off">`),
+    mk('note', t('বিবরন', 'Narration'), `<input id="${P}_Note" autocomplete="off">`),
+    mk('cancel', t('বাতিল', 'Cancel'), `<div class="pvx-btns"><button type="button" class="pvx-cancel" id="${P}_Cancel" data-perm-safe="1">✖ ${t('বাতিল', 'Cancel')}</button></div>`),
+    mk('save', t('সেভ', 'Save'), `<div class="pvx-btns"><button type="button" class="pvx-save" id="${P}_Save">💾 ${t('সেভ', 'Save')}</button></div>`)
+  ];
+  const ALWAYS = { fromAcc: 1, toAcc: 1, amount: 1, save: 1 };
+  const shown = function (list) { return list.filter(function (c) { return ALWAYS[c.key] || on(c.key); }); };
+  const hiddenHold = document.createElement('div'); hiddenHold.style.display = 'none';
+  $('_Root').appendChild(hiddenHold);
+  [L1, L2, L3].forEach(function (list) { list.forEach(function (c) { if (!(ALWAYS[c.key] || on(c.key))) { hiddenHold.appendChild(c.th); hiddenHold.appendChild(c.td); } }); });
+  if (!shown(L2).length) $('_L2').style.display = 'none';
+  let perNow = 0;
+  const layout = function () {
+    const mobile = !!(window.matchMedia && window.matchMedia('(max-width: 760px)').matches);
+    const n3 = shown(L3).length;
+    const per3 = mobile ? [4, 3, 5].reduce(function (best, c) { const e = (c - n3 % c) % c, be = (best - n3 % best) % best; return e < be ? c : best; }, 4) : n3;
+    if (per3 === perNow) return; perNow = per3;
+    [[L1, '_L1Body', 9], [L2, '_L2Body', 9], [L3, '_L3Body', per3]].forEach(function (g) {
+      const body = $(g[1]); if (!body) return;
+      const list = shown(g[0]); body.innerHTML = '';
+      for (let i = 0; i < list.length; i += g[2]) {
+        const hr = document.createElement('tr'); hr.className = 'h';
+        const vr = document.createElement('tr');
+        const part = list.slice(i, i + g[2]);
+        part.forEach(function (c) { hr.appendChild(c.th); vr.appendChild(c.td); });
+        if (i > 0) for (let k = part.length; k < g[2]; k++) { hr.appendChild(document.createElement('th')); vr.appendChild(document.createElement('td')); }
+        body.appendChild(hr); body.appendChild(vr);
+      }
+    });
+  };
+  layout();
+  if (window.enhanceDateInputs) window.enhanceDateInputs($('_Root'));
+  if (!on('nav')) ['_NavPrev', '_NavNext'].forEach(function (s) { const b = $(s); if (b) b.style.visibility = 'hidden'; });
+  if (!on('listFilter')) Array.prototype.forEach.call(document.querySelectorAll('#' + P + '_ListSec .pvx-lh select, #' + P + '_ListSec .pvx-lh label'), function (el) { el.style.display = 'none'; });
+
+  const root = $('_Root');
+  const sizeRoot = function () {
+    if (!document.body.contains(root)) { window.removeEventListener('resize', onResize); return; }
+    const tb = document.querySelector('.topbar'), bar = document.getElementById('tabBar');
+    const fixedTop = (tb ? tb.offsetHeight : 0) + (bar ? bar.offsetHeight : 0);
+    root.style.height = Math.max(320, window.innerHeight - Math.max(root.getBoundingClientRect().top, fixedTop) - 6) + 'px';
+  };
+  const onResize = function () { layout(); sizeRoot(); };
+  window.addEventListener('resize', onResize);
+  window.scrollTo(0, 0);
+  setTimeout(sizeRoot, 0);
+
+  /* ---- অবস্থা ---- */
+  let rows = [], editRec = null, dirty = false, busy = false;
+  const bal = { from: 0, to: 0 };
+  let balTok = 0;
+
+  const nextNo = function () {
+    let best = null;
+    rows.forEach(function (r) { const m = /^(.*?)(\d+)$/.exec(String(r[IDF] || '')); if (m && (!best || Number(m[2]) > best.n)) best = { pre: m[1], n: Number(m[2]), w: m[2].length }; });
+    return best ? best.pre + String(best.n + 1).padStart(best.w, '0') : 'CV-0001';
+  };
+  const putPs = function (key, amt) {
+    const r = r2(amt), num = $('_Ps' + key), tag = $('_Ps' + key + 'T');
+    if (!num || !tag) return;
+    num.textContent = fmt(Math.abs(r));
+    tag.textContent = r < 0 ? t('ক্রেঃ', 'Cr') : t('ডেঃ', 'Dr');
+    tag.className = 'vps-tag ' + (r < 0 ? 'cr' : 'dr') + (r === 0 ? ' zero' : '');
+    voucherPsFit($('_Ps' + key + 'Box'));
+  };
+  const calc = function () {
+    const amt = r2($('_Amount').value), f = $('_From').value, to = $('_To').value;
+    putPs('From', f ? bal.from : 0); putPs('To', to ? bal.to : 0); putPs('Amt', amt);
+    if (!on('preview')) return;
+    const row = function (i, d, a, cls) { return `<tr class="${cls || ''}"><td class="c">${i}</td><td class="l">${d}</td><td class="pvx-amt">${a}</td></tr>`; };
+    const sg = function (v) { const r = r2(v); return fmt(Math.abs(r)) + ' ' + (r < 0 ? t('ক্রেঃ', 'Cr') : t('ডেঃ', 'Dr')); };
+    let h = '';
+    h += row(1, t('তারিখ', 'Date') + ': ' + ($('_Date').value ? isoToDmy($('_Date').value) : '—') + ' · ' + t('নম্বর', 'No') + ': ' + escapeHtml($('_No').value || ''), '');
+    h += row(2, `<b>${escapeHtml(f ? accName(f) : '—')}</b> → <b>${escapeHtml(to ? accName(to) : '—')}</b>`, '');
+    h += row(3, t('উৎস', 'From') + ' (' + escapeHtml(f ? accName(f) : '—') + ') — ' + t('জের', 'balance') + ' ' + sg(f ? bal.from : 0) + ' → ' + t('পরে', 'after'), f ? sg(bal.from - amt) : '—');
+    h += row(4, t('গন্তব্য', 'To') + ' (' + escapeHtml(to ? accName(to) : '—') + ') — ' + t('জের', 'balance') + ' ' + sg(to ? bal.to : 0) + ' → ' + t('পরে', 'after'), to ? sg(bal.to + amt) : '—');
+    h += row(5, `<b>${t('মোট বদল', 'Total transfer')}</b>`, `<b>${fmt(amt)}</b>`, 'tot');
+    const ref = $('_Ref').value.trim(), note = $('_Note').value.trim();
+    if (ref || note) h += row(6, [ref ? t('রেফারেন্স', 'Ref') + ': ' + escapeHtml(ref) : '', note ? escapeHtml(note) : ''].filter(Boolean).join(' · '), '');
+    $('_Preview').innerHTML = h;
+  };
+  const loadBal = async function () {
+    const my = ++balTok, ex = editRec && editRec.Status === 'Posted' ? editRec[IDF] : null;
+    const [a, b] = await Promise.all([cvAccBalance($('_From').value, ex), cvAccBalance($('_To').value, ex)]);
+    if (my !== balTok) return;
+    bal.from = a; bal.to = b; calc();
+  };
+
+  const confirmDiscard = function () { return !dirty || confirm(t('সেভ না করা পরিবর্তন আছে — বাদ দেবেন?', 'There are unsaved changes — discard them?')); };
+  const modeBar = function () {
+    const bar = $('_Mode');
+    if (!editRec) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
+    bar.innerHTML = `<span>✏️ ${t('এডিট হচ্ছে', 'Editing')} — ${escapeHtml(editRec[IDF])} (${editRec.Status === 'Posted' ? t('পোস্ট করা — সেভে এডমিন পাসওয়ার্ড লাগবে', 'posted — admin password needed to save') : t('খসড়া', 'draft')})</span>${on('print') ? `<button type="button" id="${P}_PrintBtn" data-perm-safe="1">👁️ ${t('প্রিন্ট প্রিভিউ', 'Print preview')}</button>` : ''}<button type="button" id="${P}_NewBtn" data-perm-safe="1">➕ ${t('নতুন ভাউচার', 'New voucher')}</button>`;
+    bar.style.display = '';
+    $('_NewBtn').addEventListener('click', function () { if (confirmDiscard()) resetForm(true); });
+    if ($('_PrintBtn')) $('_PrintBtn').addEventListener('click', function () { printRec(editRec); });
+  };
+  const resetForm = function (focus) {
+    editRec = null; dirty = false;
+    $('_Date').value = today; $('_No').value = nextNo();
+    $('_From').value = ''; $('_To').value = ''; $('_Amount').value = ''; $('_Ref').value = ''; $('_Note').value = '';
+    bal.from = 0; bal.to = 0;
+    modeBar(); calc(); wireNav(); markListCurrent();
+    if (focus && !(window.matchMedia && window.matchMedia('(max-width: 760px)').matches)) $('_From').focus();
+  };
+  const fillForm = function (rec) {
+    editRec = rec; dirty = false;
+    $('_Date').value = String(rec.Date || '').slice(0, 10);
+    $('_No').value = rec[IDF] || '';
+    [['_From', rec.FromAccountID], ['_To', rec.ToAccountID]].forEach(function (x) {
+      if (x[1] && !$(x[0]).querySelector(`option[value="${CSS.escape(x[1])}"]`)) { const o = document.createElement('option'); o.value = x[1]; o.textContent = x[1]; $(x[0]).appendChild(o); }
+      $(x[0]).value = x[1] || '';
+    });
+    $('_Amount').value = n2(rec.Amount) || ''; $('_Ref').value = rec.RefNo || ''; $('_Note').value = rec.Narration || '';
+    modeBar(); calc(); loadBal(); wireNav(); markListCurrent();
+    root.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  const printRec = function (rec) { if (rec) cvPrint(rec, { fromName: accName(rec.FromAccountID), toName: accName(rec.ToAccountID) }); };
+
+  const wireNav = function () {
+    const prev = $('_NavPrev'), next = $('_NavNext');
+    const at = editRec ? rows.findIndex(function (r) { return r[IDF] === editRec[IDF]; }) : rows.length;
+    const target = function (dir) { const j = at + dir; if (j < 0) return null; if (j < rows.length) return rows[j]; if (editRec && j === rows.length) return { isNew: true }; return null; };
+    const label = function (r) { return r.isNew ? t('নতুন ভাউচার', 'New voucher') : r[IDF] + ' · ' + isoToDmy(r.Date); };
+    const pv = target(-1), nx = target(1);
+    prev.disabled = !pv; next.disabled = !nx;
+    prev.title = pv ? t('আগেরঃ ', 'Previous: ') + label(pv) + ' (Alt+←)' : t('এটাই প্রথম ভাউচার', 'This is the first voucher');
+    next.title = nx ? t('পরেরঃ ', 'Next: ') + label(nx) + ' (Alt+→)' : t('এটাই নতুন ভাউচার', 'This is the new voucher');
+    const go = function (r) { if (!r || !confirmDiscard()) return; if (r.isNew) resetForm(true); else fillForm(r); };
+    prev.onclick = function () { go(target(-1)); };
+    next.onclick = function () { go(target(1)); };
+  };
+  const navKeys = function (e) {
+    if (!document.body.contains(root)) { document.removeEventListener('keydown', navKeys); return; }
+    if (!e.altKey || e.ctrlKey || e.metaKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+    if (document.getElementById('modalOverlay') && document.getElementById('modalOverlay').classList.contains('show')) return;
+    const b = $(e.key === 'ArrowLeft' ? '_NavPrev' : '_NavNext'); if (!b || b.disabled) return;
+    e.preventDefault(); b.click();
+  };
+  document.addEventListener('keydown', navKeys);
+
+  /* ---- তালিকা ---- */
+  const loadRows = async function () {
+    const { data, error } = await supabaseClient.from(TBL).select('*');
+    if (error) throw new Error(error.message);
+    rows = (data || []).filter(function (r) { return r.Status !== 'Deleted'; })
+      .sort(function (a, b) { return String(a.Date || '').localeCompare(String(b.Date || '')) || String(a[IDF]).localeCompare(String(b[IDF]), undefined, { numeric: true }); });
+  };
+  const markListCurrent = function () { document.querySelectorAll('#' + P + '_List tr[data-id]').forEach(function (tr) { tr.classList.toggle('cur', !!editRec && tr.getAttribute('data-id') === editRec[IDF]); }); };
+  const renderList = function (flashId) {
+    const af = $('_LAcc').value, from = $('_LFrom').value, to = $('_LTo').value;
+    const list = rows.filter(function (r) {
+      const d = String(r.Date || '').slice(0, 10);
+      if (from && d < from) return false; if (to && d > to) return false;
+      if (af && r.FromAccountID !== af && r.ToAccountID !== af) return false;
+      return true;
+    });
+    let tg = 0;
+    const html = list.map(function (r, i) {
+      tg += n2(r.Amount);
+      const draft = r.Status !== 'Posted';
+      const sub = [r.RefNo ? t('রেফ', 'Ref') + ': ' + r.RefNo : '', r.Narration || ''].filter(Boolean).map(escapeHtml).join(' · ');
+      return `<tr class="vk-ContraVoucher${draft ? ' draft' : ''}" data-id="${attr(r[IDF])}">
+        <td class="c">${i + 1}</td><td class="c">${isoToDmy(r.Date)}</td>
+        <td class="c">${escapeHtml(r[IDF])}${draft ? ' <span class="badge-d">' + t('খসড়া', 'Draft') + '</span>' : ''}</td>
+        <td class="l"><b>${escapeHtml(accName(r.FromAccountID))} → ${escapeHtml(accName(r.ToAccountID))}</b>${sub ? '<small>' + sub + '</small>' : ''}</td>
+        <td class="r">${fmt(r.Amount)}</td>
+        <td class="c">${on('print') ? `<button type="button" class="pvx-ic" data-pr="${attr(r[IDF])}" data-perm-safe="1" title="${attr(t('প্রিন্ট প্রিভিউ (A5)', 'Print preview (A5)'))}">👁️</button>` : ''}<button type="button" class="pvx-ic" data-ed="${attr(r[IDF])}" title="${attr(t('এডিট', 'Edit'))}">✏️</button><button type="button" class="pvx-ic" data-del="${attr(r[IDF])}" title="${attr(t('ডিলিট', 'Delete'))}">🗑️</button><button type="button" class="pvx-ic" data-post="${attr(r[IDF])}" title="${attr(draft ? t('পোস্ট', 'Post') : t('পোস্ট হয়ে গেছে', 'Already posted'))}"${draft ? '' : ' disabled'}>💾</button></td>
+      </tr>`;
+    }).join('');
+    $('_List').innerHTML = html || `<tr><td colspan="6" class="c" style="padding:14px;color:var(--text-muted);">${t('এই সময়ে কোনো কনট্রা ভাউচার নেই।', 'No contra vouchers in this period.')}</td></tr>`;
+    $('_ListFoot').innerHTML = list.length ? `<tr><td colspan="4" class="r">${t('মোট', 'Total')}${af ? ' — ' + escapeHtml(accName(af)) : ''} (${list.length})</td><td class="r">${fmt(tg)}</td><td></td></tr>` : '';
+    markListCurrent();
+    if (flashId) { const tr = document.querySelector('#' + P + '_List tr[data-id="' + CSS.escape(flashId) + '"]'); if (tr) { tr.classList.add('sel'); tr.scrollIntoView({ block: 'nearest' }); } }
+  };
+  $('_List').addEventListener('click', async function (e) {
+    const ed = e.target.closest('[data-ed]'), del = e.target.closest('[data-del]'), pr = e.target.closest('[data-pr]'), po = e.target.closest('[data-post]');
+    const recOf = function (el, a) { return rows.find(function (r) { return r[IDF] === el.getAttribute(a); }); };
+    if (pr) { printRec(recOf(pr, 'data-pr')); return; }
+    if (ed) { const rec = recOf(ed, 'data-ed'); if (rec && (!editRec || editRec[IDF] !== rec[IDF]) && confirmDiscard()) fillForm(rec); return; }
+    if (po) {
+      const rec = recOf(po, 'data-post'); if (!rec || rec.Status === 'Posted') return;
+      if (!confirm(t('ভাউচার ', 'Post voucher ') + rec[IDF] + t(' পোস্ট করবেন?', '?'))) return;
+      try { await api('postDocument', { docType: TBL, docId: rec[IDF] }); showToast(t('পোস্ট হয়েছে ✅ ', 'Posted ✅ ') + rec[IDF], 'success'); await loadRows(); wireNav(); renderList(rec[IDF]); }
+      catch (err) { showToast(err.message, 'error'); }
+      return;
+    }
+    if (del) {
+      const id = del.getAttribute('data-del');
+      try {
+        if (!(await voucherDelete(TBL, id))) return;
+        await loadRows();
+        if (editRec && editRec[IDF] === id) resetForm(false); else { wireNav(); if (!editRec) $('_No').value = nextNo(); }
+        renderList();
+      } catch (err) { showToast(err.message, 'error'); }
+    }
+  });
+  ['_LAcc', '_LFrom', '_LTo'].forEach(function (s) { $(s).addEventListener('change', function () { renderList(); }); });
+
+  /* ---- সেভ (= সেভ + পোস্ট) ---- */
+  const save = async function () {
+    if (busy) return;
+    const date = $('_Date').value || (editRec ? String(editRec.Date || '').slice(0, 10) : today);
+    const f = $('_From').value, to = $('_To').value, amt = r2($('_Amount').value);
+    const fail = function (msg, el) { showToast(msg, 'error'); if (el && el.offsetParent !== null) el.focus(); };
+    if (!f) return fail(t('উৎস অ্যাকাউন্ট বাছাই করুন।', 'Select the from account.'), $('_From'));
+    if (!to) return fail(t('গন্তব্য অ্যাকাউন্ট বাছাই করুন।', 'Select the to account.'), $('_To'));
+    if (f === to) return fail(t('উৎস ও গন্তব্য একই অ্যাকাউন্ট হতে পারবে না।', 'From and to cannot be the same account.'), $('_To'));
+    if (!(amt > 0)) return fail(t('পরিমান দিন।', 'Enter the amount.'), $('_Amount'));
+    if (!date) return fail(t('তারিখ দিন (দিন-মাস-বছর)।', 'Enter the date (dd-mm-yyyy).'));
+    if (bal.from - amt < -0.004 && !confirm(t('উৎস অ্যাকাউন্টে জের ', 'The from account balance is ') + fmt(bal.from) + t(' — বদলের পরে ঋণাত্মক হবে। তবুও সেভ করবেন?', ' — it will go negative. Save anyway?'))) return;
+    const data = { Date: date, FromAccountID: f, ToAccountID: to, Amount: amt, RefNo: $('_Ref').value.trim(), Narration: $('_Note').value.trim(), Status: 'Draft' };
+    const btn = $('_Save'); busy = true; btn.disabled = true;
+    try {
+      let id;
+      if (editRec) {
+        id = editRec[IDF];
+        const { data: cur } = await supabaseClient.from(TBL).select('Status').eq(IDF, id).maybeSingle();
+        if (cur && cur.Status === 'Posted') {
+          if (!(await voucherAskAdmin(t('পোস্ট করা ভাউচার বদলাতে এডমিন পাসওয়ার্ড দিন:', 'Admin password to change a posted voucher:')))) return;
+          await reversePostedDocumentStock(TBL, id);
+          const { error: se } = await supabaseClient.from(TBL).update({ Status: 'Draft' }).eq(IDF, id);
+          if (se) throw new Error(se.message);
+        }
+        const { error } = await supabaseClient.from(TBL).update(data).eq(IDF, id);
+        if (error) throw new Error(error.message);
+      } else {
+        const { data: row, error } = await supabaseClient.from(TBL).insert(data).select().single();
+        if (error) throw new Error(error.message);
+        id = row && row[IDF];
+        if (!id) throw new Error(t('ভাউচার নম্বর পাওয়া যায়নি।', 'Voucher number not returned.'));
+      }
+      await api('postDocument', { docType: TBL, docId: id });
+      listCache = {};
+      showToast(t('সেভ ও পোস্ট হয়েছে ✅ ', 'Saved & posted ✅ ') + id, 'success');
+      await loadRows(); resetForm(false); renderList(id);
+    } catch (err) {
+      showToast(err.message, 'error');
+      try { await loadRows(); renderList(); wireNav(); } catch (e) {}
+    } finally { busy = false; btn.disabled = false; }
+  };
+  $('_Save').addEventListener('click', save);
+  $('_Cancel').addEventListener('click', function () { if (confirmDiscard()) resetForm(true); });
+  ['_From', '_To'].forEach(function (s) { $(s).addEventListener('change', loadBal); });
+  ['_Amount', '_Ref', '_Note', '_Date'].forEach(function (s) { $(s).addEventListener('input', calc); $(s).addEventListener('change', calc); });
+  const form = $('_Form');
+  form.addEventListener('input', function (e) { if (e.isTrusted && !e.target.closest('.pvx-lh')) dirty = true; });
+  form.addEventListener('change', function (e) { if (e.isTrusted && !e.target.closest('.pvx-lh')) dirty = true; });
+
+  /* ---- Enter = পরের ঘর, Escape = আগের ঘর ---- */
+  form.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' && e.key !== 'Escape') return;
+    if (e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return;
+    const dateTxt = L1[0].td.querySelector('.dmy-in') || $('_Date');
+    const order = [dateTxt, $('_From'), $('_To'), $('_Amount'), $('_Ref'), $('_Note'), $('_Save')].filter(function (el) { return el && !el.disabled && el.offsetParent !== null; });
+    const el = document.activeElement, i = order.indexOf(el);
+    if (i === -1) return;
+    if (e.key === 'Enter' && el.tagName === 'BUTTON') return;
+    e.preventDefault(); e.stopPropagation();
+    const to = order[e.key === 'Enter' ? i + 1 : i - 1];
+    if (!to) return;
+    to.focus();
+    if (to.tagName === 'INPUT' && to.select) { try { to.select(); } catch (er) {} }
+  });
+
+  try { await loadRows(); } catch (err) { $('_List').innerHTML = `<tr><td colspan="6" class="c">${escapeHtml(err.message)}</td></tr>`; }
+  const pending = window.__convEditId; window.__convEditId = null;
+  const pend = pending ? rows.find(function (r) { return r[IDF] === pending; }) : null;
+  renderList();
+  if (pend) fillForm(pend); else resetForm(true);
+  sizeRoot();
 }
 
 /* ============================================================
@@ -12094,6 +12523,8 @@ const VFS_CFG = {
           nameBn: 'কালেকশন ভাউচার', nameEn: 'Collection Voucher',
           note: ['Enter = পরের ঘর, Escape = আগের ঘর, Space = টিক দেওয়া/তোলা। সেভ করার পর নতুন খোলা কালেকশন ভাউচারে প্রয়োগ হবে। পার্টি নাম, পরিমান ও সেভ সবসময় থাকে। তারিখ বন্ধ থাকলে আজকের তারিখ, ডিসকাউন্ট বন্ধ থাকলে শূন্য। মেথডে নগদ ও ব্যাংক দুটোই বন্ধ হলে নগদ; পপ-আপের দুই ধরনই বন্ধ হলে দুটোই দেখায়।', 'Enter = next, Escape = previous, Space = tick/untick. Applies to vouchers opened after saving. Party, amount and save always show. With date off today is used, with discount off zero. If both cash and bank are off, cash is used; if both pop-up options are off, both show.'] },
   // এক্সপেন্স / রিসিপ্ট (অন্যান্য আয়) ভাউচার — hvFieldsFor
+  conv: { key: 'ContraVoucherFields', bn: 'কনট্রা', en: 'Contra', partyBn: 'অ্যাকাউন্ট', partyEn: 'Account', nameBn: 'কনট্রা ভাউচার', nameEn: 'Contra Voucher',
+          note: ['Enter = পরের ঘর, Escape = আগের ঘর, Space = টিক দেওয়া/তোলা। সেভ করার পর নতুন খোলা কনট্রা ভাউচারে প্রয়োগ হবে। উৎস ও গন্তব্য অ্যাকাউন্ট, পরিমান ও সেভ সবসময় থাকে; তারিখ বন্ধ থাকলে আজকের তারিখ।', 'Enter = next, Escape = previous, Space = tick/untick. Applies to vouchers opened after saving. From/to accounts, amount and save always show; with date off today is used.'] },
   expv: { key: 'ExpenseVoucherFields', bn: 'এক্সপেন্স', en: 'Expense', partyBn: 'খাত', partyEn: 'Head', nameBn: 'এক্সপেন্স ভাউচার', nameEn: 'Expense Voucher',
           note: ['Enter = পরের ঘর, Escape = আগের ঘর, Space = টিক দেওয়া/তোলা। সেভ করার পর নতুন খোলা ভাউচারে প্রয়োগ হবে। খাত, পরিমান, লাইন ও সেভ সবসময় থাকে। তারিখ বন্ধ থাকলে আজকের তারিখ; মেথডে নগদ ও ব্যাংক দুটোই বন্ধ হলে নগদ।', 'Enter = next, Escape = previous, Space = tick/untick. Applies to vouchers opened after saving. Head, amount, line and save always show. With date off today is used; if both cash and bank are off, cash is used.'] },
   incv: { key: 'IncomeVoucherFields', bn: 'রিসিপ্ট', en: 'Receipt', partyBn: 'খাত', partyEn: 'Head', nameBn: 'রিসিপ্ট ভাউচার', nameEn: 'Receipt Voucher',
@@ -12101,6 +12532,7 @@ const VFS_CFG = {
 };
 /** ঘরের তালিকা — [key, বাংলা, English, ধরন, ঘরের id] — ধরনঃ 'in' = ইনপুট, 'show' = শুধু-দেখার ঘর, 'stock'/'pay' = আলাদা নিয়ম */
 function vfsFields(P) {
+  if (P === 'conv') return cvFieldsFor().map(function (f) { return [f[0], f[1], f[2], 'in', []]; });
   if (P === 'expv' || P === 'incv') return hvFieldsFor(P).map(function (f) { return [f[0], f[1], f[2], 'in', []]; });
   if (P === 'payv' || P === 'recv') return pvFieldsFor(P).map(function (f) { return [f[0], f[1], f[2], 'in', []]; });
   const C = VFS_CFG[P], x = function (ids) { return ids.map(function (s) { return P + s; }); };
@@ -15607,6 +16039,7 @@ async function voucherAskAdmin(msg) {
 }
 async function voucherView(base, id) {
   const R = VOUCHER_REGISTRY[base];
+  if (base === 'ContraVoucher') { closeModal(); window.__convEditId = id; return navigateTo('cv', t('হিসাব', 'Accounts'), t('কনট্রা ভাউচার', 'Contra Voucher')); }   // নতুন কনট্রা পেজে
   if (base === 'PaymentVoucher' || base === 'ReceiptVoucher') { const PK = base === 'PaymentVoucher' ? PV_KINDS.pay : PV_KINDS.rec; closeModal(); window['__' + PK.P + 'EditId'] = id; return navigateTo(PK.page, t('হিসাব', 'Accounts'), t(PK.bn, PK.en)); }   // নতুন পেমেন্ট ভাউচার পেজে উপরের ঘরে খোলে
   if (!R || R.kind === 'legacy') { showToast(t('এই ধরনের ভাউচার দেখার ব্যবস্থা এখনকার সফটওয়্যারে নেই — চাইলে 🗑️ দিয়ে মুছে ফেলুন।', 'This voucher type cannot be opened in this version — delete it with 🗑️ if needed.'), 'error'); return; }
   if (R.kind === 'purchase' || R.kind === 'sales') return openPrintableVoucherView(base, id);
@@ -15617,6 +16050,7 @@ async function voucherView(base, id) {
 }
 async function voucherEdit(base, id, posted) {
   const R = VOUCHER_REGISTRY[base];
+  if (base === 'ContraVoucher') { closeModal(); window.__convEditId = id; return navigateTo('cv', t('হিসাব', 'Accounts'), t('কনট্রা ভাউচার', 'Contra Voucher')); }   // নতুন কনট্রা পেজে
   if (base === 'PaymentVoucher' || base === 'ReceiptVoucher') { const PK = base === 'PaymentVoucher' ? PV_KINDS.pay : PV_KINDS.rec; closeModal(); window['__' + PK.P + 'EditId'] = id; return navigateTo(PK.page, t('হিসাব', 'Accounts'), t(PK.bn, PK.en)); }   // নতুন পেমেন্ট ভাউচার পেজে উপরের ঘরে খোলে (পোস্ট করা হলে সেভের সময় এডমিন পাসওয়ার্ড)
   if (!R || R.kind === 'legacy') { showToast(t('এই ধরনের ভাউচার এডিটের ব্যবস্থা নেই — 🗑️ দিয়ে মুছে নতুন করে দিন।', 'This voucher type cannot be edited — delete it and enter it again.'), 'error'); return false; }
   if (R && R.kind === 'head') { const HK = HV_KINDS[R.hv]; closeModal(); window['__' + HK.P + 'EditId'] = id; return navigateTo(HK.page, t('হিসাব', 'Accounts'), t(HK.bn, HK.en)); }   // এক্সপেন্স/রিসিপ্ট — নিজের পেজে উপরের ঘরে
