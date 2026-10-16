@@ -3808,7 +3808,8 @@ const PV_KINDS = {
          notePh: ['যেমন: বকেয়া পরিশোধ', 'e.g. Payment of dues'], legacyBank: 'OwnBankToPartyBank',
          popA: { key: 'popA', v: 'CashToPartyBank', own: false, bn: function (w) { return 'নগদ টু ' + w + ' ব্যাংক'; }, en: function (w) { return 'Cash to ' + w + ' bank'; } },
          popB: { key: 'popB', v: 'OwnBankToPartyBank', own: true, bn: function (w) { return 'নিজের ব্যাংক টু ' + w + ' ব্যাংক'; }, en: function (w) { return 'Own bank to ' + w + ' bank'; } } },
-  rec: { P: 'recv', table: 'ReceiptVoucher', idf: 'RecID', pre: 'REC-', page: 'rv', bn: 'কালেকশন ভাউচার', en: 'Collection Voucher',
+  rec: { P: 'recv', table: 'ReceiptVoucher', idf: 'RecID', pre: 'COL-', ownId: true, page: 'rv',   /* নম্বর COL-0001 — সফটওয়্যার নিজে দেয় (পুরনো REC- নম্বর যেমন ছিল থাকে) */
+         bn: 'কালেকশন ভাউচার', en: 'Collection Voucher',
          sign: -1, defSup: false, vchBn: 'ভাউচার গ্রহণ', vchEn: 'Voucher receipt', netBn: 'গ্রহণ', netEn: 'received',
          defNote: 'গ্রহণ', sign1: 'প্রদানকারীর স্বাঃ', popTitle: ['ব্যাংকে গ্রহণের বিবরণ', 'Bank Receipt Details'], popLbl: ['গ্রহণের ধরন', 'Receipt Method'],
          notePh: ['যেমন: বকেয়া আদায়', 'e.g. Dues collected'], legacyBank: 'PartyBankToOwnBank',
@@ -4140,6 +4141,7 @@ async function renderPartyVoucherPage(content, kind) {
 
   /* ---- অবস্থা ---- */
   let rows = [];          // সব ভাউচার (মোছা বাদ), তারিখ+নম্বরের ক্রমে
+  let allIds = [];        // মোছাসহ সব নম্বর
   let editRec = null;     // যেটা এডিট হচ্ছে (নতুন হলে null)
   let jer = 0;            // পার্টি জের (পোস্ট করা ভাউচারে — এর আগের ব্যালান্স)
   let balToken = 0;
@@ -4160,8 +4162,10 @@ async function renderPartyVoucherPage(content, kind) {
 
   const nextNo = function () {
     let best = null;
-    rows.forEach(function (r) {
-      const m = /^(.*?)(\d+)$/.exec(String(r[K.idf] || ''));
+    (K.ownId ? allIds.map(function (x) { const o = {}; o[K.idf] = x; return o; }) : rows).forEach(function (r) {
+      const id = String(r[K.idf] || '');
+      if (K.ownId && id.indexOf(K.pre) !== 0) return;   // কালেকশনঃ শুধু COL- নম্বর গুনে পরেরটা (পুরনো REC-/C- বাদ)
+      const m = /^(.*?)(\d+)$/.exec(id);
       if (m && (!best || Number(m[2]) > best.n)) best = { pre: m[1], n: Number(m[2]), w: m[2].length };
     });
     return best ? best.pre + String(best.n + 1).padStart(best.w, '0') : K.pre + '0001';
@@ -4316,6 +4320,7 @@ async function renderPartyVoucherPage(content, kind) {
   const loadRows = async function () {
     const { data, error } = await supabaseClient.from(K.table).select('*');
     if (error) throw new Error(error.message);
+    allIds = (data || []).map(function (r) { return String(r[K.idf] || ''); });   // মোছা (Deleted) সহ — নতুন নম্বর যেন আগের কোনোটার সাথে না মেলে
     rows = (data || []).filter(function (r) { return r.Status !== 'Deleted'; })
       .sort(function (a, b) { return String(a.Date || '').localeCompare(String(b.Date || '')) || String(a[K.idf]).localeCompare(String(b[K.idf]), undefined, { numeric: true }); });
   };
@@ -4434,7 +4439,16 @@ async function renderPartyVoucherPage(content, kind) {
         }
         await writeRow(id, Object.assign({ Status: 'Draft' }, data));
       } else {
-        const row = await writeRow(null, Object.assign({ Status: 'Draft' }, data));
+        let row = null;
+        for (let k = 0; k < 5; k++) {   // কালেকশনঃ নম্বর (COL-0001…) সফটওয়্যার দেয়; একই নম্বর আগেই থাকলে পরেরটা
+          const head = Object.assign({ Status: 'Draft' }, data);
+          if (K.ownId) head[K.idf] = nextNo();
+          try { row = await writeRow(null, head); break; }
+          catch (e) {
+            if (!(K.ownId && /duplicate|unique|already exists/i.test(e.message || '')) || k === 4) throw e;
+            await loadRows();
+          }
+        }
         id = row && row[K.idf];
         if (!id) throw new Error(t('ভাউচার নম্বর পাওয়া যায়নি।', 'Voucher number not returned.'));
       }
