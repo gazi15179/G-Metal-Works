@@ -479,7 +479,7 @@ const MODULES = [
   {key:'accounts', bn:'হিসাব', en:'Accounts', sub:[
     {key:'coa', bn:'হিসাবের তালিকা', en:'Chart of Accounts'},{key:'bankCash', bn:'ব্যাংক ও ক্যাশ অ্যাকাউন্ট', en:'Bank & Cash Accounts'},
     {key:'jv', bn:'জার্নাল ভাউচার', en:'Journal Voucher'},{key:'cv', bn:'কনট্রা ভাউচার', en:'Contra Voucher'},
-    {key:'pv', bn:'পেমেন্ট ভাউচার', en:'Payment Voucher'},{key:'payvSettings', bn:'পেমেন্ট ভাউচার সেটিং', en:'Payment Voucher Settings'},{key:'rv', bn:'রিসিপ্ট ভাউচার', en:'Receipt Voucher'},{key:'recvSettings', bn:'রিসিপ্ট ভাউচার সেটিং', en:'Receipt Voucher Settings'},{key:'ownerCapital', bn:'মালিকের মূলধন', en:'Owner Capital'},{key:'assetPurchase', bn:'এ্যাসেট ক্রয়', en:'Asset Purchase'},{key:'assetSale', bn:'এ্যাসেট বিক্রয়', en:'Asset Sale'},{key:'fixedAssets', bn:'এ্যাসেট রেজিস্টার', en:'Asset Register'},
+    {key:'pv', bn:'পেমেন্ট ভাউচার', en:'Payment Voucher'},{key:'payvSettings', bn:'পেমেন্ট ভাউচার সেটিং', en:'Payment Voucher Settings'},{key:'rv', bn:'ভাউচার কালেকশন', en:'Voucher Collection'},{key:'recvSettings', bn:'ভাউচার কালেকশন সেটিং', en:'Voucher Collection Settings'},{key:'ownerCapital', bn:'মালিকের মূলধন', en:'Owner Capital'},{key:'assetPurchase', bn:'এ্যাসেট ক্রয়', en:'Asset Purchase'},{key:'assetSale', bn:'এ্যাসেট বিক্রয়', en:'Asset Sale'},{key:'fixedAssets', bn:'এ্যাসেট রেজিস্টার', en:'Asset Register'},
     {key:'bankBook', bn:'ব্যাংক ও নগদ বই', en:'Bank & Cash Book'},{key:'trialBalance', bn:'ট্রায়াল ব্যালেন্স', en:'Trial Balance'},
   ]},
   {key:'hr', bn:'এইচআর ও পে-রোল', en:'HR & Payroll', sub:[
@@ -1419,7 +1419,7 @@ async function navigateTo(pageKey, moduleLabel, pageLabel) {
     else if (pageKey === 'svSettings') await renderSalesVoucherSettingsPage(content);
     else if (pageKey === 'pvSettings') await renderVoucherFieldSettingsPage(content, 'pv3');
     else if (pageKey === 'payvSettings') await renderVoucherFieldSettingsPage(content, 'payv');   // হিসাব → পেমেন্ট ভাউচার সেটিং
-    else if (pageKey === 'recvSettings') await renderVoucherFieldSettingsPage(content, 'recv');   // হিসাব → রিসিপ্ট ভাউচার সেটিং
+    else if (pageKey === 'recvSettings') await renderVoucherFieldSettingsPage(content, 'recv');   // হিসাব → ভাউচার কালেকশন সেটিং
     else if (pageKey === 'stockOverview') await renderStockOverview(content);
     else if (pageKey === 'stockLedger') await renderStockLedger(content);
     else if (pageKey === 'goodsReceive') await renderDocumentListPage(content, DOC_CONFIGS.grn);
@@ -1452,7 +1452,7 @@ async function navigateTo(pageKey, moduleLabel, pageLabel) {
     else if (pageKey === 'prodDaily') await renderProdDailyPage(content);
     else if (pageKey === 'procCosting') await renderProcCostingPage(content);
     else if (pageKey === 'pv') await renderPaymentVoucherPage(content);   // নতুন পেমেন্ট ভাউচার (বিক্রয় ভাউচারের মত)
-    else if (pageKey === 'rv') await renderReceiptVoucherPage(content);   // রিসিপ্ট ভাউচার — পেমেন্ট ভাউচারের মত, দিক উল্টো
+    else if (pageKey === 'rv') await renderReceiptVoucherPage(content);   // ভাউচার কালেকশন — পেমেন্ট ভাউচারের মত, দিক উল্টো
     else if (SIMPLE_VOUCHER_CONFIGS[pageKey]) await renderSimpleVoucherPage(content, SIMPLE_VOUCHER_CONFIGS[pageKey]);
     else if (pageKey === 'ownerCapital') await renderOwnerCapitalPage(content);
     else if (pageKey === 'fixedAssets') await renderFixedAssetPage(content);
@@ -3586,7 +3586,7 @@ const SIMPLE_VOUCHER_CONFIGS = {
   },
   rv: {
     sheet:'ReceiptVoucher', idField:'RecID', idPrefix:'REC', docType:'ReceiptVoucher',
-    titleBn:'রিসিপ্ট ভাউচার', titleEn:'Receipt Voucher',
+    titleBn:'ভাউচার কালেকশন', titleEn:'Receipt Voucher',
     subBn:'গ্রাহক/অন্য কারো কাছ থেকে টাকা গ্রহণ', subEn:'Receive money from a customer/other party',
     fields:[
       {key:'Date', label:'তারিখ', labelEn:'Date', type:'date', required:true},
@@ -3715,9 +3715,9 @@ async function openSimpleVoucherForm(existing) {
    • হিসাব → "পেমেন্ট ভাউচার সেটিং" — টিক দেওয়া ঘর দেখা যায়, টিক না থাকলে দেখা যায় না (system_settings, Key 'PaymentVoucherFields')
    • ডিসকাউন্টের ঘর ডেটাবেসেঃ 37 নম্বর SQL — ALTER TABLE "PaymentVoucher" ADD COLUMN IF NOT EXISTS "Discount" numeric DEFAULT 0;
    • প্রদানের ধরনঃ 38 নম্বর SQL — ALTER TABLE "PaymentVoucher" ADD COLUMN IF NOT EXISTS "PayMethod" text;
-   • হিসাব → রিসিপ্ট ভাউচারও একই পেজ (PV_KINDS.rec)ঃ পার্টি লেজারে মোট পরিমান ক্রেঃ, নগদ/ব্যাংক বইয়ে নীট ডেঃ;
+   • হিসাব → ভাউচার কালেকশনও একই পেজ (PV_KINDS.rec)ঃ পার্টি লেজারে মোট পরিমান ক্রেঃ, নগদ/ব্যাংক বইয়ে নীট ডেঃ;
      ব্যাংক পপ-আপঃ "কাস্টমার ব্যাংক টু নিজের ব্যাংক" / "নগদ টু নিজের ব্যাংক" (দুটোতেই আমাদের কোন ব্যাংক — বাছাই);
-     সেটিং — হিসাব → "রিসিপ্ট ভাউচার সেটিং" (Key 'ReceiptVoucherFields'); ঘর — 39 নম্বর SQL
+     সেটিং — হিসাব → "ভাউচার কালেকশন সেটিং" (Key 'ReceiptVoucherFields'); ঘর — 39 নম্বর SQL
    ============================================================ */
 const PAYV_CSS = `
   .payv{overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;margin:-8px -6px 0;padding:0 6px 24px;}
@@ -3762,9 +3762,45 @@ const PAYV_CSS = `
     .payv .pvx-btns{height:24px;} .payv .pvx-btns button{font-size:11px;}
     .payv .pvl .pvx-ic{min-width:32px;height:28px;font-size:13px;}
     .payv .pvl-wrap{max-height:none;}
+  }
+  /* ঘরের নকশা — পরিষ্কার ও চিকন (শুধু পেমেন্ট ভাউচার / ভাউচার কালেকশন; বিক্রয়/ক্রয় ভাউচার আগের মতই) */
+  .payv .svt{border:1px solid #9aa1ab;background:#fff;}
+  .payv .svt th,.payv .svt td{border-color:#c9ced5;}
+  .payv .svt tr.h th{background:#eef1f5;color:#3b4452;font-weight:700;font-size:10.5px;height:18px;padding:0 3px;line-height:1.1;}
+  .payv .svt td{background:#fff;}
+  .payv .svt td input:not([type=checkbox]),.payv .svt td select{height:26px;font-size:12.5px;padding:0 6px;color:#1b1f27;}
+  .payv .svt td input.ro{background:#f5f6f8 !important;color:#4a5260;}
+  .payv .svt td select{-webkit-appearance:none;-moz-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236b7280'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 5px center;background-size:8px 5px;padding-right:16px !important;cursor:pointer;}
+  .payv .svt td.num input{text-align:right !important;text-align-last:right;padding-right:7px !important;font-variant-numeric:tabular-nums;font-weight:600;}
+  .payv .svt input[type=number]::-webkit-outer-spin-button,.payv .svt input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+  .payv .svt input[type=number]{-moz-appearance:textfield;}
+  .payv .svt td input::placeholder{color:#a3a9b2;font-weight:400;}
+  .payv .svt td input:focus,.payv .svt td select:focus{outline:none !important;box-shadow:inset 0 0 0 2px #c27a12;background-color:#fffaf0 !important;}
+  .payv .svt td.ps{background:#f8f9fb;padding:0;}
+  .payv .svt td.ps .vps-val{height:26px;font-size:12.5px;}
+  .payv .svt td.pvx-bal .vps-val{box-shadow:inset 0 0 0 1.5px #c27a12;background:#fffaf0;}
+  .payv .svt .dmy-in{height:26px !important;font-size:12.5px !important;}
+  .payv .pvx-btns{height:26px;}
+  .payv .svp{border:1px solid #9aa1ab;} .payv .svp th,.payv .svp td{border-color:#c9ced5;}
+  .payv .svp thead th{background:#eef1f5;color:#3b4452;} .payv .svp thead tr.h2 th{background:#f5f7f9;}
+  .payv .svp tbody tr.tot td{background:#f5f7f9;} .payv .svp tbody tr.grand td{background:#fff6e0;}
+  @media (max-width:760px){
+    .payv-freeze{padding:4px 0;}
+    .payv .vnavh{margin:0 0 4px;padding:2px;font-size:12px;} .payv .vnav{width:30px;height:22px;font-size:12px;}
+    .payv .svt tr.h th{font-size:9.5px;height:15px;padding:0 2px;}
+    .payv .svt td input:not([type=checkbox]),.payv .svt td select{height:22px;font-size:11.5px;padding:0 3px;}
+    .payv .svt td select{padding-right:12px !important;background-position:right 3px center;background-size:7px 4px;}
+    .payv .svt td.num input{padding-right:4px !important;}
+    .payv .svt td.ps .vps-val{height:22px;font-size:11px;padding:0 2px;}
+    .payv .svt .dmy-in{height:22px !important;font-size:11px !important;padding:0 15px 0 2px !important;}
+    .payv .svt .dmy-cal{font-size:10px;right:0;padding:1px;}
+    .payv .pvx-btns{height:22px;} .payv .pvx-btns button{font-size:10.5px;}
+    .payv .pvx-mode{padding:3px 6px;font-size:11px;} .payv .pvx-mode button{padding:2px 6px;font-size:10.5px;}
+    .payv .svp th,.payv .svp td{height:18px;padding:0 3px;font-size:10.5px;}
+    .payv .pvl th,.payv .pvl td{padding:2px 4px;}
   }`;
 
-/** পেমেন্ট / রিসিপ্ট ভাউচারের ধরন — একই পেজ, দিক উল্টো */
+/** পেমেন্ট / ভাউচার কালেকশনের ধরন — একই পেজ, দিক উল্টো */
 const PV_KINDS = {
   pay: { P: 'payv', table: 'PaymentVoucher', idf: 'PayID', pre: 'PAY-', page: 'pv', bn: 'পেমেন্ট ভাউচার', en: 'Payment Voucher',
          sign: 1, defSup: true, vchBn: 'ভাউচার প্রদান', vchEn: 'Voucher payment', netBn: 'প্রদান', netEn: 'paid',
@@ -3772,7 +3808,7 @@ const PV_KINDS = {
          notePh: ['যেমন: বকেয়া পরিশোধ', 'e.g. Payment of dues'], legacyBank: 'OwnBankToPartyBank',
          popA: { key: 'popA', v: 'CashToPartyBank', own: false, bn: function (w) { return 'নগদ টু ' + w + ' ব্যাংক'; }, en: function (w) { return 'Cash to ' + w + ' bank'; } },
          popB: { key: 'popB', v: 'OwnBankToPartyBank', own: true, bn: function (w) { return 'নিজের ব্যাংক টু ' + w + ' ব্যাংক'; }, en: function (w) { return 'Own bank to ' + w + ' bank'; } } },
-  rec: { P: 'recv', table: 'ReceiptVoucher', idf: 'RecID', pre: 'REC-', page: 'rv', bn: 'রিসিপ্ট ভাউচার', en: 'Receipt Voucher',
+  rec: { P: 'recv', table: 'ReceiptVoucher', idf: 'RecID', pre: 'REC-', page: 'rv', bn: 'ভাউচার কালেকশন', en: 'Voucher Collection',
          sign: -1, defSup: false, vchBn: 'ভাউচার গ্রহণ', vchEn: 'Voucher receipt', netBn: 'গ্রহণ', netEn: 'received',
          defNote: 'গ্রহণ', sign1: 'প্রদানকারীর স্বাঃ', popTitle: ['ব্যাংকে গ্রহণের বিবরণ', 'Bank Receipt Details'], popLbl: ['গ্রহণের ধরন', 'Receipt Method'],
          notePh: ['যেমন: বকেয়া আদায়', 'e.g. Dues collected'], legacyBank: 'PartyBankToOwnBank',
@@ -3835,7 +3871,7 @@ async function payvPartyJer(K, p, payId) {
   return total;
 }
 
-/** পেমেন্ট / রিসিপ্ট ভাউচার — A5 প্রিন্ট প্রিভিউ (ক্রয়/বিক্রয় ভাউচারের মত ৩ অংশঃ প্রতিষ্ঠান · পার্টি · টেবিল, তারপর জের-বক্স)।
+/** পেমেন্ট / ভাউচার কালেকশন — A5 প্রিন্ট প্রিভিউ (ক্রয়/বিক্রয় ভাউচারের মত ৩ অংশঃ প্রতিষ্ঠান · পার্টি · টেবিল, তারপর জের-বক্স)।
  *  সব লেখা বাংলায়, শুধু ভাউচার নং, তারিখ ও মোবাইল ইংরেজিতে। ctx = {party, accLabel, jer} */
 async function payvPrint(K, rec, ctx) {
   const w = window.open('', '_blank');
@@ -3917,7 +3953,7 @@ async function payvPrint(K, rec, ctx) {
 async function renderPaymentVoucherPage(content) { return renderPartyVoucherPage(content, 'pay'); }
 async function renderReceiptVoucherPage(content) { return renderPartyVoucherPage(content, 'rec'); }
 
-/** পেমেন্ট / রিসিপ্ট ভাউচার — একই কাঠামো, দিক উল্টো (PV_KINDS) */
+/** পেমেন্ট / ভাউচার কালেকশন — একই কাঠামো, দিক উল্টো (PV_KINDS) */
 async function renderPartyVoucherPage(content, kind) {
   const K = PV_KINDS[kind], P = K.P;
   delete listCache.Customers; delete listCache.Suppliers;   // নতুন পার্টি সাথে সাথে আসে
@@ -3929,7 +3965,7 @@ async function renderPartyVoucherPage(content, kind) {
   const r2 = function (x) { return Math.round(n2(x) * 100) / 100; };
   const fmt = function (x) { return n2(x).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
   const $ = function (s) { return document.getElementById(P + s); };
-  const on = function (k) { return set[k] !== false; };   // পেমেন্ট/রিসিপ্ট ভাউচার সেটিং — টিক থাকলে দেখা যায়
+  const on = function (k) { return set[k] !== false; };   // পেমেন্ট/ভাউচার কালেকশন সেটিং — টিক থাকলে দেখা যায়
   const popOpts = [K.popA, K.popB].filter(function (o) { return on(o.key); });   // পপ-আপের ধরন — সেটিং-এ দুটোই বন্ধ হলে দুটোই
   if (!popOpts.length) popOpts.push(K.popA, K.popB);
   const optOf = function (pm) { return pm === K.popA.v ? K.popA : pm === K.popB.v ? K.popB : null; };
@@ -3971,7 +4007,7 @@ async function renderPartyVoucherPage(content, kind) {
   const addParty = function (r, kind) {
     if (!r || r.Status === 'Deleted') return;
     const id = kind === 'C' ? r.CustomerID : r.SupplierID;
-    if (!id || id === 'CUS-CASH' || id === 'SUP-CASH') return;   // নগদ (ওয়াক-ইন) পার্টি পেমেন্ট/রিসিপ্ট ভাউচারে নয়
+    if (!id || id === 'CUS-CASH' || id === 'SUP-CASH') return;   // নগদ (ওয়াক-ইন) পার্টি পেমেন্ট/ভাউচার কালেকশনে নয়
     const label = r.CompanyName || r.Name || id;
     const key = r.Code ? r.Code + '|' + normName(label) : id;
     if (!combined[key]) combined[key] = { key: key, name: label, zone: '', phone: '', address: '', bankName: '', bankAcc: '', code: r.Code || '', supIds: [], custIds: [] };
@@ -4054,9 +4090,9 @@ async function renderPartyVoucherPage(content, kind) {
     mk('date', t('তারিখ', 'Date'), `<input type="date" id="${P}_Date" value="${attr(today)}">`),
     mk('no', t('নম্বর', 'No'), `<input id="${P}_No" class="ro" readonly tabindex="-1">`),
     mk('method', t('মেথড', 'Method'), `<select id="${P}_Method">${methodOpts}</select>`),
-    mk('amount', t('পরিমান(৳)', 'Amount(৳)'), `<input type="number" step="any" min="0" inputmode="decimal" id="${P}_Amount" placeholder="0.00">`),
-    mk('disc', t('ডিসকাউন্ট(-)', 'Discount(-)'), `<input type="number" step="any" min="0" inputmode="decimal" id="${P}_Disc" placeholder="0.00">`),
-    mk('net', t('পরিমান(৳)', 'Amount(৳)'), `<input id="${P}_Net" class="ro vbold" readonly tabindex="-1" placeholder="0.00">`),
+    mk('amount', t('পরিমান(৳)', 'Amount(৳)'), `<input type="number" step="any" min="0" inputmode="decimal" id="${P}_Amount" placeholder="0.00">`, 'num'),
+    mk('disc', t('ডিসকাউন্ট(-)', 'Discount(-)'), `<input type="number" step="any" min="0" inputmode="decimal" id="${P}_Disc" placeholder="0.00">`, 'num'),
+    mk('net', t('পরিমান(৳)', 'Amount(৳)'), `<input id="${P}_Net" class="ro vbold" readonly tabindex="-1" placeholder="0.00">`, 'num'),
     mk('note', t('বিবরন', 'Narration'), `<input id="${P}_Note" autocomplete="off">`),
     mk('save', on('cancel') ? t('বাতিল/ সেভ', 'Cancel/ Save') : t('সেভ', 'Save'), `<div class="pvx-btns"><button type="button" class="pvx-cancel" id="${P}_Cancel" data-perm-safe="1"${on('cancel') ? '' : ' style="display:none;"'}>✖ ${t('বাতিল', 'Cancel')}</button><button type="button" class="pvx-save" id="${P}_Save">💾 ${t('সেভ', 'Save')}</button></div>`)
   ];
@@ -4146,7 +4182,7 @@ async function renderPartyVoucherPage(content, kind) {
   const calc = function () {
     const gross = n2($('_Amount').value), disc = n2($('_Disc').value);
     const net = gross - disc;
-    $('_Net').value = (gross || disc) ? net.toFixed(2) : '';
+    $('_Net').value = (gross || disc) ? fmt(net) : '';
     $('_Net').style.color = net < 0 ? '#b3261e' : '';
     const p = partyByKey[$('_Party').value];
     const natural = (p && !p.supIds.length) ? 1 : -1;   // সাপ্লায়ার = সাধারণত ক্রেঃ
@@ -5296,7 +5332,7 @@ async function cashAccountId() {
 const BOOK_REF_LABEL = {
   SalesInvoice: 'নগদ বিক্রয়', 'SalesInvoice-Receipt': 'বিক্রয়ে টাকা গ্রহণ', SalesReturn: 'নগদ বিক্রয় ফেরত',
   PurchaseInvoice: 'নগদ ক্রয়', 'PurchaseInvoice-Payment': 'ক্রয়ে টাকা প্রদান', PurchaseReturn: 'নগদ ক্রয় ফেরত',
-  PaymentVoucher: 'পেমেন্ট ভাউচার', ReceiptVoucher: 'রিসিপ্ট ভাউচার', ContraVoucher: 'কনট্রা (অ্যাকাউন্ট বদল)',
+  PaymentVoucher: 'পেমেন্ট ভাউচার', ReceiptVoucher: 'ভাউচার কালেকশন', ContraVoucher: 'কনট্রা (অ্যাকাউন্ট বদল)',
   CapitalVoucher: 'মালিকের মূলধন', FixedAsset: 'স্থায়ী সম্পদ', AssetPurchase: 'এ্যাসেট ক্রয়', AssetSale: 'এ্যাসেট বিক্রয়',
   SalaryIssue: 'সেলারী ইস্যু (বেতন প্রদান)', 'SalaryIssue-Reversal': 'সেলারী ইস্যু বাতিল (টাকা ফেরত)'
 };
@@ -11082,10 +11118,12 @@ const VFS_CFG = {
          payType: '_PayTypeSelect', payAmt: '_PayAmount', payNote: '_CashPaidNote', paySum: '_BankPaySummary', profit: false },
   // পেমেন্ট ভাউচার — ঘরের তালিকা PAYV_FIELDS-এ; ফর্ম নিজেই টিক না থাকা ঘর বাদ দেয় (renderPaymentVoucherPage)
   payv: { key: 'PaymentVoucherFields', bn: 'পেমেন্ট', en: 'Payment', partyBn: 'পার্টি নাম', partyEn: 'Party',
+          nameBn: 'পেমেন্ট ভাউচার', nameEn: 'Payment Voucher',
           note: ['Enter = পরের ঘর, Escape = আগের ঘর, Space = টিক দেওয়া/তোলা। সেভ করার পর নতুন খোলা পেমেন্ট ভাউচারে প্রয়োগ হবে। পার্টি নাম, পরিমান ও সেভ সবসময় থাকে। তারিখ বন্ধ থাকলে আজকের তারিখ, ডিসকাউন্ট বন্ধ থাকলে শূন্য। মেথডে নগদ ও ব্যাংক দুটোই বন্ধ হলে নগদ; পপ-আপের দুই ধরনই বন্ধ হলে দুটোই দেখায়।', 'Enter = next, Escape = previous, Space = tick/untick. Applies to vouchers opened after saving. Party, amount and save always show. With date off today is used, with discount off zero. If both cash and bank are off, cash is used; if both pop-up options are off, both show.'] },
-  // রিসিপ্ট ভাউচার — একই নিয়ম (pvFieldsFor('recv'))
-  recv: { key: 'ReceiptVoucherFields', bn: 'রিসিপ্ট', en: 'Receipt', partyBn: 'পার্টি নাম', partyEn: 'Party',
-          note: ['Enter = পরের ঘর, Escape = আগের ঘর, Space = টিক দেওয়া/তোলা। সেভ করার পর নতুন খোলা রিসিপ্ট ভাউচারে প্রয়োগ হবে। পার্টি নাম, পরিমান ও সেভ সবসময় থাকে। তারিখ বন্ধ থাকলে আজকের তারিখ, ডিসকাউন্ট বন্ধ থাকলে শূন্য। মেথডে নগদ ও ব্যাংক দুটোই বন্ধ হলে নগদ; পপ-আপের দুই ধরনই বন্ধ হলে দুটোই দেখায়।', 'Enter = next, Escape = previous, Space = tick/untick. Applies to vouchers opened after saving. Party, amount and save always show. With date off today is used, with discount off zero. If both cash and bank are off, cash is used; if both pop-up options are off, both show.'] }
+  // ভাউচার কালেকশন — একই নিয়ম (pvFieldsFor('recv'))
+  recv: { key: 'ReceiptVoucherFields', bn: 'কালেকশন', en: 'Collection', partyBn: 'পার্টি নাম', partyEn: 'Party',
+          nameBn: 'ভাউচার কালেকশন', nameEn: 'Voucher Collection',
+          note: ['Enter = পরের ঘর, Escape = আগের ঘর, Space = টিক দেওয়া/তোলা। সেভ করার পর নতুন খোলা ভাউচার কালেকশনে প্রয়োগ হবে। পার্টি নাম, পরিমান ও সেভ সবসময় থাকে। তারিখ বন্ধ থাকলে আজকের তারিখ, ডিসকাউন্ট বন্ধ থাকলে শূন্য। মেথডে নগদ ও ব্যাংক দুটোই বন্ধ হলে নগদ; পপ-আপের দুই ধরনই বন্ধ হলে দুটোই দেখায়।', 'Enter = next, Escape = previous, Space = tick/untick. Applies to vouchers opened after saving. Party, amount and save always show. With date off today is used, with discount off zero. If both cash and bank are off, cash is used; if both pop-up options are off, both show.'] }
 };
 /** ঘরের তালিকা — [key, বাংলা, English, ধরন, ঘরের id] — ধরনঃ 'in' = ইনপুট, 'show' = শুধু-দেখার ঘর, 'stock'/'pay' = আলাদা নিয়ম */
 function vfsFields(P) {
@@ -11239,7 +11277,8 @@ function svFieldSettingsWire(p) { return vfsWire('sv3', p); }
 async function renderVoucherFieldSettingsPage(content, P) {
   const C = VFS_CFG[P], FL = vfsFields(P);
   const set = await vfsLoad(P);
-  const title = t(C.bn + ' ভাউচার সেটিং', C.en + ' Voucher Settings');
+  const NB = C.nameBn || (C.bn + ' ভাউচার'), NE = C.nameEn || (C.en + ' Voucher');   // যেমন "ভাউচার কালেকশন"
+  const title = t(NB + ' সেটিং', NE + ' Settings');
   let half = FL.findIndex(function (f) { return f[0] === 'ratePc'; });
   if (half < 0) half = Math.ceil(FL.length / 2);   // পেমেন্ট ভাউচারঃ অর্ধেক অর্ধেক   // বাম কলামঃ পার্টি জোন … পরিমান(কেজি); ডানঃ দর(পিস) … ফেরৎ +
   const rowCount = Math.max(half, FL.length - half);
@@ -11265,7 +11304,7 @@ async function renderVoucherFieldSettingsPage(content, P) {
       .svs-note{font-size:12px;color:var(--text-muted);margin-top:10px;line-height:1.6;}
       @media (max-width:520px){ .svs-tbl{font-size:12px;} .svs-tbl td{height:38px;} .svs-tbl td.svs-c{width:30px;} .svs-tbl td.svs-l label{height:38px;padding:0 5px;} }
     </style>
-    <div class="page-head"><div><h1>${title}</h1><p>${t('টিক দেওয়া ঘর ' + C.bn + ' ভাউচারে দেখা যাবে, টিক না থাকলে দেখা যাবে না', 'Ticked fields show on the ' + C.en.toLowerCase() + ' voucher; unticked ones are hidden')}</p></div></div>
+    <div class="page-head"><div><h1>${title}</h1><p>${t('টিক দেওয়া ঘর ' + NB + 'ে দেখা যাবে, টিক না থাকলে দেখা যাবে না', 'Ticked fields show on the ' + NE.toLowerCase() + '; unticked ones are hidden')}</p></div></div>
     <div class="panel"><div class="modal-body" style="padding:16px;">
       <div class="svs-wrap" id="svsWrap" data-keynav="1">
         <table class="svs-tbl"><thead><tr><th colspan="4">${title}</th></tr></thead><tbody>${rows}</tbody></table>
@@ -11296,7 +11335,7 @@ async function renderVoucherFieldSettingsPage(content, P) {
       await api('saveSystemSetting', { key: C.key, value: JSON.stringify(data) });
       const chk = await vfsLoad(P);   // সেভ ঠিকমতো হলো কিনা — আবার পড়ে মিলিয়ে দেখা
       if (Object.keys(data).some(function (k) { return chk[k] !== data[k]; })) throw new Error(t('সেটিং সেভ হয়নি — আবার চেষ্টা করুন।', 'Settings were not saved — try again.'));
-      showToast(t(C.bn + ' ভাউচার সেটিং সেভ হয়েছে ✅', C.en + ' voucher settings saved ✅'), 'success');
+      showToast(t(NB + ' সেটিং সেভ হয়েছে ✅', NE + ' settings saved ✅'), 'success');
     } catch (err) { showToast(err.message, 'error'); }
     finally { btn.disabled = false; }
   });
@@ -14564,7 +14603,7 @@ const VOUCHER_REGISTRY = {
   SalesInvoice: { bn: 'বিক্রয়', table: 'SalesInvoice', idf: 'SIID', lines: [['SI_Lines', 'SIID']], kind: 'sales' },
   SalesReturn: { bn: 'বিক্রয় ফেরত', table: 'SalesReturn', idf: 'SRID', lines: [['SR_Lines', 'SRID']], kind: 'sales' },
   PaymentVoucher: { bn: 'পেমেন্ট', table: 'PaymentVoucher', idf: 'PayID', lines: [], kind: 'simple', cfg: 'pv' },
-  ReceiptVoucher: { bn: 'রিসিপ্ট', table: 'ReceiptVoucher', idf: 'RecID', lines: [], kind: 'simple', cfg: 'rv' },
+  ReceiptVoucher: { bn: 'কালেকশন', table: 'ReceiptVoucher', idf: 'RecID', lines: [], kind: 'simple', cfg: 'rv' },
   ContraVoucher: { bn: 'কনট্রা', table: 'ContraVoucher', idf: 'ContraID', lines: [], kind: 'simple', cfg: 'cv' },
   ProcessingVoucher: { bn: 'প্রসেসিং', table: 'ProcessingVoucher', idf: 'ProcessingID', lines: [['ProcessingByProduct_Lines', 'ProcessingID'], ['ProcessingFG_Lines', 'ProcessingID']], kind: 'processing' },
   CapitalVoucher: { bn: 'মালিকের মূলধন', table: 'CapitalVoucher', idf: 'CapID', lines: [], kind: 'legacy' },
@@ -14834,7 +14873,7 @@ async function renderPartyLedger(content, partyTypeFilter) {
       SalesReturn: { desc:['বিক্রয় ফেরত ভাউচার পোস্টিং','Sales return posting'], type:['বিক্রয় ফেরত','Sales Return'] },
       ContraVoucher: { desc:['কন্ট্রা ভাউচার','Contra voucher'], type:['কন্ট্রা','Contra'] },
       PaymentVoucher: { desc:['পেমেন্ট ভাউচার','Payment voucher'], type:['পেমেন্ট','Payment'] },
-      ReceiptVoucher: { desc:['রিসিপ্ট ভাউচার','Receipt voucher'], type:['রিসিপ্ট','Receipt'] },
+      ReceiptVoucher: { desc:['ভাউচার কালেকশন','Voucher collection'], type:['কালেকশন','Collection'] },
       CollectionVoucher: { desc:['কালেকশন ভাউচার (পুরনো)','Collection voucher (old)'], type:['কালেকশন','Collection'] },
       AssetPurchase: { desc:['এ্যাসেট ক্রয় ভাউচার','Asset purchase voucher'], type:['এ্যাসেট ক্রয়','Asset purchase'] },
       'AssetPurchase-Payment': { desc:['এ্যাসেট ক্রয়ে প্রদান','Paid on asset purchase'], type:['পেমেন্ট','Payment'] },
