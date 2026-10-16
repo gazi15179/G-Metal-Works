@@ -3733,7 +3733,7 @@ const PAYV_CSS = `
   .payv .pvx-btns button{flex:1;border:0;margin:0;border-radius:0;font-weight:700;font-size:12px;cursor:pointer;padding:0 2px;white-space:nowrap;-webkit-tap-highlight-color:transparent;}
   .payv .pvx-btns button:active{filter:brightness(1.25);}
   .payv .pvx-btns button:focus{outline:2px solid #c27a12;outline-offset:-2px;}
-  .payv .pvx-cancel{background:#7a2e1a;color:#fff;} .payv .pvx-save{background:var(--ink-900);color:var(--amber);border-left:1px solid #6b7079 !important;}
+  .payv .pvx-cancel{background:#7a2e1a;color:#fff;} .payv .pvx-save{background:var(--ink-900);color:var(--amber);}
   .payv .pvx-btns button:disabled{opacity:.45;cursor:default;}
   .payv .pvx-mode{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:6px 0 0;padding:4px 8px;border-radius:6px;background:#fff1b8;color:#1b1f24;border:1px solid #e3b75c;font-size:12px;font-weight:600;}
   .payv .pvx-mode span{flex:1;min-width:0;}
@@ -4095,7 +4095,8 @@ async function renderPartyVoucherPage(content, kind) {
     mk('disc', t('ডিসকাউন্ট(-)', 'Discount(-)'), `<input type="number" step="any" min="0" inputmode="decimal" id="${P}_Disc" placeholder="0.00">`, 'num'),
     mk('net', t('পরিমান(৳)', 'Amount(৳)'), `<input id="${P}_Net" class="ro vbold" readonly tabindex="-1" placeholder="0.00">`, 'num'),
     mk('note', t('বিবরন', 'Narration'), `<input id="${P}_Note" autocomplete="off">`),
-    mk('save', on('cancel') ? t('বাতিল/ সেভ', 'Cancel/ Save') : t('সেভ', 'Save'), `<div class="pvx-btns"><button type="button" class="pvx-cancel" id="${P}_Cancel" data-perm-safe="1"${on('cancel') ? '' : ' style="display:none;"'}>✖ ${t('বাতিল', 'Cancel')}</button><button type="button" class="pvx-save" id="${P}_Save">💾 ${t('সেভ', 'Save')}</button></div>`)
+    mk('cancel', t('বাতিল', 'Cancel'), `<div class="pvx-btns"><button type="button" class="pvx-cancel" id="${P}_Cancel" data-perm-safe="1">✖ ${t('বাতিল', 'Cancel')}</button></div>`),   // বাতিল ও সেভ আলাদা দুই ঘরে
+    mk('save', t('সেভ', 'Save'), `<div class="pvx-btns"><button type="button" class="pvx-save" id="${P}_Save">💾 ${t('সেভ', 'Save')}</button></div>`)
   ];
   const ALWAYS = { party: 1, amount: 1, save: 1 };
   const shown = function (list) { return list.filter(function (c) { return ALWAYS[c.key] || on(c.key); }); };
@@ -4105,9 +4106,14 @@ async function renderPartyVoucherPage(content, kind) {
   if (!shown(L2).length) $('_L2').style.display = 'none';
   let perNow = 0;
   const layout = function () {
-    const per = (window.matchMedia && window.matchMedia('(max-width: 760px)').matches) ? 4 : 8;
+    // ডেস্কটপে সব ঘর এক লাইনে; মোবাইলে সারিতে ৪টা — তবে ৩ বা ৫ করে দিলে ফাঁকা ঘর কম হলে সেটাই (যেমন ৬ ঘর = ৩+৩, ৯ ঘর = ৩+৩+৩)
+    const n3 = shown(L3).length;
+    let per = n3;
+    if (window.matchMedia && window.matchMedia('(max-width: 760px)').matches) {
+      per = [4, 3, 5].reduce(function (best, c) { const e = (c - n3 % c) % c, be = (best - n3 % best) % best; return e < be ? c : best; }, 4);
+    }
     if (per === perNow) return; perNow = per;
-    [[L1, '_L1Body', 8], [L2, '_L2Body', 8], [L3, '_L3Body', per]].forEach(function (g) {
+    [[L1, '_L1Body', 9], [L2, '_L2Body', 9], [L3, '_L3Body', per]].forEach(function (g) {
       const body = $(g[1]); if (!body) return;
       const list = shown(g[0]); body.innerHTML = '';
       for (let i = 0; i < list.length; i += g[2]) {
