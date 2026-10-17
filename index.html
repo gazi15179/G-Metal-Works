@@ -5411,7 +5411,7 @@ async function renderCostHeadLedger(content) {
   let LH = [];   // লেজারের খাত — {key, name, sub, kind:'cost'|'wage'|'other', entries:[{date, cr, dr, desc, ev?, sal?}]}
 
   content.innerHTML = `
-    <style>
+    <style>${PAYV_CSS}
       .chl .chl-bar{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;margin:0 0 10px;}
       .chl .chl-bar label{font-size:11.5px;color:var(--text-muted);display:flex;align-items:center;gap:4px;margin:0;}
       .chl .chl-bar .dmy-in{width:112px !important;height:30px;font-size:12px;}
@@ -5421,6 +5421,15 @@ async function renderCostHeadLedger(content) {
       .chl tr.chl-open td{background:#f5f7f9;font-style:italic;}
       .chl tr.chl-sec td{background:#eef1f5 !important;font-weight:700;text-align:left;color:#3b4452;}
       .chl .pvl td small{display:block !important;font-size:10px;color:var(--text-muted);line-height:1.2;}
+      /* পুরো স্ক্রিন জুড়ে — সাধারণ পেজের 1300px সীমা এই পেজে নেই */
+      #pageContent:has(.chl){max-width:none !important;}
+      .chl{width:100%;}
+      .chl .pvl-wrap{max-height:none;}
+      .chl #chl_DetailWrap .pvl-wrap{max-height:calc(100vh - 230px);}
+      .chl .pvl th,.chl .pvl td{padding:5px 10px;}
+      .chl .pvl td.l{min-width:220px;}
+      .chl .pvl td.r{min-width:110px;}
+      @media (max-width:760px){ .chl .pvl td.l{min-width:0;} .chl .pvl td.r{min-width:0;white-space:normal;} .chl .pvl th,.chl .pvl td{padding:3px 4px;} }
       .chl .chl-p{display:inline-block;font-size:9.5px;font-weight:700;color:#1d5a9a;background:rgba(29,90,154,.12);border-radius:4px;padding:0 4px;margin-left:3px;}
     </style>
     <div class="payv chl">
