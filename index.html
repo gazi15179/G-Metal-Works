@@ -16762,16 +16762,26 @@ async function renderSalesReport(content) {
 
   content.innerHTML = `
     <style>${DMY_CSS}
-      .sr-bar{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px 10px;align-items:end;margin-bottom:10px;}
-      .sr-bar .field{margin:0;min-width:0;} .sr-bar label{display:block;font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:2px;}
-      .sr-bar select,.sr-bar .dmy-in{height:30px;padding:3px 8px;font-size:12px;box-sizing:border-box;width:100%;min-width:0;}
+      .sr-layout{display:flex;gap:14px;align-items:flex-start;}
+      .sr-side{position:relative;flex:0 0 230px;width:230px;background:#eaf3f8;border:1px solid #c9dce8;border-radius:12px;padding:10px 12px 12px;transition:flex-basis .2s,width .2s;box-sizing:border-box;}
+      .sr-side-h{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#2f6f8f;margin-bottom:8px;}
+      .sr-tog{position:absolute;right:-13px;top:18px;width:26px;height:26px;border-radius:50%;background:#4c8fae;border:1px solid #3b7896;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;font-weight:700;z-index:5;padding:0;line-height:1;box-shadow:0 1px 3px rgba(0,0,0,.18);}
+      .sr-side.collapsed{flex-basis:36px;width:36px;padding:10px 0;}
+      .sr-side.collapsed .sr-bar,.sr-side.collapsed .sr-side-h span{display:none;}
+      .sr-side.collapsed .sr-tog{right:4px;top:8px;}
+      .sr-side.collapsed .sr-side-h{writing-mode:vertical-rl;margin:36px auto 0;justify-content:center;cursor:pointer;}
+      .sr-side.collapsed .sr-side-h::after{content:attr(data-lbl);}
+      .sr-main{flex:1;min-width:0;}
+      .sr-bar{display:flex;flex-direction:column;gap:6px;}
+      .sr-bar .field{margin:0;min-width:0;} .sr-bar label{display:block;font-size:11px;font-weight:600;color:#3d5a6c;margin-bottom:2px;}
+      .sr-bar select,.sr-bar .dmy-in{height:30px;padding:3px 8px;font-size:12px;box-sizing:border-box;width:100%;min-width:0;background:#fff;}
       .sr-bar .dmy-wrap{display:flex;width:100%;} .sr-bar .dmy-wrap .dmy-in{flex:1;width:auto;}
       .sr-tbl .sr-mdt{display:none;color:var(--text-muted);font-size:10px;}
-      .sr-btnf{grid-column:span 3;} .sr-btns{display:flex;gap:6px;} .sr-btns .btn{flex:1;height:30px;padding:3px 10px;font-size:12px;width:auto;}
+      .sr-btns{display:flex;gap:6px;margin-top:4px;} .sr-btns .btn{flex:1;height:30px;padding:3px 6px;font-size:12px;width:auto;}
       .sr-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:10px;}
       .sr-cards div{border:1px solid var(--border);border-radius:8px;padding:5px 8px;background:var(--surface);font-size:11px;color:var(--text-muted);text-align:center;}
       .sr-cards b{display:block;font-size:13px;color:var(--text);margin-top:1px;}
-      .sr-scroll{overflow:auto;max-height:calc(100vh - 330px);-webkit-overflow-scrolling:touch;border:1px solid var(--border);border-radius:8px;}
+      .sr-scroll{overflow:auto;max-height:calc(100vh - 260px);-webkit-overflow-scrolling:touch;border:1px solid var(--border);border-radius:8px;}
       table.sr-tbl{width:100%;border-collapse:collapse;font-size:11px;}
       .sr-tbl th{font-size:11px;font-weight:700;text-align:center;background:#eef1f5;color:#1f2937;border:1px solid #d5dae1;padding:4px 6px;position:sticky;top:0;z-index:2;white-space:nowrap;}
       .sr-tbl td{font-size:11px;font-weight:400;border:1px solid #e3e6ea;padding:2px 6px;white-space:nowrap;}
@@ -16783,10 +16793,18 @@ async function renderSalesReport(content) {
       .sr-hint{font-size:12.5px;color:var(--text-muted);padding:14px;text-align:center;}
       .sr-note{font-size:10.5px;color:var(--text-muted);margin-top:6px;}
       @media (max-width:760px){
-        .sr-bar{grid-template-columns:1fr 1fr;gap:5px 8px;}
-        .sr-btnf{grid-column:span 1;} .sr-btns .btn{padding:3px 4px;}
+        .sr-layout{flex-direction:column;gap:8px;align-items:stretch;}
+        .sr-main{width:100%;box-sizing:border-box;}
+        .sr-side{flex:none;width:100%;padding:8px 10px 10px;}
+        .sr-tog,.sr-side.collapsed .sr-tog{right:10px;top:6px;}
+        .sr-side.collapsed{flex-basis:auto;width:100%;padding:8px 10px;}
+        .sr-side.collapsed .sr-side-h{writing-mode:horizontal-tb;margin:0;justify-content:flex-start;}
+        .sr-side.collapsed .sr-side-h span{display:inline;}
+        .sr-side.collapsed .sr-side-h::after{content:'';}
+        .sr-bar{display:grid;grid-template-columns:1fr 1fr;gap:5px 8px;}
+        .sr-btns{margin-top:0;align-self:end;} .sr-btns .btn{padding:3px 4px;}
         .sr-cards{grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;} .sr-cards div{padding:4px 2px;font-size:10px;} .sr-cards b{font-size:11.5px;}
-        .sr-scroll{max-height:calc(100vh - 380px);}
+        .sr-scroll{max-height:calc(100vh - 230px);}
         .sr-tbl td.n small{display:block;line-height:1;}
         .sr-tbl .sr-dt{display:none;} .sr-tbl .sr-mdt{display:block;}
         .sr-tbl td,.sr-tbl th{padding:2px 4px;}
@@ -16797,7 +16815,10 @@ async function renderSalesReport(content) {
         <h1 class="i18n" data-bn="বিক্রয় প্রতিবেদন" data-en="Sales Report">${t('বিক্রয় প্রতিবেদন', 'Sales Report')}</h1>
         <p>${t('ভাউচারের ধরন, আইটেম ও তারিখ অনুযায়ী লাইন ভিত্তিক প্রতিবেদন', 'Line-wise report by voucher type, item and date')}</p>
       </div></div>
-    <div class="panel">
+    <div class="sr-layout">
+     <aside class="sr-side" id="srSide">
+      <button type="button" class="sr-tog" id="srTog" title="${attr(t('ফিল্টার লুকান/দেখান', 'Hide/show filters'))}">‹</button>
+      <div class="sr-side-h" data-lbl="${attr(t('ফিল্টার', 'Filters'))}"><span>🔎 ${t('ফিল্টার', 'Filters')}</span></div>
       <div class="sr-bar" id="srBar">
         <div class="field"><label>${t('ভাউচার ধরন', 'Voucher type')}</label><select id="srType">${SALES_RPT_TYPES.map(function (ty) { return `<option value="${ty.k}" ${ty.k === st.type ? 'selected' : ''}>${t(ty.bn, ty.en)}</option>`; }).join('')}</select></div>
         <div class="field"><label>${t('জোন', 'Zone')}</label><select id="srZone"></select></div>
@@ -16808,11 +16829,14 @@ async function renderSalesReport(content) {
         <div class="field"><label>${t('হইতে', 'From')}</label>${dmyDateField('srFrom', st.from)}</div>
         <div class="field"><label>${t('পর্যন্ত', 'To')}</label>${dmyDateField('srTo', st.to)}</div>
         <div class="field"><label>${t('ইউজার আই ডি', 'User ID')}</label><select id="srUser">${opt(users.filter(function (u) { return u.Status !== 'Deleted'; }), 'UserID', userName, '', t('সব ইউজার', 'All users'))}</select></div>
-        <div class="field sr-btnf"><label>&nbsp;</label><div class="sr-btns"><button type="button" class="btn btn-primary" id="srShow">🔄 ${t('দেখাও', 'Show')}</button><button type="button" class="btn btn-outline" id="srPrint">🖨️ ${t('প্রিন্ট', 'Print')}</button></div></div>
+        <div class="sr-btns"><button type="button" class="btn btn-primary" id="srShow">🔄 ${t('দেখাও', 'Show')}</button><button type="button" class="btn btn-outline" id="srPrint">🖨️ ${t('প্রিন্ট', 'Print')}</button></div>
       </div>
+     </aside>
+     <div class="sr-main panel">
       <div id="srCards"></div>
       <div id="srOut"><div class="sr-hint">${t('লোড হচ্ছে…', 'Loading…')}</div></div>
       <div class="sr-note">${t('এক চাপে সারি বাছাই, দুই চাপে ভাউচার খোলে (এডিট)। 👁️ দেখা · ✏️ এডিট · 🗑️ ডিলিট · 💾 পোস্ট।', 'Tap once to select, twice to open the voucher. 👁️ view · ✏️ edit · 🗑️ delete · 💾 post.')}</div>
+     </div>
     </div>`;
   wireDmyFields(content);
 
@@ -17022,6 +17046,16 @@ async function renderSalesReport(content) {
 
   // ---- ঘটনা ----
   fillCascade(); fillZones();
+  const isMob = function () { return window.matchMedia('(max-width:760px)').matches; };
+  function setSide(collapsed, remember) {
+    $('srSide').classList.toggle('collapsed', collapsed);
+    $('srTog').textContent = isMob() ? (collapsed ? '▾' : '▴') : (collapsed ? '›' : '‹');
+    if (remember) { try { localStorage.setItem('srSideCollapsed', collapsed ? '1' : '0'); } catch (e) {} }
+  }
+  let sideInit = false; try { sideInit = !isMob() && localStorage.getItem('srSideCollapsed') === '1'; } catch (e) {}
+  setSide(sideInit, false);
+  $('srTog').addEventListener('click', function () { setSide(!$('srSide').classList.contains('collapsed'), !isMob()); });
+  $('srSide').addEventListener('click', function (e) { if ($('srSide').classList.contains('collapsed') && e.target.closest('.sr-side-h')) setSide(false, !isMob()); });
   $('srType').addEventListener('change', function () { st.type = $('srType').value; st.sel = ''; fillZones(); load(false); });
   $('srZone').addEventListener('change', function () { st.zone = $('srZone').value; if (cache) render(); });
   $('srGroup').addEventListener('change', function () { st.group = $('srGroup').value; fillCascade(); if (cache) render(); });
@@ -17030,7 +17064,7 @@ async function renderSalesReport(content) {
   $('srUnit').addEventListener('change', function () { st.unit = $('srUnit').value; fillCascade(); if (cache) render(); });
   $('srUser').addEventListener('change', function () { st.user = $('srUser').value; if (cache) render(); });
   ['srFrom', 'srTo'].forEach(function (id) { $(id).addEventListener('change', function () { if (dmyIso(id)) load(false); }); });
-  $('srShow').addEventListener('click', function () { load(true); });
+  $('srShow').addEventListener('click', async function () { await load(true); if (isMob()) setSide(true, false); });   // মোবাইলে দেখানোর পর ফিল্টার গুটিয়ে টেবিলের জায়গা বাড়ে
   $('srPrint').addEventListener('click', printReport);
   $('srOut').addEventListener('click', function (e) {
     const b = e.target.closest('button[data-act]');
