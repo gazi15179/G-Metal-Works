@@ -968,6 +968,71 @@ async function rebalancePartyLedger(partyType, partyId) {
     if (Math.abs((Number(r.Balance) || 0) - bal) > 0.004) await supabaseClient.from('PartyLedger').update({ Balance: bal }).eq('id', r.id);
   }
 }
+
+/* ===== পার্টির ওপেনিং ব্যালান্স → পার্টি লেজার =====
+   পার্টি ফর্মের "ওপেনিং ব্যালেন্স" (Dr/Cr) Suppliers ও Customers দুই টেবিলেই একই মানে সেভ হয়,
+   কিন্তু আগে PartyLedger-এ কোনো এন্ট্রি হতো না — তাই পার্টি লেজার, ভাউচারের "পার্টি জের" ও
+   পেমেন্ট/কালেকশনের জোন-তালিকায় ব্যালান্স দেখাত না। এখন একটা "প্রারম্ভিক জের" সারি বসে
+   (RefModule 'OpeningBalance', RefID = পার্টি কোড) — একবারই (দুইবার বসালে দ্বিগুণ হতো):
+   Dr (তার কাছে আমার পাওনা) → কাস্টমার হিসাবে, Cr (তার পাওনা / আমার দেনা) → সাপ্লায়ার হিসাবে। */
+const OPENING_REF = 'OpeningBalance';
+function partyOpeningTarget(supRec, custRec) {
+  const live = function (r) { return r && r.Status !== 'Deleted' ? r : null; };
+  const s = live(supRec), c = live(custRec), rec = c || s;
+  const amt = rec ? Math.round((Number(rec.OpeningBalance) || 0) * 100) / 100 : 0;
+  if (!amt) return null;
+  const useCust = amt > 0 ? !!c : !s;
+  return useCust ? { type: 'Customer', id: c.CustomerID, amt: amt } : { type: 'Supplier', id: s.SupplierID, amt: amt };
+}
+/** groups: [{code, sup, cust}] — যেগুলোর লেজার-সারি মেলে না শুধু সেগুলো ঠিক করে; কয়টা বদলাল ফেরত দেয় */
+async function syncPartyOpeningBalances(groups) {
+  if (!groups || !groups.length) return 0;
+  const { data: existing, error } = await supabaseClient.from('PartyLedger').select('id,PartyType,PartyID,Date,RefID,Debit,Credit').eq('RefModule', OPENING_REF);
+  if (error) throw new Error(error.message);
+  const byParty = {};
+  (existing || []).forEach(function (e) { (byParty[e.PartyType + '|' + e.PartyID] = byParty[e.PartyType + '|' + e.PartyID] || []).push(e); });
+  let fy = null, changed = 0;
+  for (const g of groups) {
+    const keys = [];
+    if (g.sup) keys.push('Supplier|' + g.sup.SupplierID);
+    if (g.cust) keys.push('Customer|' + g.cust.CustomerID);
+    const rows = [].concat.apply([], keys.map(function (k) { return byParty[k] || []; }));
+    const want = partyOpeningTarget(g.sup, g.cust);
+    const ok = want ? (rows.length === 1 && rows[0].PartyType === want.type && rows[0].PartyID === want.id &&
+        Math.abs((Number(rows[0].Debit) || 0) - Math.max(want.amt, 0)) < 0.005 && Math.abs((Number(rows[0].Credit) || 0) - Math.max(-want.amt, 0)) < 0.005)
+      : rows.length === 0;
+    if (ok) continue;
+    const keepDate = rows.length ? rows[0].Date : null;   // আগের তারিখ রাখা — শুধু টাকা বদলালে তারিখ নড়ে না
+    const touched = {};
+    for (const r of rows) { await supabaseClient.from('PartyLedger').delete().eq('id', r.id); touched[r.PartyType + '|' + r.PartyID] = [r.PartyType, r.PartyID]; }
+    if (want) {
+      if (!keepDate && !fy) fy = await getFiscalYearStart();
+      await postPartyLedgerEntry(want.type, want.id, keepDate || fy, OPENING_REF, g.code, Math.max(want.amt, 0), Math.max(-want.amt, 0));
+      touched[want.type + '|' + want.id] = [want.type, want.id];
+    }
+    for (const k of Object.keys(touched)) await rebalancePartyLedger(touched[k][0], touched[k][1]);
+    changed++;
+  }
+  return changed;
+}
+/** সব পার্টির ওপেনিং ব্যালান্স লেজারের সাথে মেলানো (আগে সেভ হওয়া পার্টিগুলোর জন্যও) — code দিলে শুধু সেই পার্টি */
+async function syncAllPartyOpeningBalances(onlyCode) {
+  const [sups, custs] = await Promise.all([
+    supabaseClient.from('Suppliers').select('SupplierID,Code,OpeningBalance,Status'),
+    supabaseClient.from('Customers').select('CustomerID,Code,OpeningBalance,Status')]);
+  if (sups.error) throw new Error(sups.error.message);
+  if (custs.error) throw new Error(custs.error.message);
+  const map = {};
+  const put = function (r, side) {
+    const code = r.Code || r.SupplierID || r.CustomerID;
+    if (onlyCode && code !== onlyCode) return;
+    const g = map[code] = map[code] || { code: code, sup: null, cust: null };
+    if (!g[side] || (g[side].Status === 'Deleted' && r.Status !== 'Deleted')) g[side] = r;   // একই কোডে মোছা+চালু দুটো থাকলে চালুটা
+  };
+  (sups.data || []).forEach(function (r) { put(r, 'sup'); });
+  (custs.data || []).forEach(function (r) { put(r, 'cust'); });
+  return syncPartyOpeningBalances(Object.values(map));
+}
 async function rebalanceBankCashBook(accId) {
   if (!accId) return;
   const { data } = await supabaseClient.from('BankCashBook').select('id,Debit,Credit,Balance').eq('BankCashAccID', accId).order('id', { ascending: true });
@@ -3218,6 +3283,8 @@ async function openPartyForm(existingCode) {
         await api('create', { sheet:'Customers', idField:'CustomerID', idPrefix:'CUS', requiredFields:['Name'], data: common });
       }
 
+      try { await syncAllPartyOpeningBalances(code); }   // ওপেনিং ব্যালান্স → পার্টি লেজার
+      catch (e) { showToast('পার্টি সেভ হয়েছে, কিন্তু ওপেনিং ব্যালান্স লেজারে বসেনি: ' + e.message, 'error'); }
       showToast('সেভ হয়েছে ✅ (কোড: ' + code + ')', 'success');
       if (window.__refreshPartyList) await window.__refreshPartyList();
     }
@@ -3247,6 +3314,7 @@ async function openPartyForm(existingCode) {
       try {
         if (supplierRec) await api('delete', { sheet:'Suppliers', idField:'SupplierID', idValue: supplierRec.SupplierID });
         if (customerRec) await api('delete', { sheet:'Customers', idField:'CustomerID', idValue: customerRec.CustomerID });
+        try { await syncAllPartyOpeningBalances(existingCode); } catch (e) {}   // মোছা পার্টির প্রারম্ভিক জের লেজার থেকে সরে
         showToast('ডিলিট হয়েছে ✅', 'success');
         closeModal();
         if (window.__refreshPartyList) await window.__refreshPartyList();
@@ -16139,6 +16207,8 @@ async function voucherForceClean(base, id) {
 
 async function renderPartyLedger(content, partyTypeFilter) {
   delete listCache.Customers; delete listCache.Suppliers;   // সবসময় সর্বশেষ তালিকা — নতুন পার্টি সাথে সাথে আসে
+  // আগে সেভ হওয়া পার্টির ওপেনিং ব্যালান্সও লেজারে আনা (যেগুলো মেলে না শুধু সেগুলো লেখা হয়)
+  try { await syncAllPartyOpeningBalances(); } catch (e) { console.warn('opening balance sync:', e); }
   const [customers, suppliers] = await Promise.all([cachedList('Customers'), cachedList('Suppliers')]);
   const normName = function (x) { return String(x || '').replace(/\s+/g, ' ').trim().toLowerCase(); };
 
@@ -16287,6 +16357,7 @@ async function renderPartyLedger(content, partyTypeFilter) {
   // প্রতিটা RefModule-এর জন্য "বিবরণী" ও "ভাউচার ধরন" — ইন-অ্যাপ টেবিল ও A4 প্রিন্ট দুই জায়গাতেই ব্যবহার হয়
   function refModuleInfo(refModule) {
     const map = {
+      OpeningBalance: { desc:['প্রারম্ভিক জের (পার্টি ফর্মের ওপেনিং ব্যালেন্স)','Opening balance (from party form)'], type:['প্রারম্ভিক জের','Opening'] },
       PurchaseInvoice: { desc:['ক্রয় ভাউচার পোস্টিং','Purchase voucher posting'], type:['ক্রয়','Purchase'] },
       'PurchaseInvoice-Payment': { desc:['ক্রয় ভাউচারে প্রদান','Payment against purchase voucher'], type:['পেমেন্ট','Payment'] },
       PurchaseReturn: { desc:['ক্রয় ফেরত ভাউচার পোস্টিং','Purchase return posting'], type:['ক্রয় ফেরত','Purchase Return'] },
@@ -16377,7 +16448,8 @@ async function renderPartyLedger(content, partyTypeFilter) {
       try { rows = rows.concat(await cashPartyLedgerRows(custIds.indexOf('CUS-CASH') !== -1, suppIds.indexOf('SUP-CASH') !== -1)); }
       catch (err) { wrap.innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`; return; }
     }
-    rows.sort(function (a, b) { return String(a.Date || '').localeCompare(String(b.Date || '')) || (Number(a.id) || 0) - (Number(b.id) || 0); });
+    const isOpen = function (r) { return r.RefModule === OPENING_REF ? 0 : 1; };   // প্রারম্ভিক জের সবসময় প্রথমে
+    rows.sort(function (a, b) { return isOpen(a) - isOpen(b) || String(a.Date || '').localeCompare(String(b.Date || '')) || (Number(a.id) || 0) - (Number(b.id) || 0); });
     lastRows = rows;
 
     if (rows.length === 0) {   // কেন খালি — পোস্ট না হওয়া (খসড়া) ভাউচার আছে কিনা দেখানো
@@ -16422,7 +16494,9 @@ async function renderPartyLedger(content, partyTypeFilter) {
       const typeLabel = t(info.type[0], info.type[1]);
       const known = !!VOUCHER_REGISTRY[baseType] && VOUCHER_REGISTRY[baseType].kind !== 'legacy';
       const ic = function (act, icon, title, dis) { return `<button type="button" class="pl-ic" data-pl="${act}" data-base="${attr(baseType)}" data-id="${attr(r.RefID)}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
-      const icons = ic('view', '👁️', t('দেখুন', 'View'), !known) + ic('edit', '✏️', t('এডিট (এডমিন — আগে আনপোস্ট হবে)', 'Edit (admin — unposts first)'), !known) +
+      const icons = r.RefModule === OPENING_REF
+        ? `<button type="button" class="pl-ic" data-pl="opening" data-id="${attr(r.RefID)}" title="${attr(t('ওপেনিং ব্যালেন্স বদলাতে পার্টি ফর্ম খুলুন', 'Open party form to change the opening balance'))}">✏️</button>`
+        : ic('view', '👁️', t('দেখুন', 'View'), !known) + ic('edit', '✏️', t('এডিট (এডমিন — আগে আনপোস্ট হবে)', 'Edit (admin — unposts first)'), !known) +
         ic('del', '🗑️', t('ডিলিট — এরর হলেও জোর করে মোছা যায় (এডমিন)', 'Delete — can force-delete broken vouchers (admin)'), false) + ic('post', '✅', t('পোস্ট হয়ে গেছে', 'Posted'), true);
       return `<tr class="${vkClass(baseType)}"><td>${escapeHtml(formatShortDate(r.Date))}</td><td>${escapeHtml(typeLabel)}</td><td style="text-align:left;">${escapeHtml(t(info.desc[0], info.desc[1]))} — <b>${escapeHtml(r.RefID)}</b>${r.__note ? ` <small style="color:var(--text-muted);">(${escapeHtml(r.__note)})</small>` : ''}</td>
         <td>${debit.toFixed(2)}</td><td>${credit.toFixed(2)}</td><td><b>${formatAmountDrCr(runningBalance, true)}</b></td><td style="white-space:nowrap;">${icons}</td></tr>`;
@@ -16441,7 +16515,8 @@ async function renderPartyLedger(content, partyTypeFilter) {
     b.__busy = true; b.disabled = true;
     const act = b.getAttribute('data-pl'), base = b.getAttribute('data-base'), id = b.getAttribute('data-id');
     try {
-      if (act === 'view') await voucherView(base, id);
+      if (act === 'opening') await openPartyForm(id);   // পার্টি ফর্ম সেভ করলে লেজারও হালনাগাদ হয়
+      else if (act === 'view') await voucherView(base, id);
       else if (act === 'edit') await voucherEdit(base, id);
       else if (act === 'post') { await voucherPost(base, id); await loadLedgerForKey(currentPartyKey); }
       else if (act === 'del') { if (await voucherDelete(base, id)) await loadLedgerForKey(currentPartyKey); }
