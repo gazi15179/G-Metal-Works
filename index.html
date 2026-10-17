@@ -489,8 +489,8 @@ const MODULES = [
     {key:'payroll', bn:'সেলারী ভাউচার', en:'Salary Voucher'},{key:'salaryIssue', bn:'সেলারী ইস্যু', en:'Salary Issue'},{key:'payHeads', bn:'অন্যান্য খাত (বেতন)', en:'Pay Heads'},{key:'hrReports', bn:'বেতন ও উৎপাদন রিপোর্ট', en:'Salary & Production Reports'},
   ]},
   {key:'reports', bn:'রিপোর্ট', en:'Reports', sub:[
-    {key:'invReport', bn:'ইনভেন্টরি প্রতিবেদন', en:'Inventory Reports'},{key:'salesReport', bn:'বিক্রয় প্রতিবেদন', en:'Sales Reports'},
-    {key:'purReport', bn:'ক্রয় প্রতিবেদন', en:'Purchase Reports'},{key:'prodReport', bn:'উৎপাদন প্রতিবেদন', en:'Production Reports'},
+    {key:'invReport', bn:'ইনভেন্টরি প্রতিবেদন', en:'Inventory Reports'},{key:'salesReport', bn:'ক্রয় ও বিক্রয় প্রতিবেদন', en:'Purchase & Sales Reports'},
+    {key:'prodReport', bn:'উৎপাদন প্রতিবেদন', en:'Production Reports'},
     {key:'finReport', bn:'আর্থিক প্রতিবেদন', en:'Financial Reports'},{key:'partyBalance', bn:'পার্টি ব্যালান্স', en:'Party Balance'},
   ]},
   {key:'settings', bn:'সেটিংস', en:'Settings', sub:[
@@ -508,7 +508,7 @@ const READY_PAGES = ['dashboard','svSettings','pvSettings','payvSettings','recvS
   'bom','processing','processingOld','prodDaily','procCosting','pOrder','pmi','fgr',
   'coa','bankCash','jv','cv','pv','rv','ownerCapital','assetPurchase','assetSale','fixedAssets','bankBook','trialBalance',
   'empCategories','empInfo','workRoles','sizeRates','attendance','dailyProduction','leave','payroll','salaryIssue','payHeads','hrReports','payslip',
-  'invReport','salesReport','purReport','prodReport','finReport','partyBalance',
+  'invReport','salesReport','prodReport','finReport','partyBalance',
   'general','langSettings','companySettings','backup'];
 
 /* ============================================================
@@ -16766,7 +16766,7 @@ function addReportPrintButton(content, title) {
 }
 
 /* ============================================================
-   রিপোর্ট → বিক্রয় প্রতিবেদন (লাইন ভিত্তিক)
+   রিপোর্ট → ক্রয় ও বিক্রয় প্রতিবেদন (লাইন ভিত্তিক)
    ফিল্টারঃ ভাউচার ধরন | জোন | গ্রুপ | ক্যাটাগরি | আইটেম | একক | ইউজার আইডি | হইতে | পর্যন্ত
    কলামঃ ক্রঃ | ইনভয়েচ নং | তারিখ | গ্রাহকের নাম | পরিমান | দর | মূল্য | (👁️ ✏️ 🗑️ 💾)
    প্রতিটা ভাউচারের প্রতিটা আইটেম-লাইন এক সারি। একক বাছলে শুধু সেই এককের আইটেম।
@@ -16862,7 +16862,7 @@ async function renderSalesReport(content) {
         .sr-tbl td.nm{min-width:90px;}
       }
     </style>
-    <div class="sr-head"><h1 class="i18n" data-bn="বিক্রয় প্রতিবেদন" data-en="Sales Report">${t('বিক্রয় প্রতিবেদন', 'Sales Report')}</h1></div>
+    <div class="sr-head"><h1 class="i18n" data-bn="ক্রয় ও বিক্রয় প্রতিবেদন" data-en="Purchase & Sales Report">${t('ক্রয় ও বিক্রয় প্রতিবেদন', 'Purchase & Sales Report')}</h1></div>
     <div class="sr-layout">
      <aside class="sr-side" id="srSide">
       <button type="button" class="sr-tog" id="srTog" title="${attr(t('ফিল্টার লুকান/দেখান', 'Hide/show filters'))}">‹</button>
@@ -17080,7 +17080,7 @@ async function renderSalesReport(content) {
     }).join('');
     const table = `<table class="ctr"><thead><tr><th>ক্রঃ</th><th>ইনভয়েচ নং</th><th>তারিখ</th><th>${ty.side === 'S' ? 'গ্রাহকের নাম' : 'সাপ্লায়ারের নাম'}</th><th>পরিমান</th><th>দর</th><th>মূল্য</th></tr></thead>
       <tbody>${body}</tbody><tfoot><tr><td colspan="4">সর্বমোট</td><td class="n">${[kg ? fmtQ(kg) + ' কেজি' : '', pc ? fmtQ(pc) + ' পিস' : ''].filter(Boolean).join('<br>')}</td><td></td><td class="n">${noRate ? '' : fmtA(amt)}</td></tr></tfoot></table>`;
-    printReportA4({ title: 'বিক্রয় প্রতিবেদন — ' + ty.bn, sub: formatShortDate(st.from) + ' হইতে ' + formatShortDate(st.to) + ' পর্যন্ত' + (filt ? ' · ' + filt : ''), html: table });
+    printReportA4({ title: 'ক্রয় ও বিক্রয় প্রতিবেদন — ' + ty.bn, sub: formatShortDate(st.from) + ' হইতে ' + formatShortDate(st.to) + ' পর্যন্ত' + (filt ? ' · ' + filt : ''), html: table });
   }
 
   // ---- ঘটনা ----
