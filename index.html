@@ -6481,14 +6481,37 @@ async function assetVoucherPrint(base, id) {
 }
 
 /* ---------- এ্যাসেট ক্রয় / এ্যাসেট বিক্রয় ভাউচার (একই কাঠামো) ---------- */
+/* এ্যাসেট ক্রয় / বিক্রয় — আইটেম মাস্টারের মতোঃ পেজে তালিকা (খোঁজা + তারিখ), "+" বাটনে বা ✏️/দুই চাপে ভাউচার আলাদা উইন্ডোতে */
+const ASSET_LIST_CSS = `
+  .av-tools{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px;}
+  .av-tools .av-srch{flex:1 1 220px;max-width:340px;height:32px;padding:4px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);font-size:13px;}
+  .av-tools .field{margin:0;} .av-tools label{display:block;font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:2px;}
+  .av-tools .dmy-in{width:118px;height:32px;padding:4px 8px;font-size:12.5px;}
+  .av-tools .av-cnt{font-size:12px;color:var(--text-muted);align-self:center;}
+  .av-wrap{overflow:auto;max-height:calc(100vh - 250px);border-radius:8px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;border:1px solid var(--border);}
+  .av-tbl{border-collapse:separate !important;border-spacing:0;width:100% !important;font-size:11px;}
+  .av-tbl th,.av-tbl td{padding:2px 7px !important;line-height:1.25;white-space:nowrap;text-align:center;border-bottom:1px solid var(--border);border-right:1px solid #eceef1;}
+  .av-tbl thead th{position:sticky;top:0;z-index:3;background:#eef1f5;font-size:11px;font-weight:700;}
+  .av-tbl td.nm{white-space:normal;min-width:150px;} .av-tbl td.nm small{display:block;color:var(--text-muted);font-size:10px;}
+  .av-tbl tfoot td{position:sticky;bottom:0;z-index:2;background:#e9edf3;font-weight:700;}
+  .av-tbl .im-ic{border:1px solid var(--border);background:var(--surface);border-radius:6px;min-width:24px;height:20px;font-size:11px;line-height:1;padding:0 3px;cursor:pointer;margin:0 1px;}
+  .av-tbl .im-ic:disabled{opacity:.3;cursor:default;}
+  .av-tbl .badge{padding:1px 7px !important;font-size:10.5px !important;line-height:1.4;}
+  .av-gain{color:#15803d;} .av-loss{color:#b42318;} .av-tbl .av-show-m{display:none;color:var(--text-muted);font-size:10px;}
+  @media (max-width:760px){
+    .av-wrap{max-height:70vh;} .av-tbl .av-hide-m{display:none;} .av-tbl .av-show-m{display:block;}
+    .av-tbl th,.av-tbl td{padding:2px 4px !important;} .av-tbl td.nm{min-width:110px;}
+    .av-tbl .im-ic{min-width:30px;height:28px;font-size:13px;}
+    .av-tools .av-srch{font-size:16px;max-width:none;flex-basis:100%;} .av-tools .field{flex:1;} .av-tools .dmy-in{width:100%;}
+  }`;
 async function renderAssetVoucherPage(content, base) {
   const isP = base === 'AssetPurchase', C = ASSET_VCFG[base];
   const [cats, parties, accounts, fy] = await Promise.all([assetCats(), assetPartyLists(), cachedList('BankCashAccounts'), getFiscalYearStart()]);
   const accs = accounts.filter(function (a) { return a.Status !== 'Deleted'; });
   let regs = [];
   const loadRegs = async function () { try { const { data } = await supabaseClient.from('FixedAsset').select('*'); regs = (data || []).filter(function (r) { return r.Status === 'Posted'; }); } catch (e) { regs = []; } };
-  if (!isP) await loadRegs();
-  let editId = null, lines = [], lineEdit = -1, vlist = [];
+  await loadRegs();   // তালিকার বিবরণে সম্পদের নাম, বিক্রয় ফর্মে রেজিস্টার
+  let editId = null, lines = [], lineEdit = -1, vlist = [], vlines = [];
   const opt = function (arr) { return arr.map(function (p) { return `<option value="${attr(p.v)}">${escapeHtml(p.label)}</option>`; }).join(''); };
   const partyOpts = `<option value="">${t('নগদ — পার্টি ছাড়া', 'Cash — no party')}</option>` + (isP
     ? `<optgroup label="${attr(t('সাপ্লায়ার', 'Suppliers'))}">${opt(parties.suppliers)}</optgroup><optgroup label="${attr(t('গ্রাহক', 'Customers'))}">${opt(parties.customers)}</optgroup>`
@@ -6507,12 +6530,10 @@ async function renderAssetVoucherPage(content, base) {
        <div class="field"><label>${t('বিক্রয়মূল্য', 'Sale amount')}</label><input id="av_Amt" readonly class="vro vbold"></div>
        <div class="field"><label>${t('বর্তমান মূল্য (এই অংশ)', 'Book value (this part)')}</label><input id="av_Book" readonly class="vro"></div>
        <div class="field vfull"><label>${t('লাভ / লোকসান', 'Gain / loss')}</label><input id="av_Gain" readonly class="vro vbold"></div>`;
-  content.innerHTML = `<style>${VOUCHER_GRID_CSS}${OWN_CSS} .av-ln{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px;} .av-ln th,.av-ln td{border-bottom:1px solid var(--border);padding:4px 6px;text-align:center;} .av-ln th{background:var(--bg);font-size:11px;} .av-ln td.l{text-align:left;} .av-ln td.r{text-align:right;} .av-gain{color:#15803d;} .av-loss{color:#b42318;}</style>
-    <div class="page-head"><div><h1>${t(C.bn + ' ভাউচার', C.bn)}</h1><p>${isP ? t('মেশিন, মটর, টুলস, ফ্যান, মটরসাইকেল কেনা — রেজিস্টারে ওঠে; স্টকে যায় না। বাকিতে কিনলে পার্টির খাতায় পাওনা।', 'Buy machines, motors, tools — goes to the register, not stock.') : t('রেজিস্টার থেকে সম্পদ বেচা (আংশিক পরিমাণও) — বর্তমান মূল্য ও লাভ/লোকসান নিজে হিসাব হয়।', 'Sell assets from the register (partial qty too) — book value and gain/loss are calculated.')}</p></div></div>
-    <div class="panel"><h4 id="av_Title" style="margin:0 0 10px;font-size:14px;">${t('নতুন ভাউচার', 'New voucher')}</h4>
+  const formHtml = `<style>${VOUCHER_GRID_CSS}${OWN_CSS} .av-ln{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px;} .av-ln th,.av-ln td{border-bottom:1px solid var(--border);padding:4px 6px;text-align:center;} .av-ln th{background:var(--bg);font-size:11px;} .av-gain{color:#15803d;} .av-loss{color:#b42318;}</style>
       <div id="av_Form">
         <div class="vg2">
-          <div class="field"><label>${t('তারিখ', 'Date')}</label><input type="date" id="av_Date" value="${ownToday()}"></div>
+          <div class="field"><label>${t('তারিখ', 'Date')}</label>${dmyDateField('av_Date', ownToday())}</div>
           <div class="field"><label>${isP ? t('বিক্রেতা (পার্টি)', 'Seller (party)') : t('ক্রেতা (পার্টি)', 'Buyer (party)')}</label><select id="av_Party">${partyOpts}</select></div>
           <div class="field"><label>${t('নাম (নগদে)', 'Name (cash)')}</label><input id="av_PName" autocomplete="off"></div>
           <div class="field"><label>${t('পার্টি ব্যালান্স', 'Party balance')}</label><input id="av_PBal" readonly class="vro"></div>
@@ -6529,20 +6550,31 @@ async function renderAssetVoucherPage(content, base) {
           <div class="field vfull"><label>${t('নোট', 'Note')}</label><input id="av_Note" autocomplete="off"></div>
         </div>
       </div>
-      <div class="own-btns"><button type="button" class="btn btn-outline" id="av_SaveBtn">💾 ${t('সেভ (খসড়া)', 'Save (draft)')}</button><button type="button" class="btn btn-primary" id="av_PostBtn">✅ ${t('সেভ + পোস্ট', 'Save + post')}</button><button type="button" class="btn btn-outline" id="av_NewBtn">${t('নতুন ভাউচার', 'New voucher')}</button></div>
-    </div>
-    <div class="panel"><div class="own-filter"><div class="field"><label>${t('তারিখ হইতে', 'From')}</label><input type="date" id="av_From" value="${fy}"></div><div class="field"><label>${t('তারিখ পর্যন্ত', 'To')}</label><input type="date" id="av_To" value="${ownToday()}"></div></div>
-      <div class="own-wrap" id="av_List"><div class="empty-state">${t('লোড হচ্ছে...', 'Loading...')}</div></div></div>`;
+      <div class="own-btns"><button type="button" class="btn btn-outline" id="av_SaveBtn">💾 ${t('সেভ (খসড়া)', 'Save (draft)')}</button><button type="button" class="btn btn-primary" id="av_PostBtn">✅ ${t('সেভ + পোস্ট', 'Save + post')}</button></div>`;
+
+  content.innerHTML = `<style>${DMY_CSS}${ASSET_LIST_CSS}</style>
+    <div class="page-head"><div><h1>${t(C.bn, C.bn)}</h1><p>${isP ? t('মেশিন, মটর, টুলস, ফ্যান, মটরসাইকেল কেনা — রেজিস্টারে ওঠে; স্টকে যায় না। বাকিতে কিনলে পার্টির খাতায় পাওনা।', 'Buy machines, motors, tools — goes to the register, not stock.') : t('রেজিস্টার থেকে সম্পদ বেচা (আংশিক পরিমাণও) — বর্তমান মূল্য ও লাভ/লোকসান নিজে হিসাব হয়।', 'Sell assets from the register (partial qty too) — book value and gain/loss are calculated.')}</p></div>
+      <button class="btn btn-primary" style="width:auto;" id="av_AddBtn">${isP ? t('এ্যাসেট ক্রয় +', 'Asset purchase +') : t('এ্যাসেট বিক্রয় +', 'Asset sale +')}</button></div>
+    <div class="panel">
+      <div class="av-tools">
+        <input id="av_Search" class="av-srch" type="search" autocomplete="off" placeholder="${attr(t('ভাউচার নং, পার্টি বা সম্পদের নাম দিয়ে খুঁজুন…', 'Search by voucher, party or asset…'))}">
+        <div class="field"><label>${t('হইতে', 'From')}</label>${dmyDateField('av_From', fy)}</div>
+        <div class="field"><label>${t('পর্যন্ত', 'To')}</label>${dmyDateField('av_To', ownToday())}</div>
+        <span class="av-cnt" id="av_Count"></span>
+      </div>
+      <div class="av-wrap" id="av_List"><div class="empty-state">${t('লোড হচ্ছে...', 'Loading...')}</div></div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">${t('এক চাপে সারি বাছাই, দুই চাপে ভাউচার এডিটে খোলে। 👁️ দেখা/প্রিন্ট · ✏️ এডিট · 🗑️ ডিলিট · 💾 পোস্ট। নতুন ভাউচার — উপরের "+" বাটন।', 'Tap once to select, twice to edit. New voucher — the "+" button above.')}</div>
+    </div>`;
+  wireDmyFields(content);
   const $ = function (id) { return document.getElementById(id); };
   const M = function (v) { return (Number(v) || 0).toFixed(2); };
   const cash = accs.find(function (a) { return /নগদ|cash|ক্যাশ/i.test(a.AccountName || ''); });
   const resetAcc = function () { $('av_Acc').value = cash ? cash.BankAccID : (accs[0] ? accs[0].BankAccID : ''); };
-  resetAcc();
-  wireSequentialKeyNav($('av_Form'));
+  const fDate = function () { return dmyIso('av_Date') || ownToday(); };
   const catDep = function (cid) { const c = cats.find(function (x) { return x.CatID === cid; }); return c ? (Number(c.DepRate) || 0) : 10; };
   function assetOptions() {
     const used = {}; lines.forEach(function (l, i) { if (i !== lineEdit) used[l.AssetID] = (used[l.AssetID] || 0) + (Number(l.Qty) || 0); });
-    const list = regs.map(function (r) { const st = faState(r, $('av_Date').value || ownToday()); return { r: r, rem: st.rem - (used[r.AssetID] || 0), st: st }; }).filter(function (x) { return x.rem > 1e-9; });
+    const list = regs.map(function (r) { const st = faState(r, fDate()); return { r: r, rem: st.rem - (used[r.AssetID] || 0), st: st }; }).filter(function (x) { return x.rem > 1e-9; });
     return `<option value="">${t('— সম্পদ বাছাই করুন —', '— choose an asset —')}</option>` + list.map(function (x) { return `<option value="${attr(x.r.AssetID)}">${escapeHtml(x.r.AssetID + ' · ' + (x.r.Category || '') + ' — ' + (x.r.AssetName || '') + ' (' + t('বাকি ', 'left ') + (+x.rem.toFixed(3)) + ')')}</option>`; }).join('');
   }
   function lineCalc() {
@@ -6550,14 +6582,14 @@ async function renderAssetVoucherPage(content, base) {
     $('av_Amt').value = amt ? M(amt) : '';
     if (!isP) {
       const r = regs.find(function (x) { return x.AssetID === $('av_Asset').value; });
-      if (r && q > 0) { const c = assetSaleCalc(r, q, amt, $('av_Date').value || ownToday()); $('av_Book').value = M(c.book); $('av_Gain').value = (c.gain < 0 ? t('লোকসান ', 'loss ') : t('লাভ ', 'gain ')) + M(Math.abs(c.gain)); $('av_Gain').className = 'vro vbold ' + (c.gain < 0 ? 'av-loss' : 'av-gain'); }
+      if (r && q > 0) { const c = assetSaleCalc(r, q, amt, fDate()); $('av_Book').value = M(c.book); $('av_Gain').value = (c.gain < 0 ? t('লোকসান ', 'loss ') : t('লাভ ', 'gain ')) + M(Math.abs(c.gain)); $('av_Gain').className = 'vro vbold ' + (c.gain < 0 ? 'av-loss' : 'av-gain'); }
       else { $('av_Book').value = ''; $('av_Gain').value = ''; }
     }
   }
   function totals(autoPaid) {
     const tot = lines.reduce(function (s, l) { return s + (Number(l.Amount) || 0); }, 0);
     $('av_Total').value = M(tot);
-    if (autoPaid && !$('av_Party').value) $('av_Paid').value = tot ? M(tot) : '';   // নগদে পুরো টাকা — শুধু লাইন/পার্টি বদলালে; হাতে লেখা বদলানো হয় না
+    if (autoPaid && !$('av_Party').value) $('av_Paid').value = tot ? M(tot) : '';   // নগদে পুরো টাকা — শুধু লাইন/পার্টি বদলালে
     const paid = Number($('av_Paid').value) || 0; $('av_Due').value = M(tot - paid);
   }
   function renderLines() {
@@ -6565,9 +6597,9 @@ async function renderAssetVoucherPage(content, base) {
     const ic = function (act, i, icon) { return `<button type="button" class="own-ic" data-ln="${act}" data-i="${i}">${icon}</button>`; };
     $('av_Lines').innerHTML = isP
       ? `<thead><tr><th>${t('ক্রঃ', 'No.')}</th><th>${t('খাত', 'Category')}</th><th>${t('বিবরণ', 'Description')}</th><th>${t('পরিমাণ', 'Qty')}</th><th class="own-hide-m">${t('দর', 'Rate')}</th><th>${t('মূল্য', 'Amount')}</th><th class="own-hide-m">${t('অবচয়%', 'Dep%')}</th><th></th></tr></thead><tbody>` +
-        lines.map(function (l, i) { const c = cats.find(function (x) { return x.CatID === l.CategoryID; }); return `<tr><td>${i + 1}</td><td>${escapeHtml(c ? c.Name : l.CategoryID)}</td><td class="l">${escapeHtml(l.Description || '')}</td><td>${+Number(l.Qty).toFixed(3)}</td><td class="r own-hide-m">${M(l.Rate)}</td><td class="r"><b>${M(l.Amount)}</b></td><td class="own-hide-m">${Number(l.DepRate) || 0}</td><td style="white-space:nowrap;">${ic('edit', i, '✏️')}${ic('del', i, '🗑️')}</td></tr>`; }).join('') + '</tbody>'
+        lines.map(function (l, i) { const c = cats.find(function (x) { return x.CatID === l.CategoryID; }); return `<tr><td>${i + 1}</td><td>${escapeHtml(c ? c.Name : l.CategoryID)}</td><td>${escapeHtml(l.Description || '')}</td><td>${+Number(l.Qty).toFixed(3)}</td><td class="own-hide-m">${M(l.Rate)}</td><td><b>${M(l.Amount)}</b></td><td class="own-hide-m">${Number(l.DepRate) || 0}</td><td style="white-space:nowrap;">${ic('edit', i, '✏️')}${ic('del', i, '🗑️')}</td></tr>`; }).join('') + '</tbody>'
       : `<thead><tr><th>${t('ক্রঃ', 'No.')}</th><th>${t('সম্পদ', 'Asset')}</th><th>${t('পরিমাণ', 'Qty')}</th><th>${t('বিক্রয়মূল্য', 'Sale')}</th><th class="own-hide-m">${t('বর্তমান মূল্য', 'Book')}</th><th>${t('লাভ/লোকসান', 'Gain/loss')}</th><th></th></tr></thead><tbody>` +
-        lines.map(function (l, i) { const r = regs.find(function (x) { return x.AssetID === l.AssetID; }) || {}; const c = assetSaleCalc(r, Number(l.Qty) || 0, l.Amount, $('av_Date').value || ownToday()); return `<tr><td>${i + 1}</td><td class="l">${escapeHtml(l.AssetID + ' · ' + (r.Category || '') + ' — ' + (r.AssetName || ''))}</td><td>${+Number(l.Qty).toFixed(3)}</td><td class="r"><b>${M(l.Amount)}</b></td><td class="r own-hide-m">${M(c.book)}</td><td class="r ${c.gain < 0 ? 'av-loss' : 'av-gain'}">${c.gain < 0 ? '−' : ''}${M(Math.abs(c.gain))}</td><td style="white-space:nowrap;">${ic('edit', i, '✏️')}${ic('del', i, '🗑️')}</td></tr>`; }).join('') + '</tbody>';
+        lines.map(function (l, i) { const r = regs.find(function (x) { return x.AssetID === l.AssetID; }) || {}; const c = assetSaleCalc(r, Number(l.Qty) || 0, l.Amount, fDate()); return `<tr><td>${i + 1}</td><td>${escapeHtml(l.AssetID + ' · ' + (r.Category || '') + ' — ' + (r.AssetName || ''))}</td><td>${+Number(l.Qty).toFixed(3)}</td><td><b>${M(l.Amount)}</b></td><td class="own-hide-m">${M(c.book)}</td><td class="${c.gain < 0 ? 'av-loss' : 'av-gain'}">${c.gain < 0 ? '−' : ''}${M(Math.abs(c.gain))}</td><td style="white-space:nowrap;">${ic('edit', i, '✏️')}${ic('del', i, '🗑️')}</td></tr>`; }).join('') + '</tbody>';
     totals(true);
   }
   function resetLineEntry() {
@@ -6575,11 +6607,6 @@ async function renderAssetVoucherPage(content, base) {
     if (isP) { $('av_Desc').value = ''; $('av_Qty').value = '1'; $('av_Rate').value = ''; $('av_Dep').value = catDep($('av_Cat').value); }
     else { $('av_Asset').innerHTML = assetOptions(); $('av_Qty').value = ''; $('av_Rate').value = ''; }
     lineCalc();
-  }
-  function resetAll() {
-    editId = null; lines = []; $('av_Title').textContent = t('নতুন ভাউচার', 'New voucher');
-    $('av_Date').value = ownToday(); $('av_Party').value = ''; $('av_PName').value = ''; $('av_PName').disabled = false; $('av_PBal').value = ''; $('av_Paid').value = ''; $('av_Note').value = ''; resetAcc();
-    resetLineEntry(); renderLines();
   }
   async function partyChanged() {
     const v = $('av_Party').value;
@@ -6598,7 +6625,7 @@ async function renderAssetVoucherPage(content, base) {
     } else {
       const aid = $('av_Asset').value; if (!aid) { showToast(t('সম্পদ বাছাই করুন।', 'Choose an asset.'), 'error'); return; }
       const r = regs.find(function (x) { return x.AssetID === aid; }), used = lines.reduce(function (s, x, i) { return s + (i !== lineEdit && x.AssetID === aid ? Number(x.Qty) || 0 : 0); }, 0);
-      const rem = faState(r, $('av_Date').value || ownToday()).rem - used;
+      const rem = faState(r, fDate()).rem - used;
       if (q > rem + 1e-9) { showToast(t('এই সম্পদের বাকি আছে ', 'Only ') + (+rem.toFixed(3)) + t(' — এর বেশি বেচা যাবে না।', ' left.'), 'error'); $('av_Qty').focus(); return; }
       l = { AssetID: aid, Qty: q, Rate: rate, Amount: q * rate };
     }
@@ -6607,7 +6634,8 @@ async function renderAssetVoucherPage(content, base) {
     (isP ? $('av_Desc') : $('av_Asset')).focus();
   }
   async function saveVoucher(andPost) {
-    if (!$('av_Date').value) { showToast(t('তারিখ দিন।', 'Enter a date.'), 'error'); return; }
+    const dIso = dmyIso('av_Date');
+    if (!dIso) { showToast(t('সঠিক তারিখ দিন (দিন-মাস-বছর)।', 'Enter a valid date.'), 'error'); return; }
     if (!lines.length) { showToast(t('অন্তত একটা লাইন যোগ করুন।', 'Add at least one line.'), 'error'); return; }
     totals();
     const pv = $('av_Party').value, [pty, pid] = pv ? pv.split('|') : [null, null];
@@ -6615,7 +6643,7 @@ async function renderAssetVoucherPage(content, base) {
     if (paid > total + 0.005) { showToast(isP ? t('প্রদান মোটের বেশি হতে পারে না।', 'Paid exceeds total.') : t('গ্রহণ মোটের বেশি হতে পারে না।', 'Received exceeds total.'), 'error'); return; }
     if (!pv && Math.abs(paid - total) > 0.005) { showToast(t('পার্টি ছাড়া (নগদে) পুরো টাকা দিতে/নিতে হবে — বাকি রাখতে পার্টি বাছাই করুন।', 'Without a party, the full amount must be paid.'), 'error'); return; }
     if (paid > 0 && !$('av_Acc').value) { showToast(t('ক্যাশ/ব্যাংক বাছাই করুন।', 'Select the cash/bank account.'), 'error'); return; }
-    const head = { Date: $('av_Date').value, PartyType: pty, PartyID: pid, PartyName: $('av_PName').value.trim() || (pv ? '' : t('নগদ', 'Cash')), BankCashAccID: paid > 0 ? $('av_Acc').value : null, TotalAmount: total, Note: $('av_Note').value.trim() };
+    const head = { Date: dIso, PartyType: pty, PartyID: pid, PartyName: $('av_PName').value.trim() || (pv ? '' : t('নগদ', 'Cash')), BankCashAccID: paid > 0 ? $('av_Acc').value : null, TotalAmount: total, Note: $('av_Note').value.trim() };
     head[isP ? 'PaidAmount' : 'ReceivedAmount'] = paid;
     const btns = [$('av_SaveBtn'), $('av_PostBtn')]; btns.forEach(function (b) { b.disabled = true; });
     try {
@@ -6626,79 +6654,116 @@ async function renderAssetVoucherPage(content, base) {
       const { error: le } = await supabaseClient.from(C.lines).insert(rowsIns); if (le) throw new Error(le.message);
       if (andPost) { if (isP) await postAssetPurchase(id); else await postAssetSale(id); }
       showToast((andPost ? t('পোস্ট হয়েছে ✅ ', 'Posted ✅ ') : t('সেভ হয়েছে ✅ ', 'Saved ✅ ')) + id, 'success');
-      if (!isP) await loadRegs();
-      resetAll(); await loadList();
+      await loadRegs(); closeModal(); editId = null; await loadList(id);
     } catch (err) { showToast(err.message, 'error'); await loadList(); }
-    finally { btns.forEach(function (b) { b.disabled = false; }); }
+    finally { btns.forEach(function (b) { if (b.isConnected) b.disabled = false; }); }
   }
-  async function openForEdit(id) {
-    const v = await assetLoad(base, id);
-    if (v.h.Status === 'Posted') { if (!(await assetVoucherUnpost(base, id))) return; if (!isP) await loadRegs(); }
-    const fresh = await assetLoad(base, id);
-    editId = id; $('av_Title').textContent = t('এডিটঃ ', 'Edit: ') + id;
-    $('av_Date').value = String(fresh.h.Date || '').slice(0, 10);
-    $('av_Party').value = fresh.h.PartyID ? fresh.h.PartyType + '|' + fresh.h.PartyID : ''; await partyChanged();
-    if (!fresh.h.PartyID) $('av_PName').value = fresh.h.PartyName || '';
-    lines = fresh.lines.map(function (l) { return isP ? { CategoryID: l.CategoryID, Description: l.Description, Qty: Number(l.Qty) || 0, Rate: Number(l.Rate) || 0, Amount: Number(l.Amount) || 0, DepRate: Number(l.DepRate) || 0 } : { AssetID: l.AssetID, Qty: Number(l.Qty) || 0, Rate: Number(l.Rate) || 0, Amount: Number(l.Amount) || 0 }; });
-    $('av_Note').value = fresh.h.Note || ''; $('av_Acc').value = fresh.h.BankCashAccID || '';
-    resetLineEntry(); renderLines();
-    $('av_Paid').value = M(isP ? fresh.h.PaidAmount : fresh.h.ReceivedAmount); totals();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    await loadList();
+  /** ভাউচারের উইন্ডো — নতুন (id ছাড়া) বা এডিট */
+  async function openForm(id) {
+    const key = 'asset-' + base;
+    const w = modalWindows.find(function (x) { return x.key === key; });
+    if (w) { restoreModal(w.id); showToast(t('একটা ' + C.bn + ' উইন্ডো নিচে মিনিমাইজ করা ছিল — সেটাই খোলা হলো। নতুনটা খুলতে আগে এটা সেভ বা বন্ধ করুন।', 'A window was minimized — reopened it.'), 'error'); return; }
+    let fresh = null;
+    if (id) {
+      const v = await assetLoad(base, id);
+      if (v.h.Status === 'Posted') { if (!(await assetVoucherUnpost(base, id))) return; await loadRegs(); await loadList(); }
+      fresh = await assetLoad(base, id);
+    }
+    if (modalIsOpen() && modalCurrentKey === key) closeModal();
+    openModal({ title: (id ? t('এডিটঃ ', 'Edit: ') + id + ' — ' : t('নতুন — ', 'New — ')) + C.bn, bodyHtml: formHtml, wide: true, hideSave: true, winKey: key });
+    wireDmyFields($('av_Form'));
+    editId = id || null; lines = []; lineEdit = -1;
+    resetAcc();
+    // ---- ফর্মের ঘটনা ----
+    $('av_Party').addEventListener('change', partyChanged);
+    ['av_Qty', 'av_Rate'].forEach(function (x) { $(x).addEventListener('input', lineCalc); });
+    $('av_Date').addEventListener('change', function () { lineCalc(); if (!isP) renderLines(); });
+    if (isP) $('av_Cat').addEventListener('change', function () { $('av_Dep').value = catDep($('av_Cat').value); });
+    else $('av_Asset').addEventListener('change', function () { const r = regs.find(function (x) { return x.AssetID === $('av_Asset').value; }); if (r && !$('av_Qty').value) { const st = faState(r, fDate()); $('av_Qty').value = String(+st.rem.toFixed(3)); } lineCalc(); });
+    $('av_Paid').addEventListener('input', function () { totals(false); });
+    $('av_AddLine').addEventListener('click', addLine);
+    $('av_AddLine').addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); addLine(); } });
+    $('av_Lines').addEventListener('click', function (e) {
+      const b = e.target.closest('[data-ln]'); if (!b) return; const i = Number(b.getAttribute('data-i'));
+      if (b.getAttribute('data-ln') === 'del') { lines.splice(i, 1); if (lineEdit === i) resetLineEntry(); renderLines(); if (!isP) $('av_Asset').innerHTML = assetOptions(); return; }
+      const l = lines[i]; lineEdit = i; $('av_AddLine').textContent = '✔ ' + t('লাইন হালনাগাদ', 'Update line');
+      if (isP) { $('av_Cat').value = l.CategoryID; $('av_Desc').value = l.Description; $('av_Dep').value = l.DepRate; }
+      else { $('av_Asset').innerHTML = assetOptions(); $('av_Asset').value = l.AssetID; }
+      $('av_Qty').value = l.Qty; $('av_Rate').value = l.Rate; lineCalc(); $('av_Qty').focus();
+    });
+    $('av_SaveBtn').addEventListener('click', function () { saveVoucher(false); });
+    $('av_PostBtn').addEventListener('click', function () { saveVoucher(true); });
+    wireSequentialKeyNav($('av_Form'));
+    if (fresh) {
+      const di = String(fresh.h.Date || '').slice(0, 10); $('av_Date').value = isoToDmy(di);
+      $('av_Party').value = fresh.h.PartyID ? fresh.h.PartyType + '|' + fresh.h.PartyID : ''; await partyChanged();
+      if (!fresh.h.PartyID) $('av_PName').value = fresh.h.PartyName || '';
+      lines = fresh.lines.map(function (l) { return isP ? { CategoryID: l.CategoryID, Description: l.Description, Qty: Number(l.Qty) || 0, Rate: Number(l.Rate) || 0, Amount: Number(l.Amount) || 0, DepRate: Number(l.DepRate) || 0 } : { AssetID: l.AssetID, Qty: Number(l.Qty) || 0, Rate: Number(l.Rate) || 0, Amount: Number(l.Amount) || 0 }; });
+      $('av_Note').value = fresh.h.Note || ''; $('av_Acc').value = fresh.h.BankCashAccID || '';
+      resetLineEntry(); renderLines();
+      $('av_Paid').value = M(isP ? fresh.h.PaidAmount : fresh.h.ReceivedAmount); totals();
+    } else { resetLineEntry(); renderLines(); }
+    setTimeout(function () { const f = $('av_Date'); if (f) f.focus(); }, 60);
   }
-  async function loadList() {
-    try { const { data, error } = await supabaseClient.from(C.table).select('*'); if (error) throw new Error(/does not exist|schema cache/.test(error.message) ? 'টেবিল নেই — আগে Supabase-এ 35 নম্বর SQL চালান।' : error.message); vlist = data || []; }
-    catch (e) { $('av_List').innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; return; }
-    const from = $('av_From').value || '0000', to = $('av_To').value || '9999';
-    const shown = vlist.filter(function (h) { const d = String(h.Date || ''); return d >= from && d <= to; }).sort(function (a, b) { return String(b.Date).localeCompare(String(a.Date)) || String(b[C.idf]).localeCompare(String(a[C.idf]), undefined, { numeric: true }); });
-    if (!shown.length) { $('av_List').innerHTML = `<div class="empty-state">${t('এই সময়ে কোনো ভাউচার নেই।', 'No vouchers in this period.')}</div>`; return; }
+  async function loadList(highlightId) {
+    try {
+      const [h, l] = await Promise.all([supabaseClient.from(C.table).select('*'), supabaseClient.from(C.lines).select('*')]);
+      if (h.error) throw new Error(/does not exist|schema cache/.test(h.error.message) ? 'টেবিল নেই — আগে Supabase-এ 35 নম্বর SQL চালান।' : h.error.message);
+      vlist = h.data || []; vlines = (l && l.data) || [];
+    } catch (e) { $('av_List').innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; return; }
+    if (highlightId) renderList.hl = highlightId;
+    renderList();
+  }
+  function renderList() {
+    const wrap = $('av_List'); if (!wrap) return;
+    const from = dmyIso('av_From') || '0000', to = dmyIso('av_To') || '9999', qy = String($('av_Search').value || '').trim().toLowerCase();
+    const regName = {}; regs.forEach(function (r) { regName[r.AssetID] = r.AssetName || ''; });
+    const desc = {}; vlines.forEach(function (l) {
+      const nm = isP ? (l.Description || '') : ((regName[l.AssetID] || l.AssetID || ''));
+      (desc[l[C.idf]] = desc[l[C.idf]] || []).push(nm + (Number(l.Qty) && Number(l.Qty) !== 1 ? ' ×' + (+Number(l.Qty).toFixed(3)) : ''));
+    });
+    const shown = vlist.filter(function (h) {
+      const d = String(h.Date || '').slice(0, 10); if (d < from || d > to) return false;
+      if (!qy) return true;
+      return [h[C.idf], h.PartyName, (desc[h[C.idf]] || []).join(' ')].some(function (v) { return String(v || '').toLowerCase().indexOf(qy) !== -1; });
+    }).sort(function (a, b) { return String(b.Date).localeCompare(String(a.Date)) || String(b[C.idf]).localeCompare(String(a[C.idf]), undefined, { numeric: true }); });
+    $('av_Count').textContent = t('মোট ', 'Total ') + shown.length + t('টা ভাউচার', ' vouchers') + (qy ? t(' (খোঁজা)', ' (filtered)') : '');
+    if (!shown.length) { wrap.innerHTML = `<div class="empty-state">${qy ? t('এই খোঁজায় কোনো ভাউচার নেই।', 'No vouchers match.') : t('এই সময়ে কোনো ভাউচার নেই — উপরের "+" বাটনে নতুন ভাউচার।', 'No vouchers in this period.')}</div>`; return; }
     let tt = 0, tp = 0, tg = 0;
+    const vk = vkClass(base);
     const body = shown.map(function (h, i) {
-      const posted = h.Status === 'Posted', tot = Number(h.TotalAmount) || 0, paid = Number(isP ? h.PaidAmount : h.ReceivedAmount) || 0;
-      if (posted) { tt += tot; tp += paid; tg += Number(h.GainLoss) || 0; }
-      const ic = function (act, icon, title, dis) { return `<button type="button" class="own-ic" data-av="${act}" data-id="${attr(h[C.idf])}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
-      return `<tr class="${posted ? '' : 'draft'}"><td>${i + 1}</td><td>${escapeHtml(formatShortDate(h.Date))}</td><td><b>${escapeHtml(h[C.idf])}</b></td><td class="l">${escapeHtml(h.PartyName || '')}</td>
-        <td class="r">${M(tot)}</td><td class="r own-hide-m">${M(paid)}</td><td class="r"><b>${M(tot - paid)}</b></td>${isP ? '' : `<td class="r own-hide-m ${(Number(h.GainLoss) || 0) < 0 ? 'av-loss' : 'av-gain'}">${posted ? ((Number(h.GainLoss) || 0) < 0 ? '−' : '') + M(Math.abs(Number(h.GainLoss) || 0)) : '—'}</td>`}
+      const id = h[C.idf], posted = h.Status === 'Posted', tot = Number(h.TotalAmount) || 0, paid = Number(isP ? h.PaidAmount : h.ReceivedAmount) || 0, gl = Number(h.GainLoss) || 0;
+      if (posted) { tt += tot; tp += paid; tg += gl; }
+      const ic = function (act, icon, title, dis) { return `<button type="button" class="im-ic" data-av="${act}" data-id="${attr(id)}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
+      const ds = (desc[id] || []).join(', ');
+      return `<tr class="${vk}${renderList.hl === id ? ' sel' : ''}">
+        <td>${i + 1}</td><td class="av-hide-m">${escapeHtml(formatShortDate(h.Date))}</td><td><b>${escapeHtml(id)}</b><small class="av-show-m">${escapeHtml(formatShortDate(h.Date))}</small></td>
+        <td class="nm">${escapeHtml(h.PartyName || '—')}<small>${escapeHtml(ds)}</small></td>
+        <td><b>${M(tot)}</b></td><td class="av-hide-m">${M(paid)}</td><td><b>${M(tot - paid)}</b></td>
+        ${isP ? '' : `<td class="av-hide-m ${gl < 0 ? 'av-loss' : 'av-gain'}">${posted ? (gl < 0 ? '−' : '') + M(Math.abs(gl)) : '—'}</td>`}
         <td>${posted ? `<span class="badge active">${t('পোস্ট করা', 'Posted')}</span>` : `<span class="badge draft">${t('খসড়া', 'Draft')}</span>`}</td>
         <td style="white-space:nowrap;">${ic('view', '👁️', t('দেখুন / প্রিন্ট', 'View / print'))}${ic('edit', '✏️', posted ? t('এডিট (এডমিন — আগে আনপোস্ট)', 'Edit (admin)') : t('এডিট', 'Edit'))}${ic('del', '🗑️', t('ডিলিট', 'Delete'))}${ic('post', posted ? '✅' : '💾', posted ? t('পোস্ট হয়ে গেছে', 'Posted') : t('পোস্ট করুন', 'Post'), posted)}</td></tr>`;
     }).join('');
-    $('av_List').innerHTML = `<table class="own-tbl"><thead><tr><th>${t('ক্রঃ', 'No.')}</th><th>${t('তারিখ', 'Date')}</th><th>${t('নং', 'Voucher')}</th><th>${t('পার্টি', 'Party')}</th><th>${t('মোট', 'Total')}</th><th class="own-hide-m">${isP ? t('প্রদান', 'Paid') : t('গ্রহণ', 'Received')}</th><th>${t('বাকি', 'Due')}</th>${isP ? '' : `<th class="own-hide-m">${t('লাভ/লোকসান', 'Gain/loss')}</th>`}<th>${t('অবস্থা', 'Status')}</th><th></th></tr></thead><tbody>${body}</tbody>
-      <tfoot><tr><td></td><td colspan="3" class="l">${t('মোট (পোস্ট করা)', 'Total (posted)')}</td><td class="r">${M(tt)}</td><td class="r own-hide-m">${M(tp)}</td><td class="r">${M(tt - tp)}</td>${isP ? '' : `<td class="r own-hide-m">${tg < 0 ? '−' : ''}${M(Math.abs(tg))}</td>`}<td></td><td></td></tr></tfoot></table>`;
+    wrap.innerHTML = `<table class="data-table av-tbl"><thead><tr><th>${t('ক্রঃ', 'No.')}</th><th class="av-hide-m">${t('তারিখ', 'Date')}</th><th>${t('ভাউচার নং', 'Voucher')}</th><th>${t('পার্টি / সম্পদ', 'Party / asset')}</th><th>${t('মোট', 'Total')}</th><th class="av-hide-m">${isP ? t('প্রদান', 'Paid') : t('গ্রহণ', 'Received')}</th><th>${t('বাকি', 'Due')}</th>${isP ? '' : `<th class="av-hide-m">${t('লাভ/লোকসান', 'Gain/loss')}</th>`}<th>${t('অবস্থা', 'Status')}</th><th></th></tr></thead><tbody>${body}</tbody>
+      <tfoot><tr><td></td><td class="av-hide-m"></td><td colspan="2">${t('মোট (পোস্ট করা)', 'Total (posted)')}</td><td>${M(tt)}</td><td class="av-hide-m">${M(tp)}</td><td>${M(tt - tp)}</td>${isP ? '' : `<td class="av-hide-m">${tg < 0 ? '−' : ''}${M(Math.abs(tg))}</td>`}<td></td><td></td></tr></tfoot></table>`;
   }
-  $('av_Party').addEventListener('change', partyChanged);
-  ['av_Qty', 'av_Rate'].forEach(function (id) { $(id).addEventListener('input', lineCalc); });
-  $('av_Date').addEventListener('change', function () { lineCalc(); if (!isP) renderLines(); });
-  if (isP) $('av_Cat').addEventListener('change', function () { $('av_Dep').value = catDep($('av_Cat').value); });
-  else $('av_Asset').addEventListener('change', function () { const r = regs.find(function (x) { return x.AssetID === $('av_Asset').value; }); if (r && !$('av_Qty').value) { const st = faState(r, $('av_Date').value || ownToday()); $('av_Qty').value = String(+st.rem.toFixed(3)); } lineCalc(); });
-  $('av_Paid').addEventListener('input', function () { totals(false); });   // হাতে লেখা প্রদান যেমন আছে তেমন
-  $('av_AddLine').addEventListener('click', addLine);
-  $('av_AddLine').addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); addLine(); } });
-  $('av_Lines').addEventListener('click', function (e) {
-    const b = e.target.closest('[data-ln]'); if (!b) return; const i = Number(b.getAttribute('data-i'));
-    if (b.getAttribute('data-ln') === 'del') { lines.splice(i, 1); if (lineEdit === i) resetLineEntry(); renderLines(); if (!isP) $('av_Asset').innerHTML = assetOptions(); return; }
-    const l = lines[i]; lineEdit = i; $('av_AddLine').textContent = '✔ ' + t('লাইন হালনাগাদ', 'Update line');
-    if (isP) { $('av_Cat').value = l.CategoryID; $('av_Desc').value = l.Description; $('av_Dep').value = l.DepRate; }
-    else { $('av_Asset').innerHTML = assetOptions(); $('av_Asset').value = l.AssetID; }
-    $('av_Qty').value = l.Qty; $('av_Rate').value = l.Rate; lineCalc(); $('av_Qty').focus();
-  });
-  $('av_SaveBtn').addEventListener('click', function () { saveVoucher(false); });
-  $('av_PostBtn').addEventListener('click', function () { saveVoucher(true); });
-  $('av_NewBtn').addEventListener('click', resetAll);
-  ['av_From', 'av_To'].forEach(function (id) { $(id).addEventListener('change', loadList); });
+  // ---- পেজের ঘটনা ----
+  $('av_AddBtn').addEventListener('click', function () { openForm(null).catch(function (err) { showToast(err.message, 'error'); }); });
+  $('av_Search').addEventListener('input', renderList);
+  ['av_From', 'av_To'].forEach(function (id) { $(id).addEventListener('change', function () { if (dmyIso(id)) renderList(); }); });
   $('av_List').addEventListener('click', async function (e) {
     const b = e.target.closest('[data-av]'); if (!b || b.disabled || b.__busy) return; b.__busy = true;
     const id = b.getAttribute('data-id'), act = b.getAttribute('data-av');
     try {
       if (act === 'view') await assetVoucherPrint(base, id);
-      else if (act === 'edit') await openForEdit(id);
-      else if (act === 'del') { if (await assetVoucherDelete(base, id)) { if (editId === id) resetAll(); if (!isP) await loadRegs(); await loadList(); resetLineEntry(); } }
-      else if (act === 'post') { if (await assetVoucherPost(base, id)) { if (!isP) await loadRegs(); resetLineEntry(); await loadList(); } }
+      else if (act === 'edit') await openForm(id);
+      else if (act === 'del') { if (await assetVoucherDelete(base, id)) { await loadRegs(); await loadList(); } }
+      else if (act === 'post') { if (await assetVoucherPost(base, id)) { await loadRegs(); await loadList(id); } }
     } catch (err) { showToast(err.message, 'error'); await loadList(); }
     finally { b.__busy = false; }
   });
-  resetAll();
-  if (window.__assetEditId && window.__assetEditId.base === base) { const id = window.__assetEditId.id; window.__assetEditId = null; await loadList(); await openForEdit(id); }
-  else await loadList();
+  await loadList();
+  if (window.__assetEditId && window.__assetEditId.base === base) { const id = window.__assetEditId.id; window.__assetEditId = null; await openForm(id); }
 }
 async function renderAssetPurchasePage(content) { return renderAssetVoucherPage(content, 'AssetPurchase'); }
 async function renderAssetSalePage(content) { return renderAssetVoucherPage(content, 'AssetSale'); }
