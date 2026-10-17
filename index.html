@@ -6869,6 +6869,7 @@ async function openAssetMasterForm(existing, serial, onChanged) {
   if (!document.getElementById('vgCssGlobal')) { const st = document.createElement('style'); st.id = 'vgCssGlobal'; st.textContent = VOUCHER_GRID_CSS; document.head.appendChild(st); }
   const cats = await assetCats();
   let rec = Object.assign({}, existing || {});
+  const isNew = !existing;   // নতুন হলে — শুধু মূল তথ্য; সেভের পর ফর্ম খালি হয়ে পরের নাম; প্রারম্ভিক সম্পদ পরে ✏️ এডিট থেকে
   const fy = await getFiscalYearStart();
   const sec = 'border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;';
   const h4 = 'margin:0 0 10px;font-size:13px;color:var(--text-muted);';
@@ -6882,9 +6883,11 @@ async function openAssetMasterForm(existing, serial, onChanged) {
         <div class="field vfull"><label>${t('এ্যাসেট নাম', 'Asset name')}</label><input id="am_Name" value="${attr(rec.Name || '')}" autocomplete="off" placeholder="${attr(t('যেমনঃ স্পিনার মেশিন ১৮ ইঞ্চি', 'e.g. 18-inch spinner machine'))}"></div>
         <div class="field vfull"><label>${t('খাত (অবচয়ের হার এখান থেকে)', 'Category (sets depreciation)')}</label><select id="am_Cat">${cats.map(function (c) { return `<option value="${attr(c.CatID)}" ${c.CatID === rec.CategoryID ? 'selected' : ''}>${escapeHtml(c.Name)} — ${Number(c.DepRate) || 0}%</option>`; }).join('')}</select></div>
       </div>
-      <div class="own-btns" style="margin-top:8px;"><button type="button" class="btn btn-primary" id="am_Save1">💾 ${t('সেভ', 'Save')}</button></div>
+      <div class="own-btns" style="margin-top:8px;"><button type="button" class="btn btn-primary" id="am_Save1">💾 ${isNew ? t('সেভ + পরের নাম', 'Save + next') : t('সেভ', 'Save')}</button></div>
+      <div id="am_Saved" style="font-size:11.5px;color:#15803d;margin-top:6px;"></div>
     </div>
-    <div style="${sec}" id="am_S2">
+    ${isNew ? `<div style="font-size:12px;color:var(--text-muted);background:var(--bg);border:1px dashed var(--border);border-radius:8px;padding:8px 10px;">💡 ${t('একটার পর একটা নাম লিখে সেভ করুন — প্রতিবার সেভের পর ফর্ম খালি হয়ে পরের নামের জন্য তৈরি থাকবে। প্রারম্ভিক সম্পদ (পরিমাণ, দর, মূল্য) পরে তালিকা থেকে ✏️ এডিট করে দিন।', 'Save names one after another — the form clears for the next one. Add the opening asset later via ✏️ Edit.')}</div>` : ''}
+    <div style="${sec}${isNew ? 'display:none;' : ''}" id="am_S2">
       <h4 style="${h4}">${t('২) প্রারম্ভিক সম্পদ (সফটওয়্যার শুরুর আগে থেকে যা আছে)', '2) Opening asset (owned before using the software)')}</h4>
       <div class="vg2">
         <div class="field vfull"><label>${t('এ্যাসেট নাম', 'Asset name')}</label><input id="am_OName" value="${attr(rec.Name || '')}" readonly style="${ro}"></div>
@@ -6900,6 +6903,7 @@ async function openAssetMasterForm(existing, serial, onChanged) {
   const $ = function (id) { return document.getElementById(id); };
   wireDmyFields($('am_S2'));
   wireSequentialKeyNav($('am_S1')); wireSequentialKeyNav($('am_S2'));
+  const savedNames = [];
   const s2Lock = function () { const on = !!rec.AssetCode; $('am_S2').style.opacity = on ? '' : '.5'; ['am_ODate', 'am_OQty', 'am_ORate', 'am_Save2'].forEach(function (id) { $(id).disabled = !on; }); };
   s2Lock();
   const calc = function () { const v = (Number($('am_OQty').value) || 0) * (Number($('am_ORate').value) || 0); $('am_OVal').value = v ? v.toFixed(2) : ''; };
@@ -6922,12 +6926,17 @@ async function openAssetMasterForm(existing, serial, onChanged) {
         const { data: row, error } = await supabaseClient.from('AssetMaster').insert(Object.assign({ Status: 'Active', SortOrder: all.length + 1, CreatedBy: (currentUser && currentUser.Email) || '' }, data)).select().single();
         if (error) throw new Error(error.message);
         rec = row; $('am_Code').value = row.AssetCode;
-        document.getElementById('modalTitle').textContent = t('এডিট — ', 'Edit — ') + t('সম্পদের নাম', 'Asset name');
       }
       rec.Name = nm; rec.CategoryID = data.CategoryID; $('am_OName').value = nm; s2Lock();
-      showToast(t('সেভ হয়েছে ✅ ', 'Saved ✅ ') + rec.AssetCode, 'success');
+      showToast(t('সেভ হয়েছে ✅ ', 'Saved ✅ ') + rec.AssetCode + ' — ' + nm, 'success');
       if (onChanged) await onChanged();
-      setTimeout(function () { if (!$('am_OQty').disabled) $('am_OQty').focus(); }, 50);
+      if (isNew) {   // পরের নামের জন্য ফর্ম খালি (খাত আগেরটাই থাকে)
+        savedNames.push(rec.AssetCode + ' — ' + nm);
+        $('am_Saved').textContent = '✅ ' + t('এই উইন্ডোতে সেভ হয়েছেঃ ', 'Saved in this window: ') + savedNames.join(', ');
+        rec = {}; serial = (Number(serial) || 0) + 1;
+        $('am_Serial').value = serial; $('am_Code').value = t('সেভ করলে তৈরি হবে', 'Generated on save'); $('am_Name').value = '';
+        setTimeout(function () { $('am_Name').focus(); }, 50);
+      } else setTimeout(function () { if (!$('am_OQty').disabled) $('am_OQty').focus(); }, 50);
     } catch (err) { showToast(err.message, 'error'); }
     finally { btn.disabled = false; }
   });
