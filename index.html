@@ -3198,24 +3198,43 @@ async function renderPartyMasterPage(content) {
       return;
     }
 
+    // জোন অনুযায়ী ভাগ — প্রতিটা জোনের শিরোনাম সারি, তার নিচে সেই জোনের পার্টিরা ক্রঃ ১, ২, ৩… (জোনে জোনে নতুন করে)
+    const noZone = t('জোন নেই', 'No zone');
+    const byZone = {};
+    rows.forEach(function (r) { const z = String(r.Zone || '').trim() || noZone; (byZone[z] = byZone[z] || []).push(r); });
+    const zones = Object.keys(byZone).sort(function (x, y) {
+      if (x === noZone) return 1; if (y === noZone) return -1;   // জোন ছাড়া পার্টিরা সবার শেষে
+      return x.localeCompare(y, 'bn');
+    });
+    const nm = function (r) { return String(r.CompanyName || r.Name || ''); };
     const headers = [
-      ['কোড','Code'], ['প্রোপ্রাইটর','Proprietor'], ['ব্যবসার নাম','Business Name'],
-      ['ফোন','Phone'], ['জোন','Zone'], ['অবস্থা','Status']
+      ['ক্রঃ','Sl'], ['কোড','Code'], ['প্রোপ্রাইটর','Proprietor'], ['ব্যবসার নাম','Business Name'],
+      ['ফোন','Phone'], ['অবস্থা','Status']
     ];
     const headCells = headers.map(function (h) { return `<th class="i18n" data-bn="${h[0]}" data-en="${h[1]}">${t(h[0], h[1])}</th>`; }).join('');
+    const editSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="m18.5 2.5 3 3L10 17l-4 1 1-4Z"/></svg>';
 
-    wrap.innerHTML = `<table class="data-table"><thead><tr>${headCells}<th></th></tr></thead><tbody>
-      ${rows.map(function (r) {
-        return `<tr>
+    const body = zones.map(function (z) {
+      const list = byZone[z].sort(function (x, y) { return nm(x).localeCompare(nm(y), 'bn'); });
+      return `<tr class="pz-head"><th colspan="7">📍 ${escapeHtml(z)} <span class="pz-cnt">(${list.length}${t('টি পার্টি', ' parties')})</span></th></tr>` +
+        list.map(function (r, i) {
+          return `<tr>
+          <td class="c">${i + 1}</td>
           <td>${escapeHtml(r.Code)}</td><td>${escapeHtml(r.Name)}</td><td>${escapeHtml(r.CompanyName)}</td>
-          <td>${escapeHtml(r.Phone)}</td><td>${escapeHtml(r.Zone)}</td>
-          <td><span class="badge ${r.Active?'active':'inactive'} i18n" data-bn="${r.Active?'সক্রিয়':'নিষ্ক্রিয়'}" data-en="${r.Active?'Active':'Inactive'}">${t(r.Active?'সক্রিয়':'নিষ্ক্রিয়', r.Active?'Active':'Inactive')}</span></td>
-          <td class="row-actions"><button onclick='openPartyForm(${JSON.stringify(r.Code)})' title="${t('সম্পাদনা','Edit')}">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="m18.5 2.5 3 3L10 17l-4 1 1-4Z"/></svg>
-          </button></td>
+          <td>${escapeHtml(r.Phone)}</td>
+          <td class="c"><span class="badge ${r.Active?'active':'inactive'} i18n" data-bn="${r.Active?'সক্রিয়':'নিষ্ক্রিয়'}" data-en="${r.Active?'Active':'Inactive'}">${t(r.Active?'সক্রিয়':'নিষ্ক্রিয়', r.Active?'Active':'Inactive')}</span></td>
+          <td class="row-actions"><button onclick='openPartyForm(${JSON.stringify(r.Code)})' title="${t('সম্পাদনা','Edit')}">${editSvg}</button></td>
         </tr>`;
-      }).join('')}
-    </tbody></table>`;
+        }).join('');
+    }).join('');
+
+    wrap.innerHTML = `<style>
+        #partyListWrap .data-table th{text-align:center;}
+        #partyListWrap td.c{text-align:center;}
+        #partyListWrap tr.pz-head th{text-align:left !important;background:#1f2937;color:#ffd27a;font-size:11.5px !important;padding:5px 10px !important;letter-spacing:.2px;}
+        #partyListWrap tr.pz-head .pz-cnt{color:#cbd5e1;font-weight:400;margin-left:4px;}
+      </style>
+      <table class="data-table"><thead><tr>${headCells}<th></th></tr></thead><tbody>${body}</tbody></table>`;
   }
 
   await loadPartyList();
