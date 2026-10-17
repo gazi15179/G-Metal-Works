@@ -17530,8 +17530,44 @@ const ALL_DATA_SHEETS = [
   'ProcessingVoucher','ProcessingByProduct_Lines','ProcessingFG_Lines','DailyProduction',
   'ChartOfAccounts','BankCashAccounts','JournalVoucher','JV_Lines','ContraVoucher','PaymentVoucher','ReceiptVoucher','BankCashBook','PartyLedger',
   'Attendance','LeaveRequests','Payroll','Payroll_Lines','Payroll_Details','SalaryIssue','EmployeeCategories','WorkRoles','SizeRates','TeamProduction','TeamProduction_Items','TeamProduction_Members','TeamProduction_Costs','DailyBonus',
-  'SystemSettings'
+  'SystemSettings',
+  // পরে যোগ হওয়া টেবিল (খরচ/আয়/কালেকশন/মূলধন ভাউচার, স্থায়ী সম্পদ, খাত)
+  'ExpenseCategories','ExpenseVoucher','ExpenseVoucher_Lines','IncomeVoucher','IncomeVoucher_Lines','CollectionVoucher','CapitalVoucher',
+  'PayHeads','FixedAsset','AssetCategory','AssetPurchase','AssetPurchase_Lines','AssetSale','AssetSale_Lines'
 ];
+
+/** ব্যাকআপের টেবিল তালিকা — ভবিষ্যতে নতুন টেবিল যোগ হলেও যেন বাদ না পড়ে, তাই তিন জায়গা থেকে একসাথে:
+ *  ১) ওপরের ALL_DATA_SHEETS তালিকা
+ *  ২) সফটওয়্যারের নিজের কোড স্ক্যান — কোডে যে টেবিলের নাম ব্যবহার হয় (from('…'), sheet:'…', table:'…', লাইন টেবিল ইত্যাদি) সব
+ *  ৩) Supabase-এর নিজের টেবিল তালিকা (যদি সার্ভার দেয়) — কোডে নেই এমন টেবিলও ধরা পড়ে
+ *  যে নাম আসলে টেবিল নয় বা টেবিলটা এখনো তৈরি হয়নি, সেগুলো ব্যাকআপের সময় নিজে বাদ যায়। */
+async function collectBackupTables() {
+  const rev = {}; Object.keys(SHEET_TABLE_MAP).forEach(function (k) { rev[SHEET_TABLE_MAP[k]] = k; });
+  const out = new Map();   // আসল টেবিলের নাম → ব্যাকআপ ফাইলে যে নামে থাকবে
+  const add = function (name) {
+    name = String(name || '').trim(); if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(name)) return;
+    const table = tableFor(name); if (out.has(table)) return;
+    out.set(table, rev[table] || name);
+  };
+  ALL_DATA_SHEETS.forEach(add);
+  const autoKeys = new Set();
+  const listed = new Set(ALL_DATA_SHEETS.map(function (n) { return tableFor(n); }));
+  try {   // কোড স্ক্যান
+    const src = Array.prototype.map.call(document.querySelectorAll('script:not([src])'), function (x) { return x.textContent; }).join('\n');
+    const re = /(?:\.from\(|(?:sheet|table|headerSheet|linesSheet|lines|fkSheet|partySheet)\s*:\s*|cachedList\()\s*['"]([A-Za-z][A-Za-z0-9_]*)['"]/g;
+    let m; while ((m = re.exec(src))) add(m[1]);
+  } catch (e) {}
+  try {   // Supabase-এর টেবিল তালিকা
+    const sess = (await supabaseClient.auth.getSession()).data.session;
+    const res = await fetch(SUPABASE_URL + '/rest/v1/', { headers: { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + ((sess && sess.access_token) || SUPABASE_ANON_KEY) } });
+    if (res.ok) {
+      const spec = await res.json();
+      Object.keys((spec && spec.paths) || {}).forEach(function (pth) { const n = pth.replace(/^\//, ''); if (n && n.indexOf('/') === -1 && n.indexOf('rpc') !== 0) add(n); });
+    }
+  } catch (e) {}
+  out.forEach(function (key, table) { if (!listed.has(table)) autoKeys.add(key); });
+  return { list: Array.from(out.entries()).map(function (e) { return { table: e[0], key: e[1] }; }), autoKeys: autoKeys };
+}
 
 async function renderGeneralSettingsPage(content) {
   const settings = await api('getSystemSettings', {});
@@ -17592,7 +17628,7 @@ async function renderBackupRestorePage(content) {
   content.innerHTML = `
     <div class="page-head"><div><h1>ব্যাকআপ ও পুনরুদ্ধার</h1><p>পুরো ডেটাবেসের ব্যাকআপ ডাউনলোড করুন</p></div></div>
     <div class="panel"><div class="modal-body" style="padding:22px;">
-      <p style="font-size:13.5px;color:var(--text-muted);margin-bottom:16px;">নিচের বাটনে ক্লিক করলে সব Sheet-এর ডেটা একটা JSON ফাইলে ডাউনলোড হবে। এটা নিয়মিত করে রাখা ভালো অভ্যাস।</p>
+      <p style="font-size:13.5px;color:var(--text-muted);margin-bottom:16px;">নিচের বাটনে ক্লিক করলে ডাটাবেসের সব টেবিলের ডেটা একটা JSON ফাইলে ডাউনলোড হবে। নতুন টেবিল যোগ হলে সেটাও নিজে থেকে ব্যাকআপে চলে আসে। শেষে প্রতিটা টেবিলের সারির সংখ্যা দেখায়, কোনো টেবিল না এলে লাল সতর্কবার্তা দেয়। সপ্তাহে অন্তত একবার ব্যাকআপ নিয়ে Google Drive বা পেনড্রাইভে রাখুন।</p>
       <button class="btn btn-primary" style="width:auto;" id="backupBtn">⬇ সম্পূর্ণ ব্যাকআপ ডাউনলোড করুন</button>
       <div id="backupProgress" style="margin-top:14px;font-size:12.5px;color:var(--text-muted);"></div>
     </div></div>`;
@@ -17600,22 +17636,44 @@ async function renderBackupRestorePage(content) {
   document.getElementById('backupBtn').addEventListener('click', async function () {
     const btn = this; btn.disabled = true;
     const progressEl = document.getElementById('backupProgress');
-    const allData = {};
+    const allData = {}, counts = [], failed = [], skipped = [];
     try {
-      for (let i = 0; i < ALL_DATA_SHEETS.length; i++) {
-        const sheet = ALL_DATA_SHEETS[i];
-        progressEl.textContent = 'আনা হচ্ছে: ' + sheet + ' (' + (i+1) + '/' + ALL_DATA_SHEETS.length + ')';
-        try { allData[sheet] = await api('list', { sheet: sheet }); } catch (e) { allData[sheet] = []; }
+      progressEl.textContent = 'টেবিলের তালিকা তৈরি হচ্ছে…';
+      const T = await collectBackupTables();
+      for (let i = 0; i < T.list.length; i++) {
+        const it = T.list[i];
+        progressEl.textContent = 'আনা হচ্ছে: ' + it.key + ' (' + (i + 1) + '/' + T.list.length + ')';
+        let rows = null, lastErr = null;
+        for (let attempt = 0; attempt < 2 && rows === null; attempt++) {   // নেটের সমস্যায় একবার আবার চেষ্টা
+          try { rows = await selectAllRows(it.table); } catch (e) { lastErr = e; }
+        }
+        if (rows === null) {
+          if (/does not exist|schema cache|Could not find the table|relation/i.test((lastErr && lastErr.message) || '')) skipped.push(it.key);   // টেবিলটাই নেই — বাদ
+          else failed.push(it.key + ' — ' + ((lastErr && lastErr.message) || 'অজানা সমস্যা'));
+          continue;
+        }
+        allData[it.key] = rows; counts.push([it.key, rows.length]);
       }
+      const autoFound = counts.filter(function (c) { return T.autoKeys.has(c[0]); }).map(function (c) { return c[0]; });
+      const total = counts.reduce(function (s, c) { return s + c[1]; }, 0);
+      allData._backupInfo = { app: 'G Metal Works ERP', createdAt: new Date().toISOString(), tables: counts.length, totalRows: total,
+        rowCounts: counts.reduce(function (o, c) { o[c[0]] = c[1]; return o; }, {}), failedTables: failed, skippedNotFound: skipped };
       const blob = new Blob([JSON.stringify(allData, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; a.download = 'gmetal-backup-' + new Date().toISOString().slice(0,10) + '.json';
-      a.click();
-      URL.revokeObjectURL(url);
-      progressEl.textContent = 'ব্যাকআপ সম্পন্ন ✅';
-      showToast('ব্যাকআপ ডাউনলোড হয়েছে ✅', 'success');
+      const d = new Date(), stamp = String(d.getDate()).padStart(2, '0') + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + d.getFullYear() + '_' + String(d.getHours()).padStart(2, '0') + String(d.getMinutes()).padStart(2, '0');
+      a.href = url; a.download = 'gmetal-backup-' + stamp + '.json';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+      const rowsHtml = counts.slice().sort(function (x, y) { return y[1] - x[1]; }).map(function (c, i) { return `<tr><td>${i + 1}</td><td>${escapeHtml(c[0])}</td><td>${c[1]}</td></tr>`; }).join('');
+      progressEl.innerHTML = (failed.length
+          ? `<div style="background:#fdecea;border:1px solid #e8a39b;color:#8a1c12;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12.5px;">⚠️ <b>${failed.length}টি টেবিল আনা যায়নি — ব্যাকআপ অসম্পূর্ণ।</b> নেট ঠিক করে আবার ব্যাকআপ নিন।<br>${failed.map(escapeHtml).join('<br>')}</div>`
+          : `<div style="background:#e9f7ef;border:1px solid #9fd3b1;color:#14532d;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12.5px;">✅ <b>ব্যাকআপ সম্পূর্ণ</b> — ${counts.length}টি টেবিল, মোট ${total.toLocaleString('en-IN')} সারি। ফাইলঃ ${escapeHtml(a.download)}</div>`) +
+        (autoFound.length ? `<div style="font-size:11.5px;margin-bottom:6px;">🔎 তালিকার বাইরে নিজে খুঁজে পাওয়া নতুন টেবিল (এগুলোও ব্যাকআপে আছে)ঃ ${autoFound.map(escapeHtml).join(', ')}</div>` : '') +
+        `<details><summary style="cursor:pointer;font-size:12px;">টেবিল অনুযায়ী সারির সংখ্যা দেখুন</summary><div style="max-height:300px;overflow:auto;margin-top:6px;"><table class="data-table"><thead><tr><th>ক্রঃ</th><th>টেবিল</th><th>সারি</th></tr></thead><tbody>${rowsHtml}</tbody></table></div></details>`;
+      showToast(failed.length ? 'ব্যাকআপ অসম্পূর্ণ — ' + failed.length + 'টি টেবিল আসেনি' : 'ব্যাকআপ ডাউনলোড হয়েছে ✅', failed.length ? 'error' : 'success');
     } catch (err) {
+      progressEl.textContent = '';
       showToast(err.message, 'error');
     } finally {
       btn.disabled = false;
