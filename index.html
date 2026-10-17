@@ -5429,6 +5429,8 @@ async function renderCostHeadLedger(content) {
       .chl .pvl th,.chl .pvl td{padding:5px 10px;}
       .chl .pvl td.l{min-width:220px;}
       .chl .pvl td.r{min-width:110px;}
+      /* হেডারের সাথে মিল — সব ঘর মাঝখানে (খাতের নাম, বিবরণ, টাকা) */
+      .chl .pvl th,.chl .pvl td,.chl .pvl td.l,.chl .pvl td.r,.chl .pvl td.c,.chl .pvl tfoot td{text-align:center !important;vertical-align:middle;}
       @media (max-width:760px){ .chl .pvl td.l{min-width:0;} .chl .pvl td.r{min-width:0;white-space:normal;} .chl .pvl th,.chl .pvl td{padding:3px 4px;} }
       .chl .chl-p{display:inline-block;font-size:9.5px;font-weight:700;color:#1d5a9a;background:rgba(29,90,154,.12);border-radius:4px;padding:0 4px;margin-left:3px;}
     </style>
