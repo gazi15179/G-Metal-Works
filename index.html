@@ -6794,6 +6794,8 @@ async function renderAssetMasterPage(content) {
   content.innerHTML = `<style>${ITEM_MASTER_CSS}
       #amWrap{overflow:auto;max-height:calc(100vh - 250px);border-radius:8px;-webkit-overflow-scrolling:touch;border:1px solid var(--border);}
       #amWrap .im-tbl{width:100% !important;} #amWrap .im-tbl thead th{top:0;}
+      .am-tbl td.am-nm{white-space:normal;min-width:160px;} .am-tbl td.am-nm small{display:block;color:var(--text-muted);font-size:10px;}
+      @media (max-width:760px){ .am-tbl td.am-nm{min-width:100px;} .am-tbl td.am-nm small{display:none;} .am-tbl .im-ic{min-width:26px !important;height:26px !important;font-size:12px !important;margin:0 !important;} .am-tbl th,.am-tbl td{padding:2px 3px !important;} }
       @media (max-width:760px){ #amWrap{max-height:70vh;} }</style>
     <div class="page-head"><div>
         <h1>${t('সম্পদের নাম', 'Asset Names')}</h1>
@@ -6801,7 +6803,7 @@ async function renderAssetMasterPage(content) {
       </div>
       <button class="btn btn-primary" style="width:auto;" id="amAddBtn">Asset +</button></div>
     <div class="panel">
-      <div class="im-tools"><input id="amSearch" type="search" autocomplete="off" placeholder="${attr(t('নাম, কোড বা খাত দিয়ে খুঁজুন…', 'Search by name, code or category…'))}"><span class="im-cnt" id="amCount"></span></div>
+      <div class="im-tools"><input id="amSearch" type="search" autocomplete="off" placeholder="${attr(t('নাম, কোড বা ধরন দিয়ে খুঁজুন…', 'Search by name, code or type…'))}"><span class="im-cnt" id="amCount"></span></div>
       <div id="amWrap"><div class="empty-state">${t('লোড হচ্ছে...', 'Loading...')}</div></div>
       <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">${t('এক চাপে বাছাই, দুই চাপে এডিট। প্রারম্ভিক সম্পদ দিতে/বদলাতে ✏️ এডিট → "২) প্রারম্ভিক সম্পদ"। পরে কেনা সম্পদ — এ্যাসেট ক্রয়; সব সম্পদের বর্তমান মূল্য — এ্যাসেট রেজিস্টার।', 'Tap once to select, twice to edit. Set the opening balance via ✏️ Edit → "2) Opening asset".')}</div>
     </div>`;
@@ -6819,25 +6821,22 @@ async function renderAssetMasterPage(content) {
     const list = rows.map(function (r, i) { return { r: r, sl: i + 1 }; }).filter(function (x) { return !qy || [x.r.AssetCode, x.r.Name, catName(x.r.CategoryID)].some(function (v) { return String(v || '').toLowerCase().indexOf(qy) !== -1; }); });
     $('amCount').textContent = t('মোট ', 'Total ') + list.length + t('টা সম্পদ', ' assets') + (qy ? t(' (খোঁজা)', ' (filtered)') : '');
     if (!list.length) { wrap.innerHTML = `<div class="empty-state">${qy ? t('এই খোঁজায় কিছু নেই।', 'No match.') : t('এখনো কোনো সম্পদের নাম নেই — উপরের "Asset +" চাপুন।', 'No assets yet — press "Asset +".')}</div>`; return; }
-    const q3 = function (x) { x = Number(x) || 0; return Math.abs(x) < 0.0005 ? '—' : String(+x.toFixed(3)); };
-    const m2 = function (x) { x = Number(x) || 0; return x ? x.toFixed(2) : '—'; };
+    const m2 = function (x) { x = Number(x) || 0; return x ? x.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'; };
     let tVal = 0;
     const body = list.map(function (x) {
       const r = x.r; tVal += Number(r.OpeningValue) || 0;
       const ic = function (act, icon, title) { return `<button type="button" class="im-ic" data-am="${act}" data-id="${attr(r.AssetCode)}" title="${attr(title)}">${icon}</button>`; };
+      const op = Number(r.OpeningValue) || 0;
       return `<tr>
-        <td>${x.sl}</td><td class="im-hide-m">${escapeHtml(r.AssetCode)}</td>
-        <td class="fz">${escapeHtml(r.Name)}<div class="im-show-m"><small>${escapeHtml(r.AssetCode)} · ${escapeHtml(catName(r.CategoryID))}</small></div></td>
-        <td class="im-hide-m">${escapeHtml(catName(r.CategoryID) || '—')}</td>
-        <td class="im-hide-m">${r.OpeningDate ? escapeHtml(formatShortDate(r.OpeningDate)) : '—'}</td>
-        <td class="gq gstart">${q3(r.OpeningQty)}</td><td class="gr">${m2(r.OpeningRate)}</td><td class="gend"><b>${m2(r.OpeningValue)}</b></td>
-        <td style="white-space:nowrap;">${ic('view', '👁️', t('এ্যাসেট রেজিস্টারে দেখুন', 'View in the asset register'))}${ic('edit', '✏️', t('এডিট', 'Edit'))}${ic('del', '🗑️', t('ডিলিট', 'Delete'))}</td></tr>`;
+        <td>${x.sl}</td><td>${escapeHtml(r.AssetCode)}</td><td>${escapeHtml(catName(r.CategoryID) || '—')}</td>
+        <td class="am-nm">${escapeHtml(r.Name)}${op ? `<small>${t('প্রারম্ভিকঃ ', 'Opening: ')}${+Number(r.OpeningQty || 0).toFixed(3)} × ${m2(r.OpeningRate)} · ${escapeHtml(formatShortDate(r.OpeningDate))}</small>` : ''}</td>
+        <td><b>${m2(op)}</b></td>
+        <td style="white-space:nowrap;">${ic('view', '👁️', t('এ্যাসেট রেজিস্টারে দেখুন', 'View in the asset register'))}${ic('edit', '✏️', t('এডিট — নাম, ধরন ও প্রারম্ভিক সম্পদ', 'Edit — name, type and opening asset'))}${ic('del', '🗑️', t('ডিলিট', 'Delete'))}</td></tr>`;
     }).join('');
-    wrap.innerHTML = `<table class="data-table im-tbl"><thead><tr>
-        <th>${t('ক্রম', 'Sl')}</th><th class="im-hide-m">${t('কোড', 'Code')}</th><th class="fz">${t('এ্যাসেট নাম', 'Asset name')}</th><th class="im-hide-m">${t('খাত', 'Category')}</th>
-        <th class="im-hide-m">${t('জেরের তারিখ', 'Opening date')}</th><th class="gq gstart">${t('প্রারম্ভিক পরিমাণ', 'Opening qty')}</th><th class="gr">${t('দর', 'Rate')}</th><th class="gend">${t('মূল্য', 'Value')}</th><th></th></tr></thead>
+    wrap.innerHTML = `<table class="data-table im-tbl am-tbl"><thead><tr>
+        <th>${t('ক্রম', 'Sl')}</th><th>${t('কোড', 'Code')}</th><th>${t('ধরন', 'Type')}</th><th>${t('এ্যাসেট নাম', 'Asset name')}</th><th>${t('প্রারম্ভিক মূল্য', 'Opening value')}</th><th></th></tr></thead>
       <tbody>${body}</tbody>
-      <tfoot><tr><td></td><td class="im-hide-m"></td><td class="fz">${t('মোট', 'Total')}</td><td class="im-hide-m"></td><td class="im-hide-m"></td><td class="gstart"></td><td></td><td class="gend">${tVal.toFixed(2)}</td><td></td></tr></tfoot></table>`;
+      <tfoot><tr><td></td><td></td><td></td><td>${t('মোট', 'Total')}</td><td>${m2(tVal) === '—' ? '0.00' : m2(tVal)}</td><td></td></tr></tfoot></table>`;
   }
   async function del(code) {
     const r = rows.find(function (x) { return x.AssetCode === code; }); if (!r) return;
@@ -6862,6 +6861,11 @@ async function renderAssetMasterPage(content) {
     } catch (err) { showToast(err.message, 'error'); }
   });
   await load();
+  if (window.__assetMasterEdit) {   // এ্যাসেট রেজিস্টার থেকে ✏️ — সরাসরি সেই সম্পদের উইন্ডো
+    const code = window.__assetMasterEdit; window.__assetMasterEdit = null;
+    const i = rows.findIndex(function (x) { return x.AssetCode === code; });
+    if (i >= 0) await openAssetMasterForm(rows[i], i + 1, load);
+  }
 }
 
 /** সম্পদের নামের উইন্ডো — আইটেম মাস্টারের মতো আলাদা আলাদা সেভ করা অংশ */
@@ -6881,7 +6885,7 @@ async function openAssetMasterForm(existing, serial, onChanged) {
         <div class="field"><label>${t('ক্রম', 'Serial')}</label><input id="am_Serial" value="${attr(serial || '')}" readonly style="${ro}"></div>
         <div class="field"><label>${t('কোড', 'Code')}</label><input id="am_Code" value="${attr(rec.AssetCode || t('সেভ করলে তৈরি হবে', 'Generated on save'))}" readonly style="${ro}"></div>
         <div class="field vfull"><label>${t('এ্যাসেট নাম', 'Asset name')}</label><input id="am_Name" value="${attr(rec.Name || '')}" autocomplete="off" placeholder="${attr(t('যেমনঃ স্পিনার মেশিন ১৮ ইঞ্চি', 'e.g. 18-inch spinner machine'))}"></div>
-        <div class="field vfull"><label>${t('খাত (অবচয়ের হার এখান থেকে)', 'Category (sets depreciation)')}</label><select id="am_Cat">${cats.map(function (c) { return `<option value="${attr(c.CatID)}" ${c.CatID === rec.CategoryID ? 'selected' : ''}>${escapeHtml(c.Name)} — ${Number(c.DepRate) || 0}%</option>`; }).join('')}</select></div>
+        <div class="field vfull"><label>${t('ধরন (অবচয়ের হার এখান থেকে)', 'Type (sets depreciation)')}</label><select id="am_Cat">${cats.map(function (c) { return `<option value="${attr(c.CatID)}" ${c.CatID === rec.CategoryID ? 'selected' : ''}>${escapeHtml(c.Name)} — ${Number(c.DepRate) || 0}%</option>`; }).join('')}</select></div>
       </div>
       <div class="own-btns" style="margin-top:8px;"><button type="button" class="btn btn-primary" id="am_Save1">💾 ${isNew ? t('সেভ + পরের নাম', 'Save + next') : t('সেভ', 'Save')}</button></div>
       <div id="am_Saved" style="font-size:11.5px;color:#15803d;margin-top:6px;"></div>
@@ -7095,14 +7099,14 @@ async function renderFixedAssetPage(content) {
     }).sort(function (a, b) { return String(a.Date).localeCompare(String(b.Date)) || String(a[cfg.idf]).localeCompare(String(b[cfg.idf]), undefined, { numeric: true }); });
     let tCost = 0, tDep = 0; const byCat = {};
     const body = shown.map(function (r, i) {
-      const st = faState(r, to), posted = r.Status === 'Posted', fromAP = !!r.SourceID;
+      const st = faState(r, to), posted = r.Status === 'Posted', fromAM = /^AN-/.test(r.SourceID || ''), fromAP = !!r.SourceID && !fromAM;
       if (posted) { tCost += st.cost; tDep += st.dep; const k = catName(r) || 'অন্যান্য'; byCat[k] = (byCat[k] || 0) + st.book; }
       const ic = function (act, icon, title, dis) { return `<button type="button" class="own-ic" data-ow="${act}" data-id="${attr(r[cfg.idf])}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
       const stBadge = !posted ? `<span class="badge draft">${t('খসড়া', 'Draft')}</span>` : st.status === 'sold' ? `<span class="badge inactive">${t('বিক্রিত', 'Sold')}</span>` : st.status === 'partial' ? `<span class="badge draft">${t('আংশিক বিক্রিত', 'Part sold')}</span>` : `<span class="badge active">${t('চালু', 'In use')}</span>`;
       return `<tr class="${posted ? '' : 'draft'}"><td>${i + 1}</td><td>${escapeHtml(formatShortDate(r.Date))}</td><td><b>${escapeHtml(r[cfg.idf])}</b></td><td>${escapeHtml(catName(r))}</td><td class="l">${escapeHtml(r.AssetName || '')}</td>
         <td>${+st.rem.toFixed(3)}${st.sold ? `<small style="color:var(--text-muted);"> / ${+st.qty.toFixed(3)}</small>` : ''}</td><td class="r">${st.cost.toFixed(2)}</td><td class="own-hide-m">${Number(r.DepRate) || 0}%</td><td class="r own-hide-m">${st.dep.toFixed(2)}</td><td class="r"><b>${st.book.toFixed(2)}</b></td>
-        <td class="own-hide-m">${fromAP ? escapeHtml(r.SourceID) : t('প্রারম্ভিক', 'Opening')}</td><td>${stBadge}</td>
-        <td style="white-space:nowrap;">${ic('view', '👁️', fromAP ? t('এ্যাসেট ক্রয় ভাউচার দেখুন', 'View purchase voucher') : t('দেখুন / প্রিন্ট', 'View / print'))}${ic('edit', '✏️', fromAP ? t('এ্যাসেট ক্রয় ভাউচারে এডিট', 'Edit in the purchase voucher') : t('এডিট', 'Edit'), st.sold > 0)}${ic('del', '🗑️', fromAP ? t('এ্যাসেট ক্রয় ভাউচার থেকে মোছা', 'Delete via the purchase voucher') : t('ডিলিট', 'Delete'), st.sold > 0)}${ic('post', posted ? '✅' : '💾', posted ? t('পোস্ট হয়ে গেছে', 'Posted') : t('পোস্ট করুন', 'Post'), posted)}</td></tr>`;
+        <td class="own-hide-m">${fromAP ? escapeHtml(r.SourceID) : t('প্রারম্ভিক', 'Opening') + (fromAM ? ' · ' + escapeHtml(r.SourceID) : '')}</td><td>${stBadge}</td>
+        <td style="white-space:nowrap;">${ic('view', '👁️', fromAP ? t('এ্যাসেট ক্রয় ভাউচার দেখুন', 'View purchase voucher') : t('দেখুন / প্রিন্ট', 'View / print'))}${ic('edit', '✏️', fromAP ? t('এ্যাসেট ক্রয় ভাউচারে এডিট', 'Edit in the purchase voucher') : fromAM ? t('সম্পদের নাম পেজে এডিট', 'Edit in Asset Names') : t('এডিট', 'Edit'), st.sold > 0)}${ic('del', '🗑️', fromAP ? t('এ্যাসেট ক্রয় ভাউচার থেকে মোছা', 'Delete via the purchase voucher') : t('ডিলিট', 'Delete'), st.sold > 0)}${ic('post', posted ? '✅' : '💾', posted ? t('পোস্ট হয়ে গেছে', 'Posted') : t('পোস্ট করুন', 'Post'), posted)}</td></tr>`;
     }).join('');
     $('fa_Cards').innerHTML = `<div class="own-card hl"><small>${t('মোট বর্তমান মূল্য', 'Total book value')}</small><b>৳${(tCost - tDep).toFixed(2)}</b></div><div class="own-card"><small>${t('ক্রয়মূল্য (চালু অংশ)', 'Cost (in use)')}</small><b>৳${tCost.toFixed(2)}</b></div><div class="own-card"><small>${t('মোট অবচয়', 'Total depreciation')}</small><b>৳${tDep.toFixed(2)}</b></div>` +
       Object.keys(byCat).map(function (k) { return `<div class="own-card"><small>${escapeHtml(k)}</small><b>৳${byCat[k].toFixed(2)}</b></div>`; }).join('');
@@ -7117,7 +7121,17 @@ async function renderFixedAssetPage(content) {
     try {
       if (!r) return;
       const act = b.getAttribute('data-ow'), to = $('fa_To').value || ownToday(), st = faState(r, to);
-      if (r.SourceID) {   // এ্যাসেট ক্রয় থেকে আসা — ভাউচারেই দেখা/এডিট/মোছা
+      if (/^AN-/.test(r.SourceID || '') && act !== 'view') {   // "সম্পদের নাম" পেজের প্রারম্ভিক সম্পদ — সেখানেই এডিট/মোছা
+        if (act === 'edit') { window.__assetMasterEdit = r.SourceID; await navigateTo('assetNames', t('স্থায়ী সম্পদ', 'Fixed Assets'), t('সম্পদের নাম', 'Asset Names')); }
+        else if (act === 'del') {
+          if (!confirm(t('এই প্রারম্ভিক সম্পদ মুছবেন? (সম্পদের নাম থাকবে, শুধু প্রারম্ভিক জের মুছবে)', 'Delete this opening asset? (the asset name stays)'))) return;
+          await supabaseClient.from('FixedAsset').delete().eq('AssetID', r[cfg.idf]);
+          await supabaseClient.from('AssetMaster').update({ OpeningDate: null, OpeningQty: 0, OpeningRate: 0, OpeningValue: 0, OpeningAssetID: null }).eq('AssetCode', r.SourceID);
+          showToast(t('মুছে ফেলা হয়েছে ✅', 'Deleted ✅'), 'success'); await load();
+        }
+        return;
+      }
+      if (r.SourceID && !/^AN-/.test(r.SourceID)) {   // এ্যাসেট ক্রয় থেকে আসা — ভাউচারেই দেখা/এডিট/মোছা
         if (act === 'view') await assetVoucherPrint('AssetPurchase', r.SourceID);
         else if (act === 'edit') { window.__assetEditId = { base: 'AssetPurchase', id: r.SourceID }; await navigateTo('assetPurchase', t('স্থায়ী সম্পদ', 'Fixed Assets'), t('এ্যাসেট ক্রয়', 'Asset purchase')); }
         else if (act === 'del') { if (await assetVoucherDelete('AssetPurchase', r.SourceID)) await load(); }
