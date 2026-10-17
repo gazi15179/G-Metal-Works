@@ -484,6 +484,7 @@ const MODULES = [
     {key:'bankBook', bn:'ব্যাংক ও নগদ বই', en:'Bank & Cash Book'},{key:'trialBalance', bn:'ট্রায়াল ব্যালেন্স', en:'Trial Balance'},
   ]},
   {key:'assets', bn:'স্থায়ী সম্পদ', en:'Fixed Assets', sub:[
+    {key:'assetNames', bn:'সম্পদের নাম', en:'Asset Names'},
     {key:'assetPurchase', bn:'এ্যাসেট ক্রয়', en:'Asset Purchase'},{key:'assetSale', bn:'এ্যাসেট বিক্রয়', en:'Asset Sale'},
     {key:'fixedAssets', bn:'এ্যাসেট রেজিস্টার', en:'Asset Register'},
   ]},
@@ -511,7 +512,7 @@ const READY_PAGES = ['dashboard','svSettings','pvSettings','payvSettings','recvS
   'stockOverview','goodsReceive','materialIssue','stockTransfer','stockAdjust','stockLedger',
   'so','dc','si','sr','custLedger',
   'bom','processing','processingOld','prodDaily','procCosting','pOrder','pmi','fgr',
-  'coa','bankCash','jv','cv','pv','rv','ownerCapital','assetPurchase','assetSale','fixedAssets','bankBook','trialBalance',
+  'coa','bankCash','jv','cv','pv','rv','ownerCapital','assetNames','assetPurchase','assetSale','fixedAssets','bankBook','trialBalance',
   'empCategories','empInfo','workRoles','sizeRates','attendance','dailyProduction','leave','payroll','salaryIssue','payHeads','hrReports','payslip',
   'invReport','salesReport','prodReport','finReport','partyBalance',
   'general','langSettings','companySettings','backup'];
@@ -1559,6 +1560,7 @@ async function navigateTo(pageKey, moduleLabel, pageLabel) {
     else if (pageKey === 'rv') await renderReceiptVoucherPage(content);   // কালেকশন ভাউচার — পেমেন্ট ভাউচারের মত, দিক উল্টো
     else if (SIMPLE_VOUCHER_CONFIGS[pageKey]) await renderSimpleVoucherPage(content, SIMPLE_VOUCHER_CONFIGS[pageKey]);
     else if (pageKey === 'ownerCapital') await renderOwnerCapitalPage(content);
+    else if (pageKey === 'assetNames') await renderAssetMasterPage(content);
     else if (pageKey === 'fixedAssets') await renderFixedAssetPage(content);
     else if (pageKey === 'assetPurchase') await renderAssetPurchasePage(content);
     else if (pageKey === 'assetSale') await renderAssetSalePage(content);
@@ -6514,6 +6516,7 @@ async function renderAssetVoucherPage(content, base) {
   const [cats, parties, accounts, fy] = await Promise.all([assetCats(), assetPartyLists(), cachedList('BankCashAccounts'), getFiscalYearStart()]);
   const accs = accounts.filter(function (a) { return a.Status !== 'Deleted'; });
   let regs = [];
+  let assetNames = []; try { assetNames = (await assetMasterList()).map(function (r) { return r.Name; }); } catch (e) {}   // "সম্পদের নাম" থেকে বিবরণের পরামর্শ
   const loadRegs = async function () { try { const { data } = await supabaseClient.from('FixedAsset').select('*'); regs = (data || []).filter(function (r) { return r.Status === 'Posted'; }); } catch (e) { regs = []; } };
   await loadRegs();   // তালিকার বিবরণে সম্পদের নাম, বিক্রয় ফর্মে রেজিস্টার
   let editId = null, lines = [], lineEdit = -1, vlist = [], vlines = [];
@@ -6524,7 +6527,7 @@ async function renderAssetVoucherPage(content, base) {
   const accOpts = `<option value="">${t('— (বাকি)', '— (on credit)')}</option>` + accs.map(function (a) { return `<option value="${attr(a.BankAccID)}">${escapeHtml(a.AccountName)}</option>`; }).join('');
   const lineFields = isP
     ? `<div class="field"><label>${t('খাত', 'Category')}</label><select id="av_Cat">${cats.map(function (c) { return `<option value="${attr(c.CatID)}">${escapeHtml(c.Name)}</option>`; }).join('')}</select></div>
-       <div class="field"><label>${t('বিবরণ', 'Description')}</label><input id="av_Desc" autocomplete="off" placeholder="${attr(t('যেমনঃ মটর ৫ HP', 'e.g. Motor 5 HP'))}"></div>
+       <div class="field"><label>${t('বিবরণ', 'Description')}</label><input id="av_Desc" autocomplete="off" list="av_DescList" placeholder="${attr(t('যেমনঃ মটর ৫ HP', 'e.g. Motor 5 HP'))}"><datalist id="av_DescList">${assetNames.map(function (n) { return `<option value="${attr(n)}">`; }).join('')}</datalist></div>
        <div class="field"><label>${t('পরিমাণ', 'Qty')}</label><input id="av_Qty" type="number" step="any" min="0" inputmode="decimal" value="1"></div>
        <div class="field"><label>${t('দর (প্রতিটি)', 'Rate (each)')}</label><input id="av_Rate" type="number" step="any" min="0" inputmode="decimal"></div>
        <div class="field"><label>${t('মূল্য', 'Amount')}</label><input id="av_Amt" readonly class="vro vbold"></div>
@@ -6774,6 +6777,193 @@ async function renderAssetPurchasePage(content) { return renderAssetVoucherPage(
 async function renderAssetSalePage(content) { return renderAssetVoucherPage(content, 'AssetSale'); }
 
 /* ---------- এ্যাসেট রেজিস্টার (খাতের তালিকা + প্রারম্ভিক সম্পদ + রেজিস্টার) ---------- */
+/* ============================================================
+   স্থায়ী সম্পদ → সম্পদের নাম (আইটেম মাস্টারের মতো)
+   • "Asset +" → উইন্ডোঃ ১) মূল তথ্য (ক্রম, কোড, এ্যাসেট নাম, খাত) সেভ  ২) প্রারম্ভিক সম্পদ (পরিমাণ, দর, মূল্য) সেভ
+   • প্রারম্ভিক সম্পদ সেভ হলে এ্যাসেট রেজিস্টারে (FixedAsset) একটা পোস্ট করা সারি — অবচয় ও বিক্রয় সেখান থেকেই চলে
+   • নিচে সব সম্পদের নামের তালিকা — খোঁজা, 👁️ ✏️ 🗑️, দুই চাপে এডিট
+   ============================================================ */
+const AM_NO_TABLE = 'সম্পদের নামের টেবিল নেই — আগে Supabase-এ 43 নম্বর SQL চালান।';
+async function assetMasterList() {
+  const { data, error } = await supabaseClient.from('AssetMaster').select('*');
+  if (error) throw new Error(/does not exist|schema cache|Could not find/i.test(error.message) ? AM_NO_TABLE : error.message);
+  return (data || []).filter(function (r) { return r.Status !== 'Deleted'; })
+    .sort(function (a, b) { return (Number(a.SortOrder) || 0) - (Number(b.SortOrder) || 0) || String(a.AssetCode).localeCompare(String(b.AssetCode), undefined, { numeric: true }); });
+}
+async function renderAssetMasterPage(content) {
+  content.innerHTML = `<style>${ITEM_MASTER_CSS}
+      #amWrap{overflow:auto;max-height:calc(100vh - 250px);border-radius:8px;-webkit-overflow-scrolling:touch;border:1px solid var(--border);}
+      #amWrap .im-tbl{width:100% !important;} #amWrap .im-tbl thead th{top:0;}
+      @media (max-width:760px){ #amWrap{max-height:70vh;} }</style>
+    <div class="page-head"><div>
+        <h1>${t('সম্পদের নাম', 'Asset Names')}</h1>
+        <p>${t('সব স্থায়ী সম্পদের নাম ও তাদের প্রারম্ভিক জের (সফটওয়্যার শুরুর আগের সম্পদ) — পরিমাণ, দর, মূল্য', 'All asset names and their opening balance — qty, rate, value')}</p>
+      </div>
+      <button class="btn btn-primary" style="width:auto;" id="amAddBtn">Asset +</button></div>
+    <div class="panel">
+      <div class="im-tools"><input id="amSearch" type="search" autocomplete="off" placeholder="${attr(t('নাম, কোড বা খাত দিয়ে খুঁজুন…', 'Search by name, code or category…'))}"><span class="im-cnt" id="amCount"></span></div>
+      <div id="amWrap"><div class="empty-state">${t('লোড হচ্ছে...', 'Loading...')}</div></div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">${t('এক চাপে বাছাই, দুই চাপে এডিট। প্রারম্ভিক সম্পদ দিতে/বদলাতে ✏️ এডিট → "২) প্রারম্ভিক সম্পদ"। পরে কেনা সম্পদ — এ্যাসেট ক্রয়; সব সম্পদের বর্তমান মূল্য — এ্যাসেট রেজিস্টার।', 'Tap once to select, twice to edit. Set the opening balance via ✏️ Edit → "2) Opening asset".')}</div>
+    </div>`;
+  let rows = [], cats = [];
+  const $ = function (id) { return document.getElementById(id); };
+  const catName = function (id) { const c = cats.find(function (x) { return x.CatID === id; }); return c ? c.Name : ''; };
+  async function load() {
+    try { [rows, cats] = await Promise.all([assetMasterList(), assetCats()]); }
+    catch (e) { const w = $('amWrap'); if (w) w.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; $('amCount').textContent = ''; return; }
+    render();
+  }
+  function render() {
+    const wrap = $('amWrap'); if (!wrap) return;
+    const qy = String($('amSearch').value || '').trim().toLowerCase();
+    const list = rows.map(function (r, i) { return { r: r, sl: i + 1 }; }).filter(function (x) { return !qy || [x.r.AssetCode, x.r.Name, catName(x.r.CategoryID)].some(function (v) { return String(v || '').toLowerCase().indexOf(qy) !== -1; }); });
+    $('amCount').textContent = t('মোট ', 'Total ') + list.length + t('টা সম্পদ', ' assets') + (qy ? t(' (খোঁজা)', ' (filtered)') : '');
+    if (!list.length) { wrap.innerHTML = `<div class="empty-state">${qy ? t('এই খোঁজায় কিছু নেই।', 'No match.') : t('এখনো কোনো সম্পদের নাম নেই — উপরের "Asset +" চাপুন।', 'No assets yet — press "Asset +".')}</div>`; return; }
+    const q3 = function (x) { x = Number(x) || 0; return Math.abs(x) < 0.0005 ? '—' : String(+x.toFixed(3)); };
+    const m2 = function (x) { x = Number(x) || 0; return x ? x.toFixed(2) : '—'; };
+    let tVal = 0;
+    const body = list.map(function (x) {
+      const r = x.r; tVal += Number(r.OpeningValue) || 0;
+      const ic = function (act, icon, title) { return `<button type="button" class="im-ic" data-am="${act}" data-id="${attr(r.AssetCode)}" title="${attr(title)}">${icon}</button>`; };
+      return `<tr>
+        <td>${x.sl}</td><td class="im-hide-m">${escapeHtml(r.AssetCode)}</td>
+        <td class="fz">${escapeHtml(r.Name)}<div class="im-show-m"><small>${escapeHtml(r.AssetCode)} · ${escapeHtml(catName(r.CategoryID))}</small></div></td>
+        <td class="im-hide-m">${escapeHtml(catName(r.CategoryID) || '—')}</td>
+        <td class="im-hide-m">${r.OpeningDate ? escapeHtml(formatShortDate(r.OpeningDate)) : '—'}</td>
+        <td class="gq gstart">${q3(r.OpeningQty)}</td><td class="gr">${m2(r.OpeningRate)}</td><td class="gend"><b>${m2(r.OpeningValue)}</b></td>
+        <td style="white-space:nowrap;">${ic('view', '👁️', t('এ্যাসেট রেজিস্টারে দেখুন', 'View in the asset register'))}${ic('edit', '✏️', t('এডিট', 'Edit'))}${ic('del', '🗑️', t('ডিলিট', 'Delete'))}</td></tr>`;
+    }).join('');
+    wrap.innerHTML = `<table class="data-table im-tbl"><thead><tr>
+        <th>${t('ক্রম', 'Sl')}</th><th class="im-hide-m">${t('কোড', 'Code')}</th><th class="fz">${t('এ্যাসেট নাম', 'Asset name')}</th><th class="im-hide-m">${t('খাত', 'Category')}</th>
+        <th class="im-hide-m">${t('জেরের তারিখ', 'Opening date')}</th><th class="gq gstart">${t('প্রারম্ভিক পরিমাণ', 'Opening qty')}</th><th class="gr">${t('দর', 'Rate')}</th><th class="gend">${t('মূল্য', 'Value')}</th><th></th></tr></thead>
+      <tbody>${body}</tbody>
+      <tfoot><tr><td></td><td class="im-hide-m"></td><td class="fz">${t('মোট', 'Total')}</td><td class="im-hide-m"></td><td class="im-hide-m"></td><td class="gstart"></td><td></td><td class="gend">${tVal.toFixed(2)}</td><td></td></tr></tfoot></table>`;
+  }
+  async function del(code) {
+    const r = rows.find(function (x) { return x.AssetCode === code; }); if (!r) return;
+    if (r.OpeningAssetID) {
+      const { data: fa } = await supabaseClient.from('FixedAsset').select('*').eq('AssetID', r.OpeningAssetID).maybeSingle();
+      if (fa && (Number(fa.QtySold) || 0) > 0) { showToast(t('এই সম্পদ থেকে বিক্রি হয়েছে — আগে সেই বিক্রয় ভাউচার বাতিল করুন।', 'Some of it was sold — cancel that sale first.'), 'error'); return; }
+    }
+    if (!confirm(t('মুছবেনঃ ', 'Delete: ') + r.Name + (r.OpeningAssetID ? t(' — এর প্রারম্ভিক সম্পদও রেজিস্টার থেকে মুছে যাবে।', ' — its opening asset is removed from the register too.') : '') + '?')) return;
+    if (r.OpeningAssetID) await supabaseClient.from('FixedAsset').delete().eq('AssetID', r.OpeningAssetID);
+    const { error } = await supabaseClient.from('AssetMaster').update({ Status: 'Deleted', OpeningAssetID: null }).eq('AssetCode', code); if (error) throw new Error(error.message);
+    showToast(t('মুছে ফেলা হয়েছে ✅', 'Deleted ✅'), 'success'); await load();
+  }
+  $('amAddBtn').addEventListener('click', function () { openAssetMasterForm(null, rows.length + 1, load).catch(function (e) { showToast(e.message, 'error'); }); });
+  $('amSearch').addEventListener('input', render);
+  $('amWrap').addEventListener('click', async function (e) {
+    const b = e.target.closest('[data-am]'); if (!b) return;
+    const id = b.getAttribute('data-id'), act = b.getAttribute('data-am');
+    try {
+      if (act === 'edit') { const i = rows.findIndex(function (x) { return x.AssetCode === id; }); await openAssetMasterForm(rows[i], i + 1, load); }
+      else if (act === 'del') await del(id);
+      else if (act === 'view') await navigateTo('fixedAssets', t('স্থায়ী সম্পদ', 'Fixed Assets'), t('এ্যাসেট রেজিস্টার', 'Asset Register'));
+    } catch (err) { showToast(err.message, 'error'); }
+  });
+  await load();
+}
+
+/** সম্পদের নামের উইন্ডো — আইটেম মাস্টারের মতো আলাদা আলাদা সেভ করা অংশ */
+async function openAssetMasterForm(existing, serial, onChanged) {
+  if (!document.getElementById('vgCssGlobal')) { const st = document.createElement('style'); st.id = 'vgCssGlobal'; st.textContent = VOUCHER_GRID_CSS; document.head.appendChild(st); }
+  const cats = await assetCats();
+  let rec = Object.assign({}, existing || {});
+  const fy = await getFiscalYearStart();
+  const sec = 'border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;';
+  const h4 = 'margin:0 0 10px;font-size:13px;color:var(--text-muted);';
+  const ro = 'background:var(--bg);';
+  const bodyHtml = `
+    <div style="${sec}" id="am_S1">
+      <h4 style="${h4}">${t('১) মূল তথ্য', '1) Basic info')}</h4>
+      <div class="vg2">
+        <div class="field"><label>${t('ক্রম', 'Serial')}</label><input id="am_Serial" value="${attr(serial || '')}" readonly style="${ro}"></div>
+        <div class="field"><label>${t('কোড', 'Code')}</label><input id="am_Code" value="${attr(rec.AssetCode || t('সেভ করলে তৈরি হবে', 'Generated on save'))}" readonly style="${ro}"></div>
+        <div class="field vfull"><label>${t('এ্যাসেট নাম', 'Asset name')}</label><input id="am_Name" value="${attr(rec.Name || '')}" autocomplete="off" placeholder="${attr(t('যেমনঃ স্পিনার মেশিন ১৮ ইঞ্চি', 'e.g. 18-inch spinner machine'))}"></div>
+        <div class="field vfull"><label>${t('খাত (অবচয়ের হার এখান থেকে)', 'Category (sets depreciation)')}</label><select id="am_Cat">${cats.map(function (c) { return `<option value="${attr(c.CatID)}" ${c.CatID === rec.CategoryID ? 'selected' : ''}>${escapeHtml(c.Name)} — ${Number(c.DepRate) || 0}%</option>`; }).join('')}</select></div>
+      </div>
+      <div class="own-btns" style="margin-top:8px;"><button type="button" class="btn btn-primary" id="am_Save1">💾 ${t('সেভ', 'Save')}</button></div>
+    </div>
+    <div style="${sec}" id="am_S2">
+      <h4 style="${h4}">${t('২) প্রারম্ভিক সম্পদ (সফটওয়্যার শুরুর আগে থেকে যা আছে)', '2) Opening asset (owned before using the software)')}</h4>
+      <div class="vg2">
+        <div class="field vfull"><label>${t('এ্যাসেট নাম', 'Asset name')}</label><input id="am_OName" value="${attr(rec.Name || '')}" readonly style="${ro}"></div>
+        <div class="field"><label>${t('জেরের তারিখ', 'Opening date')}</label>${dmyDateField('am_ODate', rec.OpeningDate ? String(rec.OpeningDate).slice(0, 10) : fy)}</div>
+        <div class="field"><label>${t('পরিমাণ', 'Qty')}</label><input id="am_OQty" type="number" step="any" min="0" inputmode="decimal" value="${attr(Number(rec.OpeningQty) || '')}"></div>
+        <div class="field"><label>${t('দর (প্রতিটি)', 'Rate (each)')}</label><input id="am_ORate" type="number" step="any" min="0" inputmode="decimal" value="${attr(Number(rec.OpeningRate) || '')}"></div>
+        <div class="field"><label>${t('মূল্য', 'Value')}</label><input id="am_OVal" readonly class="vro vbold" value="${attr(Number(rec.OpeningValue) ? Number(rec.OpeningValue).toFixed(2) : '')}"></div>
+      </div>
+      <div class="own-btns" style="margin-top:8px;"><button type="button" class="btn btn-primary" id="am_Save2">💾 ${t('সেভ', 'Save')}</button></div>
+      <div id="am_S2Note" style="font-size:11px;color:var(--text-muted);margin-top:6px;">${t('সেভ করলে এ্যাসেট রেজিস্টারে প্রারম্ভিক সম্পদ হিসেবে ওঠে (ক্যাশ/ব্যাংক বইয়ে যায় না) — অবচয় খাতের হারে হিসাব হয়। পরিমাণ খালি/০ দিয়ে সেভ করলে প্রারম্ভিক সম্পদ মুছে যায়।', 'Saved to the asset register as an opening asset (not in the cash book). Save with qty 0 to remove it.')}</div>
+    </div>`;
+  openModal({ title: (existing ? t('এডিট — ', 'Edit — ') : t('নতুন — ', 'New — ')) + t('সম্পদের নাম', 'Asset name'), bodyHtml: bodyHtml, wide: true, hideSave: true, winKey: 'assetMaster' });
+  const $ = function (id) { return document.getElementById(id); };
+  wireDmyFields($('am_S2'));
+  wireSequentialKeyNav($('am_S1')); wireSequentialKeyNav($('am_S2'));
+  const s2Lock = function () { const on = !!rec.AssetCode; $('am_S2').style.opacity = on ? '' : '.5'; ['am_ODate', 'am_OQty', 'am_ORate', 'am_Save2'].forEach(function (id) { $(id).disabled = !on; }); };
+  s2Lock();
+  const calc = function () { const v = (Number($('am_OQty').value) || 0) * (Number($('am_ORate').value) || 0); $('am_OVal').value = v ? v.toFixed(2) : ''; };
+  ['am_OQty', 'am_ORate'].forEach(function (id) { $(id).addEventListener('input', calc); });
+  const cat = function () { return cats.find(function (c) { return c.CatID === $('am_Cat').value; }) || {}; };
+
+  // ---- ১) মূল তথ্য ----
+  $('am_Save1').addEventListener('click', async function () {
+    const btn = this, nm = $('am_Name').value.trim();
+    if (!nm) { showToast(t('এ্যাসেট নাম দিন।', 'Enter the asset name.'), 'error'); $('am_Name').focus(); return; }
+    btn.disabled = true;
+    try {
+      const all = await assetMasterList();
+      if (all.some(function (r) { return r.AssetCode !== rec.AssetCode && bnKey(r.Name) === bnKey(nm); })) throw new Error(t('এই নামে সম্পদ আগেই আছে।', 'An asset with this name already exists.'));
+      const c = cat(), data = { Name: nm, CategoryID: c.__fallback ? null : (c.CatID || null) };
+      if (rec.AssetCode) {
+        const { error } = await supabaseClient.from('AssetMaster').update(data).eq('AssetCode', rec.AssetCode); if (error) throw new Error(error.message);
+        if (rec.OpeningAssetID) await supabaseClient.from('FixedAsset').update({ AssetName: nm, CategoryID: data.CategoryID, Category: c.Name || '' }).eq('AssetID', rec.OpeningAssetID);   // রেজিস্টারেও নাম/খাত
+      } else {
+        const { data: row, error } = await supabaseClient.from('AssetMaster').insert(Object.assign({ Status: 'Active', SortOrder: all.length + 1, CreatedBy: (currentUser && currentUser.Email) || '' }, data)).select().single();
+        if (error) throw new Error(error.message);
+        rec = row; $('am_Code').value = row.AssetCode;
+        document.getElementById('modalTitle').textContent = t('এডিট — ', 'Edit — ') + t('সম্পদের নাম', 'Asset name');
+      }
+      rec.Name = nm; rec.CategoryID = data.CategoryID; $('am_OName').value = nm; s2Lock();
+      showToast(t('সেভ হয়েছে ✅ ', 'Saved ✅ ') + rec.AssetCode, 'success');
+      if (onChanged) await onChanged();
+      setTimeout(function () { if (!$('am_OQty').disabled) $('am_OQty').focus(); }, 50);
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { btn.disabled = false; }
+  });
+
+  // ---- ২) প্রারম্ভিক সম্পদ ----
+  $('am_Save2').addEventListener('click', async function () {
+    if (!rec.AssetCode) { showToast(t('আগে "১) মূল তথ্য" সেভ করুন।', 'Save "1) Basic info" first.'), 'error'); return; }
+    const btn = this, dIso = dmyIso('am_ODate'), q = Number($('am_OQty').value) || 0, rate = Number($('am_ORate').value) || 0, val = q * rate;
+    if (q > 0 && !dIso) { showToast(t('সঠিক তারিখ দিন (দিন-মাস-বছর)।', 'Enter a valid date.'), 'error'); return; }
+    if (q > 0 && !(rate > 0)) { showToast(t('দর দিন।', 'Enter the rate.'), 'error'); $('am_ORate').focus(); return; }
+    btn.disabled = true;
+    try {
+      let fa = null;
+      if (rec.OpeningAssetID) { const r = await supabaseClient.from('FixedAsset').select('*').eq('AssetID', rec.OpeningAssetID).maybeSingle(); fa = r.data || null; }
+      if (fa && (Number(fa.QtySold) || 0) > 0) throw new Error(t('এই প্রারম্ভিক সম্পদ থেকে বিক্রি হয়েছে — আগে সেই বিক্রয় ভাউচার বাতিল করুন, তারপর বদলান।', 'Some of it was sold — cancel that sale first.'));
+      const c = cat();
+      let faId = fa ? fa.AssetID : null;
+      if (q > 0) {
+        const faRec = { Date: dIso, CategoryID: c.__fallback ? null : (c.CatID || null), Category: c.Name || '', AssetName: rec.Name, Qty: q, Cost: val, DepRate: Number(c.DepRate) || 0,
+          BankCashAccID: null, Note: t('প্রারম্ভিক সম্পদ — ', 'Opening asset — ') + rec.AssetCode, SourceID: rec.AssetCode, Status: 'Posted' };
+        if (fa) { const { error } = await supabaseClient.from('FixedAsset').update(faRec).eq('AssetID', fa.AssetID); if (error) throw new Error(error.message); }
+        else { const { data, error } = await supabaseClient.from('FixedAsset').insert(Object.assign({ QtySold: 0, CreatedBy: (currentUser && currentUser.Email) || '' }, faRec)).select().single(); if (error) throw new Error(error.message); faId = data.AssetID; }
+      } else if (fa) {   // পরিমাণ ০ — প্রারম্ভিক সম্পদ মুছে
+        const { error } = await supabaseClient.from('FixedAsset').delete().eq('AssetID', fa.AssetID); if (error) throw new Error(error.message); faId = null;
+      }
+      const up = { OpeningDate: q > 0 ? dIso : null, OpeningQty: q, OpeningRate: q > 0 ? rate : 0, OpeningValue: q > 0 ? val : 0, OpeningAssetID: faId };
+      const { error } = await supabaseClient.from('AssetMaster').update(up).eq('AssetCode', rec.AssetCode); if (error) throw new Error(error.message);
+      Object.assign(rec, up);
+      showToast(q > 0 ? t('প্রারম্ভিক সম্পদ সেভ হয়েছে ✅ — রেজিস্টারে উঠেছে', 'Opening asset saved ✅') : t('প্রারম্ভিক সম্পদ মুছে ফেলা হয়েছে ✅', 'Opening asset removed ✅'), 'success');
+      if (onChanged) await onChanged();
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { btn.disabled = false; }
+  });
+  setTimeout(function () { const f = $('am_Name'); if (f) f.focus(); }, 60);
+}
+
 async function renderFixedAssetPage(content) {
   const cfg = OWN_CFG.asset;
   let cats = await assetCats();
@@ -17603,7 +17793,7 @@ const ALL_DATA_SHEETS = [
   'SystemSettings',
   // পরে যোগ হওয়া টেবিল (খরচ/আয়/কালেকশন/মূলধন ভাউচার, স্থায়ী সম্পদ, খাত)
   'ExpenseCategories','ExpenseVoucher','ExpenseVoucher_Lines','IncomeVoucher','IncomeVoucher_Lines','CollectionVoucher','CapitalVoucher',
-  'PayHeads','FixedAsset','AssetCategory','AssetPurchase','AssetPurchase_Lines','AssetSale','AssetSale_Lines'
+  'PayHeads','FixedAsset','AssetCategory','AssetMaster','AssetPurchase','AssetPurchase_Lines','AssetSale','AssetSale_Lines'
 ];
 
 /** ব্যাকআপের টেবিল তালিকা — ভবিষ্যতে নতুন টেবিল যোগ হলেও যেন বাদ না পড়ে, তাই তিন জায়গা থেকে একসাথে:
