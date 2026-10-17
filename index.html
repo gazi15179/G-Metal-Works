@@ -427,6 +427,7 @@ const ICONS = {
   sales:'<path d="M3 3h2l2.4 12.4a2 2 0 0 0 2 1.6h7.2a2 2 0 0 0 2-1.6L21 8H6"/>',
   production:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
   accounts:'<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M8 15h4"/>',
+  assets:'<path d="M3 21h18"/><path d="M5 21V9l7-5 7 5v12"/><path d="M9 21v-6h6v6"/><path d="M9 11h6"/>',
   hr:'<circle cx="9" cy="7" r="3"/><path d="M2 20a7 7 0 0 1 14 0"/><path d="M17 8a3 3 0 1 1 0 6"/><path d="M23 20a6 6 0 0 0-6-6"/>',
   reports:'<path d="M4 20V10M12 20V4M20 20v-7"/>',
   settings:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'
@@ -479,8 +480,12 @@ const MODULES = [
   {key:'accounts', bn:'হিসাব', en:'Accounts', sub:[
     {key:'coa', bn:'হিসাবের তালিকা', en:'Chart of Accounts'},{key:'bankCash', bn:'ব্যাংক ও ক্যাশ অ্যাকাউন্ট', en:'Bank & Cash Accounts'},
     {key:'jv', bn:'জার্নাল ভাউচার', en:'Journal Voucher'},{key:'cv', bn:'কনট্রা ভাউচার', en:'Contra Voucher'},{key:'cvSettings', bn:'কনট্রা ভাউচার সেটিং', en:'Contra Voucher Settings'},
-    {key:'pv', bn:'পেমেন্ট ভাউচার', en:'Payment Voucher'},{key:'payvSettings', bn:'পেমেন্ট ভাউচার সেটিং', en:'Payment Voucher Settings'},{key:'rv', bn:'কালেকশন ভাউচার', en:'Collection Voucher'},{key:'recvSettings', bn:'কালেকশন ভাউচার সেটিং', en:'Collection Voucher Settings'},{key:'ev', bn:'এক্সপেন্স ভাউচার', en:'Expense Voucher'},{key:'evSettings', bn:'এক্সপেন্স ভাউচার সেটিং', en:'Expense Voucher Settings'},{key:'icv', bn:'রিসিপ্ট ভাউচার', en:'Receipt Voucher'},{key:'icvSettings', bn:'রিসিপ্ট ভাউচার সেটিং', en:'Receipt Voucher Settings'},{key:'costLedger', bn:'খরচ খাত লেজার', en:'Cost Head Ledger'},{key:'ownerCapital', bn:'মালিকের মূলধন', en:'Owner Capital'},{key:'assetPurchase', bn:'এ্যাসেট ক্রয়', en:'Asset Purchase'},{key:'assetSale', bn:'এ্যাসেট বিক্রয়', en:'Asset Sale'},{key:'fixedAssets', bn:'এ্যাসেট রেজিস্টার', en:'Asset Register'},
+    {key:'pv', bn:'পেমেন্ট ভাউচার', en:'Payment Voucher'},{key:'payvSettings', bn:'পেমেন্ট ভাউচার সেটিং', en:'Payment Voucher Settings'},{key:'rv', bn:'কালেকশন ভাউচার', en:'Collection Voucher'},{key:'recvSettings', bn:'কালেকশন ভাউচার সেটিং', en:'Collection Voucher Settings'},{key:'ev', bn:'এক্সপেন্স ভাউচার', en:'Expense Voucher'},{key:'evSettings', bn:'এক্সপেন্স ভাউচার সেটিং', en:'Expense Voucher Settings'},{key:'icv', bn:'রিসিপ্ট ভাউচার', en:'Receipt Voucher'},{key:'icvSettings', bn:'রিসিপ্ট ভাউচার সেটিং', en:'Receipt Voucher Settings'},{key:'costLedger', bn:'খরচ খাত লেজার', en:'Cost Head Ledger'},{key:'ownerCapital', bn:'মালিকের মূলধন', en:'Owner Capital'},
     {key:'bankBook', bn:'ব্যাংক ও নগদ বই', en:'Bank & Cash Book'},{key:'trialBalance', bn:'ট্রায়াল ব্যালেন্স', en:'Trial Balance'},
+  ]},
+  {key:'assets', bn:'স্থায়ী সম্পদ', en:'Fixed Assets', sub:[
+    {key:'assetPurchase', bn:'এ্যাসেট ক্রয়', en:'Asset Purchase'},{key:'assetSale', bn:'এ্যাসেট বিক্রয়', en:'Asset Sale'},
+    {key:'fixedAssets', bn:'এ্যাসেট রেজিস্টার', en:'Asset Register'},
   ]},
   {key:'hr', bn:'এইচআর ও পে-রোল', en:'HR & Payroll', sub:[
     {key:'empCategories', bn:'কর্মচারীর ধরন', en:'Employee Types'},{key:'empInfo', bn:'কর্মচারী তথ্য', en:'Employee Info'},
@@ -6812,8 +6817,8 @@ async function renderFixedAssetPage(content) {
   $('fa_Cat').addEventListener('change', function () { if (!$('fa_Dep').__manual) $('fa_Dep').value = defDep($('fa_Cat').value); });
   $('fa_Dep').addEventListener('input', function () { $('fa_Dep').__manual = true; });
   wireSequentialKeyNav($('fa_Form'));
-  $('ar_GoBuy').addEventListener('click', function () { navigateTo('assetPurchase', t('হিসাব', 'Accounts'), t('এ্যাসেট ক্রয়', 'Asset purchase')); });
-  $('ar_GoSell').addEventListener('click', function () { navigateTo('assetSale', t('হিসাব', 'Accounts'), t('এ্যাসেট বিক্রয়', 'Asset sale')); });
+  $('ar_GoBuy').addEventListener('click', function () { navigateTo('assetPurchase', t('স্থায়ী সম্পদ', 'Fixed Assets'), t('এ্যাসেট ক্রয়', 'Asset purchase')); });
+  $('ar_GoSell').addEventListener('click', function () { navigateTo('assetSale', t('স্থায়ী সম্পদ', 'Fixed Assets'), t('এ্যাসেট বিক্রয়', 'Asset sale')); });
 
   // ===== খাতের তালিকা =====
   function renderCats() {
@@ -6915,7 +6920,7 @@ async function renderFixedAssetPage(content) {
       const act = b.getAttribute('data-ow'), to = $('fa_To').value || ownToday(), st = faState(r, to);
       if (r.SourceID) {   // এ্যাসেট ক্রয় থেকে আসা — ভাউচারেই দেখা/এডিট/মোছা
         if (act === 'view') await assetVoucherPrint('AssetPurchase', r.SourceID);
-        else if (act === 'edit') { window.__assetEditId = { base: 'AssetPurchase', id: r.SourceID }; await navigateTo('assetPurchase', t('হিসাব', 'Accounts'), t('এ্যাসেট ক্রয়', 'Asset purchase')); }
+        else if (act === 'edit') { window.__assetEditId = { base: 'AssetPurchase', id: r.SourceID }; await navigateTo('assetPurchase', t('স্থায়ী সম্পদ', 'Fixed Assets'), t('এ্যাসেট ক্রয়', 'Asset purchase')); }
         else if (act === 'del') { if (await assetVoucherDelete('AssetPurchase', r.SourceID)) await load(); }
         return;
       }
