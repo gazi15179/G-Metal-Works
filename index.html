@@ -1018,8 +1018,8 @@ async function syncPartyOpeningBalances(groups) {
 /** সব পার্টির ওপেনিং ব্যালান্স লেজারের সাথে মেলানো (আগে সেভ হওয়া পার্টিগুলোর জন্যও) — code দিলে শুধু সেই পার্টি */
 async function syncAllPartyOpeningBalances(onlyCode) {
   const [sups, custs] = await Promise.all([
-    supabaseClient.from('Suppliers').select('SupplierID,Code,OpeningBalance,Status'),
-    supabaseClient.from('Customers').select('CustomerID,Code,OpeningBalance,Status')]);
+    supabaseClient.from(tableFor('Suppliers')).select('SupplierID,Code,OpeningBalance,Status'),
+    supabaseClient.from(tableFor('Customers')).select('CustomerID,Code,OpeningBalance,Status')]);
   if (sups.error) throw new Error(sups.error.message);
   if (custs.error) throw new Error(custs.error.message);
   const map = {};
@@ -16208,7 +16208,7 @@ async function voucherForceClean(base, id) {
 async function renderPartyLedger(content, partyTypeFilter) {
   delete listCache.Customers; delete listCache.Suppliers;   // সবসময় সর্বশেষ তালিকা — নতুন পার্টি সাথে সাথে আসে
   // আগে সেভ হওয়া পার্টির ওপেনিং ব্যালান্সও লেজারে আনা (যেগুলো মেলে না শুধু সেগুলো লেখা হয়)
-  try { await syncAllPartyOpeningBalances(); } catch (e) { console.warn('opening balance sync:', e); }
+  try { await syncAllPartyOpeningBalances(); } catch (e) { console.warn('opening balance sync:', e); showToast(t('ওপেনিং ব্যালেন্স লেজারে আনা যায়নি: ', 'Opening balance sync failed: ') + e.message, 'error'); }
   const [customers, suppliers] = await Promise.all([cachedList('Customers'), cachedList('Suppliers')]);
   const normName = function (x) { return String(x || '').replace(/\s+/g, ' ').trim().toLowerCase(); };
 
