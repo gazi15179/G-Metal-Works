@@ -16717,18 +16717,327 @@ async function renderInventoryReport(content) {
     </table></div>`;
 }
 
+/* ============================================================
+   রিপোর্ট → বিক্রয় প্রতিবেদন (লাইন ভিত্তিক)
+   ফিল্টারঃ ভাউচার ধরন | জোন | গ্রুপ | ক্যাটাগরি | আইটেম | একক | ইউজার আইডি | হইতে | পর্যন্ত
+   কলামঃ ক্রঃ | ইনভয়েচ নং | তারিখ | গ্রাহকের নাম | পরিমান | দর | মূল্য | (👁️ ✏️ 🗑️ 💾)
+   প্রতিটা ভাউচারের প্রতিটা আইটেম-লাইন এক সারি। একক বাছলে শুধু সেই এককের আইটেম।
+   ============================================================ */
+const SALES_RPT_TYPES = [
+  { k: 'PurchaseInvoice',   bn: 'ক্রয়',            en: 'Purchase',            idf: 'PIID',   date: 'InvoiceDate',  lines: 'PI_Lines',        side: 'P', kind: 'purchase' },
+  { k: 'PurchaseOrder',     bn: 'ক্রয় অর্ডার',      en: 'Purchase Order',      idf: 'POID',   date: 'OrderDate',    lines: 'PO_Lines',        side: 'P', kind: 'doc', page: 'po' },
+  { k: 'PurchaseQuotation', bn: 'ক্রয় কোটেশান',     en: 'Purchase Quotation',  idf: 'PQID',   date: 'Date',         lines: 'PQ_Lines',        side: 'P', kind: 'none' },
+  { k: 'PurchaseReturn',    bn: 'ক্রয় ফেরৎ',        en: 'Purchase Return',     idf: 'PRetID', date: 'Date',         lines: 'PR_Return_Lines', side: 'P', kind: 'purchase' },
+  { k: 'GRN',               bn: 'গ্রহন নোট',         en: 'Receive Note',        idf: 'GRNID',  date: 'ReceiveDate',  lines: 'GRN_Lines',       side: 'P', kind: 'doc', page: 'grn', postable: true, qtyField: 'ReceivedQty' },
+  { k: 'DeliveryChallan',   bn: 'প্রদান নোট',        en: 'Delivery Note',       idf: 'DCID',   date: 'DeliveryDate', lines: 'DC_Lines',        side: 'S', kind: 'doc', page: 'dc', postable: true },
+  { k: 'SalesInvoice',      bn: 'বিক্রয়',           en: 'Sales',               idf: 'SIID',   date: 'InvoiceDate',  lines: 'SI_Lines',        side: 'S', kind: 'sales' },
+  { k: 'SalesOrder',        bn: 'বিক্রয় অর্ডার',     en: 'Sales Order',         idf: 'SOID',   date: 'OrderDate',    lines: 'SO_Lines',        side: 'S', kind: 'doc', page: 'so' },
+  { k: 'SalesQuotation',    bn: 'বিক্রয় কোটেশান',    en: 'Sales Quotation',     idf: 'SQID',   date: 'Date',         lines: 'SQ_Lines',        side: 'S', kind: 'none' },
+  { k: 'SalesReturn',       bn: 'বিক্রয় ফেরৎ',       en: 'Sales Return',        idf: 'SRID',   date: 'Date',         lines: 'SR_Lines',        side: 'S', kind: 'sales' }
+];
+
 async function renderSalesReport(content) {
-  const [invoices, customers] = await Promise.all([api('list', { sheet:'SalesInvoice' }), cachedList('Customers')]);
+  const dNow = new Date(), today = dNow.getFullYear() + '-' + String(dNow.getMonth() + 1).padStart(2, '0') + '-' + String(dNow.getDate()).padStart(2, '0');
+  const fyStart = await getFiscalYearStart(today);
+  const safeList = async function (s) { try { return await cachedList(s); } catch (e) { return []; } };
+  const [items, groups, cats, units, users, customers, suppliers] = await Promise.all([
+    safeList('Items'), safeList('ItemGroups'), safeList('Categories'), safeList('UOM'), safeList('Users'), safeList('Customers'), safeList('Suppliers')]);
+  const itemMap = {}; items.forEach(function (i) { itemMap[i.ItemID] = i; });
+  const unitMap = {}; units.forEach(function (u) { unitMap[u.UOMID] = u; });
   const custMap = {}; customers.forEach(function (c) { custMap[c.CustomerID] = c.CompanyName || c.Name; });
-  const active = invoices.filter(function (r) { return r.Status !== 'Deleted'; });
-  const totalSales = active.reduce(function (s, r) { return s + (Number(r.TotalAmount) || 0); }, 0);
-  const rows = active.slice().reverse().map(function (r) {
-    return `<tr><td>${escapeHtml(r.SIID)}</td><td>${escapeHtml(r.InvoiceDate)}</td><td>${escapeHtml(custMap[r.CustomerID] || r.CustomerID)}</td><td>${Number(r.TotalAmount||0).toFixed(2)}</td><td>${escapeHtml(r.Status)}</td></tr>`;
-  }).join('');
+  const supMap = {}; suppliers.forEach(function (s) { supMap[s.SupplierID] = s.CompanyName || s.Name; });
+  const NO_ZONE = t('জোন নেই', 'No zone');
+  const zoneOf = function (r) { return String(r.Zone || '').trim() || NO_ZONE; };
+  const custZone = {}; customers.forEach(function (c) { custZone[c.CustomerID] = zoneOf(c); });
+  const supZone = {}; suppliers.forEach(function (s) { supZone[s.SupplierID] = zoneOf(s); });
+  const userName = function (u) { return u.FullName || u.Email || u.UserID; };
+  const liveItems = items.filter(function (i) { return i.Status !== 'Deleted'; });
+
+  const st = { type: 'SalesInvoice', from: fyStart, to: today, zone: '', group: '', cat: '', item: '', unit: '', user: '', sel: '' };
+  let cache = null, cacheKey = '', missing = false, lastRows = [];
+
+  const opt = function (list, idf, lblf, cur, allLbl) {
+    return `<option value="">${allLbl}</option>` + list.map(function (r) { return `<option value="${attr(r[idf])}" ${r[idf] === cur ? 'selected' : ''}>${escapeHtml(typeof lblf === 'function' ? lblf(r) : (r[lblf] || r[idf]))}</option>`; }).join('');
+  };
+
   content.innerHTML = `
-    <div class="page-head"><div><h1>${t('বিক্রয় প্রতিবেদন','Sales Report')}</h1><p>${t('মোট বিক্রয়','Total Sales')}: <b>${totalSales.toFixed(2)}</b></p></div></div>
-    <div class="panel"><table class="data-table"><thead><tr><th>${t('আইডি','ID')}</th><th>${t('তারিখ','Date')}</th><th>${t('গ্রাহক','Customer')}</th><th>${t('মূল্য','Amount')}</th><th>${t('অবস্থা','Status')}</th></tr></thead>
-      <tbody>${rows || `<tr><td colspan="5" class="empty-state">${t('কোনো ডেটা নেই।','No data.')}</td></tr>`}</tbody></table></div>`;
+    <style>${DMY_CSS}
+      .sr-bar{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px 10px;align-items:end;margin-bottom:10px;}
+      .sr-bar .field{margin:0;min-width:0;} .sr-bar label{display:block;font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:2px;}
+      .sr-bar select,.sr-bar .dmy-in{height:30px;padding:3px 8px;font-size:12px;box-sizing:border-box;width:100%;min-width:0;}
+      .sr-bar .dmy-wrap{display:flex;width:100%;} .sr-bar .dmy-wrap .dmy-in{flex:1;width:auto;}
+      .sr-tbl .sr-mdt{display:none;color:var(--text-muted);font-size:10px;}
+      .sr-btnf{grid-column:span 3;} .sr-btns{display:flex;gap:6px;} .sr-btns .btn{flex:1;height:30px;padding:3px 10px;font-size:12px;width:auto;}
+      .sr-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:10px;}
+      .sr-cards div{border:1px solid var(--border);border-radius:8px;padding:5px 8px;background:var(--surface);font-size:11px;color:var(--text-muted);text-align:center;}
+      .sr-cards b{display:block;font-size:13px;color:var(--text);margin-top:1px;}
+      .sr-scroll{overflow:auto;max-height:calc(100vh - 330px);-webkit-overflow-scrolling:touch;border:1px solid var(--border);border-radius:8px;}
+      table.sr-tbl{width:100%;border-collapse:collapse;font-size:11px;}
+      .sr-tbl th{font-size:11px;font-weight:700;text-align:center;background:#eef1f5;color:#1f2937;border:1px solid #d5dae1;padding:4px 6px;position:sticky;top:0;z-index:2;white-space:nowrap;}
+      .sr-tbl td{font-size:11px;font-weight:400;border:1px solid #e3e6ea;padding:2px 6px;white-space:nowrap;}
+      .sr-tbl td.n{text-align:right;font-variant-numeric:tabular-nums;} .sr-tbl td.c{text-align:center;}
+      .sr-tbl td.nm{white-space:normal;min-width:120px;} .sr-tbl td small{color:var(--text-muted);font-size:10px;}
+      .sr-tbl tfoot td{background:#e9edf3;font-weight:700;position:sticky;bottom:0;z-index:1;}
+      .sr-ic{border:1px solid var(--border);background:var(--surface);border-radius:6px;min-width:24px;height:22px;font-size:11px;cursor:pointer;padding:0 3px;margin:0 1px;line-height:1;}
+      .sr-ic:disabled{opacity:.3;cursor:default;}
+      .sr-hint{font-size:12.5px;color:var(--text-muted);padding:14px;text-align:center;}
+      .sr-note{font-size:10.5px;color:var(--text-muted);margin-top:6px;}
+      @media (max-width:760px){
+        .sr-bar{grid-template-columns:1fr 1fr;gap:5px 8px;}
+        .sr-btnf{grid-column:span 1;} .sr-btns .btn{padding:3px 4px;}
+        .sr-cards{grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;} .sr-cards div{padding:4px 2px;font-size:10px;} .sr-cards b{font-size:11.5px;}
+        .sr-scroll{max-height:calc(100vh - 380px);}
+        .sr-tbl td.n small{display:block;line-height:1;}
+        .sr-tbl .sr-dt{display:none;} .sr-tbl .sr-mdt{display:block;}
+        .sr-tbl td,.sr-tbl th{padding:2px 4px;}
+        .sr-tbl td.nm{min-width:90px;}
+      }
+    </style>
+    <div class="page-head"><div>
+        <h1 class="i18n" data-bn="বিক্রয় প্রতিবেদন" data-en="Sales Report">${t('বিক্রয় প্রতিবেদন', 'Sales Report')}</h1>
+        <p>${t('ভাউচারের ধরন, আইটেম ও তারিখ অনুযায়ী লাইন ভিত্তিক প্রতিবেদন', 'Line-wise report by voucher type, item and date')}</p>
+      </div></div>
+    <div class="panel">
+      <div class="sr-bar" id="srBar">
+        <div class="field"><label>${t('ভাউচার ধরন', 'Voucher type')}</label><select id="srType">${SALES_RPT_TYPES.map(function (ty) { return `<option value="${ty.k}" ${ty.k === st.type ? 'selected' : ''}>${t(ty.bn, ty.en)}</option>`; }).join('')}</select></div>
+        <div class="field"><label>${t('জোন', 'Zone')}</label><select id="srZone"></select></div>
+        <div class="field"><label>${t('গ্রুপ', 'Group')}</label><select id="srGroup"></select></div>
+        <div class="field"><label>${t('ক্যাটাগরি', 'Category')}</label><select id="srCat"></select></div>
+        <div class="field"><label>${t('আইটেম', 'Item')}</label><select id="srItem"></select></div>
+        <div class="field"><label>${t('একক', 'Unit')}</label><select id="srUnit">${opt(units.filter(function (u) { return u.Status !== 'Deleted'; }), 'UOMID', 'UOMName', '', t('সব একক', 'All units'))}</select></div>
+        <div class="field"><label>${t('হইতে', 'From')}</label>${dmyDateField('srFrom', st.from)}</div>
+        <div class="field"><label>${t('পর্যন্ত', 'To')}</label>${dmyDateField('srTo', st.to)}</div>
+        <div class="field"><label>${t('ইউজার আই ডি', 'User ID')}</label><select id="srUser">${opt(users.filter(function (u) { return u.Status !== 'Deleted'; }), 'UserID', userName, '', t('সব ইউজার', 'All users'))}</select></div>
+        <div class="field sr-btnf"><label>&nbsp;</label><div class="sr-btns"><button type="button" class="btn btn-primary" id="srShow">🔄 ${t('দেখাও', 'Show')}</button><button type="button" class="btn btn-outline" id="srPrint">🖨️ ${t('প্রিন্ট', 'Print')}</button></div></div>
+      </div>
+      <div id="srCards"></div>
+      <div id="srOut"><div class="sr-hint">${t('লোড হচ্ছে…', 'Loading…')}</div></div>
+      <div class="sr-note">${t('এক চাপে সারি বাছাই, দুই চাপে ভাউচার খোলে (এডিট)। 👁️ দেখা · ✏️ এডিট · 🗑️ ডিলিট · 💾 পোস্ট।', 'Tap once to select, twice to open the voucher. 👁️ view · ✏️ edit · 🗑️ delete · 💾 post.')}</div>
+    </div>`;
+  wireDmyFields(content);
+
+  const $ = function (id) { return document.getElementById(id); };
+  const curType = function () { return SALES_RPT_TYPES.find(function (x) { return x.k === st.type; }) || SALES_RPT_TYPES[0]; };
+  const n = function (v) { return Number(v) || 0; };
+  const fmtQ = function (v) { v = n(v); return Math.abs(v) < 0.0005 ? '' : String(+v.toFixed(3)); };
+  const fmtA = function (v) { v = n(v); return Math.abs(v) < 0.005 ? '' : v.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+
+  /** জোন ড্রপডাউন — ভাউচার ধরন অনুযায়ী গ্রাহক বা সাপ্লায়ারের জোনগুলো */
+  function fillZones() {
+    const list = curType().side === 'S' ? customers : suppliers;
+    const zs = Array.from(new Set(list.filter(function (r) { return r.Status !== 'Deleted'; }).map(zoneOf)))
+      .sort(function (x, y) { if (x === NO_ZONE) return 1; if (y === NO_ZONE) return -1; return x.localeCompare(y, 'bn'); });
+    if (st.zone && zs.indexOf(st.zone) === -1) st.zone = '';
+    $('srZone').innerHTML = `<option value="">${t('সব জোন', 'All zones')}</option>` + zs.map(function (z) { return `<option value="${attr(z)}" ${z === st.zone ? 'selected' : ''}>${escapeHtml(z)}</option>`; }).join('');
+  }
+
+  /** গ্রুপ → ক্যাটাগরি → আইটেম ড্রপডাউন একে অপরের সাথে মিলিয়ে ছোট করা */
+  function fillCascade() {
+    const usedGroups = {}, usedCats = {};
+    liveItems.forEach(function (i) { if (i.GroupID) usedGroups[i.GroupID] = 1; if ((!st.group || i.GroupID === st.group) && i.CategoryID) usedCats[i.CategoryID] = 1; });
+    $('srGroup').innerHTML = opt(groups.filter(function (g) { return usedGroups[g.GroupID] || g.GroupID === st.group; }), 'GroupID', 'GroupName', st.group, t('সব গ্রুপ', 'All groups'));
+    if (st.cat && !usedCats[st.cat]) st.cat = '';
+    $('srCat').innerHTML = opt(cats.filter(function (c) { return usedCats[c.CategoryID]; }), 'CategoryID', 'CategoryName', st.cat, t('সব ক্যাটাগরি', 'All categories'));
+    const its = liveItems.filter(function (i) { return (!st.group || i.GroupID === st.group) && (!st.cat || i.CategoryID === st.cat) && (!st.unit || i.UOMID === st.unit); });
+    if (st.item && !its.some(function (i) { return i.ItemID === st.item; })) st.item = '';
+    $('srItem').innerHTML = opt(its, 'ItemID', 'ItemName', st.item, t('সব আইটেম', 'All items'));
+  }
+
+  /** একটা টেবিলের সব সারি — ১০০০ সারির সীমা পার হতে পাতায় পাতায় */
+  async function fetchAll(qFn) {
+    const out = [], PAGE = 1000;
+    for (let i = 0; ; i += PAGE) {
+      const { data, error } = await qFn().range(i, i + PAGE - 1);
+      if (error) throw new Error(error.message);
+      (data || []).forEach(function (r) { out.push(r); });
+      if (!data || data.length < PAGE) break;
+    }
+    return out;
+  }
+
+  async function fetchData() {
+    const ty = curType();
+    missing = false;
+    let heads;
+    try {
+      heads = await fetchAll(function () { return supabaseClient.from(ty.k).select('*').gte(ty.date, st.from).lte(ty.date, st.to).order(ty.date, { ascending: true }); });
+    } catch (err) {
+      if (/does not exist|schema cache|relation/i.test(err.message)) { missing = true; return { heads: [], lines: [] }; }
+      throw err;
+    }
+    heads = heads.filter(function (h) { return h.Status !== 'Deleted'; });
+    const ids = heads.map(function (h) { return h[ty.idf]; }), lines = [];
+    for (let i = 0; i < ids.length; i += 150) {
+      const chunk = ids.slice(i, i + 150);
+      const ls = await fetchAll(function () { return supabaseClient.from(ty.lines).select('*').in(ty.idf, chunk); });
+      ls.forEach(function (l) { lines.push(l); });
+    }
+    return { heads: heads, lines: lines };
+  }
+
+  function partyOf(h, ty) {
+    if (h.WalkInPartyName) return t('নগদ', 'Cash') + ' (' + h.WalkInPartyName + ')';
+    return ty.side === 'S' ? (custMap[h.CustomerID] || h.CustomerID || '') : (supMap[h.SupplierID] || h.SupplierID || '');
+  }
+  function userMatch(h) {
+    if (!st.user) return true;
+    const u = users.find(function (x) { return x.UserID === st.user; }) || {};
+    const keys = [h.SalespersonID, h.PurchaserID, h.CreatedBy, h.UserID].filter(Boolean).map(String);
+    return keys.some(function (k) { return k === st.user || (u.FullName && k === u.FullName) || (u.Email && k === u.Email); });
+  }
+
+  function compute() {
+    const ty = curType(), hMap = {};
+    cache.heads.forEach(function (h) { hMap[h[ty.idf]] = h; });
+    const rows = [];
+    cache.lines.forEach(function (l) {
+      const h = hMap[l[ty.idf]]; if (!h || !userMatch(h)) return;
+      if (st.zone && (ty.side === 'S' ? custZone[h.CustomerID] : supZone[h.SupplierID]) !== st.zone) return;
+      const it = itemMap[l.ItemID] || {};
+      if (st.item && l.ItemID !== st.item) return;
+      if (st.group && it.GroupID !== st.group) return;
+      if (st.cat && it.CategoryID !== st.cat) return;
+      if (st.unit && it.UOMID !== st.unit) return;
+      const piece = isPieceUOM(it.UOMID, units);
+      const qty = n(ty.qtyField ? l[ty.qtyField] : l.Quantity), rate = n(l.Rate);
+      const amount = (l.Amount !== undefined && l.Amount !== null && l.Amount !== '') ? n(l.Amount) : qty * rate;
+      const uName = (unitMap[it.UOMID] && unitMap[it.UOMID].UOMName) || (piece ? t('পিস', 'pcs') : t('কেজি', 'kg'));
+      rows.push({ id: h[ty.idf], date: String(h[ty.date] || h.Date || '').slice(0, 10), party: partyOf(h, ty), item: it.ItemName || l.ItemID || '', qty: qty, rate: rate, amount: amount, piece: piece, uName: uName, posted: h.Status === 'Posted', manual: h.ManualVoucherNo || '' });
+    });
+    rows.sort(function (a, b) { return a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id), undefined, { numeric: true }); });
+    return rows;
+  }
+
+  function render() {
+    const out = $('srOut'); if (!out) return;
+    const ty = curType();
+    if (missing) {
+      $('srCards').innerHTML = '';
+      out.innerHTML = `<div class="sr-hint">${escapeHtml(t(ty.bn, ty.en))} — ${t('এই ভাউচার এখনো সফটওয়্যারে তৈরি হয়নি, তাই কোনো তথ্য নেই।', 'this voucher has not been built in the software yet, so there is no data.')}</div>`;
+      lastRows = []; return;
+    }
+    const rows = compute(); lastRows = rows;
+    const vCount = new Set(rows.map(function (r) { return r.id; })).size;
+    let kg = 0, pc = 0, amt = 0;
+    rows.forEach(function (r) { if (r.piece) pc += r.qty; else kg += r.qty; amt += r.amount; });
+    const noRate = ty.k === 'DeliveryChallan';
+    $('srCards').innerHTML = `<div class="sr-cards">
+      <div>${t('ভাউচার', 'Vouchers')}<b>${vCount}</b></div>
+      <div>${t('মোট কেজি', 'Total kg')}<b>${fmtQ(kg) || '0'}</b></div>
+      <div>${t('মোট পিস', 'Total pcs')}<b>${fmtQ(pc) || '0'}</b></div>
+      <div>${t('মোট মূল্য', 'Total value')}<b>${noRate ? '—' : (fmtA(amt) || '0.00')}</b></div></div>`;
+    if (!rows.length) { out.innerHTML = `<div class="sr-hint">${t('এই সময়ে কোনো তথ্য নেই।', 'No data for this period.')}</div>`; return; }
+    const ico = function (act, icon, title, r, dis) { return `<button type="button" class="sr-ic" data-act="${act}" data-id="${attr(r.id)}" data-posted="${r.posted ? 1 : 0}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
+    const canPost = ty.kind === 'purchase' || ty.kind === 'sales' || !!ty.postable;
+    const vk = vkClass(ty.k);
+    const body = rows.map(function (r, i) {
+      return `<tr class="${vk}${st.sel === r.id ? ' sel' : ''}" data-id="${attr(r.id)}">
+        <td class="c">${i + 1}</td>
+        <td class="c"><b>${escapeHtml(r.id)}</b>${r.manual ? `<br><small>${escapeHtml(r.manual)}</small>` : ''}<span class="sr-mdt">${escapeHtml(formatShortDate(r.date))}</span></td>
+        <td class="c sr-dt">${escapeHtml(formatShortDate(r.date))}</td>
+        <td class="nm">${escapeHtml(r.party)}<br><small>${escapeHtml(r.item)}</small></td>
+        <td class="n">${fmtQ(r.qty)} <small>${escapeHtml(r.uName)}</small></td>
+        <td class="n">${noRate ? '' : fmtA(r.rate)}</td>
+        <td class="n"><b>${noRate ? '' : fmtA(r.amount)}</b></td>
+        <td class="c" style="white-space:nowrap;">${ico('view', '👁️', t('দেখুন', 'View'), r)}${ico('edit', '✏️', t('এডিট', 'Edit'), r)}${ico('del', '🗑️', t('ডিলিট', 'Delete'), r)}${ico('post', r.posted ? '✅' : '💾', r.posted ? t('পোস্ট হয়ে গেছে', 'Posted') : t('পোস্ট করুন', 'Post'), r, r.posted || !canPost)}</td></tr>`;
+    }).join('');
+    const qtyFoot = [kg ? fmtQ(kg) + ' ' + t('কেজি', 'kg') : '', pc ? fmtQ(pc) + ' ' + t('পিস', 'pcs') : ''].filter(Boolean).join('<br>');
+    out.innerHTML = `<div class="sr-scroll"><table class="sr-tbl"><thead><tr>
+        <th style="width:34px;">${t('ক্রঃ', 'Sl')}</th><th>${t('ইনভয়েচ নং', 'Invoice No')}</th><th class="sr-dt">${t('তারিখ', 'Date')}</th>
+        <th>${ty.side === 'S' ? t('গ্রাহকের নাম', 'Customer') : t('সাপ্লায়ারের নাম', 'Supplier')}</th><th>${t('পরিমান', 'Qty')}</th><th>${t('দর', 'Rate')}</th><th>${t('মূল্য', 'Value')}</th><th></th></tr></thead>
+      <tbody>${body}</tbody>
+      <tfoot><tr><td></td><td colspan="2">${t('সর্বমোট', 'Grand total')} (${vCount}${t('টি ভাউচার', ' vouchers')})</td><td class="sr-dt"></td><td class="n">${qtyFoot}</td><td></td><td class="n">${noRate ? '' : fmtA(amt)}</td><td></td></tr></tfoot></table></div>`;
+  }
+
+  async function load(force) {
+    const from = dmyIso('srFrom'), to = dmyIso('srTo');
+    if (!from || !to) { showToast(t('সঠিক তারিখ দিন (দিন-মাস-বছর)।', 'Enter valid dates (dd-mm-yyyy).'), 'error'); return; }
+    if (from > to) { showToast(t('"হইতে" তারিখ "পর্যন্ত" তারিখের পরে হতে পারে না।', '"From" cannot be after "To".'), 'error'); return; }
+    st.from = from; st.to = to;
+    const key = st.type + '|' + from + '|' + to;
+    if (!cache || force || key !== cacheKey) {
+      $('srOut').innerHTML = `<div class="sr-hint">${t('লোড হচ্ছে…', 'Loading…')}</div>`;
+      try { cache = await fetchData(); cacheKey = key; }
+      catch (err) { $('srOut').innerHTML = `<div class="sr-hint">${escapeHtml(err.message)}</div>`; return; }
+    }
+    render();
+  }
+
+  /** সারির বাটন — ক্রয়/বিক্রয় ভাউচার নিজের ফর্মে, অন্যগুলো নিজের পেজে */
+  async function action(act, id, posted) {
+    const ty = curType();
+    try {
+      if (ty.kind === 'purchase' || ty.kind === 'sales') {
+        const K = VOUCHER_KINDS[ty.kind];
+        if (act === 'view') { await openPrintableVoucherView(ty.k, id); return; }
+        if (act === 'edit') { await editPostedVoucherFromList(ty.k, id); return; }
+        if (act === 'del') { if (posted) await K.delPosted(ty.k, id); else await K.del(ty.k, id); await load(true); return; }
+        if (act === 'post') { await K.post(ty.k, id); await load(true); return; }
+      } else if (ty.kind === 'doc') {
+        const dc = DOC_CONFIGS[ty.page];
+        if (act === 'view' || act === 'edit') {
+          await navigateTo(ty.page, t(ty.side === 'S' ? 'বিক্রয়' : 'ক্রয়', ty.side === 'S' ? 'Sales' : 'Purchase'), t(dc.titleBn, dc.titleEn));
+          await openDocumentForm(id); return;
+        }
+        if (act === 'del') {
+          if (posted) await deletePostedVoucherWithAdminAuth(ty.k, id, ty.k, ty.idf, ty.lines, ty.idf, null);
+          else {
+            if (!confirm(t('খসড়া ভাউচার ', 'Delete draft voucher ') + id + t(' ডিলিট করবেন?', '?'))) return;
+            await supabaseClient.from(ty.lines).delete().eq(ty.idf, id);
+            const { error } = await supabaseClient.from(ty.k).delete().eq(ty.idf, id); if (error) throw new Error(error.message);
+            showToast(t('ডিলিট হয়েছে ✅', 'Deleted ✅'), 'success');
+          }
+          await load(true); return;
+        }
+        if (act === 'post') { await postDocumentRecord(ty.k, id); await load(true); return; }
+      }
+    } catch (err) { showToast(err.message, 'error'); }
+  }
+
+  function printReport() {
+    const ty = curType();
+    if (!lastRows.length) { showToast(t('প্রিন্ট করার মতো তথ্য নেই।', 'Nothing to print.'), 'error'); return; }
+    const noRate = ty.k === 'DeliveryChallan';
+    let kg = 0, pc = 0, amt = 0;
+    lastRows.forEach(function (r) { if (r.piece) pc += r.qty; else kg += r.qty; amt += r.amount; });
+    const selTxt = function (id) { const s = $(id); return s && s.value ? s.options[s.selectedIndex].text : ''; };
+    const filt = [selTxt('srZone'), selTxt('srGroup'), selTxt('srCat'), selTxt('srItem'), selTxt('srUnit'), selTxt('srUser')].filter(Boolean).join(' · ');
+    const body = lastRows.map(function (r, i) {
+      return `<tr><td class="c">${i + 1}</td><td class="c">${escapeHtml(r.id)}</td><td class="c">${escapeHtml(formatShortDate(r.date))}</td><td>${escapeHtml(r.party)}<br><small>${escapeHtml(r.item)}</small></td><td class="n">${fmtQ(r.qty)} ${escapeHtml(r.uName)}</td><td class="n">${noRate ? '' : fmtA(r.rate)}</td><td class="n">${noRate ? '' : fmtA(r.amount)}</td></tr>`;
+    }).join('');
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>বিক্রয় প্রতিবেদন</title>
+      <style>@page{size:A4;margin:10mm;} body{font-family:'Noto Sans Bengali','SolaimanLipi',Arial,sans-serif;font-size:11px;color:#111;}
+      h2{margin:0 0 2px;font-size:16px;text-align:center;} .sub{text-align:center;font-size:11px;margin-bottom:8px;}
+      table{width:100%;border-collapse:collapse;} th,td{border:1px solid #888;padding:3px 5px;} th{background:#eee;font-weight:700;text-align:center;}
+      td.n{text-align:right;} td.c{text-align:center;} small{color:#555;} tfoot td{font-weight:700;background:#f3f3f3;}</style></head><body>
+      <h2>বিক্রয় প্রতিবেদন — ${escapeHtml(ty.bn)}</h2>
+      <div class="sub">${escapeHtml(formatShortDate(st.from))} হইতে ${escapeHtml(formatShortDate(st.to))} পর্যন্ত${filt ? ' · ' + escapeHtml(filt) : ''}</div>
+      <table><thead><tr><th>ক্রঃ</th><th>ইনভয়েচ নং</th><th>তারিখ</th><th>${ty.side === 'S' ? 'গ্রাহকের নাম' : 'সাপ্লায়ারের নাম'}</th><th>পরিমান</th><th>দর</th><th>মূল্য</th></tr></thead>
+      <tbody>${body}</tbody><tfoot><tr><td colspan="4">সর্বমোট</td><td class="n">${[kg ? fmtQ(kg) + ' কেজি' : '', pc ? fmtQ(pc) + ' পিস' : ''].filter(Boolean).join(' / ')}</td><td></td><td class="n">${noRate ? '' : fmtA(amt)}</td></tr></tfoot></table>
+      <script>window.onload=function(){setTimeout(function(){window.print();},300);};<\/script></body></html>`;
+    const win = window.open('', '_blank');
+    if (!win) { showToast(t('পপ-আপ ব্লক হয়েছে — এই সাইটের জন্য পপ-আপ অনুমতি দিন।', 'Pop-up was blocked — please allow pop-ups for this site.'), 'error'); return; }
+    win.document.write(html); win.document.close();
+  }
+
+  // ---- ঘটনা ----
+  fillCascade(); fillZones();
+  $('srType').addEventListener('change', function () { st.type = $('srType').value; st.sel = ''; fillZones(); load(false); });
+  $('srZone').addEventListener('change', function () { st.zone = $('srZone').value; if (cache) render(); });
+  $('srGroup').addEventListener('change', function () { st.group = $('srGroup').value; fillCascade(); if (cache) render(); });
+  $('srCat').addEventListener('change', function () { st.cat = $('srCat').value; fillCascade(); if (cache) render(); });
+  $('srItem').addEventListener('change', function () { st.item = $('srItem').value; if (cache) render(); });
+  $('srUnit').addEventListener('change', function () { st.unit = $('srUnit').value; fillCascade(); if (cache) render(); });
+  $('srUser').addEventListener('change', function () { st.user = $('srUser').value; if (cache) render(); });
+  ['srFrom', 'srTo'].forEach(function (id) { $(id).addEventListener('change', function () { if (dmyIso(id)) load(false); }); });
+  $('srShow').addEventListener('click', function () { load(true); });
+  $('srPrint').addEventListener('click', printReport);
+  $('srOut').addEventListener('click', function (e) {
+    const b = e.target.closest('button[data-act]');
+    if (b) { if (!b.disabled) action(b.getAttribute('data-act'), b.getAttribute('data-id'), b.getAttribute('data-posted') === '1'); return; }
+    const tr = e.target.closest('tbody tr[data-id]'); if (tr) st.sel = tr.getAttribute('data-id');
+  });
+  await load(true);
 }
 
 async function renderPurchaseReport(content) {
