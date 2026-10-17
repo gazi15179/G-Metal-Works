@@ -1530,11 +1530,11 @@ async function navigateTo(pageKey, moduleLabel, pageLabel) {
     else if (pageKey === 'hrReports') await renderHrReportsPage(content);
     else if (pageKey === 'dailyProduction') await renderProdDailyPage(content);   // পুরনো "দৈনিক উৎপাদন ও দল" বাদ — এখন প্রোডাকশন → দৈনিক উৎপাদনের ২য় অংশ
     else if (pageKey === 'sizeRates') await renderSizeRatesPage(content);
-    else if (pageKey === 'invReport') await renderInventoryReport(content);
+    else if (pageKey === 'invReport') { await renderInventoryReport(content); addReportPrintButton(content); }
     else if (pageKey === 'salesReport') await renderSalesReport(content);
-    else if (pageKey === 'purReport') await renderPurchaseReport(content);
-    else if (pageKey === 'prodReport') await renderProductionReport(content);
-    else if (pageKey === 'finReport') await renderFinancialReport(content);
+    else if (pageKey === 'purReport') { await renderPurchaseReport(content); addReportPrintButton(content); }
+    else if (pageKey === 'prodReport') { await renderProductionReport(content); addReportPrintButton(content); }
+    else if (pageKey === 'finReport') { await renderFinancialReport(content); addReportPrintButton(content); }
     else if (pageKey === 'partyBalance') await renderPartyBalanceReport(content);   // রিপোর্ট → পার্টি ব্যালান্স (জোন/পার্টি, তারিখ-রেঞ্জ)
     else if (pageKey === 'general') await renderGeneralSettingsPage(content);
     else if (pageKey === 'langSettings') await renderLanguageSettingsPage(content);
@@ -11933,6 +11933,8 @@ function voucherBaseTypeSafe(x) { return String(x || '').replace(/-(Payment|Rece
   const css = [
     ':where(#pageContent, #modalBody) table th{font-size:11px !important;font-weight:700 !important;text-align:center !important;}',
     ':where(#pageContent, #modalBody) table td{font-size:11px !important;font-weight:400;padding-top:3px !important;padding-bottom:3px !important;line-height:1.3;}',
+    /* সব পেজের টেবিলের লেখা হেডারের মতো মাঝখানে */
+    ':where(#pageContent, #modalBody) table td{text-align:center !important;}',
     ':where(#pageContent, #modalBody) table th{padding-top:4px !important;padding-bottom:4px !important;}',
     /* সারির ভেতরের বাটন ছোট — নইলে সারি চওড়া থাকে */
     ':where(#pageContent, #modalBody) table td.row-actions{gap:4px;}',
@@ -16718,6 +16720,52 @@ async function renderInventoryReport(content) {
 }
 
 /* ============================================================
+   রিপোর্ট মেনুর সব পেজের প্রিন্ট — A4 খাড়া (কোম্পানির নাম/ঠিকানা উপরে, প্রিন্টের সময় নিচে)
+   ============================================================ */
+async function printReportA4(o) {
+  const win = window.open('', '_blank');
+  if (!win) { showToast(t('পপ-আপ ব্লক হয়েছে — এই সাইটের জন্য পপ-আপ অনুমতি দিন।', 'Pop-up blocked — allow pop-ups for this site.'), 'error'); return; }
+  let co = {}; try { co = await api('getSingleton', { sheet: 'CompanyProfile' }); } catch (er) {}
+  win.document.write(`<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${escapeHtml(o.title || '')}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Anek+Bangla:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>@page{size:A4 portrait;margin:8mm;} body{font-family:'Anek Bangla',sans-serif;margin:0 auto;padding:8mm;color:#111;max-width:194mm;box-sizing:border-box;}
+      @media print{.tb{display:none;} body{padding:0;max-width:none;}}
+      .tb{margin-bottom:8px;} .tb button{padding:6px 14px;font-family:inherit;}
+      h2{margin:0;font-size:18px;text-align:center;} .co{text-align:center;font-size:11px;color:#444;} h3{margin:6px 0 2px;text-align:center;font-size:14px;} .sub{text-align:center;font-size:11px;color:#444;margin-bottom:6px;}
+      table{width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:6px;} th,td{border:1px solid #aaa;padding:2px 5px;} th{background:#f1f1f1;text-align:center;font-weight:700;}
+      thead{display:table-header-group;} tfoot{display:table-footer-group;} tr{page-break-inside:avoid;}
+      td,td.n,td.r,td.c{text-align:center;} small{color:#555;font-size:9px;} tfoot td{font-weight:700;background:#f6f6f6;}
+      tr td{background:none !important;box-shadow:none !important;} button,input,select{display:none;} .badge{border:0;padding:0;}</style></head><body>
+    <div class="tb"><button style="display:inline-block" onclick="window.print()">🖨️ প্রিন্ট (A4)</button></div>
+    <h2>${escapeHtml(co.CompanyNameBn || co.CompanyName || 'জি মেটাল ওয়ার্কস')}</h2><div class="co">${escapeHtml(co.AddressBn || co.Address || '')}</div>
+    <h3>${escapeHtml(o.title || '')}</h3>
+    <div class="sub">${o.sub ? escapeHtml(o.sub) + ' · ' : ''}${t('প্রিন্টঃ ', 'Printed: ')}${escapeHtml(formatPrintDate())}</div>
+    ${o.html}
+    <script>window.addEventListener("load",function(){setTimeout(function(){window.print();},400);});<\/script></body></html>`);
+  win.document.close();
+}
+/** যেসব রিপোর্ট পেজের নিজের প্রিন্ট নেই — শিরোনামের পাশে 🖨️ বাটন, পেজের টেবিলগুলো A4-এ */
+function addReportPrintButton(content, title) {
+  const head = content.querySelector('.page-head'); if (!head || head.querySelector('.rp-print')) return;
+  const btn = document.createElement('button');
+  btn.type = 'button'; btn.className = 'btn btn-outline rp-print'; btn.style.cssText = 'width:auto;height:32px;padding:4px 14px;font-size:12.5px;';
+  btn.textContent = '🖨️ ' + t('প্রিন্ট (A4)', 'Print (A4)');
+  btn.addEventListener('click', function () {
+    const tables = Array.prototype.slice.call(content.querySelectorAll('table'));
+    if (!tables.length) { showToast(t('প্রিন্ট করার মতো কিছু নেই।', 'Nothing to print.'), 'error'); return; }
+    const html = tables.map(function (tb) {
+      const c = tb.cloneNode(true);
+      c.querySelectorAll('td.row-actions, th.row-actions').forEach(function (x) { x.remove(); });
+      c.removeAttribute('style'); c.className = '';
+      return c.outerHTML;
+    }).join('');
+    const h1 = head.querySelector('h1');
+    printReportA4({ title: title || (h1 ? h1.textContent.trim() : ''), html: html });
+  });
+  head.appendChild(btn);
+}
+
+/* ============================================================
    রিপোর্ট → বিক্রয় প্রতিবেদন (লাইন ভিত্তিক)
    ফিল্টারঃ ভাউচার ধরন | জোন | গ্রুপ | ক্যাটাগরি | আইটেম | একক | ইউজার আইডি | হইতে | পর্যন্ত
    কলামঃ ক্রঃ | ইনভয়েচ নং | তারিখ | গ্রাহকের নাম | পরিমান | দর | মূল্য | (👁️ ✏️ 🗑️ 💾)
@@ -16763,8 +16811,8 @@ async function renderSalesReport(content) {
   content.innerHTML = `
     <style>${DMY_CSS}
       .sr-layout{display:flex;gap:14px;align-items:flex-start;}
-      .sr-side{position:relative;flex:0 0 230px;width:230px;background:#eaf3f8;border:1px solid #c9dce8;border-radius:12px;padding:10px 12px 12px;transition:flex-basis .2s,width .2s;box-sizing:border-box;}
-      .sr-side-h{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#2f6f8f;margin-bottom:8px;}
+      .sr-side{position:relative;flex:0 0 230px;width:230px;background:#eaf3f8;border:1px solid #c9dce8;border-radius:12px;padding:8px 12px 10px;transition:flex-basis .2s,width .2s;box-sizing:border-box;}
+      .sr-side-h{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#2f6f8f;margin-bottom:6px;}
       .sr-tog{position:absolute;right:-13px;top:18px;width:26px;height:26px;border-radius:50%;background:#4c8fae;border:1px solid #3b7896;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;font-weight:700;z-index:5;padding:0;line-height:1;box-shadow:0 1px 3px rgba(0,0,0,.18);}
       .sr-side.collapsed{flex-basis:36px;width:36px;padding:10px 0;}
       .sr-side.collapsed .sr-bar,.sr-side.collapsed .sr-side-h span{display:none;}
@@ -16772,26 +16820,29 @@ async function renderSalesReport(content) {
       .sr-side.collapsed .sr-side-h{writing-mode:vertical-rl;margin:36px auto 0;justify-content:center;cursor:pointer;}
       .sr-side.collapsed .sr-side-h::after{content:attr(data-lbl);}
       .sr-main{flex:1;min-width:0;}
-      .sr-bar{display:flex;flex-direction:column;gap:6px;}
+      .sr-bar{display:flex;flex-direction:column;gap:4px;}
       .sr-bar .field{margin:0;min-width:0;} .sr-bar label{display:block;font-size:11px;font-weight:600;color:#3d5a6c;margin-bottom:2px;}
       .sr-bar select,.sr-bar .dmy-in{height:30px;padding:3px 8px;font-size:12px;box-sizing:border-box;width:100%;min-width:0;background:#fff;}
       .sr-bar .dmy-wrap{display:flex;width:100%;} .sr-bar .dmy-wrap .dmy-in{flex:1;width:auto;}
       .sr-tbl .sr-mdt{display:none;color:var(--text-muted);font-size:10px;}
       .sr-btns{display:flex;gap:6px;margin-top:4px;} .sr-btns .btn{flex:1;height:30px;padding:3px 6px;font-size:12px;width:auto;}
-      .sr-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:10px;}
-      .sr-cards div{border:1px solid var(--border);border-radius:8px;padding:5px 8px;background:var(--surface);font-size:11px;color:var(--text-muted);text-align:center;}
-      .sr-cards b{display:block;font-size:13px;color:var(--text);margin-top:1px;}
-      .sr-scroll{overflow:auto;max-height:calc(100vh - 260px);-webkit-overflow-scrolling:touch;border:1px solid var(--border);border-radius:8px;}
-      table.sr-tbl{width:100%;border-collapse:collapse;font-size:11px;}
-      .sr-tbl th{font-size:11px;font-weight:700;text-align:center;background:#eef1f5;color:#1f2937;border:1px solid #d5dae1;padding:4px 6px;position:sticky;top:0;z-index:2;white-space:nowrap;}
-      .sr-tbl td{font-size:11px;font-weight:400;border:1px solid #e3e6ea;padding:2px 6px;white-space:nowrap;}
-      .sr-tbl td.n{text-align:right;font-variant-numeric:tabular-nums;} .sr-tbl td.c{text-align:center;}
-      .sr-tbl td.nm{white-space:normal;min-width:120px;} .sr-tbl td small{color:var(--text-muted);font-size:10px;}
+      .sr-head{display:flex;align-items:baseline;gap:10px;margin:0 0 6px;} .sr-head h1{font-family:'Oswald',sans-serif;font-size:17px;font-weight:600;margin:0;line-height:1.2;}
+      .sr-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-bottom:6px;}
+      .sr-cards div{border:1px solid var(--border);border-radius:6px;padding:2px 8px;background:var(--surface);font-size:10.5px;color:var(--text-muted);display:flex;justify-content:space-between;align-items:baseline;gap:6px;white-space:nowrap;}
+      .sr-cards b{font-size:12px;color:var(--text);}
+      .sr-scroll{overflow:auto;max-height:calc(100vh - 200px);-webkit-overflow-scrolling:touch;border:1px solid var(--border);border-radius:8px;}
+      table.sr-tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:11px;}
+      .sr-tbl th,.sr-tbl td{border-width:0 1px 1px 0 !important;} .sr-tbl tfoot td{border-top-width:1px !important;}
+      .sr-main.panel{padding:6px 8px;}
+      .sr-tbl th{font-size:11px;font-weight:700;text-align:center;background:#eef1f5;color:#1f2937;border:1px solid #d5dae1;padding:3px 6px !important;position:sticky;top:0;z-index:2;white-space:nowrap;}
+      .sr-tbl td{font-size:11px;font-weight:400;border:1px solid #e3e6ea;padding:1px 6px !important;line-height:1.25 !important;white-space:nowrap;}
+      .sr-tbl td{text-align:center;} .sr-tbl td.n{font-variant-numeric:tabular-nums;}
+      .sr-tbl td.nm{white-space:normal;min-width:120px;} .sr-tbl td small{color:var(--text-muted);font-size:10px;} .sr-tbl td.nm small::before{content:' · ';}
       .sr-tbl tfoot td{background:#e9edf3;font-weight:700;position:sticky;bottom:0;z-index:1;}
-      .sr-ic{border:1px solid var(--border);background:var(--surface);border-radius:6px;min-width:24px;height:22px;font-size:11px;cursor:pointer;padding:0 3px;margin:0 1px;line-height:1;}
+      .sr-ic{border:1px solid var(--border);background:var(--surface);border-radius:5px;min-width:22px;height:18px;font-size:10px;cursor:pointer;padding:0 3px;margin:0 1px;line-height:1;}
       .sr-ic:disabled{opacity:.3;cursor:default;}
       .sr-hint{font-size:12.5px;color:var(--text-muted);padding:14px;text-align:center;}
-      .sr-note{font-size:10.5px;color:var(--text-muted);margin-top:6px;}
+      .sr-note{font-size:10px;color:var(--text-muted);margin-top:3px;}
       @media (max-width:760px){
         .sr-layout{flex-direction:column;gap:8px;align-items:stretch;}
         .sr-main{width:100%;box-sizing:border-box;}
@@ -16803,18 +16854,15 @@ async function renderSalesReport(content) {
         .sr-side.collapsed .sr-side-h::after{content:'';}
         .sr-bar{display:grid;grid-template-columns:1fr 1fr;gap:5px 8px;}
         .sr-btns{margin-top:0;align-self:end;} .sr-btns .btn{padding:3px 4px;}
-        .sr-cards{grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;} .sr-cards div{padding:4px 2px;font-size:10px;} .sr-cards b{font-size:11.5px;}
-        .sr-scroll{max-height:calc(100vh - 230px);}
+        .sr-cards{grid-template-columns:repeat(4,minmax(0,1fr));gap:3px;} .sr-cards div{padding:1px 3px;font-size:9.5px;flex-direction:column;align-items:center;gap:0;} .sr-cards b{font-size:11px;}
+        .sr-tbl td.nm small{display:block;} .sr-tbl td.nm small::before{content:'';}
         .sr-tbl td.n small{display:block;line-height:1;}
         .sr-tbl .sr-dt{display:none;} .sr-tbl .sr-mdt{display:block;}
-        .sr-tbl td,.sr-tbl th{padding:2px 4px;}
+        .sr-tbl td{padding:1px 4px !important;} .sr-tbl th{padding:3px 4px !important;}
         .sr-tbl td.nm{min-width:90px;}
       }
     </style>
-    <div class="page-head"><div>
-        <h1 class="i18n" data-bn="বিক্রয় প্রতিবেদন" data-en="Sales Report">${t('বিক্রয় প্রতিবেদন', 'Sales Report')}</h1>
-        <p>${t('ভাউচারের ধরন, আইটেম ও তারিখ অনুযায়ী লাইন ভিত্তিক প্রতিবেদন', 'Line-wise report by voucher type, item and date')}</p>
-      </div></div>
+    <div class="sr-head"><h1 class="i18n" data-bn="বিক্রয় প্রতিবেদন" data-en="Sales Report">${t('বিক্রয় প্রতিবেদন', 'Sales Report')}</h1></div>
     <div class="sr-layout">
      <aside class="sr-side" id="srSide">
       <button type="button" class="sr-tog" id="srTog" title="${attr(t('ফিল্টার লুকান/দেখান', 'Hide/show filters'))}">‹</button>
@@ -16959,13 +17007,14 @@ async function renderSalesReport(content) {
         <td class="c">${i + 1}</td>
         <td class="c"><b>${escapeHtml(r.id)}</b>${r.manual ? `<br><small>${escapeHtml(r.manual)}</small>` : ''}<span class="sr-mdt">${escapeHtml(formatShortDate(r.date))}</span></td>
         <td class="c sr-dt">${escapeHtml(formatShortDate(r.date))}</td>
-        <td class="nm">${escapeHtml(r.party)}<br><small>${escapeHtml(r.item)}</small></td>
+        <td class="nm">${escapeHtml(r.party)}<small>${escapeHtml(r.item)}</small></td>
         <td class="n">${fmtQ(r.qty)} <small>${escapeHtml(r.uName)}</small></td>
         <td class="n">${noRate ? '' : fmtA(r.rate)}</td>
         <td class="n"><b>${noRate ? '' : fmtA(r.amount)}</b></td>
         <td class="c" style="white-space:nowrap;">${ico('view', '👁️', t('দেখুন', 'View'), r)}${ico('edit', '✏️', t('এডিট', 'Edit'), r)}${ico('del', '🗑️', t('ডিলিট', 'Delete'), r)}${ico('post', r.posted ? '✅' : '💾', r.posted ? t('পোস্ট হয়ে গেছে', 'Posted') : t('পোস্ট করুন', 'Post'), r, r.posted || !canPost)}</td></tr>`;
     }).join('');
     const qtyFoot = [kg ? fmtQ(kg) + ' ' + t('কেজি', 'kg') : '', pc ? fmtQ(pc) + ' ' + t('পিস', 'pcs') : ''].filter(Boolean).join('<br>');
+    window.__srFit && setTimeout(window.__srFit, 0);
     out.innerHTML = `<div class="sr-scroll"><table class="sr-tbl"><thead><tr>
         <th style="width:34px;">${t('ক্রঃ', 'Sl')}</th><th>${t('ইনভয়েচ নং', 'Invoice No')}</th><th class="sr-dt">${t('তারিখ', 'Date')}</th>
         <th>${ty.side === 'S' ? t('গ্রাহকের নাম', 'Customer') : t('সাপ্লায়ারের নাম', 'Supplier')}</th><th>${t('পরিমান', 'Qty')}</th><th>${t('দর', 'Rate')}</th><th>${t('মূল্য', 'Value')}</th><th></th></tr></thead>
@@ -17027,29 +17076,27 @@ async function renderSalesReport(content) {
     const selTxt = function (id) { const s = $(id); return s && s.value ? s.options[s.selectedIndex].text : ''; };
     const filt = [selTxt('srZone'), selTxt('srGroup'), selTxt('srCat'), selTxt('srItem'), selTxt('srUnit'), selTxt('srUser')].filter(Boolean).join(' · ');
     const body = lastRows.map(function (r, i) {
-      return `<tr><td class="c">${i + 1}</td><td class="c">${escapeHtml(r.id)}</td><td class="c">${escapeHtml(formatShortDate(r.date))}</td><td>${escapeHtml(r.party)}<br><small>${escapeHtml(r.item)}</small></td><td class="n">${fmtQ(r.qty)} ${escapeHtml(r.uName)}</td><td class="n">${noRate ? '' : fmtA(r.rate)}</td><td class="n">${noRate ? '' : fmtA(r.amount)}</td></tr>`;
+      return `<tr><td class="c">${i + 1}</td><td class="c">${escapeHtml(r.id)}</td><td class="c">${escapeHtml(formatShortDate(r.date))}</td><td>${escapeHtml(r.party)} <small>· ${escapeHtml(r.item)}</small></td><td class="n">${fmtQ(r.qty)} ${escapeHtml(r.uName)}</td><td class="n">${noRate ? '' : fmtA(r.rate)}</td><td class="n">${noRate ? '' : fmtA(r.amount)}</td></tr>`;
     }).join('');
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>বিক্রয় প্রতিবেদন</title>
-      <style>@page{size:A4;margin:10mm;} body{font-family:'Noto Sans Bengali','SolaimanLipi',Arial,sans-serif;font-size:11px;color:#111;}
-      h2{margin:0 0 2px;font-size:16px;text-align:center;} .sub{text-align:center;font-size:11px;margin-bottom:8px;}
-      table{width:100%;border-collapse:collapse;} th,td{border:1px solid #888;padding:3px 5px;} th{background:#eee;font-weight:700;text-align:center;}
-      td.n{text-align:right;} td.c{text-align:center;} small{color:#555;} tfoot td{font-weight:700;background:#f3f3f3;}</style></head><body>
-      <h2>বিক্রয় প্রতিবেদন — ${escapeHtml(ty.bn)}</h2>
-      <div class="sub">${escapeHtml(formatShortDate(st.from))} হইতে ${escapeHtml(formatShortDate(st.to))} পর্যন্ত${filt ? ' · ' + escapeHtml(filt) : ''}</div>
-      <table><thead><tr><th>ক্রঃ</th><th>ইনভয়েচ নং</th><th>তারিখ</th><th>${ty.side === 'S' ? 'গ্রাহকের নাম' : 'সাপ্লায়ারের নাম'}</th><th>পরিমান</th><th>দর</th><th>মূল্য</th></tr></thead>
-      <tbody>${body}</tbody><tfoot><tr><td colspan="4">সর্বমোট</td><td class="n">${[kg ? fmtQ(kg) + ' কেজি' : '', pc ? fmtQ(pc) + ' পিস' : ''].filter(Boolean).join(' / ')}</td><td></td><td class="n">${noRate ? '' : fmtA(amt)}</td></tr></tfoot></table>
-      <script>window.onload=function(){setTimeout(function(){window.print();},300);};<\/script></body></html>`;
-    const win = window.open('', '_blank');
-    if (!win) { showToast(t('পপ-আপ ব্লক হয়েছে — এই সাইটের জন্য পপ-আপ অনুমতি দিন।', 'Pop-up was blocked — please allow pop-ups for this site.'), 'error'); return; }
-    win.document.write(html); win.document.close();
+    const table = `<table class="ctr"><thead><tr><th>ক্রঃ</th><th>ইনভয়েচ নং</th><th>তারিখ</th><th>${ty.side === 'S' ? 'গ্রাহকের নাম' : 'সাপ্লায়ারের নাম'}</th><th>পরিমান</th><th>দর</th><th>মূল্য</th></tr></thead>
+      <tbody>${body}</tbody><tfoot><tr><td colspan="4">সর্বমোট</td><td class="n">${[kg ? fmtQ(kg) + ' কেজি' : '', pc ? fmtQ(pc) + ' পিস' : ''].filter(Boolean).join('<br>')}</td><td></td><td class="n">${noRate ? '' : fmtA(amt)}</td></tr></tfoot></table>`;
+    printReportA4({ title: 'বিক্রয় প্রতিবেদন — ' + ty.bn, sub: formatShortDate(st.from) + ' হইতে ' + formatShortDate(st.to) + ' পর্যন্ত' + (filt ? ' · ' + filt : ''), html: table });
   }
 
   // ---- ঘটনা ----
   fillCascade(); fillZones();
+  /** টেবিলের স্ক্রল-ঘর পর্দার নিচ পর্যন্ত — হেডার উপরে আটকে থাকে, যত বেশি সারি দেখা যায় */
+  window.__srFit = function () {
+    const sc = content.querySelector('.sr-scroll'); if (!sc || !sc.isConnected) return;
+    const room = window.innerHeight - sc.getBoundingClientRect().top - 26;
+    sc.style.maxHeight = Math.max(220, Math.floor(room)) + 'px';
+  };
+  if (!window.__srFitBound) { window.__srFitBound = true; window.addEventListener('resize', function () { window.__srFit && window.__srFit(); }); }
   const isMob = function () { return window.matchMedia('(max-width:760px)').matches; };
   function setSide(collapsed, remember) {
     $('srSide').classList.toggle('collapsed', collapsed);
     $('srTog').textContent = isMob() ? (collapsed ? '▾' : '▴') : (collapsed ? '›' : '‹');
+    setTimeout(function () { window.__srFit && window.__srFit(); }, 250);
     if (remember) { try { localStorage.setItem('srSideCollapsed', collapsed ? '1' : '0'); } catch (e) {} }
   }
   let sideInit = false; try { sideInit = !isMob() && localStorage.getItem('srSideCollapsed') === '1'; } catch (e) {}
@@ -17387,7 +17434,7 @@ async function renderPartyBalanceReport(content) {
         .tb{margin-bottom:8px;} .tb button{padding:6px 14px;font-family:inherit;}
         h2{margin:0;font-size:18px;text-align:center;} .co{text-align:center;font-size:11px;color:#444;} h3{margin:8px 0 2px;text-align:center;font-size:14px;} .sub{text-align:center;font-size:11.5px;color:#444;margin-bottom:8px;}
         table{width:100%;border-collapse:collapse;font-size:10.5px;} th,td{border:1px solid #bbb;padding:3px 5px;} th{background:#f1f1f1;text-align:center;font-weight:700;}
-        td.n{text-align:right;} td.c{text-align:center;} small{color:#555;font-size:9px;}
+        td,td.n,td.c{text-align:center;} small{color:#555;font-size:9px;}
         tr.pb-zh td{background:#e5e7eb;font-weight:700;} tr.pb-sub td,tfoot td{font-weight:700;background:#f6f6f6;} tr.sel td{background:none;}
         .pb-dr,.pb-cr{color:#111;}</style></head><body>
       <div class="tb"><button onclick="window.print()">🖨️ প্রিন্ট</button></div>
