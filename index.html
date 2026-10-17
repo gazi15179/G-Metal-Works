@@ -16814,45 +16814,8 @@ function addReportPrintButton(content, title) {
    কলামঃ ক্রঃ | ইনভয়েচ নং | তারিখ | গ্রাহকের নাম | পরিমান | দর | মূল্য | (👁️ ✏️ 🗑️ 💾)
    প্রতিটা ভাউচারের প্রতিটা আইটেম-লাইন এক সারি। একক বাছলে শুধু সেই এককের আইটেম।
    ============================================================ */
-const SALES_RPT_TYPES = [
-  { k: 'PurchaseInvoice',   bn: 'ক্রয়',            en: 'Purchase',            idf: 'PIID',   date: 'InvoiceDate',  lines: 'PI_Lines',        side: 'P', kind: 'purchase' },
-  { k: 'PurchaseOrder',     bn: 'ক্রয় অর্ডার',      en: 'Purchase Order',      idf: 'POID',   date: 'OrderDate',    lines: 'PO_Lines',        side: 'P', kind: 'doc', page: 'po' },
-  { k: 'PurchaseQuotation', bn: 'ক্রয় কোটেশান',     en: 'Purchase Quotation',  idf: 'PQID',   date: 'Date',         lines: 'PQ_Lines',        side: 'P', kind: 'none' },
-  { k: 'PurchaseReturn',    bn: 'ক্রয় ফেরৎ',        en: 'Purchase Return',     idf: 'PRetID', date: 'Date',         lines: 'PR_Return_Lines', side: 'P', kind: 'purchase' },
-  { k: 'GRN',               bn: 'গ্রহন নোট',         en: 'Receive Note',        idf: 'GRNID',  date: 'ReceiveDate',  lines: 'GRN_Lines',       side: 'P', kind: 'doc', page: 'grn', postable: true, qtyField: 'ReceivedQty' },
-  { k: 'DeliveryChallan',   bn: 'প্রদান নোট',        en: 'Delivery Note',       idf: 'DCID',   date: 'DeliveryDate', lines: 'DC_Lines',        side: 'S', kind: 'doc', page: 'dc', postable: true },
-  { k: 'SalesInvoice',      bn: 'বিক্রয়',           en: 'Sales',               idf: 'SIID',   date: 'InvoiceDate',  lines: 'SI_Lines',        side: 'S', kind: 'sales' },
-  { k: 'SalesOrder',        bn: 'বিক্রয় অর্ডার',     en: 'Sales Order',         idf: 'SOID',   date: 'OrderDate',    lines: 'SO_Lines',        side: 'S', kind: 'doc', page: 'so' },
-  { k: 'SalesQuotation',    bn: 'বিক্রয় কোটেশান',    en: 'Sales Quotation',     idf: 'SQID',   date: 'Date',         lines: 'SQ_Lines',        side: 'S', kind: 'none' },
-  { k: 'SalesReturn',       bn: 'বিক্রয় ফেরৎ',       en: 'Sales Return',        idf: 'SRID',   date: 'Date',         lines: 'SR_Lines',        side: 'S', kind: 'sales' }
-];
-
-async function renderSalesReport(content) {
-  const dNow = new Date(), today = dNow.getFullYear() + '-' + String(dNow.getMonth() + 1).padStart(2, '0') + '-' + String(dNow.getDate()).padStart(2, '0');
-  const fyStart = await getFiscalYearStart(today);
-  const safeList = async function (s) { try { return await cachedList(s); } catch (e) { return []; } };
-  const [items, groups, cats, units, users, customers, suppliers] = await Promise.all([
-    safeList('Items'), safeList('ItemGroups'), safeList('Categories'), safeList('UOM'), safeList('Users'), safeList('Customers'), safeList('Suppliers')]);
-  const itemMap = {}; items.forEach(function (i) { itemMap[i.ItemID] = i; });
-  const unitMap = {}; units.forEach(function (u) { unitMap[u.UOMID] = u; });
-  const custMap = {}; customers.forEach(function (c) { custMap[c.CustomerID] = c.CompanyName || c.Name; });
-  const supMap = {}; suppliers.forEach(function (s) { supMap[s.SupplierID] = s.CompanyName || s.Name; });
-  const NO_ZONE = t('জোন নেই', 'No zone');
-  const zoneOf = function (r) { return String(r.Zone || '').trim() || NO_ZONE; };
-  const custZone = {}; customers.forEach(function (c) { custZone[c.CustomerID] = zoneOf(c); });
-  const supZone = {}; suppliers.forEach(function (s) { supZone[s.SupplierID] = zoneOf(s); });
-  const userName = function (u) { return u.FullName || u.Email || u.UserID; };
-  const liveItems = items.filter(function (i) { return i.Status !== 'Deleted'; });
-
-  const st = { type: 'SalesInvoice', from: fyStart, to: today, zone: '', group: '', cat: '', item: '', unit: '', user: '', sel: '' };
-  let cache = null, cacheKey = '', missing = false, lastRows = [];
-
-  const opt = function (list, idf, lblf, cur, allLbl) {
-    return `<option value="">${allLbl}</option>` + list.map(function (r) { return `<option value="${attr(r[idf])}" ${r[idf] === cur ? 'selected' : ''}>${escapeHtml(typeof lblf === 'function' ? lblf(r) : (r[lblf] || r[idf]))}</option>`; }).join('');
-  };
-
-  content.innerHTML = `
-    <style>${DMY_CSS}
+/** রিপোর্ট পেজের সাধারণ নকশা — বাম পাশের গুটানো যায় এমন ফিল্টার প্যানেল, ফ্রিজ হেডার, চিকন সারি (ক্রয় ও বিক্রয় প্রতিবেদন, পার্টি ব্যালান্স) */
+const RPT_SIDE_CSS = `
       .sr-layout{display:flex;gap:14px;align-items:flex-start;}
       .sr-side{position:relative;flex:0 0 230px;width:230px;background:#eaf3f8;border:1px solid #c9dce8;border-radius:12px;padding:8px 12px 10px;transition:flex-basis .2s,width .2s;box-sizing:border-box;}
       .sr-side-h{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#2f6f8f;margin-bottom:6px;}
@@ -16904,6 +16867,68 @@ async function renderSalesReport(content) {
         .sr-tbl td{padding:1px 4px !important;} .sr-tbl th{padding:3px 4px !important;}
         .sr-tbl td.nm{min-width:90px;}
       }
+`;
+
+/** বাম প্যানেল গুটানো/খোলা — ডেস্কটপে ‹ ›, মোবাইলে ▴ ▾; ডেস্কটপের অবস্থা মনে থাকে */
+function wireReportSide(side, tog, storeKey, onChange) {
+  const isMob = function () { return window.matchMedia('(max-width:760px)').matches; };
+  function set(collapsed, remember) {
+    side.classList.toggle('collapsed', collapsed);
+    tog.textContent = isMob() ? (collapsed ? '▾' : '▴') : (collapsed ? '›' : '‹');
+    if (onChange) setTimeout(onChange, 250);
+    if (remember) { try { localStorage.setItem(storeKey, collapsed ? '1' : '0'); } catch (e) {} }
+  }
+  let init = false; try { init = !isMob() && localStorage.getItem(storeKey) === '1'; } catch (e) {}
+  set(init, false);
+  tog.addEventListener('click', function () { set(!side.classList.contains('collapsed'), !isMob()); });
+  side.addEventListener('click', function (e) { if (side.classList.contains('collapsed') && e.target.closest('.sr-side-h')) set(false, !isMob()); });
+  return { collapse: function () { if (isMob()) set(true, false); } };
+}
+/** টেবিলের স্ক্রল-ঘর পর্দার নিচ পর্যন্ত লম্বা — হেডার উপরে আটকে থাকে */
+function fitReportScroll(root) {
+  const sc = root && root.querySelector('.sr-scroll'); if (!sc || !sc.isConnected) return;
+  sc.style.maxHeight = Math.max(220, Math.floor(window.innerHeight - sc.getBoundingClientRect().top - 26)) + 'px';
+}
+
+const SALES_RPT_TYPES = [
+  { k: 'PurchaseInvoice',   bn: 'ক্রয়',            en: 'Purchase',            idf: 'PIID',   date: 'InvoiceDate',  lines: 'PI_Lines',        side: 'P', kind: 'purchase' },
+  { k: 'PurchaseOrder',     bn: 'ক্রয় অর্ডার',      en: 'Purchase Order',      idf: 'POID',   date: 'OrderDate',    lines: 'PO_Lines',        side: 'P', kind: 'doc', page: 'po' },
+  { k: 'PurchaseQuotation', bn: 'ক্রয় কোটেশান',     en: 'Purchase Quotation',  idf: 'PQID',   date: 'Date',         lines: 'PQ_Lines',        side: 'P', kind: 'none' },
+  { k: 'PurchaseReturn',    bn: 'ক্রয় ফেরৎ',        en: 'Purchase Return',     idf: 'PRetID', date: 'Date',         lines: 'PR_Return_Lines', side: 'P', kind: 'purchase' },
+  { k: 'GRN',               bn: 'গ্রহন নোট',         en: 'Receive Note',        idf: 'GRNID',  date: 'ReceiveDate',  lines: 'GRN_Lines',       side: 'P', kind: 'doc', page: 'grn', postable: true, qtyField: 'ReceivedQty' },
+  { k: 'DeliveryChallan',   bn: 'প্রদান নোট',        en: 'Delivery Note',       idf: 'DCID',   date: 'DeliveryDate', lines: 'DC_Lines',        side: 'S', kind: 'doc', page: 'dc', postable: true },
+  { k: 'SalesInvoice',      bn: 'বিক্রয়',           en: 'Sales',               idf: 'SIID',   date: 'InvoiceDate',  lines: 'SI_Lines',        side: 'S', kind: 'sales' },
+  { k: 'SalesOrder',        bn: 'বিক্রয় অর্ডার',     en: 'Sales Order',         idf: 'SOID',   date: 'OrderDate',    lines: 'SO_Lines',        side: 'S', kind: 'doc', page: 'so' },
+  { k: 'SalesQuotation',    bn: 'বিক্রয় কোটেশান',    en: 'Sales Quotation',     idf: 'SQID',   date: 'Date',         lines: 'SQ_Lines',        side: 'S', kind: 'none' },
+  { k: 'SalesReturn',       bn: 'বিক্রয় ফেরৎ',       en: 'Sales Return',        idf: 'SRID',   date: 'Date',         lines: 'SR_Lines',        side: 'S', kind: 'sales' }
+];
+
+async function renderSalesReport(content) {
+  const dNow = new Date(), today = dNow.getFullYear() + '-' + String(dNow.getMonth() + 1).padStart(2, '0') + '-' + String(dNow.getDate()).padStart(2, '0');
+  const fyStart = await getFiscalYearStart(today);
+  const safeList = async function (s) { try { return await cachedList(s); } catch (e) { return []; } };
+  const [items, groups, cats, units, users, customers, suppliers] = await Promise.all([
+    safeList('Items'), safeList('ItemGroups'), safeList('Categories'), safeList('UOM'), safeList('Users'), safeList('Customers'), safeList('Suppliers')]);
+  const itemMap = {}; items.forEach(function (i) { itemMap[i.ItemID] = i; });
+  const unitMap = {}; units.forEach(function (u) { unitMap[u.UOMID] = u; });
+  const custMap = {}; customers.forEach(function (c) { custMap[c.CustomerID] = c.CompanyName || c.Name; });
+  const supMap = {}; suppliers.forEach(function (s) { supMap[s.SupplierID] = s.CompanyName || s.Name; });
+  const NO_ZONE = t('জোন নেই', 'No zone');
+  const zoneOf = function (r) { return String(r.Zone || '').trim() || NO_ZONE; };
+  const custZone = {}; customers.forEach(function (c) { custZone[c.CustomerID] = zoneOf(c); });
+  const supZone = {}; suppliers.forEach(function (s) { supZone[s.SupplierID] = zoneOf(s); });
+  const userName = function (u) { return u.FullName || u.Email || u.UserID; };
+  const liveItems = items.filter(function (i) { return i.Status !== 'Deleted'; });
+
+  const st = { type: 'SalesInvoice', from: fyStart, to: today, zone: '', group: '', cat: '', item: '', unit: '', user: '', sel: '' };
+  let cache = null, cacheKey = '', missing = false, lastRows = [];
+
+  const opt = function (list, idf, lblf, cur, allLbl) {
+    return `<option value="">${allLbl}</option>` + list.map(function (r) { return `<option value="${attr(r[idf])}" ${r[idf] === cur ? 'selected' : ''}>${escapeHtml(typeof lblf === 'function' ? lblf(r) : (r[lblf] || r[idf]))}</option>`; }).join('');
+  };
+
+  content.innerHTML = `
+    <style>${DMY_CSS}${RPT_SIDE_CSS}
     </style>
     <div class="sr-head"><h1 class="i18n" data-bn="ক্রয় ও বিক্রয় প্রতিবেদন" data-en="Purchase & Sales Report">${t('ক্রয় ও বিক্রয় প্রতিবেদন', 'Purchase & Sales Report')}</h1></div>
     <div class="sr-layout">
@@ -17238,74 +17263,59 @@ async function renderPartyBalanceReport(content) {
   let ledgerCache = null;   // সব PartyLedger সারি — একবার আনা হয়, তারিখ বদলালে শুধু নতুন হিসাব
 
   content.innerHTML = `
-    <style>${DMY_CSS}
-      .pb-bar{display:grid;grid-template-columns:repeat(5,minmax(0,auto));gap:8px 10px;align-items:end;margin-bottom:10px;}
-      .pb-bar .field{margin:0;} .pb-bar label{display:block;font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:3px;}
-      .pb-bar select,.pb-bar .dmy-in{height:32px;padding:4px 8px;font-size:12.5px;box-sizing:border-box;}
-      .pb-bar .dmy-in{width:118px;} .pb-bar select{min-width:130px;}
-      .pb-chk{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;height:32px;white-space:nowrap;}
-      .pb-chk input{width:auto;margin:0;}
-      .pb-btns{display:flex;gap:6px;align-items:center;} .pb-btns .btn{width:auto;height:32px;padding:4px 12px;font-size:12.5px;}
-      .pb-seg{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;height:32px;}
-      .pb-seg button{border:0;background:var(--surface);color:var(--text);padding:0 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;}
+    <style>${DMY_CSS}${RPT_SIDE_CSS}
+      .pb-seg{display:flex;border:1px solid #c9dce8;border-radius:7px;overflow:hidden;height:30px;background:#fff;}
+      .pb-seg button{flex:1;border:0;background:transparent;color:var(--text);padding:0 6px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit;}
       .pb-seg button.on{background:#1f2937;color:#ffd27a;}
-      .pb-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:10px;}
-      .pb-cards div{border:1px solid var(--border);border-radius:8px;padding:6px 8px;background:var(--surface);font-size:11px;color:var(--text-muted);text-align:center;}
-      .pb-cards b{display:block;font-size:13.5px;color:var(--text);margin-top:2px;}
-      .pb-scroll{overflow:auto;max-height:calc(100vh - 290px);-webkit-overflow-scrolling:touch;border:1px solid var(--border);border-radius:8px;}
-      table.pb-tbl{width:100%;border-collapse:collapse;font-size:11px;}
-      .pb-tbl th{font-size:11px;font-weight:700;text-align:center;background:#eef1f5;color:#1f2937;border:1px solid #d5dae1;padding:4px 6px;position:sticky;z-index:2;white-space:nowrap;}
-      .pb-tbl thead tr.r1 th{top:0;} .pb-tbl thead tr.r2 th{top:22px;}
-      .pb-tbl td{font-size:11px;font-weight:400;border:1px solid #e3e6ea;padding:3px 6px;white-space:nowrap;}
-      .pb-tbl td.n{text-align:right;font-variant-numeric:tabular-nums;} .pb-tbl td.c{text-align:center;}
-      .pb-tbl td.nm{white-space:normal;min-width:130px;} .pb-tbl td.nm small{color:var(--text-muted);font-size:10px;}
+      .pb-chk{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;height:26px;white-space:nowrap;color:#3d5a6c;}
+      .pb-chk input{width:auto;margin:0;}
       .pb-tbl tbody tr.pb-row{cursor:pointer;} .pb-tbl tbody tr.pb-row:hover td{background:#fff8e6;}
       .pb-tbl tbody tr.pb-row.sel td{background:#ffe9b3;}
-      .pb-tbl tr.pb-zh td{background:#1f2937;color:#ffd27a;font-weight:700;font-size:11px;padding:4px 8px;}
+      .pb-tbl tr.pb-zh td{background:#1f2937;color:#ffd27a;font-weight:700;text-align:left !important;padding:2px 8px !important;}
       .pb-tbl tr.pb-zh td small{color:#cbd5e1;font-weight:400;margin-left:4px;}
       .pb-tbl tr.pb-sub td{background:#f4f6f9;font-weight:700;}
-      .pb-tbl tfoot td{background:#e9edf3;font-weight:700;position:sticky;bottom:0;z-index:1;}
+      .pb-tbl td.nm small::before{content:'';} .pb-tbl td.nm small{margin-left:4px;}
       .pb-dr{color:#b45309;} .pb-cr{color:#1d4ed8;}
-      .pb-ic{border:1px solid var(--border);background:var(--surface);border-radius:6px;min-width:26px;height:22px;font-size:11px;cursor:pointer;padding:0 4px;}
-      .pb-hint{font-size:12.5px;color:var(--text-muted);padding:14px;text-align:center;}
-      .pb-note{font-size:10.5px;color:var(--text-muted);margin-top:6px;}
       @media (max-width:760px){
-        .pb-bar{grid-template-columns:1fr 1fr;gap:6px 8px;}
-        .pb-bar .dmy-wrap,.pb-bar .dmy-in,.pb-bar select{width:100%;min-width:0;}
-        .pb-bar .pb-wide{grid-column:span 2;}
-        .pb-seg{width:100%;} .pb-seg button{flex:1;}
-        .pb-btns .btn{flex:1;}
-        .pb-cards{grid-template-columns:1fr 1fr;gap:6px;}
-        .pb-scroll{max-height:calc(100vh - 330px);}
-        .pb-tbl td,.pb-tbl th{padding:3px 4px;}
-        .pb-nolbl{display:none !important;}
         .pb-tbl .pb-act,.pb-tbl td.nm small{display:none;}   /* মোবাইলে 👁️ কলাম লুকানো — দুই চাপেই খোলে */
-        .pb-tbl td.nm{min-width:84px;}
+        .pb-tbl td.nm{min-width:64px;white-space:normal;} .pb-tbl th{white-space:normal !important;}
+        .pb-tbl .pb-tag{display:block;line-height:1;font-size:10px;}
       }
+      .pb-tag{font-style:normal;}
     </style>
-    <div class="page-head"><div>
-        <h1 class="i18n" data-bn="পার্টি ব্যালান্স" data-en="Party Balance">${t('পার্টি ব্যালান্স', 'Party Balance')}</h1>
-        <p>${t('তারিখ-রেঞ্জ অনুযায়ী জোনের ও পার্টির প্রারম্ভিক, লেনদেন ও অন্তিম জের', 'Opening, transactions and closing balance by zone and party for a date range')}</p>
-      </div></div>
-    <div class="panel">
-      <div class="pb-bar" id="pbBar">
-        <div class="field"><label>${t('তারিখ হইতে', 'From')}</label>${dmyDateField('pbFrom', st.from)}</div>
-        <div class="field"><label>${t('তারিখ পর্যন্ত', 'To')}</label>${dmyDateField('pbTo', st.to)}</div>
+    <div class="sr-head"><h1 class="i18n" data-bn="পার্টি ব্যালান্স" data-en="Party Balance">${t('পার্টি ব্যালান্স', 'Party Balance')}</h1></div>
+    <div class="sr-layout">
+     <aside class="sr-side" id="pbSide">
+      <button type="button" class="sr-tog" id="pbTog" title="${attr(t('ফিল্টার লুকান/দেখান', 'Hide/show filters'))}">‹</button>
+      <div class="sr-side-h" data-lbl="${attr(t('ফিল্টার', 'Filters'))}"><span>🔎 ${t('ফিল্টার', 'Filters')}</span></div>
+      <div class="sr-bar" id="pbBar">
+        <div class="field"><label>${t('হইতে', 'From')}</label>${dmyDateField('pbFrom', st.from)}</div>
+        <div class="field"><label>${t('পর্যন্ত', 'To')}</label>${dmyDateField('pbTo', st.to)}</div>
         <div class="field"><label>${t('জোন', 'Zone')}</label><select id="pbZone"><option value="">${t('সব জোন', 'All zones')}</option>${allZones.map(function (z) { return `<option value="${attr(z)}">${escapeHtml(z)}</option>`; }).join('')}</select></div>
-        <div class="field"><label>${t('দেখাও', 'Show')}</label><div class="pb-seg" id="pbView"><button type="button" data-v="zone" class="on">${t('জোনের ব্যালান্স', 'Zone balance')}</button><button type="button" data-v="party">${t('পার্টির ব্যালান্স', 'Party balance')}</button></div></div>
-        <div class="field pb-wide"><label class="pb-nolbl">&nbsp;</label><div class="pb-btns"><label class="pb-chk"><input type="checkbox" id="pbHideZero" checked> ${t('শূন্য বাদ', 'Hide zero')}</label><button type="button" class="btn btn-primary" id="pbShow">🔄 ${t('দেখাও', 'Show')}</button><button type="button" class="btn btn-outline" id="pbPrint">🖨️ ${t('প্রিন্ট', 'Print')}</button></div></div>
+        <div class="field"><label>${t('দেখাও', 'Show')}</label><div class="pb-seg" id="pbView"><button type="button" data-v="zone" class="on">${t('জোন', 'Zone')}</button><button type="button" data-v="party">${t('পার্টি', 'Party')}</button></div></div>
+        <div class="field"><label>&nbsp;</label><label class="pb-chk"><input type="checkbox" id="pbHideZero" checked> ${t('শূন্য ব্যালান্স বাদ', 'Hide zero')}</label></div>
+        <div class="sr-btns"><button type="button" class="btn btn-primary" id="pbShow">🔄 ${t('দেখাও', 'Show')}</button><button type="button" class="btn btn-outline" id="pbPrint">🖨️ ${t('প্রিন্ট', 'Print')}</button></div>
       </div>
+     </aside>
+     <div class="sr-main panel">
       <div id="pbCards"></div>
-      <div id="pbOut"><div class="pb-hint">${t('লোড হচ্ছে…', 'Loading…')}</div></div>
-      <div class="pb-note">${t('এক চাপে সারি বাছাই, দুই চাপে খোলে — জোন চাপলে তার পার্টিরা, পার্টি চাপলে তার লেজার। ডেঃ = পার্টির কাছে পাওনা, ক্রেঃ = পার্টির কাছে দেনা।', 'Tap once to select, twice to open — a zone shows its parties, a party opens its ledger. Dr = receivable from party, Cr = payable to party.')}</div>
+      <div id="pbOut"><div class="sr-hint">${t('লোড হচ্ছে…', 'Loading…')}</div></div>
+      <div class="sr-note">${t('এক চাপে সারি বাছাই, দুই চাপে খোলে — জোন চাপলে তার পার্টিরা, পার্টি চাপলে তার লেজার। ডেঃ = পার্টির কাছে পাওনা, ক্রেঃ = পার্টির কাছে দেনা।', 'Tap once to select, twice to open — a zone shows its parties, a party opens its ledger. Dr = receivable from party, Cr = payable to party.')}</div>
+     </div>
     </div>`;
   wireDmyFields(content);
+  const pbSide = wireReportSide(document.getElementById('pbSide'), document.getElementById('pbTog'), 'pbSideCollapsed', function () { fitReportScroll(content); });
 
   const $ = function (id) { return document.getElementById(id); };
-  const fmt = function (v) { const n = Math.abs(Number(v) || 0); return n < 0.005 ? '' : n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+  const pbMob = function () { return window.matchMedia('(max-width:760px)').matches; };
+  const fmt = function (v, forPrint) {   // মোবাইলের পর্দায় পূর্ণ টাকায় .00 বাদ — টেবিল পর্দায় ধরে; প্রিন্টে সবসময় দুই দশমিক
+    const n = Math.abs(Number(v) || 0); if (n < 0.005) return '';
+    const whole = Math.abs(n - Math.round(n)) < 0.005, d = (!forPrint && pbMob() && whole) ? 0 : 2;
+    return n.toLocaleString('en-IN', { minimumFractionDigits: d, maximumFractionDigits: d });
+  };
   const fmtBal = function (v) {
     const n = Number(v) || 0; if (Math.abs(n) < 0.005) return '0.00';
-    return `<span class="${n > 0 ? 'pb-dr' : 'pb-cr'}">${fmt(n)} ${n > 0 ? t('ডেঃ', 'Dr') : t('ক্রেঃ', 'Cr')}</span>`;
+    return `<span class="${n > 0 ? 'pb-dr' : 'pb-cr'}">${fmt(n)} <i class="pb-tag">${n > 0 ? t('ডেঃ', 'Dr') : t('ক্রেঃ', 'Cr')}</i></span>`;
   };
 
   /** সব PartyLedger সারি — ১০০০ সারির সীমা পার হতে পাতায় পাতায় আনা */
@@ -17366,33 +17376,34 @@ async function renderPartyBalanceReport(content) {
   function render() {
     const out = $('pbOut'); if (!out) return;
     const res = compute(); lastRes = res;
-    $('pbCards').innerHTML = `<div class="pb-cards">
+    $('pbCards').innerHTML = `<div class="sr-cards">
       <div>${t('প্রারম্ভিক', 'Opening')}<b>${fmtBal(res.tot.open)}</b></div>
       <div>${t('মোট ডেবিট', 'Total debit')}<b>${fmt(res.tot.dr) || '0.00'}</b></div>
       <div>${t('মোট ক্রেডিট', 'Total credit')}<b>${fmt(res.tot.cr) || '0.00'}</b></div>
       <div>${t('অন্তিম জের', 'Closing')}<b>${fmtBal(res.tot.close)}</b></div></div>`;
-    if (!res.zones.length) { out.innerHTML = `<div class="pb-hint">${t('এই সময়ে কোনো হিসাব নেই।', 'No balances for this period.')}</div>`; return; }
+    if (!res.zones.length) { out.innerHTML = `<div class="sr-hint">${t('এই সময়ে কোনো হিসাব নেই।', 'No balances for this period.')}</div>`; return; }
     let body = '';
     if (st.view === 'zone') {
       body = res.zones.map(function (z, i) {
-        return `<tr class="pb-row${st.sel === 'Z|' + z.zone ? ' sel' : ''}" data-k="Z|${attr(z.zone)}"><td class="c">${i + 1}</td><td class="nm">${escapeHtml(z.zone)} <small>(${z.list.length}${t('টি পার্টি', ' parties')})</small></td>${numCells(z)}<td class="c pb-act"><button type="button" class="pb-ic" data-open="Z|${attr(z.zone)}" title="${attr(t('পার্টিগুলো দেখুন', 'View parties'))}">👁️</button></td></tr>`;
+        return `<tr class="pb-row${st.sel === 'Z|' + z.zone ? ' sel' : ''}" data-k="Z|${attr(z.zone)}"><td class="c">${i + 1}</td><td class="nm">${escapeHtml(z.zone)} <small>(${z.list.length}${t('টি পার্টি', ' parties')})</small></td>${numCells(z)}<td class="c pb-act"><button type="button" class="sr-ic" data-open="Z|${attr(z.zone)}" title="${attr(t('পার্টিগুলো দেখুন', 'View parties'))}">👁️</button></td></tr>`;
       }).join('');
-      out.innerHTML = `<div class="pb-scroll"><table class="pb-tbl" id="pbTable">${headHtml(t('এলাকা', 'Area'))}<tbody>${body}</tbody>
+      out.innerHTML = `<div class="sr-scroll"><table class="sr-tbl pb-tbl" id="pbTable">${headHtml(t('এলাকা', 'Area'))}<tbody>${body}</tbody>
         <tfoot><tr><td></td><td>${t('সর্বমোট', 'Grand total')} (${res.zones.length}${t('টি জোন', ' zones')})</td>${numCells(res.tot)}<td class="pb-act"></td></tr></tfoot></table></div>`;
     } else {
       body = res.zones.map(function (z) {
         return `<tr class="pb-zh"><td colspan="7">📍 ${escapeHtml(z.zone)} <small>(${z.list.length}${t('টি পার্টি', ' parties')})</small></td></tr>` +
           z.list.map(function (p, i) {
-            return `<tr class="pb-row${st.sel === 'P|' + p.key ? ' sel' : ''}" data-k="P|${attr(p.key)}"><td class="c">${i + 1}</td><td class="nm">${escapeHtml(p.name)}${p.phone ? ` <small>${escapeHtml(p.phone)}</small>` : ''}</td>${numCells(p)}<td class="c pb-act">${p.unknown ? '' : `<button type="button" class="pb-ic" data-open="P|${attr(p.key)}" title="${attr(t('লেজার দেখুন', 'View ledger'))}">👁️</button>`}</td></tr>`;
+            return `<tr class="pb-row${st.sel === 'P|' + p.key ? ' sel' : ''}" data-k="P|${attr(p.key)}"><td class="c">${i + 1}</td><td class="nm">${escapeHtml(p.name)}${p.phone ? ` <small>${escapeHtml(p.phone)}</small>` : ''}</td>${numCells(p)}<td class="c pb-act">${p.unknown ? '' : `<button type="button" class="sr-ic" data-open="P|${attr(p.key)}" title="${attr(t('লেজার দেখুন', 'View ledger'))}">👁️</button>`}</td></tr>`;
           }).join('') +
           `<tr class="pb-sub"><td></td><td>${t('জোন মোট', 'Zone total')}</td>${numCells(z)}<td class="pb-act"></td></tr>`;
       }).join('');
-      out.innerHTML = `<div class="pb-scroll"><table class="pb-tbl" id="pbTable">${headHtml(t('পার্টির নাম', 'Party'))}<tbody>${body}</tbody>
+      out.innerHTML = `<div class="sr-scroll"><table class="sr-tbl pb-tbl" id="pbTable">${headHtml(t('পার্টির নাম', 'Party'))}<tbody>${body}</tbody>
         <tfoot><tr><td></td><td>${t('সর্বমোট', 'Grand total')} (${res.tot.n}${t('টি পার্টি', ' parties')})</td>${numCells(res.tot)}<td class="pb-act"></td></tr></tfoot></table></div>`;
     }
   }
 
   function fixStickyHead() {   // ২য় হেডার সারি (ডেবিট/ক্রেডিট) ঠিক ১ম সারির নিচে আটকে থাকবে
+    fitReportScroll(content);
     const tb = $('pbTable'); if (!tb) return;
     const r1 = tb.querySelector('thead tr.r1 th[colspan]'); if (!r1) return;
     const h = r1.getBoundingClientRect().height;
@@ -17405,9 +17416,9 @@ async function renderPartyBalanceReport(content) {
     if (from > to) { showToast(t('"হইতে" তারিখ "পর্যন্ত" তারিখের পরে হতে পারে না।', '"From" cannot be after "To".'), 'error'); return; }
     st.from = from; st.to = to; st.zone = $('pbZone').value; st.hideZero = $('pbHideZero').checked;
     if (!ledgerCache || force) {
-      $('pbOut').innerHTML = `<div class="pb-hint">${t('লোড হচ্ছে…', 'Loading…')}</div>`;
+      $('pbOut').innerHTML = `<div class="sr-hint">${t('লোড হচ্ছে…', 'Loading…')}</div>`;
       try { ledgerCache = await fetchLedger(); }
-      catch (err) { $('pbOut').innerHTML = `<div class="pb-hint">${escapeHtml(err.message)}</div>`; return; }
+      catch (err) { $('pbOut').innerHTML = `<div class="sr-hint">${escapeHtml(err.message)}</div>`; return; }
     }
     render(); fixStickyHead();
   }
@@ -17427,7 +17438,8 @@ async function renderPartyBalanceReport(content) {
   }
 
   // ---- ঘটনা ----
-  $('pbShow').addEventListener('click', function () { load(true); });
+  $('pbShow').addEventListener('click', async function () { await load(true); pbSide.collapse(); });   // মোবাইলে দেখানোর পর ফিল্টার গুটিয়ে যায়
+  if (!window.__pbFitBound) { window.__pbFitBound = true; window.addEventListener('resize', function () { const c = document.getElementById('pbTable'); if (c) fitReportScroll(c.closest('.sr-main')); }); }
   $('pbZone').addEventListener('change', function () { load(false); });
   $('pbHideZero').addEventListener('change', function () { load(false); });
   ['pbFrom', 'pbTo'].forEach(function (id) { $(id).addEventListener('change', function () { if (dmyIso(id)) load(false); }); });
@@ -17471,9 +17483,9 @@ async function renderPartyBalanceReport(content) {
     clone.querySelectorAll('tr.pb-zh td').forEach(function (c) { c.setAttribute('colspan', '6'); });
     clone.removeAttribute('id'); clone.className = '';
     const title = t('পার্টি ব্যালান্স', 'Party Balance') + ' — ' + (st.view === 'zone' ? t('জোন ভিত্তিক', 'by zone') : t('পার্টি ভিত্তিক', 'by party'));
-    const T = lastRes.tot, plain = function (v) { const n = Number(v) || 0; return Math.abs(n) < 0.005 ? '0.00' : fmt(n) + (n > 0 ? ' ডেঃ' : ' ক্রেঃ'); };
+    const T = lastRes.tot, plain = function (v) { const n = Number(v) || 0; return Math.abs(n) < 0.005 ? '0.00' : fmt(n, true) + (n > 0 ? ' ডেঃ' : ' ক্রেঃ'); };
     printReportA4({ title: title, period: isoToDmy(st.from) + ' হইতে ' + isoToDmy(st.to) + ' পর্যন্ত', filters: st.zone ? 'জোনঃ ' + st.zone : '',
-      summary: [['প্রারম্ভিক', plain(T.open)], ['মোট ডেবিট', fmt(T.dr) || '0.00'], ['মোট ক্রেডিট', fmt(T.cr) || '0.00'], ['অন্তিম জের', plain(T.close)]], html: clone.outerHTML });
+      summary: [['প্রারম্ভিক', plain(T.open)], ['মোট ডেবিট', fmt(T.dr, true) || '0.00'], ['মোট ক্রেডিট', fmt(T.cr, true) || '0.00'], ['অন্তিম জের', plain(T.close)]], html: clone.outerHTML });
   });
 
   await load(true);
