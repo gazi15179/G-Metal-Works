@@ -480,7 +480,7 @@ const MODULES = [
   {key:'accounts', bn:'হিসাব', en:'Accounts', sub:[
     {key:'coa', bn:'হিসাবের তালিকা', en:'Chart of Accounts'},{key:'bankCash', bn:'ব্যাংক ও ক্যাশ অ্যাকাউন্ট', en:'Bank & Cash Accounts'},
     {key:'jv', bn:'জার্নাল ভাউচার', en:'Journal Voucher'},{key:'cv', bn:'কনট্রা ভাউচার', en:'Contra Voucher'},{key:'cvSettings', bn:'কনট্রা ভাউচার সেটিং', en:'Contra Voucher Settings'},
-    {key:'pv', bn:'পেমেন্ট ভাউচার', en:'Payment Voucher'},{key:'payvSettings', bn:'পেমেন্ট ভাউচার সেটিং', en:'Payment Voucher Settings'},{key:'rv', bn:'কালেকশন ভাউচার', en:'Collection Voucher'},{key:'recvSettings', bn:'কালেকশন ভাউচার সেটিং', en:'Collection Voucher Settings'},{key:'ev', bn:'এক্সপেন্স ভাউচার', en:'Expense Voucher'},{key:'evSettings', bn:'এক্সপেন্স ভাউচার সেটিং', en:'Expense Voucher Settings'},{key:'icv', bn:'রিসিপ্ট ভাউচার', en:'Receipt Voucher'},{key:'icvSettings', bn:'রিসিপ্ট ভাউচার সেটিং', en:'Receipt Voucher Settings'},{key:'costLedger', bn:'খরচ খাত লেজার', en:'Cost Head Ledger'},{key:'ownerCapital', bn:'মালিকের মূলধন', en:'Owner Capital'},
+    {key:'pv', bn:'পেমেন্ট ভাউচার', en:'Payment Voucher'},{key:'payvSettings', bn:'পেমেন্ট ভাউচার সেটিং', en:'Payment Voucher Settings'},{key:'rv', bn:'কালেকশন ভাউচার', en:'Collection Voucher'},{key:'recvSettings', bn:'কালেকশন ভাউচার সেটিং', en:'Collection Voucher Settings'},{key:'ev', bn:'এক্সপেন্স ভাউচার', en:'Expense Voucher'},{key:'evSettings', bn:'এক্সপেন্স ভাউচার সেটিং', en:'Expense Voucher Settings'},{key:'icv', bn:'রিসিপ্ট ভাউচার', en:'Receipt Voucher'},{key:'icvSettings', bn:'রিসিপ্ট ভাউচার সেটিং', en:'Receipt Voucher Settings'},{key:'costLedger', bn:'খরচ খাত লেজার', en:'Cost Head Ledger'},{key:'ownerCapital', bn:'মালিকের মূলধন', en:'Owner Capital'},{key:'loans', bn:'ধার-দেনা (পাওনা/দেনা)', en:'Loans (receivable/payable)'},
     {key:'bankBook', bn:'ব্যাংক ও নগদ বই', en:'Bank & Cash Book'},{key:'trialBalance', bn:'ট্রায়াল ব্যালেন্স', en:'Trial Balance'},
   ]},
   {key:'assets', bn:'স্থায়ী সম্পদ', en:'Fixed Assets', sub:[
@@ -512,7 +512,7 @@ const READY_PAGES = ['dashboard','svSettings','pvSettings','payvSettings','recvS
   'stockOverview','goodsReceive','materialIssue','stockTransfer','stockAdjust','stockLedger',
   'so','dc','si','sr','custLedger',
   'bom','processing','processingOld','prodDaily','procCosting','pOrder','pmi','fgr',
-  'coa','bankCash','jv','cv','pv','rv','ownerCapital','assetNames','assetPurchase','assetSale','fixedAssets','bankBook','trialBalance',
+  'coa','bankCash','jv','cv','pv','rv','ownerCapital','loans','assetNames','assetPurchase','assetSale','fixedAssets','bankBook','trialBalance',
   'empCategories','empInfo','workRoles','sizeRates','attendance','dailyProduction','leave','payroll','salaryIssue','payHeads','hrReports','payslip',
   'invReport','salesReport','prodReport','finReport','plReport','partyBalance',
   'general','langSettings','companySettings','backup'];
@@ -1561,6 +1561,7 @@ async function navigateTo(pageKey, moduleLabel, pageLabel) {
     else if (pageKey === 'rv') await renderReceiptVoucherPage(content);   // কালেকশন ভাউচার — পেমেন্ট ভাউচারের মত, দিক উল্টো
     else if (SIMPLE_VOUCHER_CONFIGS[pageKey]) await renderSimpleVoucherPage(content, SIMPLE_VOUCHER_CONFIGS[pageKey]);
     else if (pageKey === 'ownerCapital') await renderOwnerCapitalPage(content);
+    else if (pageKey === 'loans') await renderLoanPage(content);
     else if (pageKey === 'assetNames') await renderAssetMasterPage(content);
     else if (pageKey === 'fixedAssets') await renderFixedAssetPage(content);
     else if (pageKey === 'assetPurchase') await renderAssetPurchasePage(content);
@@ -7170,7 +7171,7 @@ const BOOK_REF_LABEL = {
   SalesInvoice: 'নগদ বিক্রয়', 'SalesInvoice-Receipt': 'বিক্রয়ে টাকা গ্রহণ', SalesReturn: 'নগদ বিক্রয় ফেরত',
   PurchaseInvoice: 'নগদ ক্রয়', 'PurchaseInvoice-Payment': 'ক্রয়ে টাকা প্রদান', PurchaseReturn: 'নগদ ক্রয় ফেরত',
   PaymentVoucher: 'পেমেন্ট ভাউচার', ReceiptVoucher: 'কালেকশন ভাউচার', ExpenseVoucher: 'এক্সপেন্স ভাউচার (খরচ)', IncomeVoucher: 'রিসিপ্ট ভাউচার (অন্যান্য আয়)', 'IncomeVoucher-Receipt': 'রিসিপ্ট ভাউচারে (বাকির) নগদ গ্রহণ', ContraVoucher: 'কনট্রা (অ্যাকাউন্ট বদল)',
-  CapitalVoucher: 'মালিকের মূলধন', FixedAsset: 'স্থায়ী সম্পদ', AssetPurchase: 'এ্যাসেট ক্রয়', AssetSale: 'এ্যাসেট বিক্রয়',
+  CapitalVoucher: 'মালিকের মূলধন', LoanVoucher: 'ধার-দেনা', FixedAsset: 'স্থায়ী সম্পদ', AssetPurchase: 'এ্যাসেট ক্রয়', AssetSale: 'এ্যাসেট বিক্রয়',
   SalaryIssue: 'সেলারী ইস্যু (বেতন প্রদান)', 'SalaryIssue-Reversal': 'সেলারী ইস্যু বাতিল (টাকা ফেরত)'
 };
 function bookRefLabel(m) {
@@ -7216,6 +7217,316 @@ async function findMisplacedCashRows(book) {
     else if (bankAcc === 'BC-CASH' && eq(amt, bankAmt)) out.push({ r: r, why: 'নগদ থেকে সাপ্লায়ারের ব্যাংকে', doubt: true });
   });
   return { cashId: cashId, rows: out };
+}
+
+/* ============================================================
+   হিসাব → ধার-দেনা (পাওনা/দেনা) — গ্রাহক/সাপ্লায়ার নন এমন ব্যক্তির সাথে নগদ ধার-দেনা
+   • ধার দিলাম (পাওনা বাড়ে) · ধার ফেরত পেলাম (পাওনা কমে) · ধার নিলাম (দেনা বাড়ে) · ধার শোধ করলাম (দেনা কমে)
+   • পার্টি লেজারে ধরন "Person": ডেবিট = সে আমাকে দেবে (আমি পাব), ক্রেডিট = আমি তাকে দেব
+   • নগদ/ব্যাংক বইয়ের সাথে জোড়া; পোস্ট করা এন্ট্রি বদলাতে এডমিন পাসওয়ার্ড; স্টকে কিছু যায় না
+   ============================================================ */
+const LOAN_TYPES = {
+  Give:    { bn: 'ধার দিলাম', en: 'Lent', party: [1, 0], bank: [0, 1], hint: 'আমার পাওনা বাড়বে' },
+  GetBack: { bn: 'ধার ফেরত পেলাম', en: 'Got back', party: [0, 1], bank: [1, 0], hint: 'আমার পাওনা কমবে' },
+  Take:    { bn: 'ধার নিলাম', en: 'Borrowed', party: [0, 1], bank: [1, 0], hint: 'আমার দেনা বাড়বে' },
+  Repay:   { bn: 'ধার শোধ করলাম', en: 'Repaid', party: [1, 0], bank: [0, 1], hint: 'আমার দেনা কমবে' }
+};
+function loanBalText(b) { b = Number(b) || 0; return Math.abs(b) < 0.005 ? t('হিসাব সমান (০)', 'settled (0)') : b > 0 ? t('আমি পাব ৳', 'I will get ৳') + b.toFixed(2) : t('আমি দেব ৳', 'I owe ৳') + Math.abs(b).toFixed(2); }
+async function loanPersons() { try { const { data, error } = await supabaseClient.from('LoanPerson').select('*'); if (error) throw error; return (data || []).filter(function (p) { return p.Status !== 'Deleted'; }).sort(function (a, b) { return String(a.Name).localeCompare(String(b.Name), 'bn'); }); } catch (e) { return null; } }
+/** ব্যক্তির জোড়া গ্রাহক/সাপ্লায়ার — চাইলে তার কাছে মাল বেচা/কেনা যায় (সাধারণ বিক্রয়/ক্রয় ভাউচারে); কোড = ব্যক্তির নম্বর */
+async function loanLinkTrade(p, kind) {   // kind: 'Customer' | 'Supplier'
+  const col = kind === 'Customer' ? 'LinkedCustomerID' : 'LinkedSupplierID', sheet = kind === 'Customer' ? 'Customers' : 'Suppliers', idf = kind === 'Customer' ? 'CustomerID' : 'SupplierID';
+  const data = { Code: p.PersonID, Name: p.Name, CompanyName: '', Phone: p.Mobile || '', Email: '', Address: p.Address || '', Zone: '', OpeningBalance: 0, CreditLimit: 0, IsActive: 'TRUE' };
+  const rec = await api('create', { sheet: sheet, idField: idf, idPrefix: kind === 'Customer' ? 'CUS' : 'SUP', requiredFields: ['Name'], data: data });
+  const upd = {}; upd[col] = rec[idf];
+  const { error } = await supabaseClient.from('LoanPerson').update(upd).eq('PersonID', p.PersonID);
+  if (error) { await api('delete', { sheet: sheet, idField: idf, idValue: rec[idf] }); throw new Error(/Linked/.test(error.message) ? 'জোড়ার ঘর নেই — আগে Supabase-এ 38 নম্বর SQL চালান।' : error.message); }
+  delete listCache[sheet];
+  return rec[idf];
+}
+async function loanUnlinkTrade(p, kind) {
+  const col = kind === 'Customer' ? 'LinkedCustomerID' : 'LinkedSupplierID', sheet = kind === 'Customer' ? 'Customers' : 'Suppliers', idf = kind === 'Customer' ? 'CustomerID' : 'SupplierID', id = p[col];
+  if (!id) return;
+  const { data: rows } = await supabaseClient.from('PartyLedger').select('id').eq('PartyType', kind).eq('PartyID', id).limit(1);
+  const tbl = kind === 'Customer' ? ['SalesInvoice', 'CustomerID'] : ['PurchaseInvoice', 'SupplierID'];
+  const { data: vs } = await supabaseClient.from(tbl[0]).select('Status').eq(tbl[1], id);
+  if ((rows && rows.length) || (vs || []).some(function (v) { return v.Status !== 'Deleted'; })) throw new Error(t('এর নামে বেচাকেনার ভাউচার/লেজার আছে — বন্ধ করা যাবে না।', 'Has trade vouchers — cannot turn off.'));
+  await api('delete', { sheet: sheet, idField: idf, idValue: id });
+  const upd = {}; upd[col] = null;
+  const { error } = await supabaseClient.from('LoanPerson').update(upd).eq('PersonID', p.PersonID); if (error) throw new Error(error.message);
+  delete listCache[sheet];
+}
+/** বেচাকেনার ব্যালান্স (জোড়া গ্রাহক + সাপ্লায়ারের পার্টি লেজার) — ধনাত্মক = আমি পাব */
+async function loanTradeBalances(persons) {
+  const cIds = [], sIds = [], out = {};
+  persons.forEach(function (p) { if (p.LinkedCustomerID) cIds.push(p.LinkedCustomerID); if (p.LinkedSupplierID) sIds.push(p.LinkedSupplierID); });
+  const sum = async function (type, ids) { const m = {}; if (!ids.length) return m; try { const { data } = await supabaseClient.from('PartyLedger').select('PartyID,Debit,Credit').eq('PartyType', type).in('PartyID', ids); (data || []).forEach(function (r) { m[r.PartyID] = (m[r.PartyID] || 0) + (Number(r.Debit) || 0) - (Number(r.Credit) || 0); }); } catch (e) {} return m; };
+  const [cm, sm] = await Promise.all([sum('Customer', cIds), sum('Supplier', sIds)]);
+  persons.forEach(function (p) { out[p.PersonID] = (cm[p.LinkedCustomerID] || 0) + (sm[p.LinkedSupplierID] || 0); });
+  return out;
+}
+const LOAN_KHATA_LABEL = { SalesInvoice: 'বিক্রয় (মাল দিলাম)', 'SalesInvoice-Receipt': 'বিক্রয়ে টাকা পেলাম', SalesReturn: 'বিক্রয় ফেরত (মাল ফেরত পেলাম)', PurchaseInvoice: 'ক্রয় (মাল নিলাম)', 'PurchaseInvoice-Payment': 'ক্রয়ে টাকা দিলাম', PurchaseReturn: 'ক্রয় ফেরত (মাল ফেরত দিলাম)', PaymentVoucher: 'পেমেন্ট (টাকা দিলাম)', ReceiptVoucher: 'কালেকশন (টাকা পেলাম)', IncomeVoucher: 'অন্যান্য আয়', 'IncomeVoucher-Receipt': 'টাকা পেলাম', ExpenseVoucher: 'খরচ (বাকি)' };
+async function postLoanVoucher(id) {
+  const { data: h, error } = await supabaseClient.from('LoanVoucher').select('*').eq('LoanID', id).maybeSingle();
+  if (error) throw new Error(error.message); if (!h) throw new Error(t('ভাউচার পাওয়া যায়নি।', 'Voucher not found.'));
+  if (h.Status === 'Posted') throw new Error(t('আগেই পোস্ট করা।', 'Already posted.'));
+  const ty = LOAN_TYPES[h.Type], amt = Number(h.Amount) || 0;
+  if (!ty || !(amt > 0) || !h.PersonID) throw new Error(t('ব্যক্তি, ধরন ও টাকা ঠিক করুন।', 'Check person, type and amount.'));
+  await postPartyLedgerEntry('Person', h.PersonID, h.Date, 'LoanVoucher', id, ty.party[0] * amt, ty.party[1] * amt);
+  if (h.BankCashAccID) await postBankCashBookEntry(h.BankCashAccID, h.Date, 'LoanVoucher', id, ty.bank[0] * amt, ty.bank[1] * amt);
+  const { error: e2 } = await supabaseClient.from('LoanVoucher').update({ Status: 'Posted' }).eq('LoanID', id); if (e2) throw new Error(e2.message);
+}
+async function unpostLoanVoucher(id) {
+  await reversePostedDocumentStock('LoanVoucher', id);   // পার্টি লেজার ও ক্যাশ/ব্যাংক বইয়ের এন্ট্রি মুছে ব্যালান্স ঠিক
+  const { error } = await supabaseClient.from('LoanVoucher').update({ Status: 'Draft' }).eq('LoanID', id); if (error) throw new Error(error.message);
+}
+async function loanVoucherDelete(id) {
+  const { data: h } = await supabaseClient.from('LoanVoucher').select('*').eq('LoanID', id).maybeSingle();
+  const posted = !h || h.Status === 'Posted';
+  if (posted && !(await voucherAskAdmin(t('পোস্ট করা এন্ট্রি মুছতে এডমিন পাসওয়ার্ড দিন:', 'Admin password to delete a posted entry:')))) return false;
+  if (!confirm(t('মুছবেনঃ ', 'Delete: ') + id + t('? পার্টি লেজার ও ক্যাশ/ব্যাংক বইয়ের এন্ট্রিও মুছবে। ফেরানো যাবে না।', '? Ledger entries are removed too.'))) return false;
+  if (posted) await reversePostedDocumentStock('LoanVoucher', id);
+  if (h) { const { error } = await supabaseClient.from('LoanVoucher').delete().eq('LoanID', id); if (error) throw new Error(error.message); }
+  showToast(t('মুছে ফেলা হয়েছে ✅', 'Deleted ✅'), 'success'); return true;
+}
+async function loanVoucherPrint(id) {
+  const { data: h } = await supabaseClient.from('LoanVoucher').select('*').eq('LoanID', id).maybeSingle(); if (!h) return;
+  const [ps, accs] = await Promise.all([loanPersons(), cachedList('BankCashAccounts')]);
+  const p = (ps || []).find(function (x) { return x.PersonID === h.PersonID; }) || {};
+  const acc = (accs.find(function (a) { return a.BankAccID === h.BankCashAccID; }) || {}).AccountName || '—';
+  const ty = LOAN_TYPES[h.Type] || { bn: h.Type };
+  await ownPrint({ idf: 'LoanID' }, h, 'ধার-দেনা ভাউচার — ' + ty.bn, [['ভাউচার নং', escapeHtml(id)], ['তারিখ', escapeHtml(formatShortDate(h.Date))], ['ব্যক্তি', '<b>' + escapeHtml(p.Name || h.PersonID) + '</b>' + (p.Mobile ? ' (' + escapeHtml(p.Mobile) + ')' : '')], ['লেনদেন', '<b>' + escapeHtml(ty.bn) + '</b>'], ['টাকা', '<b>৳' + (Number(h.Amount) || 0).toFixed(2) + '</b>'], ['ক্যাশ/ব্যাংক', escapeHtml(acc)], ['নোট', escapeHtml(h.Note || '')], ['অবস্থা', h.Status === 'Posted' ? 'পোস্ট করা' : 'খসড়া']]);
+}
+async function loanPersonKhataPrint(personId) {
+  const ps = await loanPersons(); const p = (ps || []).find(function (x) { return x.PersonID === personId; }) || {};
+  const { data: vs } = await supabaseClient.from('LoanVoucher').select('*').eq('PersonID', personId);
+  const vmap = {}; (vs || []).forEach(function (v) { vmap[v.LoanID] = v; });
+  // পার্টি লেজার — ব্যক্তি + জোড়া গ্রাহক/সাপ্লায়ার (বেচাকেনা) একসাথে, তারিখ অনুযায়ী
+  const get = async function (type, id) { if (!id) return []; const { data } = await supabaseClient.from('PartyLedger').select('*').eq('PartyType', type).eq('PartyID', id); return data || []; };
+  const all = [].concat(await get('Person', personId), await get('Customer', p.LinkedCustomerID), await get('Supplier', p.LinkedSupplierID))
+    .sort(function (a, b) { return String(a.Date).localeCompare(String(b.Date)) || (Number(a.id) || 0) - (Number(b.id) || 0); });
+  let bal = 0;
+  const trs = all.map(function (r) {
+    const dr = Number(r.Debit) || 0, cr = Number(r.Credit) || 0; bal += dr - cr;
+    const v = r.RefModule === 'LoanVoucher' ? vmap[r.RefID] : null;
+    const label = v ? ((LOAN_TYPES[v.Type] || {}).bn || v.Type) + (v.Note ? ' — ' + v.Note : '') : (LOAN_KHATA_LABEL[r.RefModule] || r.RefModule);
+    return `<tr><td>${escapeHtml(formatShortDate(r.Date))}</td><td>${escapeHtml(r.RefID || '')}</td><td style="text-align:left;">${escapeHtml(label)}</td><td style="text-align:right;">${dr ? dr.toFixed(2) : ''}</td><td style="text-align:right;">${cr ? cr.toFixed(2) : ''}</td><td style="text-align:right;"><b>${escapeHtml(loanBalText(bal))}</b></td></tr>`; }).join('');
+  let company = null; try { company = await api('getSingleton', { sheet: 'CompanyProfile' }); } catch (e) {}
+  const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>খাতা — ${escapeHtml(p.Name || personId)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Anek+Bangla:wght@400;600;700&display=swap" rel="stylesheet"><style id="pg">@page{size:A5 portrait;margin:8mm;}</style>
+<style>body{font-family:'Anek Bangla',sans-serif;color:#111;width:148mm;max-width:100%;margin:14px auto;padding:0 6px;font-size:11px;box-sizing:border-box;} .toolbar{margin-bottom:10px;} .toolbar button{padding:8px 14px;border-radius:8px;border:1px solid #1a2029;background:#1a2029;color:#f2a33c;font-weight:700;cursor:pointer;font-family:inherit;}
+  .head{border:1.5px solid #1a2029;border-radius:10px;padding:8px 12px;text-align:center;} .head h1{margin:0;font-size:18px;} .badge{display:inline-block;margin-top:6px;background:#1a2029;color:#fff;border-radius:7px;padding:3px 14px;font-weight:700;}
+  .who{margin:8px 0;border:1px solid #c9ced6;border-radius:8px;padding:7px 10px;} table{width:100%;border-collapse:collapse;} th,td{border:1px solid #9aa2ad;padding:4px 5px;text-align:center;} th{background:#eef0f3;}
+  .tot{margin-top:8px;text-align:right;font-size:13px;font-weight:700;} @media print{.toolbar{display:none;}}</style></head><body>
+  <div class="toolbar"><button onclick="window.print()">🖨️ প্রিন্ট</button></div>
+  <div class="head"><h1>${escapeHtml((company && (company.CompanyName || company.Name)) || 'জি মেটাল ওয়ার্কস')}</h1><div class="badge">ধার-দেনার খাতা</div></div>
+  <div class="who">নামঃ <b>${escapeHtml(p.Name || personId)}</b>${p.Mobile ? ' · মোবাইলঃ ' + escapeHtml(p.Mobile) : ''}${p.Address ? ' · ঠিকানাঃ ' + escapeHtml(p.Address) : ''}<br>তারিখঃ ${escapeHtml(formatShortDate(ownToday()))}</div>
+  <table><thead><tr><th>তারিখ</th><th>নং</th><th>বিবরণ</th><th>আমি দিলাম (টাকা/মাল)</th><th>আমি পেলাম (টাকা/মাল)</th><th>ব্যালান্স</th></tr></thead><tbody>${trs || '<tr><td colspan="6">কোনো লেনদেন নেই</td></tr>'}</tbody></table>
+  <div class="tot">${escapeHtml(loanBalText(bal))}</div>
+</body></html>`;
+  const w = window.open('', '_blank'); if (!w) { showToast(t('পপ-আপ ব্লক হয়েছে — এই সাইটের জন্য পপ-আপ অনুমতি দিন।', 'Pop-up blocked.'), 'error'); return; }
+  w.document.write(html); w.document.close();
+}
+
+async function renderLoanPage(content) {
+  let persons = await loanPersons();
+  const [accounts, fy] = await Promise.all([cachedList('BankCashAccounts'), getFiscalYearStart()]);
+  const accs = accounts.filter(function (a) { return a.Status !== 'Deleted'; });
+  if (persons === null) { content.innerHTML = `<div class="page-head"><div><h1>${t('ধার-দেনা (পাওনা/দেনা)', 'Loans')}</h1></div></div><div class="panel"><div class="empty-state">${t('টেবিল নেই — আগে Supabase-এ 37 নম্বর SQL চালান।', 'Run SQL 37 first.')}</div></div>`; return; }
+  let editId = null, vouchers = [], selPerson = '', trade = {};
+  const typeOpts = Object.keys(LOAN_TYPES).map(function (k) { return `<option value="${k}">${escapeHtml(LOAN_TYPES[k].bn)}</option>`; }).join('');
+  content.innerHTML = `<style>${VOUCHER_GRID_CSS}${OWN_CSS}
+      .ln-pos{color:#15803d;font-weight:700;} .lp-tr{min-width:46px !important;} .lp-tr.on{background:#e8f5ec;border-color:#5fb36b;} .ln-neg{color:#b42318;font-weight:700;} .ln-hint{font-size:11.5px;color:var(--text-muted);margin-top:2px;}
+      .own-tbl tbody tr{cursor:pointer;} #ln_Bals tr.row-sel td{box-shadow:inset 0 0 0 9999px rgba(242,163,60,.18);}
+      .ac-tbl{width:100%;border-collapse:collapse;} .ac-tbl th,.ac-tbl td{border-bottom:1px solid var(--border);padding:4px 6px;} .ac-tbl input{width:100%;min-width:60px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;} .ac-tbl input:disabled{background:transparent;border-color:transparent;color:var(--text);}
+      details.own-sec{border:1px solid var(--border);border-radius:10px;padding:8px 12px;margin-bottom:10px;background:var(--surface);} details.own-sec summary{cursor:pointer;font-weight:700;font-size:13.5px;padding:4px 0;}
+      @media (max-width:760px){ .ac-tbl .ln-hide-m{display:none;} .ac-tbl input{font-size:15px;} .lp-tr{min-width:40px !important;padding:0 4px !important;} .ac-tbl td:first-child{min-width:96px;}
+        #ln_List td:last-child,#ln_List th:last-child,#ln_Bals td:last-child,#ln_Bals th:last-child{position:sticky;right:0;z-index:1;background:var(--surface,#fff);box-shadow:-2px 0 0 #e3e6ea;} }</style>
+    <div class="page-head"><div><h1>${t('ধার-দেনা (পাওনা/দেনা)', 'Loans (receivable / payable)')}</h1><p>${t('গ্রাহক/সাপ্লায়ার নন এমন ব্যক্তিকে ধার দেওয়া বা তাঁর কাছ থেকে ধার নেওয়া — নগদ/ব্যাংক বই ও পার্টি লেজারের সাথে জোড়া', 'Cash loans with people who are not customers or suppliers')}</p></div></div>
+    <div class="own-cards" id="ln_Cards"></div>
+    <details class="own-sec" id="lp_Sec"><summary>👤 ${t('ব্যক্তির তালিকা — ＋ যোগ · ✏️ এডিট · 🗑️ ডিলিট · 💾 সেভ', 'People — add · edit · delete · save')}</summary><div id="lp_Wrap" style="margin-top:8px;overflow-x:auto;"></div></details>
+    <div class="panel"><h4 id="ln_FormTitle" style="margin:0 0 10px;font-size:14px;">${t('নতুন লেনদেন', 'New entry')}</h4>
+      <div class="vg2" id="ln_Form">
+        <div class="field"><label>${t('তারিখ', 'Date')}</label><input type="date" id="ln_Date" value="${ownToday()}"></div>
+        <div class="field"><label>${t('ব্যক্তি', 'Person')}</label><select id="ln_Person"></select></div>
+        <div class="field"><label>${t('লেনদেন', 'Type')}</label><select id="ln_Type">${typeOpts}</select><div class="ln-hint" id="ln_TypeHint"></div></div>
+        <div class="field"><label>${t('টাকা', 'Amount')}</label><input id="ln_Amount" type="number" step="any" min="0" inputmode="decimal"></div>
+        <div class="field"><label>${t('ক্যাশ/ব্যাংক', 'Cash/Bank')}</label><select id="ln_Acc"><option value="">${t('— (ক্যাশ বইয়ে যাবে না)', '— (not in cash book)')}</option>${accs.map(function (a) { return `<option value="${attr(a.BankAccID)}">${escapeHtml(a.AccountName)}</option>`; }).join('')}</select></div>
+        <div class="field"><label>${t('এই ব্যক্তির ব্যালান্স', 'Balance with this person')}</label><input id="ln_Bal" readonly class="vro vbold"></div>
+        <div class="field vfull"><label>${t('নোট', 'Note')}</label><input id="ln_Note" autocomplete="off"></div>
+      </div>
+      <div class="own-btns"><button type="button" class="btn btn-outline" id="ln_SaveBtn">💾 ${t('সেভ (খসড়া)', 'Save (draft)')}</button><button type="button" class="btn btn-primary" id="ln_PostBtn">✅ ${t('সেভ + পোস্ট', 'Save + post')}</button><button type="button" class="btn btn-outline" id="ln_CancelBtn" style="display:none;">${t('এডিট বাতিল', 'Cancel edit')}</button></div>
+    </div>
+    <div class="panel"><h4 style="margin:0 0 8px;font-size:14px;">${t('পাওনা-দেনার তালিকা', 'Balances')}</h4><div class="own-wrap" id="ln_Bals"></div></div>
+    <div class="panel"><h4 style="margin:0 0 8px;font-size:14px;" id="ln_ListTitle">${t('লেনদেনের তালিকা', 'Entries')}</h4>
+      <div class="own-filter"><div class="field"><label>${t('তারিখ হইতে', 'From')}</label><input type="date" id="ln_From" value="${fy}"></div><div class="field"><label>${t('তারিখ পর্যন্ত', 'To')}</label><input type="date" id="ln_To" value="${ownToday()}"></div>
+        <div class="field"><label>${t('ব্যক্তি', 'Person')}</label><select id="ln_PFilter"></select></div></div>
+      <div class="own-wrap" id="ln_List"></div></div>`;
+  const $ = function (id) { return document.getElementById(id); };
+  const cash = accs.find(function (a) { return /নগদ|cash|ক্যাশ/i.test(a.AccountName || ''); });
+  const resetAcc = function () { $('ln_Acc').value = cash ? cash.BankAccID : (accs[0] ? accs[0].BankAccID : ''); };
+  resetAcc();
+  wireSequentialKeyNav($('ln_Form'));
+  const pName = function (id) { const p = persons.find(function (x) { return x.PersonID === id; }); return p ? p.Name : (id || ''); };
+  function fillPersonSelects() {
+    const v1 = $('ln_Person').value, v2 = $('ln_PFilter').value;
+    $('ln_Person').innerHTML = `<option value="">${t('— ব্যক্তি বাছাই করুন —', '— choose —')}</option>` + persons.map(function (p) { return `<option value="${attr(p.PersonID)}">${escapeHtml(p.Name + (p.Mobile ? ' (' + p.Mobile + ')' : ''))}</option>`; }).join('');
+    $('ln_PFilter').innerHTML = `<option value="">${t('সব', 'All')}</option>` + persons.map(function (p) { return `<option value="${attr(p.PersonID)}">${escapeHtml(p.Name)}</option>`; }).join('');
+    $('ln_Person').value = v1; $('ln_PFilter').value = v2;
+  }
+  const balances = function () { const b = {}; vouchers.forEach(function (v) { if (v.Status !== 'Posted') return; const ty = LOAN_TYPES[v.Type]; if (!ty) return; b[v.PersonID] = (b[v.PersonID] || 0) + (ty.party[0] - ty.party[1]) * (Number(v.Amount) || 0); }); return b; };
+  function showBal() { const pid = $('ln_Person').value, b = pid ? (balances()[pid] || 0) + (trade[pid] || 0) : 0; const el = $('ln_Bal'); el.value = $('ln_Person').value ? loanBalText(b || 0) : ''; el.className = 'vro vbold ' + ((b || 0) > 0.005 ? 'ln-pos' : (b || 0) < -0.005 ? 'ln-neg' : ''); }
+  function showHint() { $('ln_TypeHint').textContent = (LOAN_TYPES[$('ln_Type').value] || {}).hint || ''; }
+  function resetForm() { editId = null; $('ln_FormTitle').textContent = t('নতুন লেনদেন', 'New entry'); $('ln_Amount').value = ''; $('ln_Note').value = ''; $('ln_Date').value = ownToday(); $('ln_Type').value = 'Give'; resetAcc(); $('ln_CancelBtn').style.display = 'none'; showHint(); showBal(); }
+
+  // ===== ব্যক্তির তালিকা =====
+  function renderPersons() {
+    const used = {}; vouchers.forEach(function (v) { used[v.PersonID] = (used[v.PersonID] || 0) + 1; });
+    const ic = function (act, id, icon, title, dis) { return `<button type="button" class="own-ic" data-lp="${act}" data-id="${attr(id)}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
+    const tb = function (p, kind, icon, label) { const on = !!p[kind === 'Customer' ? 'LinkedCustomerID' : 'LinkedSupplierID']; return `<button type="button" class="own-ic lp-tr ${on ? 'on' : ''}" data-lt="${kind}" data-id="${attr(p.PersonID)}" title="${attr(on ? t('চালু আছে — বন্ধ করতে চাপুন (লেনদেন না থাকলে)', 'On — tap to turn off (if unused)') : t('চালু করুন — তখন সাধারণ ভাউচারে এঁর কাছে ', 'Turn on — then use ordinary vouchers to ') + label)}">${icon}${on ? ' ✓' : ''}</button>`; };
+    $('lp_Wrap').innerHTML = `<table class="ac-tbl"><thead><tr><th>${t('নাম', 'Name')}</th><th class="ln-hide-m">${t('মোবাইল', 'Mobile')}</th><th class="ln-hide-m">${t('ঠিকানা', 'Address')}</th><th>${t('বেচাকেনা', 'Trade')}</th><th></th></tr></thead><tbody>
+      <tr><td><input id="lp_NewName" placeholder="${attr(t('নতুন ব্যক্তির নাম', 'New person name'))}"></td><td class="ln-hide-m"><input id="lp_NewMobile" inputmode="tel" placeholder="${attr(t('মোবাইল', 'Mobile'))}"></td><td class="ln-hide-m"><input id="lp_NewAddr" placeholder="${attr(t('ঠিকানা', 'Address'))}"></td><td></td><td><button type="button" class="btn btn-primary" style="width:auto;min-height:32px;padding:4px 12px;" id="lp_AddBtn">＋ ${t('যোগ', 'Add')}</button></td></tr>
+      ${persons.map(function (p) { return `<tr data-p="${attr(p.PersonID)}"><td><input class="lp-name" value="${attr(p.Name)}" disabled></td><td class="ln-hide-m"><input class="lp-mob" value="${attr(p.Mobile || '')}" disabled></td><td class="ln-hide-m"><input class="lp-addr" value="${attr(p.Address || '')}" disabled></td>
+        <td style="white-space:nowrap;">${tb(p, 'Customer', '🛒', t('মাল বেচা যাবে (বিক্রয় ভাউচার)', 'sell goods'))}${tb(p, 'Supplier', '📦', t('মাল কেনা যাবে (ক্রয় ভাউচার)', 'buy goods'))}</td>
+        <td style="white-space:nowrap;">${ic('edit', p.PersonID, '✏️', t('এডিট', 'Edit'))}${ic('del', p.PersonID, '🗑️', (used[p.PersonID] || p.LinkedCustomerID || p.LinkedSupplierID) ? t('লেনদেন বা বেচাকেনা চালু আছে — মোছা যাবে না', 'In use') : t('ডিলিট', 'Delete'), !!(used[p.PersonID] || p.LinkedCustomerID || p.LinkedSupplierID))}${ic('save', p.PersonID, '💾', t('সেভ', 'Save'), true)}</td></tr>`; }).join('')}
+      </tbody></table>`;
+  }
+  $('lp_Wrap').addEventListener('click', async function (e) {
+    const b = e.target.closest('button'); if (!b || b.disabled) return;
+    try {
+      if (b.hasAttribute('data-lt')) {   // 🛒/📦 বেচাকেনা চালু/বন্ধ
+        const kind = b.getAttribute('data-lt'), p = persons.find(function (x) { return x.PersonID === b.getAttribute('data-id'); }); if (!p) return;
+        const on = !!p[kind === 'Customer' ? 'LinkedCustomerID' : 'LinkedSupplierID'];
+        if (!on) {
+          if (!confirm(p.Name + (kind === 'Customer' ? t(' — এঁর কাছে মাল বেচার জন্য গ্রাহক হিসেবেও চালু করবেন?\nতখন বিক্রয় ভাউচারে এঁর নাম পাবেন; ধার আর বেচাকেনা একই খাতায় দেখাবে।', ' — enable as a customer?') : t(' — এঁর কাছ থেকে মাল কেনার জন্য সাপ্লায়ার হিসেবেও চালু করবেন?\nতখন ক্রয় ভাউচারে এঁর নাম পাবেন; ধার আর বেচাকেনা একই খাতায় দেখাবে।', ' — enable as a supplier?')))) return;
+          await loanLinkTrade(p, kind); showToast(kind === 'Customer' ? t('বিক্রয় চালু ✅ — বিক্রয় ভাউচারে এঁর নাম পাবেন', 'Enabled as customer ✅') : t('ক্রয় চালু ✅ — ক্রয় ভাউচারে এঁর নাম পাবেন', 'Enabled as supplier ✅'), 'success');
+        } else {
+          if (!confirm(t('বেচাকেনা বন্ধ করবেন? (এর নামে কোনো বেচাকেনা না থাকলে তবেই)', 'Turn off trade? (only if unused)'))) return;
+          await loanUnlinkTrade(p, kind); showToast(t('বন্ধ করা হয়েছে ✅', 'Turned off ✅'), 'success');
+        }
+        persons = await loanPersons(); fillPersonSelects(); await load(); return;
+      }
+      if (b.id === 'lp_AddBtn') {
+        const nm = $('lp_NewName').value.trim(); if (!nm) { showToast(t('নাম দিন।', 'Enter a name.'), 'error'); $('lp_NewName').focus(); return; }
+        if (persons.some(function (p) { return bnKey(p.Name) === bnKey(nm) && String(p.Mobile || '') === $('lp_NewMobile').value.trim(); })) { showToast(t('এই নামে (একই মোবাইলে) আগেই আছে।', 'Already exists.'), 'error'); return; }
+        const { error } = await supabaseClient.from('LoanPerson').insert({ Name: nm, Mobile: $('lp_NewMobile').value.trim(), Address: $('lp_NewAddr').value.trim(), Status: 'Active' }); if (error) throw new Error(error.message);
+        showToast(t('যোগ হয়েছে ✅ ', 'Added ✅ ') + nm, 'success'); persons = await loanPersons(); fillPersonSelects(); renderPersons(); renderAll(); return;
+      }
+      const id = b.getAttribute('data-id'), act = b.getAttribute('data-lp'), tr = b.closest('tr');
+      if (act === 'edit') { tr.querySelectorAll('input').forEach(function (i) { i.disabled = false; }); tr.querySelector('[data-lp="save"]').disabled = false; tr.querySelector('.lp-name').focus(); }
+      else if (act === 'save') {
+        const nm = tr.querySelector('.lp-name').value.trim(); if (!nm) { showToast(t('নাম দিন।', 'Enter a name.'), 'error'); return; }
+        const mob = tr.querySelector('.lp-mob').value.trim(), addr = tr.querySelector('.lp-addr').value.trim();
+        const { error } = await supabaseClient.from('LoanPerson').update({ Name: nm, Mobile: mob, Address: addr }).eq('PersonID', id); if (error) throw new Error(error.message);
+        const pp = persons.find(function (x) { return x.PersonID === id; }) || {};   // জোড়া গ্রাহক/সাপ্লায়ারেও একই নাম-মোবাইল-ঠিকানা
+        if (pp.LinkedCustomerID) { await supabaseClient.from('customers').update({ Name: nm, Phone: mob, Address: addr }).eq('CustomerID', pp.LinkedCustomerID); delete listCache.Customers; }
+        if (pp.LinkedSupplierID) { await supabaseClient.from('suppliers').update({ Name: nm, Phone: mob, Address: addr }).eq('SupplierID', pp.LinkedSupplierID); delete listCache.Suppliers; }
+        showToast(t('সেভ হয়েছে ✅', 'Saved ✅'), 'success'); persons = await loanPersons(); fillPersonSelects(); renderPersons(); renderAll();
+      } else if (act === 'del') {
+        if (!confirm(t('এই ব্যক্তিকে তালিকা থেকে মুছবেন?', 'Delete this person?'))) return;
+        const { error } = await supabaseClient.from('LoanPerson').update({ Status: 'Deleted' }).eq('PersonID', id); if (error) throw new Error(error.message);
+        showToast(t('মুছে ফেলা হয়েছে ✅', 'Deleted ✅'), 'success'); persons = await loanPersons(); fillPersonSelects(); renderPersons(); renderAll();
+      }
+    } catch (err) { showToast(err.message, 'error'); }
+  });
+
+  // ===== তালিকা =====
+  async function load() {
+    try { const { data, error } = await supabaseClient.from('LoanVoucher').select('*'); if (error) throw new Error(error.message); vouchers = (data || []).filter(function (v) { return v.Status !== 'Deleted'; }); trade = await loanTradeBalances(persons); }
+    catch (e) { $('ln_List').innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; return; }
+    renderPersons(); renderAll();
+  }
+  function renderAll() {
+    const lb = balances(), b = {};   // মোট = ধার-দেনা + বেচাকেনা
+    persons.forEach(function (p) { const v = (lb[p.PersonID] || 0) + (trade[p.PersonID] || 0); if (Math.abs(v) > 0.0001 || lb[p.PersonID] !== undefined) b[p.PersonID] = v; });
+    let get = 0, owe = 0; Object.keys(b).forEach(function (k) { if (b[k] > 0) get += b[k]; else owe += -b[k]; });
+    $('ln_Cards').innerHTML = `<div class="own-card"><small>${t('মোট পাওনা (আমি পাব)', 'Total receivable')}</small><b class="ln-pos">৳${get.toFixed(2)}</b></div><div class="own-card"><small>${t('মোট দেনা (আমি দেব)', 'Total payable')}</small><b class="ln-neg">৳${owe.toFixed(2)}</b></div><div class="own-card hl"><small>${t('নিট', 'Net')}</small><b>${escapeHtml(loanBalText(get - owe))}</b></div>`;
+    const withBal = persons.filter(function (p) { return Math.abs(b[p.PersonID] || 0) > 0.005 || vouchers.some(function (v) { return v.PersonID === p.PersonID; }) || p.LinkedCustomerID || p.LinkedSupplierID; });
+    const sTxt = function (v) { v = Number(v) || 0; return Math.abs(v) < 0.005 ? '—' : `<span class="${v > 0 ? 'ln-pos' : 'ln-neg'}">${v > 0 ? '+' : '−'}${Math.abs(v).toFixed(2)}</span>`; };
+    $('ln_Bals').innerHTML = !withBal.length ? `<div class="empty-state">${t('এখনো কোনো লেনদেন নেই।', 'No entries yet.')}</div>` :
+      `<table class="own-tbl"><thead><tr><th class="own-hide-m">${t('ক্রঃ', 'No.')}</th><th>${t('নাম', 'Name')}</th><th class="own-hide-m">${t('মোবাইল', 'Mobile')}</th><th title="${attr(t('শুধু ধার-দেনা (+ পাব, − দেব)', 'Loans only'))}">${t('ধার-দেনা', 'Loans')}</th><th title="${attr(t('বিক্রয়/ক্রয় ভাউচারের বাকি (+ পাব, − দেব)', 'Trade balance'))}">${t('বেচাকেনা', 'Trade')}</th><th>${t('মোট', 'Total')}</th><th></th></tr></thead><tbody>` +
+      withBal.map(function (p, i) { const v = b[p.PersonID] || 0; return `<tr data-bp="${attr(p.PersonID)}" class="${selPerson === p.PersonID ? 'row-sel' : ''}"><td class="own-hide-m">${i + 1}</td><td><b>${escapeHtml(p.Name)}</b>${p.LinkedCustomerID ? ' 🛒' : ''}${p.LinkedSupplierID ? ' 📦' : ''}</td><td class="own-hide-m">${escapeHtml(p.Mobile || '')}</td><td class="r">${sTxt(lb[p.PersonID])}</td><td class="r">${(p.LinkedCustomerID || p.LinkedSupplierID) ? sTxt(trade[p.PersonID]) : '—'}</td><td class="r ${v > 0.005 ? 'ln-pos' : v < -0.005 ? 'ln-neg' : ''}">${v > 0.005 ? t('পাব ৳', 'get ৳') + v.toFixed(2) : v < -0.005 ? t('দেব ৳', 'owe ৳') + (-v).toFixed(2) : '—'}</td>
+        <td style="white-space:nowrap;"><button type="button" class="own-ic" data-kh="${attr(p.PersonID)}" title="${attr(t('খাতা দেখুন / প্রিন্ট', 'View / print ledger'))}">👁️</button></td></tr>`; }).join('') +
+      `</tbody><tfoot><tr><td class="own-hide-m"></td><td>${t('মোট', 'Total')}</td><td class="own-hide-m"></td><td></td><td></td><td class="r"><span class="ln-pos">${t('পাব ৳', 'get ৳')}${get.toFixed(2)}</span><br><span class="ln-neg">${t('দেব ৳', 'owe ৳')}${owe.toFixed(2)}</span></td><td></td></tr></tfoot></table>`;
+    renderList();
+  }
+  function renderList() {
+    const from = $('ln_From').value || '0000', to = $('ln_To').value || '9999', pf = $('ln_PFilter').value;
+    $('ln_ListTitle').textContent = t('লেনদেনের তালিকা', 'Entries') + (pf ? ' — ' + pName(pf) : '');
+    const all = vouchers.slice().sort(function (a, b) { return String(a.Date).localeCompare(String(b.Date)) || String(a.LoanID).localeCompare(String(b.LoanID), undefined, { numeric: true }); });
+    let run = 0;
+    if (pf) all.forEach(function (v) { if (v.PersonID === pf && v.Status === 'Posted' && String(v.Date) < from) { const ty = LOAN_TYPES[v.Type]; if (ty) run += (ty.party[0] - ty.party[1]) * (Number(v.Amount) || 0); } });
+    const opening = run;
+    const shown = all.filter(function (v) { const d = String(v.Date || ''); return d >= from && d <= to && (!pf || v.PersonID === pf); });
+    if (!shown.length && !opening) { $('ln_List').innerHTML = `<div class="empty-state">${t('এই সময়ে কোনো লেনদেন নেই।', 'No entries in this period.')}</div>`; return; }
+    const body = shown.map(function (v, i) {
+      const ty = LOAN_TYPES[v.Type] || { bn: v.Type, party: [0, 0] }, a = Number(v.Amount) || 0, posted = v.Status === 'Posted';
+      if (pf && posted) run += (ty.party[0] - ty.party[1]) * a;
+      const ic = function (act, icon, title, dis) { return `<button type="button" class="own-ic" data-ln="${act}" data-id="${attr(v.LoanID)}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
+      return `<tr class="${vkClass('LoanVoucher')} ${posted ? '' : 'draft'}" data-row="${attr(v.LoanID)}"><td class="own-hide-m">${i + 1}</td><td>${escapeHtml(formatShortDate(v.Date))}</td><td><b>${escapeHtml(v.LoanID)}</b></td><td class="own-hide-m">${escapeHtml(pName(v.PersonID))}</td><td>${escapeHtml(ty.bn)}</td>
+        <td class="r">${ty.party[0] ? a.toFixed(2) : '—'}</td><td class="r">${ty.party[1] ? a.toFixed(2) : '—'}</td>${pf ? `<td class="r ${run > 0.005 ? 'ln-pos' : run < -0.005 ? 'ln-neg' : ''}">${posted ? escapeHtml(loanBalText(run)) : '—'}</td>` : ''}
+        <td class="own-hide-m">${posted ? `<span class="badge active">${t('পোস্ট করা', 'Posted')}</span>` : `<span class="badge draft">${t('খসড়া', 'Draft')}</span>`}</td>
+        <td style="white-space:nowrap;">${ic('view', '👁️', t('দেখুন / প্রিন্ট', 'View / print'))}${ic('edit', '✏️', posted ? t('এডিট (এডমিন — আগে আনপোস্ট)', 'Edit (admin)') : t('এডিট', 'Edit'))}${ic('del', '🗑️', t('ডিলিট', 'Delete'))}${ic('post', posted ? '✅' : '💾', posted ? t('পোস্ট হয়ে গেছে', 'Posted') : t('পোস্ট করুন', 'Post'), posted)}</td></tr>`;
+    }).join('');
+    $('ln_List').innerHTML = `<table class="own-tbl"><thead><tr><th class="own-hide-m">${t('ক্রঃ', 'No.')}</th><th>${t('তারিখ', 'Date')}</th><th>${t('নং', 'No.')}</th><th class="own-hide-m">${t('ব্যক্তি', 'Person')}</th><th>${t('লেনদেন', 'Type')}</th><th>${t('আমি দিলাম', 'I gave')}</th><th>${t('আমি পেলাম', 'I got')}</th>${pf ? `<th>${t('ব্যালান্স', 'Balance')}</th>` : ''}<th class="own-hide-m">${t('অবস্থা', 'Status')}</th><th></th></tr></thead><tbody>` +
+      (pf && opening ? `<tr><td class="own-hide-m"></td><td colspan="2">${t('পূর্বের জের', 'Brought forward')}</td><td class="own-hide-m"></td><td></td><td></td><td></td><td class="r"><b>${escapeHtml(loanBalText(opening))}</b></td><td class="own-hide-m"></td><td></td></tr>` : '') + body + '</tbody></table>';
+  }
+  async function openEdit(id) {
+    const v = vouchers.find(function (x) { return x.LoanID === id; }); if (!v) return;
+    if (v.Status === 'Posted') {
+      if (!(await voucherAskAdmin(t('পোস্ট করা এন্ট্রি বদলাতে এডমিন পাসওয়ার্ড দিন:', 'Admin password to change a posted entry:')))) return;
+      await unpostLoanVoucher(id); await load();
+    }
+    const r = vouchers.find(function (x) { return x.LoanID === id; }) || v;
+    editId = id; $('ln_FormTitle').textContent = t('এডিটঃ ', 'Edit: ') + id;
+    $('ln_Date').value = String(r.Date || '').slice(0, 10); $('ln_Person').value = r.PersonID || ''; $('ln_Type').value = r.Type || 'Give'; $('ln_Amount').value = r.Amount || ''; $('ln_Acc').value = r.BankCashAccID || ''; $('ln_Note').value = r.Note || '';
+    $('ln_CancelBtn').style.display = ''; showHint(); showBal(); $('ln_Amount').focus(); window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  async function save(andPost) {
+    const amt = Number($('ln_Amount').value) || 0;
+    if (!$('ln_Date').value) { showToast(t('তারিখ দিন।', 'Enter a date.'), 'error'); return; }
+    if (!$('ln_Person').value) { showToast(t('ব্যক্তি বাছাই করুন (না থাকলে উপরের "ব্যক্তির তালিকা"-য় যোগ করুন)।', 'Choose a person.'), 'error'); $('ln_Person').focus(); return; }
+    if (!(amt > 0)) { showToast(t('টাকার পরিমাণ দিন।', 'Enter the amount.'), 'error'); $('ln_Amount').focus(); return; }
+    const rec = { Date: $('ln_Date').value, PersonID: $('ln_Person').value, Type: $('ln_Type').value, Amount: amt, BankCashAccID: $('ln_Acc').value || null, Note: $('ln_Note').value.trim() };
+    const btns = [$('ln_SaveBtn'), $('ln_PostBtn')]; btns.forEach(function (b) { b.disabled = true; });
+    try {
+      let id = editId;
+      if (id) { const { error } = await supabaseClient.from('LoanVoucher').update(rec).eq('LoanID', id); if (error) throw new Error(error.message); }
+      else { const { data, error } = await supabaseClient.from('LoanVoucher').insert(Object.assign({ Status: 'Draft', CreatedBy: (currentUser && currentUser.Email) || '' }, rec)).select().single(); if (error) throw new Error(/does not exist|schema cache/.test(error.message) ? 'টেবিল নেই — আগে Supabase-এ 37 নম্বর SQL চালান।' : error.message); id = data.LoanID; }
+      if (andPost) await postLoanVoucher(id);
+      showToast((andPost ? t('পোস্ট হয়েছে ✅ ', 'Posted ✅ ') : t('সেভ হয়েছে ✅ ', 'Saved ✅ ')) + id, 'success');
+      const keepPerson = rec.PersonID; await load(); resetForm(); $('ln_Person').value = keepPerson; showBal();
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { btns.forEach(function (b) { b.disabled = false; }); }
+  }
+  $('ln_SaveBtn').addEventListener('click', function () { save(false); });
+  $('ln_PostBtn').addEventListener('click', function () { save(true); });
+  $('ln_CancelBtn').addEventListener('click', resetForm);
+  $('ln_Person').addEventListener('change', showBal);
+  $('ln_Type').addEventListener('change', showHint);
+  ['ln_From', 'ln_To', 'ln_PFilter'].forEach(function (id) { $(id).addEventListener('change', function () { selPerson = $('ln_PFilter').value; renderAll(); }); });
+  // পাওনা-দেনার তালিকাঃ এক চাপে ওই ব্যক্তির লেনদেন নিচে, 👁️ খাতা প্রিন্ট
+  $('ln_Bals').addEventListener('click', async function (e) {
+    const kb = e.target.closest('[data-kh]'); if (kb) { await loanPersonKhataPrint(kb.getAttribute('data-kh')); return; }
+    const tr = e.target.closest('tr[data-bp]'); if (!tr) return;
+    selPerson = tr.getAttribute('data-bp'); $('ln_PFilter').value = selPerson; $('ln_Person').value = selPerson; showBal(); renderAll();
+  });
+  // লেনদেনের তালিকাঃ বোতাম — সারিতে এক চাপে বাছাই আর দুই চাপে ✏️ এডিট সফটওয়্যারের সাধারণ নিয়মে (সব টেবিলে একই)
+  $('ln_List').addEventListener('click', async function (e) {
+    const b = e.target.closest('[data-ln]'); if (!b) return;
+    if (b.disabled || b.__busy) return; b.__busy = true;
+    const id = b.getAttribute('data-id'), act = b.getAttribute('data-ln');
+    try {
+      if (act === 'view') await loanVoucherPrint(id);
+      else if (act === 'edit') await openEdit(id);
+      else if (act === 'del') { if (await loanVoucherDelete(id)) { if (editId === id) resetForm(); await load(); } }
+      else if (act === 'post') { if (!confirm(t('পোস্ট করবেনঃ ', 'Post: ') + id + '?')) return; await postLoanVoucher(id); showToast(t('পোস্ট হয়েছে ✅', 'Posted ✅'), 'success'); await load(); }
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { b.__busy = false; }
+  });
+  fillPersonSelects(); showHint();
+  await load(); showBal();
+  if (window.__loanEditId) { const id = window.__loanEditId; window.__loanEditId = null; await openEdit(id); }
 }
 
 async function renderBankCashBook(content) {
@@ -12207,7 +12518,7 @@ const VK_COLORS = {
   SalesInvoice: ['#fff5e8', '#e09a3e'], SalesReturn: ['#fdeef0', '#d9667a'],
   ProcessingVoucher: ['#eef1fc', '#6f86d6'], PaymentVoucher: ['#f5effc', '#9b6fd6'], ExpenseVoucher: ['#fdf1ec', '#d9774a'], IncomeVoucher: ['#eefaf3', '#3aa66a'], ReceiptVoucher: ['#eaf5fd', '#3a8fd6'],
   ContraVoucher: ['#f3f4f6', '#9aa2ad'], JournalVoucher: ['#f3f4f6', '#9aa2ad'], AssetPurchase: ['#fbf6e4', '#c9a227'], AssetSale: ['#fbf6e4', '#c9a227'],
-  CapitalVoucher: ['#f3f4f6', '#9aa2ad'], SalaryIssue: ['#f1f9e8', '#7cb342'], MaterialIssue: ['#f3f4f6', '#9aa2ad'], StockTransfer: ['#f3f4f6', '#9aa2ad'], StockAdjustment: ['#f3f4f6', '#9aa2ad'],
+  CapitalVoucher: ['#f3f4f6', '#9aa2ad'], LoanVoucher: ['#fdf4e7', '#b7791f'], SalaryIssue: ['#f1f9e8', '#7cb342'], MaterialIssue: ['#f3f4f6', '#9aa2ad'], StockTransfer: ['#f3f4f6', '#9aa2ad'], StockAdjustment: ['#f3f4f6', '#9aa2ad'],
   GRN: ['#eef8f0', '#5fb36b'], PurchaseOrder: ['#eef8f0', '#5fb36b'], PurchaseRequisition: ['#eef8f0', '#5fb36b'], SalesOrder: ['#fff5e8', '#e09a3e'], DeliveryChallan: ['#fff5e8', '#e09a3e']
 };
 function vkClass(type) { const b = voucherBaseTypeSafe(type); return VK_COLORS[b] ? 'vk-' + b : ''; }
@@ -16461,7 +16772,8 @@ const VOUCHER_REGISTRY = {
   AssetSale: { bn: 'এ্যাসেট বিক্রয়', table: 'AssetSale', idf: 'ASID', lines: [['AssetSale_Lines', 'ASID']], kind: 'asset' },
   FixedAsset: { bn: 'স্থায়ী সম্পদ', table: 'FixedAsset', idf: 'AssetID', lines: [], kind: 'legacy' },
   // পুরনো সংস্করণের ভাউচার — এখনকার সফটওয়্যারে ফর্ম নেই; দেখা/এডিট নয়, শুধু মোছা (টেবিল ও আইডির নাম অনুমানে)
-  CollectionVoucher: { bn: 'কালেকশন (পুরনো)', table: 'CollectionVoucher', idf: ['CollectionID', 'ColID', 'CollID', 'VoucherID', 'ID'], lines: [], kind: 'legacy' }
+  CollectionVoucher: { bn: 'কালেকশন (পুরনো)', table: 'CollectionVoucher', idf: ['CollectionID', 'ColID', 'CollID', 'VoucherID', 'ID'], lines: [], kind: 'legacy' },
+  LoanVoucher: { bn: 'ধার-দেনা', table: 'LoanVoucher', idf: 'LoanID', lines: [], kind: 'loan' },
 };
 function voucherBaseType(refModule) { return String(refModule || '').replace(/-(Payment|Receipt|Reversal|RM|FG|ByProduct|In|Out)$/, ''); }
 async function voucherFetchHeader(base, id) {
@@ -16486,6 +16798,7 @@ async function voucherView(base, id) {
   if (R.kind === 'purchase' || R.kind === 'sales') return openPrintableVoucherView(base, id);
   if (R.kind === 'processing') return openProcessingPrintView(id, false, await stockCardProcessingData(id));
   if (R.kind === 'asset') return assetVoucherPrint(base, id);
+  if (R.kind === 'loan') return loanVoucherPrint(id);
   if (R && R.kind === 'head') { const HK = HV_KINDS[R.hv]; closeModal(); window['__' + HK.P + 'EditId'] = id; return navigateTo(HK.page, t('হিসাব', 'Accounts'), t(HK.bn, HK.en)); }   // এক্সপেন্স/রিসিপ্ট — নিজের পেজে উপরের ঘরে
   if (R.kind === 'simple') { const h = await voucherFetchHeader(base, id); if (!h) { showToast(t('ভাউচারটা পাওয়া যায়নি — 🗑️ দিয়ে লেজার থেকে মুছে ফেলতে পারেন।', 'Voucher not found — you can remove it from the ledger with 🗑️.'), 'error'); return; } window.__activeSimpleVoucherConfig = SIMPLE_VOUCHER_CONFIGS[R.cfg]; return openSimpleVoucherForm(h); }
 }
@@ -16496,6 +16809,7 @@ async function voucherEdit(base, id, posted) {
   if (!R || R.kind === 'legacy') { showToast(t('এই ধরনের ভাউচার এডিটের ব্যবস্থা নেই — 🗑️ দিয়ে মুছে নতুন করে দিন।', 'This voucher type cannot be edited — delete it and enter it again.'), 'error'); return false; }
   if (R && R.kind === 'head') { const HK = HV_KINDS[R.hv]; closeModal(); window['__' + HK.P + 'EditId'] = id; return navigateTo(HK.page, t('হিসাব', 'Accounts'), t(HK.bn, HK.en)); }   // এক্সপেন্স/রিসিপ্ট — নিজের পেজে উপরের ঘরে
   if (R.kind === 'asset') { closeModal(); window.__assetEditId = { base: base, id: id }; return navigateTo(ASSET_VCFG[base].page, t('হিসাব', 'Accounts'), ASSET_VCFG[base].bn); }
+  if (R.kind === 'loan') { closeModal(); window.__loanEditId = id; return navigateTo('loans', t('হিসাব', 'Accounts'), t('ধার-দেনা (পাওনা/দেনা)', 'Loans')); }
   const h = await voucherFetchHeader(base, id);
   if (!h) { showToast(t('ভাউচারটা পাওয়া যায়নি — 🗑️ দিয়ে লেজার থেকে মুছে ফেলতে পারেন।', 'Voucher not found — remove it with 🗑️.'), 'error'); return false; }
   if (h.Status === 'Posted') {
@@ -16518,6 +16832,7 @@ async function voucherPost(base, id) {
   if (R.kind === 'sales') return postSalesVoucherRecord(base, id);
   if (R.kind === 'processing') return postProcessingRecord(id);
   if (R.kind === 'asset') return assetVoucherPost(base, id);
+  if (R.kind === 'loan') { if (!confirm(t('পোস্ট করবেনঃ ', 'Post: ') + id + '?')) return false; await postLoanVoucher(id); return true; }
   if (!confirm(t('ভাউচার ', 'Post voucher ') + id + t(' পোস্ট করবেন?', '?'))) return;
   await postDocumentRecord(base, id);
 }
@@ -16525,7 +16840,8 @@ async function voucherPost(base, id) {
     স্টক, পার্টি লেজার, ক্যাশ/ব্যাংকের সব এন্ট্রি মুছে ব্যালান্স ঠিক করা হয়, তারপর লাইন ও ভাউচার (থাকলে) */
 async function voucherDelete(base, id) {
   const R = VOUCHER_REGISTRY[base] || { bn: base, table: null, idf: [], lines: [], kind: 'unknown' };
-  if (R.kind === 'asset') return assetVoucherDelete(base, id);   // রেজিস্টার ও বিক্রিত পরিমাণও ঠিক করে
+  if (R.kind === 'asset') return assetVoucherDelete(base, id);
+  if (R.kind === 'loan') return loanVoucherDelete(id);   // রেজিস্টার ও বিক্রিত পরিমাণও ঠিক করে
   const h = R.table ? await voucherFetchHeader(base, id) : null;
   const posted = !h || h.Status === 'Posted';
   if (posted) { if (!(await voucherAskAdmin(t('পোস্ট করা/ভুল ভাউচার মুছতে এডমিন পাসওয়ার্ড দিন:', 'Admin password to delete a posted/broken voucher:')))) return false; }
@@ -16599,6 +16915,23 @@ async function renderPartyLedger(content, partyTypeFilter) {
       if (!combined[key].name) combined[key].name = label;
       if (!combined[key].zone) combined[key].zone = s.Zone || '';
     });
+  }
+  if (partyTypeFilter !== 'Customer') {   // ধার-দেনার ব্যক্তি (হিসাব → ধার-দেনা)
+    try {
+      const { data: lps } = await supabaseClient.from('LoanPerson').select('*');
+      (lps || []).filter(function (lp) { return lp.Status !== 'Deleted'; }).forEach(function (lp) {
+        const me = combined['LP|' + lp.PersonID] = { name: lp.Name, customerId: null, supplierId: null, customerIds: [], supplierIds: [], personIds: [lp.PersonID], zone: '', phone: lp.Mobile || '', code: '', inactive: false };
+        // জোড়া গ্রাহক/সাপ্লায়ার (বেচাকেনা) — আলাদা নাম হয়ে নয়, এই ব্যক্তির খাতাতেই
+        Object.keys(combined).forEach(function (k) {
+          if (k === 'LP|' + lp.PersonID) return;
+          const c = combined[k], hitC = lp.LinkedCustomerID && (c.customerIds || []).indexOf(lp.LinkedCustomerID) !== -1, hitS = lp.LinkedSupplierID && (c.supplierIds || []).indexOf(lp.LinkedSupplierID) !== -1;
+          if (!hitC && !hitS) return;
+          if (hitC) { me.customerIds.push(lp.LinkedCustomerID); me.customerId = lp.LinkedCustomerID; c.customerIds = c.customerIds.filter(function (x) { return x !== lp.LinkedCustomerID; }); }
+          if (hitS) { me.supplierIds.push(lp.LinkedSupplierID); me.supplierId = lp.LinkedSupplierID; c.supplierIds = c.supplierIds.filter(function (x) { return x !== lp.LinkedSupplierID; }); }
+          if (!c.customerIds.length && !c.supplierIds.length && !(c.personIds || []).length) delete combined[k];
+        });
+      });
+    } catch (e) {}
   }
   const parties = Object.keys(combined).map(function (key) { return Object.assign({ key: key }, combined[key]); })
     .sort(function (a, b) { return String(a.name).localeCompare(String(b.name), 'bn'); });
@@ -16683,7 +17016,7 @@ async function renderPartyLedger(content, partyTypeFilter) {
       return [p.name, p.zone, p.phone, p.code].some(function (x) { return normName(x).indexOf(qy) !== -1; });
     });
     pickOn = pickItems.length ? 0 : -1;
-    const badge = function (p) { const c = (p.customerIds || []).length, sp = (p.supplierIds || []).length; return c && sp ? `<span class="pl-bd b">${t('গ্রাহক + সাপ্লায়ার', 'Both')}</span>` : c ? `<span class="pl-bd c">${t('গ্রাহক', 'Customer')}</span>` : `<span class="pl-bd s">${t('সাপ্লায়ার', 'Supplier')}</span>`; };
+    const badge = function (p) { if ((p.personIds || []).length) return `<span class="pl-bd" style="background:#fdf4e7;color:#8a5a12;">${t('ব্যক্তি (ধার-দেনা)', 'Person (loan)')}</span>`; const c = (p.customerIds || []).length, sp = (p.supplierIds || []).length; return c && sp ? `<span class="pl-bd b">${t('গ্রাহক + সাপ্লায়ার', 'Both')}</span>` : c ? `<span class="pl-bd c">${t('গ্রাহক', 'Customer')}</span>` : `<span class="pl-bd s">${t('সাপ্লায়ার', 'Supplier')}</span>`; };
     pickBox.innerHTML = `<div class="pl-cnt">${t('মোট ', 'Total ')}${pickItems.length}${t('টা পার্টি', ' parties')}${zone ? ' · ' + escapeHtml(zone) : ''}</div>` +
       (pickItems.length ? pickItems.map(function (p, i) {
         return `<div class="pl-it ${i === pickOn ? 'on' : ''}" data-i="${i}"><span class="nm">${escapeHtml(p.name)}${p.inactive ? ` <small>(${t('নিষ্ক্রিয়', 'inactive')})</small>` : ''}<br><small>${escapeHtml([p.zone, p.phone].filter(Boolean).join(' · '))}</small></span>${badge(p)}</div>`;
@@ -16738,6 +17071,7 @@ async function renderPartyLedger(content, partyTypeFilter) {
       AssetPurchase: { desc:['এ্যাসেট ক্রয় ভাউচার','Asset purchase voucher'], type:['এ্যাসেট ক্রয়','Asset purchase'] },
       'AssetPurchase-Payment': { desc:['এ্যাসেট ক্রয়ে প্রদান','Paid on asset purchase'], type:['পেমেন্ট','Payment'] },
       AssetSale: { desc:['এ্যাসেট বিক্রয় ভাউচার','Asset sale voucher'], type:['এ্যাসেট বিক্রয়','Asset sale'] },
+      LoanVoucher: { desc:['ধার-দেনা ভাউচার','Loan voucher'], type:['ধার-দেনা','Loan'] },
       'AssetSale-Receipt': { desc:['এ্যাসেট বিক্রয়ে গ্রহণ','Received on asset sale'], type:['রিসিপ্ট','Receipt'] },
       'PaymentVoucher-Reversal': { desc:['পেমেন্ট ভাউচার বাতিল','Payment voucher reversal'], type:['বাতিল','Reversal'] },
       SalaryIssue: { desc:['সেলারী ইস্যু (বেতন পরিশোধ)','Salary issue'], type:['বেতন','Salary'] },
@@ -16803,7 +17137,7 @@ async function renderPartyLedger(content, partyTypeFilter) {
       return data || [];
     };
     let rows;
-    try { rows = (await fetchRows('Customer', custIds)).concat(await fetchRows('Supplier', suppIds)); }
+    try { rows = (await fetchRows('Customer', custIds)).concat(await fetchRows('Supplier', suppIds)).concat(await fetchRows('Person', party.personIds || [])); }
     catch (err) { wrap.innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`; return; }
     // নগদ পার্টি (CUS-CASH / SUP-CASH) — পোস্টিংয়ে এদের PartyLedger এন্ট্রি হয় না (টাকা সরাসরি ক্যাশ বইতে যায়),
     // তাই পোস্ট করা ভাউচার থেকেই হিসাব বানানো হয়ঃ প্রতিটা ভাউচারে মোট টাকা ও সমান নগদ — ব্যালান্স শূন্য থাকে
