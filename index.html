@@ -497,7 +497,7 @@ const MODULES = [
   {key:'reports', bn:'রিপোর্ট', en:'Reports', sub:[
     {key:'invReport', bn:'ইনভেন্টরি প্রতিবেদন', en:'Inventory Reports'},{key:'salesReport', bn:'ক্রয় ও বিক্রয় প্রতিবেদন', en:'Purchase & Sales Reports'},
     {key:'prodReport', bn:'উৎপাদন প্রতিবেদন', en:'Production Reports'},
-    {key:'finReport', bn:'আর্থিক প্রতিবেদন', en:'Financial Reports'},{key:'partyBalance', bn:'পার্টি ব্যালান্স', en:'Party Balance'},
+    {key:'finReport', bn:'আর্থিক প্রতিবেদন', en:'Financial Reports'},{key:'plReport', bn:'লাভ-ক্ষতি হিসাব', en:'Profit & Loss'},{key:'partyBalance', bn:'পার্টি ব্যালান্স', en:'Party Balance'},
   ]},
   {key:'settings', bn:'সেটিংস', en:'Settings', sub:[
     {key:'general', bn:'সাধারণ সেটিংস', en:'General Settings'},{key:'langSettings', bn:'ভাষা সেটিংস', en:'Language Settings'},
@@ -514,7 +514,7 @@ const READY_PAGES = ['dashboard','svSettings','pvSettings','payvSettings','recvS
   'bom','processing','processingOld','prodDaily','procCosting','pOrder','pmi','fgr',
   'coa','bankCash','jv','cv','pv','rv','ownerCapital','assetNames','assetPurchase','assetSale','fixedAssets','bankBook','trialBalance',
   'empCategories','empInfo','workRoles','sizeRates','attendance','dailyProduction','leave','payroll','salaryIssue','payHeads','hrReports','payslip',
-  'invReport','salesReport','prodReport','finReport','partyBalance',
+  'invReport','salesReport','prodReport','finReport','plReport','partyBalance',
   'general','langSettings','companySettings','backup'];
 
 /* ============================================================
@@ -1541,6 +1541,7 @@ async function navigateTo(pageKey, moduleLabel, pageLabel) {
     else if (pageKey === 'purReport') { await renderPurchaseReport(content); addReportPrintButton(content); }
     else if (pageKey === 'prodReport') { await renderProductionReport(content); addReportPrintButton(content); }
     else if (pageKey === 'finReport') { await renderFinancialReport(content); addReportPrintButton(content); }
+    else if (pageKey === 'plReport') await renderProfitLossReport(content);   // রিপোর্ট → লাভ-ক্ষতি হিসাব (শুধু এডমিন)
     else if (pageKey === 'partyBalance') await renderPartyBalanceReport(content);   // রিপোর্ট → পার্টি ব্যালান্স (জোন/পার্টি, তারিখ-রেঞ্জ)
     else if (pageKey === 'general') await renderGeneralSettingsPage(content);
     else if (pageKey === 'langSettings') await renderLanguageSettingsPage(content);
@@ -1865,7 +1866,7 @@ function loadPermissions(roles) {
 function permLevel(key) {
   if (PERM.admin) return 3;
   if (key === 'dashboard') return 1;
-  if (key === 'roles' || key === 'userManagement') return 0; // ব্যবহারকারী ও অনুমতি শুধু অ্যাডমিন — নইলে কেউ নিজেই নিজের অনুমতি বাড়াতে পারত
+  if (key === 'roles' || key === 'userManagement' || key === 'plReport') return 0; // ব্যবহারকারী ও অনুমতি শুধু অ্যাডমিন — নইলে কেউ নিজেই নিজের অনুমতি বাড়াতে পারত
   return Number(PERM.pages[key]) || 0;
 }
 function permCan(key, need) { return permLevel(key) >= need; }
@@ -17769,6 +17770,546 @@ async function renderPartyBalanceReport(content) {
     const T = lastRes.tot, plain = function (v) { const n = Number(v) || 0; return Math.abs(n) < 0.005 ? '0.00' : fmt(n, true) + (n > 0 ? ' ডেঃ' : ' ক্রেঃ'); };
     printReportA4({ title: title, period: isoToDmy(st.from) + ' হইতে ' + isoToDmy(st.to) + ' পর্যন্ত', filters: st.zone ? 'জোনঃ ' + st.zone : '',
       summary: [['প্রারম্ভিক', plain(T.open)], ['মোট ডেবিট', fmt(T.dr, true) || '0.00'], ['মোট ক্রেডিট', fmt(T.cr, true) || '0.00'], ['অন্তিম জের', plain(T.close)]], html: clone.outerHTML });
+  });
+
+  await load(true);
+}
+
+/* ============================================================
+   রিপোর্ট → লাভ-ক্ষতি হিসাব (Profit & Loss) — শুধু এডমিন (লাভ কখনো অন্য কেউ দেখবে না)
+   পদ্ধতি (পিরিয়ডিক মজুদ পদ্ধতি — ব্যবসায়ের প্রচলিত "ক্রয়-বিক্রয় ও লাভ-ক্ষতি হিসাব"):
+   ক) নীট বিক্রয় = পোস্ট করা বিক্রয় ভাউচারের মূল্য − কমিশন − ডিসকাউন্ট − বিক্রয় ফেরত
+      (ভ্যাট ও বিক্রয়ের খরচ(+) পার্টির কাছ থেকে আদায় হয় — লাভে ধরা হয় না)
+   খ) বিক্রিত পণ্যের ব্যয় = প্রারম্ভিক মজুদ + ক্রয় (খরচ যোগ, ডিসকাউন্ট বাদ) − ক্রয় ফেরত
+         + মজুরি (দৈনিক উৎপাদনের মজুরি, সেলারী ভাউচারের হাজিরা/অন্যান্য) + উৎপাদন খরচ (দৈনিক উৎপাদনের খরচের কলাম)
+         − সমাপনী মজুদ
+      মজুদের মূল্য = স্টক ওভারভিউর দরের নিয়মে, ওই তারিখ পর্যন্তঃ সর্বশেষ পোস্ট করা প্রসেসিং → ক্রয় → প্রারম্ভিক জের → স্ট্যান্ডার্ড কস্ট
+      আইটেমের "প্রারম্ভিক জের" সবসময় প্রারম্ভিক মজুদে (তারিখ সময়ের ভেতরে হলেও)
+   গ) অন্যান্য আয় = রিসিপ্ট ভাউচার (খাতওয়ারি) + পেমেন্ট ভাউচারে পাওয়া ডিসকাউন্ট + জার্নালের আয় খাত + সম্পদ বিক্রিতে লাভ
+   ঘ) খরচ = এক্সপেন্স ভাউচার (খাতওয়ারি; (P) খাত বাদ — ওগুলো দৈনিক উৎপাদনের বকেয়া পরিশোধ, খরচ আগেই "খ"-তে ধরা)
+         + কালেকশন ভাউচারে দেওয়া ডিসকাউন্ট + জার্নালের খরচ খাত + অবচয় (ঐচ্ছিক) + সম্পদ বিক্রিতে লোকসান
+   নীট লাভ = ক − খ + গ − ঘ · শুধু পোস্ট করা ভাউচার · সারিতে এক চাপে বাছাই, দুই চাপে বিস্তারিত (ভাউচার তালিকা)
+   ============================================================ */
+async function plLoadData() {
+  const safe = async function (tb) { try { return await selectAllRows(tb); } catch (e) { return []; } };
+  const names = ['stock_ledger', 'ProcessingVoucher', 'ProcessingFG_Lines', 'PurchaseInvoice', 'PI_Lines', 'PurchaseReturn', 'PR_Return_Lines',
+    'SalesInvoice', 'SI_Lines', 'SalesReturn', 'SR_Lines', 'TeamProduction', 'TeamProduction_Members', 'TeamProduction_Costs',
+    'Payroll', 'Payroll_Details', 'DailyBonus', 'ExpenseVoucher', 'ExpenseVoucher_Lines', 'IncomeVoucher', 'IncomeVoucher_Lines',
+    'PaymentVoucher', 'ReceiptVoucher', 'JournalVoucher', 'JV_Lines', 'ChartOfAccounts', 'FixedAsset', 'AssetSale', 'AssetSale_Lines'];
+  delete listCache.Items; delete listCache.Customers; delete listCache.Suppliers;
+  const res = await Promise.all(names.map(safe));
+  const D = {}; names.forEach(function (n, i) { D[n] = res[i] || []; });
+  const lst = function (s) { return cachedList(s).catch(function () { return []; }); };
+  const more = await Promise.all([lst('Items'), lst('UOM'), lst('Categories'), lst('Employees'), lst('Customers'), lst('Suppliers')]);
+  D.items = more[0]; D.units = more[1]; D.cats = more[2]; D.emps = more[3]; D.custs = more[4]; D.sups = more[5];
+  try { D.gp = await hrLoadGroups(); } catch (e) { D.gp = { roleMap: {} }; }
+  return D;
+}
+
+function plCompute(D, from, to, opt) {
+  const n = function (x) { return Number(x) || 0; };
+  const d10 = function (x) { return String(x || '').slice(0, 10); };
+  const inR = function (d) { return !!d && d >= from && d <= to; };
+  const has = function (v) { return v !== null && v !== undefined && v !== ''; };
+  const dayBefore = function (iso) { const p = iso.split('-'); const x = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]) - 1); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); };
+  const prev = dayBefore(from);
+  const itemMap = {}; D.items.forEach(function (i) { itemMap[i.ItemID] = i; });
+  const catMap = {}; D.cats.forEach(function (c) { catMap[c.CategoryID] = c.CategoryName; });
+  const empName = {}; D.emps.forEach(function (e) { empName[e.EmployeeID] = e.Name || e.FullName || e.EmployeeID; });
+  const custName = {}; D.custs.forEach(function (c) { custName[c.CustomerID] = c.CompanyName || c.Name || c.CustomerID; });
+  const supName = {}; D.sups.forEach(function (s) { supName[s.SupplierID] = s.CompanyName || s.Name || s.SupplierID; });
+  const roleName = (D.gp && D.gp.roleMap) || {};
+  const posted = function (rows, idf) { const m = {}; rows.forEach(function (h) { if (h.Status === 'Posted') m[h[idf]] = h; }); return m; };
+  const drafts = { pi: 0, si: 0, pv: 0, ev: 0, iv: 0 };
+  const cntDraft = function (rows, df, key) { rows.forEach(function (h) { if (h.Status === 'Draft' && inR(d10(h[df]))) drafts[key]++; }); };
+  cntDraft(D.PurchaseInvoice, 'InvoiceDate', 'pi'); cntDraft(D.SalesInvoice, 'InvoiceDate', 'si'); cntDraft(D.ProcessingVoucher, 'Date', 'pv');
+  cntDraft(D.ExpenseVoucher, 'Date', 'ev'); cntDraft(D.IncomeVoucher, 'Date', 'iv');
+  const byId = function (rows, idf) { const m = {}; rows.forEach(function (l) { (m[l[idf]] = m[l[idf]] || []).push(l); }); return m; };
+
+  // ---------- ক) বিক্রয় ----------
+  const siH = posted(D.SalesInvoice, 'SIID'), siL = byId(D.SI_Lines, 'SIID');
+  let sGross = 0, sComm = 0, sDisc = 0;
+  const detSales = [], detComm = [], detSDisc = [];
+  Object.keys(siH).forEach(function (id) {
+    const h = siH[id], d = d10(h.InvoiceDate); if (!inR(d)) return;
+    let g = 0, c = 0;
+    (siL[id] || []).forEach(function (l) {
+      const amt = has(l.Amount) ? n(l.Amount) : n(l.Quantity) * n(l.Rate);
+      const net = has(l.NetAmount) ? n(l.NetAmount) : amt - n(l.CommissionAmount);
+      g += amt; c += amt - net;
+    });
+    const disc = n(h.DiscountAmount);
+    const who = h.CustomerID === 'CUS-CASH' ? (h.WalkInPartyName || t('নগদ', 'Cash')) : (custName[h.CustomerID] || h.CustomerID || '');
+    sGross += g; sComm += c; sDisc += disc;
+    detSales.push({ date: d, base: 'SalesInvoice', id: id, desc: who, amt: g });
+    if (Math.abs(c) > 0.004) detComm.push({ date: d, base: 'SalesInvoice', id: id, desc: who, amt: c });
+    if (disc) detSDisc.push({ date: d, base: 'SalesInvoice', id: id, desc: who, amt: disc });
+  });
+  const srH = posted(D.SalesReturn, 'SRID'), srL = byId(D.SR_Lines, 'SRID');
+  let sRet = 0; const detSRet = [];
+  Object.keys(srH).forEach(function (id) {
+    const h = srH[id], d = d10(h.Date); if (!inR(d)) return;
+    const v = (srL[id] || []).reduce(function (s, l) { return s + n(l.Quantity) * n(l.Rate); }, 0);   // পোস্টিং-এর নিয়মেই (পার্টি লেজারের সাথে মেলে)
+    sRet += v; detSRet.push({ date: d, base: 'SalesReturn', id: id, desc: h.CustomerID === 'CUS-CASH' ? t('নগদ', 'Cash') : (custName[h.CustomerID] || h.CustomerID || ''), amt: v });
+  });
+
+  // ---------- খ) ক্রয় ----------
+  const piH = posted(D.PurchaseInvoice, 'PIID'), piL = byId(D.PI_Lines, 'PIID');
+  let pItems = 0, pExp = 0, pDisc = 0, pVat = 0;
+  const detPur = [], detPExp = [], detPDisc = [], detPVat = [];
+  Object.keys(piH).forEach(function (id) {
+    const h = piH[id], d = d10(h.InvoiceDate); if (!inR(d)) return;
+    const ls = piL[id] || [];
+    let v = ls.reduce(function (s, l) { return s + (has(l.NetAmount) ? n(l.NetAmount) : has(l.Amount) ? n(l.Amount) : n(l.Quantity) * n(l.Rate)); }, 0);
+    const exp = n(h.CashExpenseAmount), disc = n(h.DiscountAmount), vat = n(h.VatAmount);
+    if (!ls.length) v = n(h.TotalAmount) - exp + disc - vat;   // লাইন না পেলে মোট থেকে
+    const who = h.SupplierID === 'SUP-CASH' ? (h.WalkInPartyName || t('নগদ', 'Cash')) : (supName[h.SupplierID] || h.SupplierID || '');
+    pItems += v; pExp += exp; pDisc += disc; pVat += vat;
+    detPur.push({ date: d, base: 'PurchaseInvoice', id: id, desc: who, amt: v });
+    if (exp) detPExp.push({ date: d, base: 'PurchaseInvoice', id: id, desc: who + (h.CashExpenseNote ? ' · ' + h.CashExpenseNote : ''), amt: exp });
+    if (disc) detPDisc.push({ date: d, base: 'PurchaseInvoice', id: id, desc: who, amt: disc });
+    if (vat) detPVat.push({ date: d, base: 'PurchaseInvoice', id: id, desc: who, amt: vat });
+  });
+  const prH = posted(D.PurchaseReturn, 'PRetID'), prL = byId(D.PR_Return_Lines, 'PRetID');
+  let pRet = 0; const detPRet = [];
+  Object.keys(prH).forEach(function (id) {
+    const h = prH[id], d = d10(h.Date); if (!inR(d)) return;
+    const v = (prL[id] || []).reduce(function (s, l) { return s + n(l.Quantity) * n(l.Rate); }, 0);
+    pRet += v; detPRet.push({ date: d, base: 'PurchaseReturn', id: id, desc: h.SupplierID === 'SUP-CASH' ? t('নগদ', 'Cash') : (supName[h.SupplierID] || h.SupplierID || ''), amt: v });
+  });
+
+  // ---------- খ) মজুদ (প্রারম্ভিক ও সমাপনী) ----------
+  const pvH = posted(D.ProcessingVoucher, 'ProcessingID');
+  const procR = {}, purR = {};
+  D.ProcessingFG_Lines.forEach(function (l) { const h = pvH[l.ProcessingID]; if (!h || !l.ItemID) return; (procR[l.ItemID] = procR[l.ItemID] || []).push({ d: d10(h.Date), kg: n(l.RatePerKg), pc: n(l.RatePerPc) }); });
+  D.PI_Lines.forEach(function (l) {
+    const h = piH[l.PIID]; if (!h || !l.ItemID || !(n(l.Quantity) > 0)) return;
+    const v = has(l.NetAmount) ? n(l.NetAmount) : has(l.Amount) ? n(l.Amount) : n(l.Quantity) * n(l.Rate);
+    (purR[l.ItemID] = purR[l.ItemID] || []).push({ d: d10(h.InvoiceDate), r: v / n(l.Quantity) });
+  });
+  [procR, purR].forEach(function (m) { Object.keys(m).forEach(function (k) { m[k].sort(function (a, b) { return a.d.localeCompare(b.d); }); }); });
+  const lastUpTo = function (arr, day) { let x = null; (arr || []).forEach(function (e) { if (e.d <= day) x = e; }); return x; };
+  const rateAsOf = function (id, piece, day) {
+    const p = lastUpTo(procR[id], day); if (p && (p.kg || p.pc)) return { kg: p.kg, pc: p.pc, src: t('প্রসেসিং', 'processing') };
+    const u = lastUpTo(purR[id], day); if (u) return { kg: piece ? 0 : u.r, pc: piece ? u.r : 0, src: t('ক্রয়', 'purchase') };
+    const it = itemMap[id] || {};
+    let rk = n(it.OpeningRateKg), rp = n(it.OpeningRatePc);
+    if (!rk && !rp && n(it.OpeningValue)) { if (n(it.OpeningQtyKg)) rk = n(it.OpeningValue) / n(it.OpeningQtyKg); if (n(it.OpeningQtyPcs)) rp = n(it.OpeningValue) / n(it.OpeningQtyPcs); }
+    if (rk || rp) return { kg: rk, pc: rp, src: t('প্রারম্ভিক জের', 'opening') };
+    const sc = n(it.StandardCost); return { kg: piece ? 0 : sc, pc: piece ? sc : 0, src: t('স্ট্যান্ডার্ড কস্ট', 'standard cost') };
+  };
+  const valueOf = function (id, piece, kg, pc, day) {
+    const r0 = rateAsOf(id, piece, day), r = { kg: r0.kg, pc: r0.pc, src: r0.src };
+    const avg = (kg > 0 && pc > 0) ? kg / pc : 0;
+    if (!r.kg && r.pc && avg) r.kg = r.pc / avg;
+    if (!r.pc && r.kg && avg) r.pc = r.kg * avg;
+    const v = piece ? (pc && r.pc ? pc * r.pc : kg * r.kg) : (kg && r.kg ? kg * r.kg : pc * r.pc);
+    return { v: v || 0, r: r };
+  };
+  const combos = {};
+  D.stock_ledger.forEach(function (l) {
+    const d = d10(l.Date); if (!d || d > to) return;
+    const k = l.ItemID + '::' + l.WarehouseID;
+    const c = combos[k] = combos[k] || { id: l.ItemID, oKg: 0, oPc: 0, cKg: 0, cPc: 0 };
+    const kg = n(l.QtyIn) - n(l.QtyOut), pc = n(l.PiecesIn) - n(l.PiecesOut);
+    c.cKg += kg; c.cPc += pc;
+    if (d < from || l.TransactionType === 'Opening') { c.oKg += kg; c.oPc += pc; }   // আইটেমের প্রারম্ভিক জের সবসময় প্রারম্ভিক মজুদে
+  });
+  const NO_CAT = t('ক্যাটাগরি নেই', 'No category');
+  const stockItems = {}; let openV = 0, closeV = 0, negCnt = 0;
+  Object.keys(combos).forEach(function (k) {
+    const c = combos[k], it = itemMap[c.id] || {}, piece = isPieceUOM(it.UOMID, D.units);
+    const z = function (x) { return Math.abs(x) < 0.0005; };
+    if (z(c.oKg) && z(c.oPc) && z(c.cKg) && z(c.cPc)) return;
+    const o = valueOf(c.id, piece, c.oKg, c.oPc, prev), cl = valueOf(c.id, piece, c.cKg, c.cPc, to);
+    const s = stockItems[c.id] = stockItems[c.id] || { id: c.id, name: it.ItemName || c.id, cat: catMap[it.CategoryID] || NO_CAT, piece: piece, oKg: 0, oPc: 0, oV: 0, cKg: 0, cPc: 0, cV: 0, oSrc: o.r.src, cSrc: cl.r.src, neg: false };
+    s.oKg += c.oKg; s.oPc += c.oPc; s.oV += o.v; s.cKg += c.cKg; s.cPc += c.cPc; s.cV += cl.v;
+    if (c.cKg < -0.0005 || c.cPc < -0.0005) s.neg = true;
+    openV += o.v; closeV += cl.v;
+  });
+  Object.keys(stockItems).forEach(function (k) { if (stockItems[k].neg) negCnt++; });
+  const catRows = {};
+  const itemOrder = {}; D.items.forEach(function (i, ix) { itemOrder[i.ItemID] = ix; });   // আইটেম সিরিয়াল (ক্যাটাগরি → R/T/D → সাইজ)
+  Object.keys(stockItems).map(function (k) { return stockItems[k]; }).sort(function (a, b) { return (itemOrder[a.id] === undefined ? 1e9 : itemOrder[a.id]) - (itemOrder[b.id] === undefined ? 1e9 : itemOrder[b.id]); }).forEach(function (s) {
+    const c = catRows[s.cat] = catRows[s.cat] || { cat: s.cat, oKg: 0, oPc: 0, oV: 0, cKg: 0, cPc: 0, cV: 0, items: [] };
+    c.oKg += s.oKg; c.oPc += s.oPc; c.oV += s.oV; c.cKg += s.cKg; c.cPc += s.cPc; c.cV += s.cV; c.items.push(s);
+  });
+  const catOrder = {}; D.cats.forEach(function (c, ix) { catOrder[c.CategoryName] = ix; });
+  const stockCats = Object.keys(catRows).map(function (k) { return catRows[k]; }).sort(function (a, b) {
+    if (a.cat === NO_CAT) return 1; if (b.cat === NO_CAT) return -1;
+    return ((catOrder[a.cat] === undefined ? 1e9 : catOrder[a.cat]) - (catOrder[b.cat] === undefined ? 1e9 : catOrder[b.cat])) || a.cat.localeCompare(b.cat, 'bn');
+  });
+
+  // ---------- খ) মজুরি ও উৎপাদন খরচ (দৈনিক উৎপাদন + সেলারী ভাউচার) ----------
+  const tpH = {}; D.TeamProduction.forEach(function (h) { tpH[String(h.TeamProdID)] = { d: d10(h.WorkDate), dp: !!h.DPLineID }; });
+  let wProd = 0; const wProdBy = {};
+  D.TeamProduction_Members.forEach(function (m) {
+    const h = tpH[String(m.TeamProdID)]; if (!h || !m.RoleID || !inR(h.d)) return;
+    if (!h.dp && !m.BilledIn) return;   // পুরনো পেজের বিল-না-হওয়া রেকর্ড বাদ (খরচ খাত লেজারের নিয়ম)
+    wProd += n(m.Amount); wProdBy[h.d] = (wProdBy[h.d] || 0) + n(m.Amount);
+  });
+  const detWProd = Object.keys(wProdBy).sort().map(function (d) { return { date: d, desc: t('দৈনিক উৎপাদন — মজুরি', 'Daily production — wages'), amt: wProdBy[d] }; });
+  const svH = {}; D.Payroll.forEach(function (h) { if (h.Status !== 'Deleted' && h.RunType === 'SalaryVoucher') svH[h.PayrollID] = h; });
+  let wHaj = 0, wOther = 0; const hajBy = {}, othBy = {};
+  D.Payroll_Details.forEach(function (x) {
+    const h = svH[x.PayrollID]; if (!h) return;
+    const d = d10(x.WorkDate); if (!inR(d)) return;
+    const key = x.PayrollID;
+    if (x.DetailType === 'SVDay') { if (Number(x.TargetQty) === 1) { wHaj += n(x.Amount); hajBy[key] = (hajBy[key] || 0) + n(x.Amount); } }
+    else if (x.DetailType === 'SVRow') {
+      let meta = {}; try { meta = JSON.parse(x.Description || '{}'); } catch (e) {}
+      const v = (meta.k !== 'prod' ? n(x.Amount) : 0) + n(x.OverQty);   // উৎপাদনের মজুরি আগেই উপরে ধরা — এখানে শুধু হাতে লেখা মজুরি ও অন্যান্য (±)
+      wOther += v; othBy[key] = (othBy[key] || 0) + v;
+    }
+  });
+  const svDet = function (m) { return Object.keys(m).filter(function (k) { return Math.abs(m[k]) > 0.004; }).map(function (k) { const h = svH[k]; return { date: d10(h.VoucherDate || h.DateTo), id: h.VoucherNo || k, desc: t('সেলারী ভাউচার', 'Salary voucher') + ' · ' + (empName[h.EmployeeID] || h.EmployeeID || ''), amt: m[k] }; }).sort(function (a, b) { return a.date.localeCompare(b.date); }); };
+  let wBonus = 0; const detBonus = [];
+  D.DailyBonus.forEach(function (b) { const d = d10(b.WorkDate); if (b.BilledIn || !inR(d) || b.Status === 'Deleted') return; wBonus += n(b.Amount); detBonus.push({ date: d, desc: t('বোনাস', 'Bonus') + ' · ' + (empName[b.EmployeeID] || b.EmployeeID || '') + (b.Note ? ' — ' + b.Note : ''), amt: n(b.Amount) }); });
+  const costBy = {};
+  D.TeamProduction_Costs.forEach(function (c) {
+    const h = tpH[String(c.TeamProdID)]; if (!h || !h.dp || !inR(h.d) || !c.RoleID) return;
+    const r = costBy[c.RoleID] = costBy[c.RoleID] || { name: roleName[c.RoleID] || c.RoleID, amt: 0, by: {} };
+    r.amt += n(c.Amount); r.by[h.d] = (r.by[h.d] || 0) + n(c.Amount);
+  });
+
+  // ---------- গ) অন্যান্য আয় · ঘ) খরচ ----------
+  const headSum = function (heads, lines, idf, skipP, kind) {
+    const H = posted(heads, idf), m = {};
+    lines.forEach(function (l) {
+      const h = H[l[idf]]; if (!h) return; const d = d10(h.Date); if (!inR(d)) return;
+      if (skipP && String(l.HeadID || '').indexOf('P:') === 0) return;
+      const k = l.HeadName || l.HeadID || t('খাত নেই', 'No head');
+      const r = m[k] = m[k] || { name: k, amt: 0, det: [] };
+      r.amt += n(l.Amount); r.det.push({ date: d, base: kind, id: l[idf], desc: l.Description || h.Narration || '', amt: n(l.Amount) });
+    });
+    return Object.keys(m).map(function (k) { return m[k]; }).sort(function (a, b) { return b.amt - a.amt; });
+  };
+  const incHeads = headSum(D.IncomeVoucher, D.IncomeVoucher_Lines, 'IncID', false, 'IncomeVoucher');
+  const expHeads = headSum(D.ExpenseVoucher, D.ExpenseVoucher_Lines, 'ExpID', true, 'ExpenseVoucher');
+  const discSum = function (rows, idf, base) {
+    let s = 0; const det = [];
+    rows.forEach(function (h) { if (h.Status !== 'Posted') return; const d = d10(h.Date); const v = Math.min(Math.max(n(h.Discount), 0), n(h.Amount)); if (!inR(d) || !v) return; s += v; det.push({ date: d, base: base, id: h[idf], desc: (h.PartyType === 'Customer' ? custName[h.PartyID] : supName[h.PartyID]) || h.PartyID || '', amt: v }); });
+    return { amt: s, det: det };
+  };
+  const discRecv = discSum(D.PaymentVoucher, 'PayID', 'PaymentVoucher'), discGiven = discSum(D.ReceiptVoucher, 'RecID', 'ReceiptVoucher');
+  const accType = {}, accNm = {}; D.ChartOfAccounts.forEach(function (a) { accType[a.AccountID] = a.AccountType; accNm[a.AccountID] = a.AccountName; });
+  const jvH = posted(D.JournalVoucher, 'JVID'), jvInc = {}, jvExp = {};
+  D.JV_Lines.forEach(function (l) {
+    const h = jvH[l.JVID]; if (!h) return; const d = d10(h.Date); if (!inR(d)) return;
+    const ty = accType[l.AccountID]; if (ty !== 'Income' && ty !== 'Expense') return;
+    const v = ty === 'Income' ? n(l.Credit) - n(l.Debit) : n(l.Debit) - n(l.Credit); if (!v) return;
+    const m = ty === 'Income' ? jvInc : jvExp;
+    const r = m[l.AccountID] = m[l.AccountID] || { name: (accNm[l.AccountID] || l.AccountID) + t(' (জার্নাল)', ' (journal)'), amt: 0, det: [] };
+    r.amt += v; r.det.push({ date: d, id: l.JVID, desc: h.Narration || '', amt: v });
+  });
+  // স্থায়ী সম্পদঃ বিক্রিতে লাভ/লোকসান, অবচয়
+  const asH = posted(D.AssetSale, 'ASID'), regMap = {}; D.FixedAsset.forEach(function (r) { regMap[r.AssetID] = r; });
+  let aGain = 0, aLoss = 0, dep = 0; const detGain = [], detLoss = [], depBy = {};
+  const depSpan = function (cost, rate, start, a, b) { if (!(b >= a)) return 0; const x = faDepOf(cost, rate, start, b) - (a > start ? faDepOf(cost, rate, start, a) : 0); return x > 0 ? x : 0; };
+  D.AssetSale_Lines.forEach(function (l) {
+    const h = asH[l.ASID]; if (!h) return; const d = d10(h.Date); const r = regMap[l.AssetID] || {};
+    if (inR(d)) { const g = n(l.GainLoss); if (g > 0) { aGain += g; detGain.push({ date: d, base: 'AssetSale', id: l.ASID, desc: r.AssetName || l.AssetID || '', amt: g }); } else if (g < 0) { aLoss -= g; detLoss.push({ date: d, base: 'AssetSale', id: l.ASID, desc: r.AssetName || l.AssetID || '', amt: -g }); } }
+    if (opt.dep && r.Date && d >= from) {   // বিক্রিত অংশের অবচয় — বিক্রির দিন পর্যন্ত
+      const v = depSpan(n(l.CostPortion), r.DepRate, d10(r.Date), prev, d < to ? d : to);
+      if (v) { dep += v; const k = r.Category || r.AssetName || t('সম্পদ', 'Asset'); depBy[k] = (depBy[k] || 0) + v; }
+    }
+  });
+  if (opt.dep) D.FixedAsset.forEach(function (r) {
+    if (r.Status === 'Deleted' || !r.Date || d10(r.Date) > to) return;
+    const st = faState(r, to);
+    const v = depSpan(st.cost, r.DepRate, d10(r.Date), prev, to);   // বাকি অংশের অবচয় — এই সময়ের
+    if (v) { dep += v; const k = r.Category || r.AssetName || t('সম্পদ', 'Asset'); depBy[k] = (depBy[k] || 0) + v; }
+  });
+  const detDep = Object.keys(depBy).map(function (k) { return { desc: k, amt: depBy[k] }; });
+
+  // ---------- বিবরণী ----------
+  const L = []; let sl = 0, first = true;
+  const sec = function (label) { L.push({ k: 'sec', label: label }); first = true; };
+  const line = function (label, eff, det, dk) {
+    if (Math.abs(eff) < 0.005 && !(det && det.always)) return 0;
+    L.push({ k: 'line', sl: ++sl, label: label, eff: eff, pre: first ? '' : (eff < 0 ? '(−) ' : '(+) '), det: det || null, dk: dk || 'v' }); first = false; return eff;
+  };
+  const tot = function (label, amt, cls, note) { L.push({ k: cls || 'tot', label: label, amt: amt, note: note || '' }); };
+
+  sec(t('ক) বিক্রয়', 'A) Sales'));
+  line(t('বিক্রয় (পোস্ট করা ভাউচার)', 'Sales (posted vouchers)'), sGross, { title: t('বিক্রয়', 'Sales'), rows: detSales, always: true });
+  line(t('বিক্রয় কমিশন', 'Sales commission'), -sComm, { title: t('বিক্রয় কমিশন', 'Sales commission'), rows: detComm });
+  line(t('বিক্রয় ডিসকাউন্ট', 'Sales discount'), -sDisc, { title: t('বিক্রয় ডিসকাউন্ট', 'Sales discount'), rows: detSDisc });
+  line(t('বিক্রয় ফেরত', 'Sales returns'), -sRet, { title: t('বিক্রয় ফেরত', 'Sales returns'), rows: detSRet });
+  const A = sGross - sComm - sDisc - sRet;
+  tot(t('নীট বিক্রয় (ক)', 'Net sales (A)'), A);
+
+  sec(t('খ) বিক্রিত পণ্যের ব্যয়', 'B) Cost of goods sold'));
+  const stockDet = function (which) { return { title: which === 'o' ? t('প্রারম্ভিক মজুদ', 'Opening stock') : t('সমাপনী মজুদ', 'Closing stock'), stock: which, always: true }; };
+  line(t('প্রারম্ভিক মজুদ', 'Opening stock') + ' (' + isoToDmy(prev) + ')', openV, stockDet('o'));
+  line(t('ক্রয় (পোস্ট করা ভাউচার, নীট মূল্য)', 'Purchases (posted, net)'), pItems, { title: t('ক্রয়', 'Purchases'), rows: detPur });
+  line(t('ক্রয়ের খরচ (পরিবহন ইত্যাদি)', 'Purchase expenses'), pExp, { title: t('ক্রয়ের খরচ', 'Purchase expenses'), rows: detPExp });
+  line(t('ক্রয়ে ভ্যাট', 'Purchase VAT'), pVat, { title: t('ক্রয়ে ভ্যাট', 'Purchase VAT'), rows: detPVat });
+  line(t('ক্রয় ডিসকাউন্ট', 'Purchase discount'), -pDisc, { title: t('ক্রয় ডিসকাউন্ট', 'Purchase discount'), rows: detPDisc });
+  line(t('ক্রয় ফেরত', 'Purchase returns'), -pRet, { title: t('ক্রয় ফেরত', 'Purchase returns'), rows: detPRet });
+  line(t('উৎপাদন মজুরি (দৈনিক উৎপাদন)', 'Production wages (daily production)'), wProd, { title: t('উৎপাদন মজুরি', 'Production wages'), rows: detWProd });
+  line(t('হাজিরা (সেলারী ভাউচার)', 'Attendance pay (salary voucher)'), wHaj, { title: t('হাজিরা', 'Attendance pay'), rows: svDet(hajBy) });
+  line(t('অন্যান্য মজুরি ও কম-বেশি (সেলারী ভাউচার)', 'Other wages & adjustments (salary voucher)'), wOther, { title: t('অন্যান্য মজুরি ও কম-বেশি', 'Other wages & adjustments'), rows: svDet(othBy) });
+  line(t('বোনাস (সেলারী ভাউচারে ওঠেনি)', 'Bonus (not yet in a salary voucher)'), wBonus, { title: t('বোনাস', 'Bonus'), rows: detBonus });
+  Object.keys(costBy).map(function (k) { return costBy[k]; }).sort(function (a, b) { return b.amt - a.amt; }).forEach(function (c) {
+    line(c.name + t(' (উৎপাদন খরচ)', ' (production cost)'), c.amt, { title: c.name, rows: Object.keys(c.by).sort().map(function (d) { return { date: d, desc: t('দৈনিক উৎপাদন', 'Daily production'), amt: c.by[d] }; }) });
+  });
+  line(t('সমাপনী মজুদ', 'Closing stock') + ' (' + isoToDmy(to) + ')', -closeV, stockDet('c'));
+  const costProd = Object.keys(costBy).reduce(function (s, k) { return s + costBy[k].amt; }, 0);
+  const B = openV + pItems + pExp + pVat - pDisc - pRet + wProd + wHaj + wOther + wBonus + costProd - closeV;
+  tot(t('বিক্রিত পণ্যের ব্যয় (খ)', 'Cost of goods sold (B)'), B);
+  const G = A - B;
+  tot(G < 0 ? t('মোট ক্ষতি (ক − খ)', 'Gross loss (A − B)') : t('মোট লাভ (ক − খ)', 'Gross profit (A − B)'), G, 'grand', A ? ((G / A) * 100).toFixed(2) + '%' : '');
+
+  sec(t('গ) অন্যান্য আয়', 'C) Other income'));
+  let C = 0;
+  incHeads.forEach(function (h) { C += line(h.name, h.amt, { title: h.name, rows: h.det }); });
+  C += line(t('পাওয়া ডিসকাউন্ট (পেমেন্ট ভাউচার)', 'Discount received (payment vouchers)'), discRecv.amt, { title: t('পাওয়া ডিসকাউন্ট', 'Discount received'), rows: discRecv.det });
+  Object.keys(jvInc).forEach(function (k) { C += line(jvInc[k].name, jvInc[k].amt, { title: jvInc[k].name, rows: jvInc[k].det }); });
+  C += line(t('স্থায়ী সম্পদ বিক্রিতে লাভ', 'Gain on asset sale'), aGain, { title: t('সম্পদ বিক্রিতে লাভ', 'Gain on asset sale'), rows: detGain });
+  if (!L.length || L[L.length - 1].k === 'sec') L.push({ k: 'empty', label: t('এই সময়ে কোনো অন্যান্য আয় নেই', 'No other income in this period') });
+  tot(t('মোট অন্যান্য আয় (গ)', 'Total other income (C)'), C);
+
+  sec(t('ঘ) পরিচালন ও অন্যান্য খরচ', 'D) Operating & other expenses'));
+  let E = 0;
+  expHeads.forEach(function (h) { E += line(h.name, h.amt, { title: h.name, rows: h.det }); });
+  E += line(t('দেওয়া ডিসকাউন্ট (কালেকশন ভাউচার)', 'Discount allowed (collection vouchers)'), discGiven.amt, { title: t('দেওয়া ডিসকাউন্ট', 'Discount allowed'), rows: discGiven.det });
+  Object.keys(jvExp).forEach(function (k) { E += line(jvExp[k].name, jvExp[k].amt, { title: jvExp[k].name, rows: jvExp[k].det }); });
+  if (opt.dep) E += line(t('অবচয় (স্থায়ী সম্পদ)', 'Depreciation (fixed assets)'), dep, { title: t('অবচয় — খাতওয়ারি', 'Depreciation by category'), rows: detDep });
+  E += line(t('স্থায়ী সম্পদ বিক্রিতে লোকসান', 'Loss on asset sale'), aLoss, { title: t('সম্পদ বিক্রিতে লোকসান', 'Loss on asset sale'), rows: detLoss });
+  if (L[L.length - 1].k === 'sec') L.push({ k: 'empty', label: t('এই সময়ে কোনো খরচ নেই', 'No expenses in this period') });
+  tot(t('মোট খরচ (ঘ)', 'Total expenses (D)'), E);
+
+  const NP = G + C - E;
+  tot(NP < 0 ? t('নীট ক্ষতি (ক − খ + গ − ঘ)', 'Net loss (A − B + C − D)') : t('নীট লাভ (ক − খ + গ − ঘ)', 'Net profit (A − B + C − D)'), NP, 'final', A ? ((NP / A) * 100).toFixed(2) + '%' : '');
+
+  return { L: L, A: A, B: B, G: G, C: C, E: E, NP: NP, openV: openV, closeV: closeV, stockCats: stockCats, drafts: drafts, negCnt: negCnt, prev: prev };
+}
+
+async function renderProfitLossReport(content) {
+  if (!currentUser || currentUser.RoleID !== 'ROLE-ADMIN') {
+    content.innerHTML = `<div class="empty-state" style="padding:60px 20px;">🔒 ${t('লাভ-ক্ষতি হিসাব শুধু এডমিন দেখতে পারেন।', 'Only an Admin can view Profit & Loss.')}</div>`;
+    return;
+  }
+  const dNow = new Date(), today = dNow.getFullYear() + '-' + String(dNow.getMonth() + 1).padStart(2, '0') + '-' + String(dNow.getDate()).padStart(2, '0');
+  const fyStart = await getFiscalYearStart(today);
+  const st = { from: fyStart, to: today, dep: true, sel: '' };
+  let DATA = null, R = null;
+  let depPref = true; try { depPref = localStorage.getItem('plDep') !== '0'; } catch (e) {}
+  st.dep = depPref;
+
+  content.innerHTML = `
+    <style>${DMY_CSS}${RPT_SIDE_CSS}
+      .pl-chk{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;height:26px;white-space:nowrap;color:#3d5a6c;} .pl-chk input{width:auto;margin:0;}
+      .pl-tbl td.lb{white-space:normal;min-width:180px;}
+      .pl-tbl tr.pl-sec td{background:#1f2937;color:#ffd27a;font-weight:700;padding:2px 8px !important;}
+      .pl-tbl tr.pl-row{cursor:pointer;} .pl-tbl tr.pl-row:hover td{background:#fff8e6;} .pl-tbl tr.pl-row.sel td{background:#ffe9b3;}
+      .pl-tbl tr.pl-tot td{background:#eef1f5;font-weight:700;}
+      .pl-tbl tr.pl-grand td{background:#e1effa;font-weight:700;color:#0b4a78;}
+      .pl-tbl tr.pl-final td{background:#1f2937;color:#fff;font-weight:800;font-size:12px;}
+      .pl-tbl tr.pl-final.loss td,.pl-tbl tr.pl-grand.loss td{color:#ffb4b4;} .pl-tbl tr.pl-grand.loss td{color:#b91c1c;}
+      .pl-tbl tr.pl-empty td{color:var(--text-muted);font-style:italic;}
+      .pl-tbl .neg{color:#b91c1c;} .pl-tbl .pct{font-weight:400;font-size:10px;opacity:.85;margin-left:4px;}
+      .pl-cards div b.loss{color:#b91c1c;} .pl-cards div b.gain{color:#15803d;}
+      .pl-warn{font-size:11px;color:#92400e;background:#fff7e6;border:1px solid #f5d9a6;border-radius:6px;padding:3px 8px;margin:0 0 6px;}
+      .pl-h2{font-size:12.5px;font-weight:700;margin:12px 0 4px;color:var(--text);}
+      .pl-st tr.pl-row{cursor:pointer;} .pl-st tr.pl-row:hover td{background:#fff8e6;} .pl-st tr.pl-row.sel td{background:#ffe9b3;}
+      .pl-dt td.lb{white-space:normal;}
+      @media (max-width:760px){ .pl-tbl .pl-act,.pl-st .pl-act{display:none;} .pl-tbl td.lb{min-width:120px;} .pl-st .mh{display:none;} }
+    </style>
+    <div class="sr-head"><h1 class="i18n" data-bn="লাভ-ক্ষতি হিসাব" data-en="Profit &amp; Loss">${t('লাভ-ক্ষতি হিসাব', 'Profit & Loss')}</h1></div>
+    <div class="sr-layout">
+     <aside class="sr-side" id="plSide">
+      <button type="button" class="sr-tog" id="plTog" title="${attr(t('ফিল্টার লুকান/দেখান', 'Hide/show filters'))}">‹</button>
+      <div class="sr-side-h" data-lbl="${attr(t('ফিল্টার', 'Filters'))}"><span>🔎 ${t('ফিল্টার', 'Filters')}</span></div>
+      <div class="sr-bar" id="plBar">
+        <div class="field"><label>${t('হইতে', 'From')}</label>${dmyDateField('plFrom', st.from)}</div>
+        <div class="field"><label>${t('পর্যন্ত', 'To')}</label>${dmyDateField('plTo', st.to)}</div>
+        <div class="field"><label>&nbsp;</label><label class="pl-chk"><input type="checkbox" id="plDep" ${st.dep ? 'checked' : ''}> ${t('অবচয় ধরুন', 'Include depreciation')}</label></div>
+        <div class="sr-btns"><button type="button" class="btn btn-primary" id="plShow">🔄 ${t('দেখাও', 'Show')}</button><button type="button" class="btn btn-outline" id="plPrint">🖨️ ${t('প্রিন্ট', 'Print')}</button></div>
+      </div>
+     </aside>
+     <div class="sr-main panel">
+      <div id="plCards"></div>
+      <div id="plWarn"></div>
+      <div id="plOut"><div class="sr-hint">${t('লোড হচ্ছে…', 'Loading…')}</div></div>
+      <div id="plStock"></div>
+      <div class="sr-note">${t('শুধু পোস্ট করা ভাউচার ধরা হয়েছে। মজুদের মূল্য স্টক ওভারভিউর দরের নিয়মে (ওই তারিখ পর্যন্ত সর্বশেষ প্রসেসিং → ক্রয় → প্রারম্ভিক জের → স্ট্যান্ডার্ড কস্ট)। এক্সপেন্স ভাউচারের (P) খাত ও সেলারী ইস্যু হলো বকেয়া পরিশোধ — খরচ আগেই দৈনিক উৎপাদন থেকে ধরা, তাই আবার ধরা হয়নি। এক চাপে সারি বাছাই, দুই চাপে বিস্তারিত।', 'Only posted vouchers. Stock is valued with the Stock Overview rate rule as of each date. (P) heads in expense vouchers and salary issues are settlements — the cost is already taken from daily production. Tap once to select, twice for details.')}</div>
+     </div>
+    </div>`;
+  wireDmyFields(content);
+  const side = wireReportSide(document.getElementById('plSide'), document.getElementById('plTog'), 'plSideCollapsed', function () { fitReportScroll(content); });
+  const $ = function (id) { return document.getElementById(id); };
+  const isMob = function () { return window.matchMedia('(max-width:760px)').matches; };
+  const fmt = function (v, forPrint) {
+    const x = Number(v) || 0; if (Math.abs(x) < 0.005) return '0.00';
+    const whole = Math.abs(x - Math.round(x)) < 0.005, d = (!forPrint && isMob() && whole) ? 0 : 2;
+    return (x < 0 ? '−' : '') + Math.abs(x).toLocaleString('en-IN', { minimumFractionDigits: d, maximumFractionDigits: d });
+  };
+  const q3 = function (x) { return Math.abs(x) < 0.0005 ? '—' : (+x.toFixed(3)).toLocaleString('en-IN', { maximumFractionDigits: 3 }); };
+
+  function rowHtml(r, i, forPrint) {
+    const act = forPrint ? '' : `<td class="c pl-act">${r.det ? `<button type="button" class="sr-ic" data-open="${i}" title="${attr(t('বিস্তারিত', 'Details'))}">👁️</button>` : ''}</td>`;
+    const nc = forPrint ? 4 : 5;
+    if (r.k === 'sec') return `<tr class="pl-sec"><td colspan="${nc}">${escapeHtml(r.label)}</td></tr>`;
+    if (r.k === 'empty') return `<tr class="pl-empty"><td></td><td class="lb" colspan="3">${escapeHtml(r.label)}</td>${forPrint ? '' : '<td class="pl-act"></td>'}</tr>`;
+    if (r.k === 'line') return `<tr class="pl-row${!forPrint && st.sel === String(i) ? ' sel' : ''}" data-i="${i}"><td class="c">${r.sl}</td><td class="lb">${escapeHtml(r.pre + r.label)}</td><td class="n ${r.eff < 0 ? 'neg' : ''}">${fmt(Math.abs(r.eff), forPrint)}</td><td></td>${act}</tr>`;
+    const loss = r.amt < -0.004 && (r.k === 'grand' || r.k === 'final');
+    return `<tr class="pl-${r.k}${loss ? ' loss' : ''}"><td></td><td class="lb">${escapeHtml(r.label)}</td><td></td><td class="n">${fmt(r.amt, forPrint)}${r.note ? `<span class="pct">(${escapeHtml(r.note)})</span>` : ''}</td>${forPrint ? '' : '<td class="pl-act"></td>'}</tr>`;
+  }
+  function stockHtml(forPrint) {
+    const cats = R.stockCats; if (!cats.length) return '';
+    const sp = (!forPrint && isMob()) ? 1 : 3;   // মোবাইলে কেজি/পিস কলাম লুকানো — শুধু মূল্য
+    const head = `<thead><tr class="r1"><th rowspan="2">${t('ক্রঃ', 'Sl')}</th><th rowspan="2">${t('ক্যাটাগরি', 'Category')}</th><th colspan="${sp}">${t('প্রারম্ভিক মজুদ', 'Opening stock')} (${isoToDmy(R.prev)})</th><th colspan="${sp}">${t('সমাপনী মজুদ', 'Closing stock')} (${isoToDmy(st.to)})</th>${forPrint ? '' : '<th rowspan="2" class="pl-act"></th>'}</tr>
+      <tr class="r2"><th class="mh">${t('কেজি', 'kg')}</th><th class="mh">${t('পিস', 'pcs')}</th><th>${t('মূল্য', 'Value')}</th><th class="mh">${t('কেজি', 'kg')}</th><th class="mh">${t('পিস', 'pcs')}</th><th>${t('মূল্য', 'Value')}</th></tr></thead>`;
+    const T = { oKg: 0, oPc: 0, oV: 0, cKg: 0, cPc: 0, cV: 0 };
+    const body = cats.map(function (c, i) {
+      ['oKg', 'oPc', 'oV', 'cKg', 'cPc', 'cV'].forEach(function (k) { T[k] += c[k]; });
+      return `<tr class="pl-row${!forPrint && st.sel === 'C' + i ? ' sel' : ''}" data-c="${i}"><td class="c">${i + 1}</td><td class="lb">${escapeHtml(c.cat)} <small>(${c.items.length}${t('টি', '')})</small></td>
+        <td class="n mh">${q3(c.oKg)}</td><td class="n mh">${q3(c.oPc)}</td><td class="n"><b>${fmt(c.oV, forPrint)}</b></td><td class="n mh">${q3(c.cKg)}</td><td class="n mh">${q3(c.cPc)}</td><td class="n ${c.cV < -0.004 ? 'neg' : ''}"><b>${fmt(c.cV, forPrint)}</b></td>
+        ${forPrint ? '' : `<td class="c pl-act"><button type="button" class="sr-ic" data-cat="${i}" title="${attr(t('আইটেমওয়ারি', 'By item'))}">👁️</button></td>`}</tr>`;
+    }).join('');
+    return `${forPrint ? '<h4 style="margin:10px 0 4px;font-size:12px;">মজুদ মূল্যায়ন — ক্যাটাগরিওয়ারি</h4>' : `<div class="pl-h2">📦 ${t('মজুদ মূল্যায়ন — ক্যাটাগরিওয়ারি', 'Stock valuation — by category')}</div>`}
+      <div class="${forPrint ? '' : 'sr-scroll'}" style="${forPrint ? '' : 'max-height:none;'}"><table class="${forPrint ? '' : 'sr-tbl pl-st'}">${head}<tbody>${body}</tbody>
+      <tfoot><tr><td></td><td>${t('সর্বমোট', 'Grand total')}</td><td class="mh">${q3(T.oKg)}</td><td class="mh">${q3(T.oPc)}</td><td>${fmt(T.oV, forPrint)}</td><td class="mh">${q3(T.cKg)}</td><td class="mh">${q3(T.cPc)}</td><td>${fmt(T.cV, forPrint)}</td>${forPrint ? '' : '<td class="pl-act"></td>'}</tr></tfoot></table></div>`;
+  }
+  function statementHtml(forPrint) {
+    return `<table class="${forPrint ? '' : 'sr-tbl pl-tbl'}" id="${forPrint ? '' : 'plTable'}"><thead><tr><th style="width:34px;">${t('ক্রঃ', 'Sl')}</th><th>${t('বিবরণ', 'Particulars')}</th><th>${t('টাকা', 'Amount')}</th><th>${t('মোট টাকা', 'Total')}</th>${forPrint ? '' : '<th class="pl-act"></th>'}</tr></thead>
+      <tbody>${R.L.map(function (r, i) { return rowHtml(r, i, forPrint); }).join('')}</tbody></table>`;
+  }
+  function render() {
+    R = plCompute(DATA, st.from, st.to, { dep: st.dep });
+    const cls = function (v) { return v < -0.004 ? 'loss' : 'gain'; };
+    $('plCards').innerHTML = `<div class="sr-cards pl-cards">
+      <div>${t('নীট বিক্রয়', 'Net sales')}<b>${fmt(R.A)}</b></div>
+      <div>${R.G < 0 ? t('মোট ক্ষতি', 'Gross loss') : t('মোট লাভ', 'Gross profit')}<b class="${cls(R.G)}">${fmt(R.G)}</b></div>
+      <div>${t('খরচ (ঘ)', 'Expenses (D)')}<b>${fmt(R.E)}</b></div>
+      <div>${R.NP < 0 ? t('নীট ক্ষতি', 'Net loss') : t('নীট লাভ', 'Net profit')}<b class="${cls(R.NP)}">${fmt(R.NP)}</b></div></div>`;
+    const w = [], dr = R.drafts;
+    const dl = [[dr.pi, t('ক্রয়', 'purchase')], [dr.si, t('বিক্রয়', 'sales')], [dr.pv, t('প্রসেসিং', 'processing')], [dr.ev, t('এক্সপেন্স', 'expense')], [dr.iv, t('রিসিপ্ট', 'receipt')]].filter(function (x) { return x[0]; });
+    if (dl.length) w.push('⚠️ ' + t('পোস্ট না করা (খসড়া) ভাউচার হিসাবে ধরা হয়নি — ', 'Draft vouchers are not included — ') + dl.map(function (x) { return x[1] + ' ' + x[0] + t('টি', ''); }).join(', '));
+    if (R.negCnt) w.push('⚠️ ' + R.negCnt + t('টি আইটেমের সমাপনী মজুদ মাইনাস — স্টক ওভারভিউতে যাচাই করুন (লাভ ভুল দেখাতে পারে)।', ' item(s) have negative closing stock — check Stock Overview.'));
+    $('plWarn').innerHTML = w.map(function (x) { return `<div class="pl-warn">${escapeHtml(x)}</div>`; }).join('');
+    $('plOut').innerHTML = `<div class="sr-scroll">${statementHtml(false)}</div>`;
+    $('plStock').innerHTML = stockHtml(false);
+    fitReportScroll(content);
+  }
+  async function load(force) {
+    const from = dmyIso('plFrom'), to = dmyIso('plTo');
+    if (!from || !to) { showToast(t('সঠিক তারিখ দিন (দিন-মাস-বছর)।', 'Enter valid dates (dd-mm-yyyy).'), 'error'); return; }
+    if (from > to) { showToast(t('"হইতে" তারিখ "পর্যন্ত" তারিখের পরে হতে পারে না।', '"From" cannot be after "To".'), 'error'); return; }
+    st.from = from; st.to = to; st.dep = $('plDep').checked; st.sel = '';
+    if (!DATA || force) {
+      $('plOut').innerHTML = `<div class="sr-hint">${t('লোড হচ্ছে… (সব ভাউচার থেকে হিসাব হচ্ছে)', 'Loading… (computing from all vouchers)')}</div>`;
+      try { DATA = await plLoadData(); }
+      catch (err) { $('plOut').innerHTML = `<div class="sr-hint">${escapeHtml(err.message)}</div>`; return; }
+    }
+    if (!$('plOut')) return;   // এই ফাঁকে অন্য পেজে চলে গেলে
+    render();
+  }
+
+  // ---- বিস্তারিত (দুই চাপে) ----
+  function openDetail(r) {
+    if (!r || !r.det) return;
+    if (r.det.stock) return openStock(null, r.det.stock);
+    const rows = (r.det.rows || []).slice().sort(function (a, b) { return String(a.date || '').localeCompare(String(b.date || '')); });
+    const total = rows.reduce(function (s, x) { return s + (Number(x.amt) || 0); }, 0);
+    const body = rows.length ? rows.map(function (x, i) {
+      const ok = x.base && VOUCHER_REGISTRY[x.base];
+      return `<tr class="pl-drow" data-base="${attr(x.base || '')}" data-id="${attr(x.id || '')}"><td class="c">${i + 1}</td><td class="c">${escapeHtml(x.date ? isoToDmy(x.date) : '—')}</td><td class="c"><b>${escapeHtml(x.id || '')}</b></td><td class="lb">${escapeHtml(x.desc || '')}</td><td class="n">${fmt(x.amt)}</td>
+        <td class="c" style="white-space:nowrap;">${ok ? `<button type="button" class="sr-ic" data-va="view" title="${attr(t('দেখুন', 'View'))}">👁️</button><button type="button" class="sr-ic" data-va="edit" title="${attr(t('এডিট', 'Edit'))}">✏️</button><button type="button" class="sr-ic" data-va="del" title="${attr(t('ডিলিট', 'Delete'))}">🗑️</button>` : ''}</td></tr>`;
+    }).join('') : `<tr><td colspan="6" class="c">${t('কোনো এন্ট্রি নেই।', 'No entries.')}</td></tr>`;
+    openModal({ title: r.det.title + ' — ' + isoToDmy(st.from) + ' ' + t('হইতে', 'to') + ' ' + isoToDmy(st.to), wide: true, hideSave: true,
+      bodyHtml: `<style>${RPT_SIDE_CSS}</style><div class="sr-scroll" style="max-height:70vh;"><table class="sr-tbl pl-dt"><thead><tr><th>${t('ক্রঃ', 'Sl')}</th><th>${t('তারিখ', 'Date')}</th><th>${t('ভাউচার', 'Voucher')}</th><th>${t('বিবরণ', 'Details')}</th><th>${t('টাকা', 'Amount')}</th><th></th></tr></thead>
+        <tbody id="plDetBody">${body}</tbody><tfoot><tr><td></td><td colspan="3">${t('মোট', 'Total')} (${rows.length}${t('টি', '')})</td><td>${fmt(total)}</td><td></td></tr></tfoot></table></div>` });
+    const tb = document.getElementById('plDetBody'); if (!tb) return;
+    let last = { tr: null, at: 0 };
+    tb.addEventListener('click', async function (e) {
+      const tr = e.target.closest('tr.pl-drow'); if (!tr) return;
+      const base = tr.getAttribute('data-base'), id = tr.getAttribute('data-id');
+      const b = e.target.closest('[data-va]');
+      const act = b ? b.getAttribute('data-va') : null;
+      if (!act) {   // এক চাপে বাছাই, দুই চাপে দেখা
+        const now = Date.now();
+        tb.querySelectorAll('tr.sel').forEach(function (x) { x.classList.remove('sel'); x.querySelectorAll('td').forEach(function (td) { td.style.background = ''; }); });
+        tr.classList.add('sel'); tr.querySelectorAll('td').forEach(function (td) { td.style.background = '#ffe9b3'; });
+        if (last.tr === tr && now - last.at < 450 && base && VOUCHER_REGISTRY[base]) { last = { tr: null, at: 0 }; try { await voucherView(base, id); } catch (err) { showToast(err.message, 'error'); } return; }
+        last = { tr: tr, at: now }; return;
+      }
+      if (!base || !VOUCHER_REGISTRY[base]) return;
+      try {
+        if (act === 'view') await voucherView(base, id);
+        else if (act === 'edit') await voucherEdit(base, id);
+        else if (act === 'del') { if (await voucherDelete(base, id)) { closeModal(); await load(true); } }
+      } catch (err) { showToast(err.message, 'error'); }
+    });
+  }
+  function openStock(catIdx, which) {
+    const cats = catIdx === null ? R.stockCats : [R.stockCats[catIdx]];
+    const title = (catIdx === null ? t('মজুদ মূল্যায়ন — আইটেমওয়ারি', 'Stock valuation — by item') : cats[0].cat) + ' (' + isoToDmy(R.prev) + ' / ' + isoToDmy(st.to) + ')';
+    let sl = 0, T = { o: 0, c: 0 };
+    const body = cats.map(function (c) {
+      return (catIdx === null ? `<tr><td colspan="9" style="background:#1f2937;color:#ffd27a;font-weight:700;">${escapeHtml(c.cat)}</td></tr>` : '') + c.items.map(function (s) {
+        T.o += s.oV; T.c += s.cV;
+        const rt = function (v, kg, pc, piece) { const q = piece ? pc : kg; return Math.abs(q) > 0.0005 ? fmt(v / q) : '—'; };
+        return `<tr${which && ((which === 'o' && Math.abs(s.oV) < 0.005) || (which === 'c' && Math.abs(s.cV) < 0.005)) ? ' style="opacity:.55"' : ''}><td class="c">${++sl}</td><td class="lb">${escapeHtml(s.name)}</td>
+          <td class="n">${q3(s.piece ? s.oPc : s.oKg)} <small>${s.piece ? t('পিস', 'pc') : t('কেজি', 'kg')}</small></td><td class="n" title="${attr(s.oSrc)}">${rt(s.oV, s.oKg, s.oPc, s.piece)}</td><td class="n"><b>${fmt(s.oV)}</b></td>
+          <td class="n ${s.neg ? 'neg' : ''}">${q3(s.piece ? s.cPc : s.cKg)} <small>${s.piece ? t('পিস', 'pc') : t('কেজি', 'kg')}</small></td><td class="n" title="${attr(s.cSrc)}">${rt(s.cV, s.cKg, s.cPc, s.piece)}</td><td class="n ${s.cV < -0.004 ? 'neg' : ''}"><b>${fmt(s.cV)}</b></td><td class="c"><small>${escapeHtml(s.cSrc)}</small></td></tr>`;
+      }).join('');
+    }).join('');
+    openModal({ title: title, wide: true, hideSave: true,
+      bodyHtml: `<style>${RPT_SIDE_CSS}</style><div class="sr-scroll" style="max-height:72vh;"><table class="sr-tbl pl-dt"><thead><tr><th rowspan="2">${t('ক্রঃ', 'Sl')}</th><th rowspan="2">${t('আইটেম', 'Item')}</th><th colspan="3">${t('প্রারম্ভিক', 'Opening')}</th><th colspan="3">${t('সমাপনী', 'Closing')}</th><th rowspan="2">${t('দরের উৎস', 'Rate source')}</th></tr>
+        <tr><th>${t('পরিমাণ', 'Qty')}</th><th>${t('দর', 'Rate')}</th><th>${t('মূল্য', 'Value')}</th><th>${t('পরিমাণ', 'Qty')}</th><th>${t('দর', 'Rate')}</th><th>${t('মূল্য', 'Value')}</th></tr></thead>
+        <tbody>${body || `<tr><td colspan="9" class="c">${t('কোনো মজুদ নেই।', 'No stock.')}</td></tr>`}</tbody><tfoot><tr><td></td><td>${t('মোট', 'Total')}</td><td></td><td></td><td>${fmt(T.o)}</td><td></td><td></td><td>${fmt(T.c)}</td><td></td></tr></tfoot></table></div>` });
+  }
+
+  // ---- ঘটনা ----
+  let lastTap = { k: '', at: 0 };
+  function tap(e, attrName, prefix, onOpen) {
+    const tr = e.target.closest('tr.pl-row[' + attrName + ']'); if (!tr) return;
+    const k = prefix + tr.getAttribute(attrName), now = Date.now();
+    if (lastTap.k === k && now - lastTap.at < 450) { lastTap = { k: '', at: 0 }; onOpen(Number(tr.getAttribute(attrName))); return; }
+    lastTap = { k: k, at: now }; st.sel = k;
+    content.querySelectorAll('tr.pl-row.sel').forEach(function (x) { x.classList.remove('sel'); });
+    tr.classList.add('sel');
+  }
+  $('plOut').addEventListener('click', function (e) {
+    const b = e.target.closest('[data-open]'); if (b) { openDetail(R.L[Number(b.getAttribute('data-open'))]); return; }
+    tap(e, 'data-i', '', function (i) { openDetail(R.L[i]); });
+  });
+  $('plStock').addEventListener('click', function (e) {
+    const b = e.target.closest('[data-cat]'); if (b) { openStock(Number(b.getAttribute('data-cat'))); return; }
+    tap(e, 'data-c', 'C', function (i) { openStock(i); });
+  });
+  $('plShow').addEventListener('click', async function () { await load(true); side.collapse(); });   // 🔄 = নতুন করে ডেটা আনা
+  $('plDep').addEventListener('change', function () { try { localStorage.setItem('plDep', this.checked ? '1' : '0'); } catch (e) {} if (DATA) load(false); });
+  ['plFrom', 'plTo'].forEach(function (id) { $(id).addEventListener('change', function () { if (dmyIso(id) && DATA) load(false); }); });
+  if (!window.__plFitBound) { window.__plFitBound = true; window.addEventListener('resize', function () { const c = document.getElementById('plTable'); if (c) fitReportScroll(c.closest('.sr-main')); }); }
+
+  // Enter = পরের ঘর, Escape = আগের ঘর — হইতে → পর্যন্ত → অবচয় → দেখাও → প্রিন্ট
+  const navOrder = ['plFrom', 'plTo', 'plDep', 'plShow', 'plPrint'];
+  $('plBar').addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' && e.key !== 'Escape') return;
+    const i = navOrder.indexOf(e.target.id); if (i === -1) return;
+    if (e.key === 'Enter') {
+      if (e.target.tagName === 'BUTTON') return;   // বোতামে Enter = চাপা
+      e.preventDefault();
+      if (e.target.id === 'plFrom' || e.target.id === 'plTo') e.target.dispatchEvent(new Event('blur'));
+      const nx = $(navOrder[i + 1]); if (nx) nx.focus();
+    } else {
+      e.preventDefault(); const pv = $(navOrder[i - 1]); if (pv) { pv.focus(); if (pv.select) try { pv.select(); } catch (er) {} }
+    }
+  });
+
+  // ---- প্রিন্ট (A4) ----
+  $('plPrint').addEventListener('click', function () {
+    if (!R) { showToast(t('প্রিন্ট করার মতো কিছু নেই।', 'Nothing to print.'), 'error'); return; }
+    const extra = `<style>td:nth-child(2){text-align:center;} tr.pl-sec td{background:#1f2937 !important;color:#fff;font-weight:700;} tr.pl-tot td{background:#eef1f5 !important;font-weight:700;}
+      tr.pl-grand td{background:#e1effa !important;font-weight:700;} tr.pl-final td{background:#1f2937 !important;color:#fff;font-weight:800;font-size:11.5px;} .pct{font-weight:400;font-size:9px;margin-left:3px;} .neg{color:#b91c1c;}</style>`;
+    printReportA4({ title: t('লাভ-ক্ষতি হিসাব', 'Profit & Loss'), period: isoToDmy(st.from) + ' হইতে ' + isoToDmy(st.to) + ' পর্যন্ত',
+      sub: st.dep ? 'অবচয় ধরা হয়েছে' : 'অবচয় ধরা হয়নি',
+      summary: [['নীট বিক্রয়', fmt(R.A, true)], [R.G < 0 ? 'মোট ক্ষতি' : 'মোট লাভ', fmt(R.G, true)], ['খরচ (ঘ)', fmt(R.E, true)], [R.NP < 0 ? 'নীট ক্ষতি' : 'নীট লাভ', fmt(R.NP, true)]],
+      html: extra + statementHtml(true) + stockHtml(true) });
   });
 
   await load(true);
