@@ -12312,6 +12312,121 @@ async function deletePostedPurchaseVoucher(docType, docId) {
 /** প্রিভিউ/প্রিন্ট/শেয়ার — একটা প্রিন্ট-উপযোগী ভাউচার নতুন ট্যাবে খুলবে।
  *  "পেজ সেটাপ" ব্রাউজারের নিজস্ব প্রিন্ট ডায়ালগেই থাকে (কাগজের সাইজ/মার্জিন) —
  *  আলাদা করে কাস্টম বানানো সম্ভব না, তাই সেই বাটনও প্রিন্ট ডায়ালগেই নিয়ে যায়। */
+/* ============================================================
+   📤 PDF শেয়ার — সফটওয়্যারের যেকোনো ছাপা-পাতা (ভাউচার, চালান, লেজার, প্রসেসিং, এ্যাসেট, খাতা…)
+   • ছাপা-পাতা খুললেই তার টুলবারে "📤 PDF শেয়ার" বোতাম বসে; পাতা খোলার সাথে সাথে পেছনে PDF তৈরি হয়
+   • ফোনেঃ শেয়ার-তালিকা খোলে PDF ফাইলসহ → WhatsApp বাছলে ভাউচার PDF হয়ে যায়
+   • কম্পিউটারেঃ ব্রাউজার ফাইল সরাসরি WhatsApp-এ দিতে পারে না — PDF ডাউনলোড হয়, WhatsApp Web-এ 📎 দিয়ে পাঠাতে হয়
+   • PDF = ছাপা-পাতার হুবহু ছবি (বাংলা লেখা ঠিক থাকে), পাতার মাপ ছাপার মাপেই (A5/A4, খাড়া/আড়াআড়ি)
+   ============================================================ */
+const PDF_LIB_URL = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+function pdfShareChildCode(libUrl) {
+  return `(function () {
+  if (document.querySelector('.pdfsh-btn')) return;   // এই পাতায় আগেই বসানো (পাতা নতুন করে লেখা হলে আবার বসে)
+  var LIB = ${JSON.stringify(libUrl)}, blob = null, making = null, wantShare = false;
+  var st = document.createElement('style');
+  st.textContent = '@media print{.pdfsh-bar,.pdfsh-btn{display:none !important;}} .pdfsh-btn{background:#128c4a !important;color:#fff !important;border-color:#128c4a !important;font-weight:700;} .pdfsh-btn[disabled]{opacity:.7;} .pdfsh-bar{position:sticky;top:0;z-index:50;display:flex;gap:6px;padding:8px;background:#fff;border-bottom:1px solid #ddd;font-family:sans-serif;} .pdfsh-bar button{padding:8px 14px;border-radius:8px;border:1px solid #ccc;cursor:pointer;font-family:inherit;}';
+  document.head.appendChild(st);
+  var bar = document.querySelector('.toolbar');
+  if (!bar) { bar = document.createElement('div'); bar.className = 'pdfsh-bar'; document.body.insertBefore(bar, document.body.firstChild); }
+  var btn = document.createElement('button'); btn.type = 'button'; btn.className = 'pdfsh-btn'; btn.textContent = '📤 PDF শেয়ার';
+  btn.title = 'ভাউচারটা PDF ফাইল হিসেবে WhatsApp/অন্য অ্যাপে পাঠান';
+  bar.insertBefore(btn, bar.children[1] || null);
+  var fileName = (document.title || 'voucher').replace(/[\\\\/:*?"<>|]+/g, '-').replace(/\\s+/g, ' ').trim().slice(0, 80) + '.pdf';
+  function pageSize() {
+    var css = Array.prototype.map.call(document.querySelectorAll('style'), function (s) { return s.textContent; }).join(' ');
+    var m = css.match(/@page\\s*\\{[^}]*size\\s*:\\s*(A3|A4|A5)\\s*(landscape|portrait)?/gi);
+    var last = m ? m[m.length - 1] : '';
+    var f = (/A3/i.test(last) ? 'a3' : /A4/i.test(last) ? 'a4' : /A5/i.test(last) ? 'a5' : 'a4'), o = /landscape/i.test(last) ? 'landscape' : 'portrait';
+    if (document.body.classList.contains('a5l')) { f = 'a5'; o = 'landscape'; }
+    return { f: f, o: o };
+  }
+  function loadLib() {
+    return new Promise(function (res, rej) {
+      if (window.html2pdf) return res();
+      var sc = document.createElement('script'); sc.src = LIB; sc.onload = function () { res(); };
+      sc.onerror = function () { rej(new Error('PDF তৈরির অংশ লোড হয়নি — ইন্টারনেট সংযোগ দেখুন।')); };
+      document.head.appendChild(sc);
+    });
+  }
+  // পাতার সব @media print নিয়ম — PDF তৈরির সময় সাময়িক চালু, যাতে PDF হুবহু ছাপা কাগজের মতো হয়
+  // (লাভের কলাম, টুলবার, "প্রিন্টে নয়" অংশ বাদ; ছাপার রূপ দেখা যায়)
+  function printRules() {
+    var out = [];
+    Array.prototype.forEach.call(document.styleSheets, function (sh) {
+      var rules; try { rules = sh.cssRules; } catch (e) { return; }
+      Array.prototype.forEach.call(rules || [], function (r) {
+        if (r.media && /\\bprint\\b/i.test(r.media.mediaText || '') && r.cssRules) Array.prototype.forEach.call(r.cssRules, function (x) { out.push(x.cssText); });
+      });
+    });
+    return out.join('\\n') + '\\n.scr-only{display:none !important;} .prt-only{display:block !important;} .toolbar,.pdfsh-bar,.pdfsh-btn{display:none !important;}';
+  }
+  function make() {
+    if (making) return making;
+    btn.disabled = true; btn.textContent = '⏳ PDF তৈরি হচ্ছে…';
+    var pst = null;
+    making = loadLib().then(function () { return (document.fonts && document.fonts.ready) ? document.fonts.ready : null; }).then(function () {
+      var ps = pageSize();
+      pst = document.createElement('style'); pst.id = 'pdfsh-print'; pst.textContent = printRules(); document.head.appendChild(pst);
+      return window.html2pdf().set({
+        margin: [5, 5, 5, 5], filename: fileName, image: { type: 'jpeg', quality: 0.95 },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', ignoreElements: function (el) { return el.classList && (el.classList.contains('toolbar') || el.classList.contains('pdfsh-bar') || el.classList.contains('pdfsh-btn')); } },
+        jsPDF: { unit: 'mm', format: ps.f, orientation: ps.o }, pagebreak: { mode: ['css', 'legacy'] }
+      }).from(document.body).outputPdf('blob');
+    }).then(function (b) {
+      if (pst) pst.remove();
+      blob = b; btn.disabled = false; btn.textContent = wantShare ? '📤 PDF তৈরি — আবার চাপুন' : '📤 PDF শেয়ার'; return b;
+    }, function (e) { if (pst) pst.remove(); making = null; btn.disabled = false; btn.textContent = '📤 PDF শেয়ার'; alert(e.message || e); throw e; });
+    return making;
+  }
+  function download(b) {
+    var a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = fileName; document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+  }
+  function send(b) {
+    var file = new File([b], fileName, { type: 'application/pdf' });
+    if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
+      return navigator.share({ files: [file], title: document.title }).then(function () { wantShare = false; btn.textContent = '📤 PDF শেয়ার'; }, function (e) {
+        if (e && e.name === 'AbortError') { btn.textContent = '📤 PDF শেয়ার'; return; }
+        wantShare = true; btn.textContent = '📤 PDF তৈরি — আবার চাপুন';   // ফোনের অনুমতির সময় পেরিয়ে গেলে — আবার চাপলেই খুলবে
+      });
+    }
+    download(b);
+    alert('PDF ডাউনলোড হয়েছে: ' + fileName + '\\n\\nএই ব্রাউজার ফাইল সরাসরি WhatsApp-এ দিতে পারে না।\\nWhatsApp (বা WhatsApp Web) খুলে চ্যাটে 📎 চেপে ডাউনলোড ফোল্ডার থেকে PDF-টা বাছুন।\\n\\n(মোবাইলের Chrome-এ "📤 PDF শেয়ার" চাপলে সরাসরি WhatsApp-এ পাঠানো যায়।)');
+  }
+  btn.addEventListener('click', function () {
+    if (blob) { send(blob); return; }
+    wantShare = true;
+    make().then(function (b) { send(b); }).catch(function () {});
+  });
+  if (document.readyState === 'complete') setTimeout(make, 400); else window.addEventListener('load', function () { setTimeout(make, 400); });
+  window.__pdfShareMake = make;
+})();`;
+}
+function attachPdfShare(win) {
+  try {
+    if (!win || win.closed) return false;
+    const d = win.document; if (!d || !d.body || d.readyState === 'loading') return false;
+    if (d.querySelector('.pdfsh-btn')) return true;
+    if (!d.querySelector('.toolbar') && (d.body.textContent || '').trim().length < 40) return false;   // "লোড হচ্ছে…" — আসল পাতা আসেনি
+    const sc = d.createElement('script'); sc.textContent = pdfShareChildCode(PDF_LIB_URL); d.body.appendChild(sc);
+    return true;
+  } catch (e) { return false; }
+}
+(function installPdfShareOnPrintWindows() {
+  if (window.__pdfShareHook) return; window.__pdfShareHook = true;
+  const nativeOpen = window.open;
+  window.open = function (url) {
+    const w = nativeOpen.apply(window, arguments);
+    if (w && (!url || url === '' || url === 'about:blank')) {
+      // ছাপা-পাতা লেখা শেষ হলে বোতাম বসে; পাতা পরে নতুন করে লেখা হলে (যেমন "লোড হচ্ছে…" → ভাউচার) আবার বসে — ২০ সেকেন্ড পর্যন্ত দেখে
+      let n = 0; const tick = function () { n++; attachPdfShare(w); if (n > 80 || w.closed) return; setTimeout(tick, 250); };
+      setTimeout(tick, 150);
+    }
+    return w;
+  };
+})();
+
 async function openPrintableVoucherView(docType, docId, opts) {
   opts = opts || {};   // { challan: দর ও মূল্য ছাড়া চালান, autoPrint: খুলেই প্রিন্ট }
   const isSales = docType === 'SalesInvoice' || docType === 'SalesReturn';
@@ -12478,7 +12593,7 @@ async function openPrintableVoucherView(docType, docId, opts) {
     <style id="pg">@page{size:A5 portrait;margin:8mm;}</style>
     <button onclick="document.getElementById('pg').textContent='@page{size:A5 portrait;margin:8mm;}';document.body.classList.remove('a5l');">📄 A5 খাড়া</button>
     <button onclick="document.getElementById('pg').textContent='@page{size:A5 landscape;margin:8mm;}';document.body.classList.add('a5l');">📄 A5 আড়াআড়ি</button>
-    <button id="shareBtn">🔗 শেয়ার</button>
+    <button id="shareBtn" title="শুধু লেখা (PDF নয়)">💬 লেখা শেয়ার</button>
     ${isSales ? `<label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;cursor:pointer;"><input type="checkbox" id="profitChk" onchange="document.querySelectorAll('.v-profit').forEach(function(e){e.style.display=this.checked?'':'none';}.bind(this))"> 📈 লাভ দেখান</label>` : ''}
   </div>
   ${voucherTableBody}
@@ -12741,6 +12856,10 @@ async function voucherListRender(P, kind, mode, highlight) {
 }
 
 async function voucherShare(docType, docId, mode) {
+  // PDF হিসেবে পাঠাতে — ভাউচারের ছাপা-পাতা খোলে, সেখানে PDF তৈরি হয়ে থাকে; "📤 PDF শেয়ার" চাপলেই WhatsApp-এ PDF
+  return openPrintableVoucherView(docType, docId, mode === 'challan' ? { challan: true } : {});
+}
+async function voucherShareText(docType, docId, mode) {
   const isSales = docType === 'SalesInvoice' || docType === 'SalesReturn', isReturn = docType === 'PurchaseReturn' || docType === 'SalesReturn';
   const cfg = isSales ? { headerSheet: isReturn ? 'SalesReturn' : 'SalesInvoice', idField: isReturn ? 'SRID' : 'SIID', linesSheet: isReturn ? 'SR_Lines' : 'SI_Lines', lineIdField: isReturn ? 'SRID' : 'SIID' }
     : { headerSheet: isReturn ? 'PurchaseReturn' : 'PurchaseInvoice', idField: isReturn ? 'PRetID' : 'PIID', linesSheet: isReturn ? 'PR_Return_Lines' : 'PI_Lines', lineIdField: isReturn ? 'PRetID' : 'PIID' };
