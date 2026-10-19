@@ -4072,7 +4072,11 @@ async function payvPrint(K, rec, ctx) {
   </table>
   <div class="v-sum"><table>
     <tr><td class="k" colspan="3">পূর্বের জেরঃ</td><td class="v">${DC(jer)}</td></tr>
-    <tr><td class="k" colspan="3">${K.vchBn}ঃ${disc ? ' (ডিসকাউন্টসহ)' : ''}</td><td class="v">${DC(eff)}</td></tr>
+    ${disc
+      // ডিসকাউন্ট আলাদা লাইনে — নীট (নগদ/ব্যাংক) আর ডিসকাউন্ট দুটোই জের থেকে বাদ; বর্তমান জের = পূর্বের জের − নীট − ডিসকাউন্ট
+      ? `<tr><td class="k" colspan="3">${K.netBn}ঃ (${escapeHtml(ctx.accLabel || '')})</td><td class="v">${DC(K.sign * net)}</td></tr>
+    <tr><td class="k" colspan="3">ডিসকাউন্টঃ</td><td class="v">${DC(K.sign * disc)}</td></tr>`
+      : `<tr><td class="k" colspan="3">${K.vchBn}ঃ</td><td class="v">${DC(eff)}</td></tr>`}
     <tr class="thick big"><td class="k" colspan="3">বর্তমান জেরঃ</td><td class="v">${DC(bal)}</td></tr>
     <tr><td class="k" colspan="3">${(isSup ? bal < 0 : bal > 0) || !Math.round(bal * 100) ? 'অবশিষ্ট বকেয়াঃ' : 'অগ্রিমঃ'}</td><td class="v">${dueTxt(bal)}</td></tr>
   </table></div>
@@ -12637,7 +12641,7 @@ const VK_COLORS = {
   GRN: ['#eef8f0', '#5fb36b'], PurchaseOrder: ['#eef8f0', '#5fb36b'], PurchaseRequisition: ['#eef8f0', '#5fb36b'], SalesOrder: ['#fff5e8', '#e09a3e'], DeliveryChallan: ['#fff5e8', '#e09a3e']
 };
 function vkClass(type) { const b = voucherBaseTypeSafe(type); return VK_COLORS[b] ? 'vk-' + b : ''; }
-function voucherBaseTypeSafe(x) { return String(x || '').replace(/-(Payment|Receipt|Reversal|RM|FG|ByProduct|In|Out)$/, ''); }
+function voucherBaseTypeSafe(x) { return String(x || '').replace(/-(Payment|Receipt|Reversal|RM|FG|ByProduct|In|Out|Discount)$/, ''); }
 (function installTableLook() {
   if (window.__tableLook) return; window.__tableLook = true;
   const css = [
@@ -16894,7 +16898,7 @@ const VOUCHER_REGISTRY = {
   CollectionVoucher: { bn: 'কালেকশন (পুরনো)', table: 'CollectionVoucher', idf: ['CollectionID', 'ColID', 'CollID', 'VoucherID', 'ID'], lines: [], kind: 'legacy' },
   LoanVoucher: { bn: 'ধার-দেনা', table: 'LoanVoucher', idf: 'LoanID', lines: [], kind: 'loan' },
 };
-function voucherBaseType(refModule) { return String(refModule || '').replace(/-(Payment|Receipt|Reversal|RM|FG|ByProduct|In|Out)$/, ''); }
+function voucherBaseType(refModule) { return String(refModule || '').replace(/-(Payment|Receipt|Reversal|RM|FG|ByProduct|In|Out|Discount)$/, ''); }
 async function voucherFetchHeader(base, id) {
   const R = VOUCHER_REGISTRY[base]; if (!R) return null;
   for (const f of [].concat(R.idf)) {
@@ -17187,6 +17191,8 @@ async function renderPartyLedger(content, partyTypeFilter) {
       IncomeVoucher: { desc:['রিসিপ্ট ভাউচার (অন্যান্য আয়)','Receipt voucher (other income)'], type:['আয়','Income'] },
       'IncomeVoucher-Receipt': { desc:['রিসিপ্ট ভাউচারে নগদ গ্রহণ','Cash received on receipt voucher'], type:['রিসিপ্ট','Receipt'] },
       CollectionVoucher: { desc:['কালেকশন ভাউচার (পুরনো)','Collection voucher (old)'], type:['কালেকশন','Collection'] },
+      'ReceiptVoucher-Discount': { desc:['কালেকশনে ডিসকাউন্ট','Discount on collection'], type:['ডিসকাউন্ট','Discount'] },
+      'PaymentVoucher-Discount': { desc:['পেমেন্টে ডিসকাউন্ট','Discount on payment'], type:['ডিসকাউন্ট','Discount'] },
       AssetPurchase: { desc:['এ্যাসেট ক্রয় ভাউচার','Asset purchase voucher'], type:['এ্যাসেট ক্রয়','Asset purchase'] },
       'AssetPurchase-Payment': { desc:['এ্যাসেট ক্রয়ে প্রদান','Paid on asset purchase'], type:['পেমেন্ট','Payment'] },
       AssetSale: { desc:['এ্যাসেট বিক্রয় ভাউচার','Asset sale voucher'], type:['এ্যাসেট বিক্রয়','Asset sale'] },
@@ -17266,6 +17272,26 @@ async function renderPartyLedger(content, partyTypeFilter) {
     }
     const isOpen = function (r) { return r.RefModule === OPENING_REF ? 0 : 1; };   // প্রারম্ভিক জের সবসময় প্রথমে
     rows.sort(function (a, b) { return isOpen(a) - isOpen(b) || String(a.Date || '').localeCompare(String(b.Date || '')) || (Number(a.id) || 0) - (Number(b.id) || 0); });
+    // কালেকশন/পেমেন্টে ডিসকাউন্ট থাকলে — নগদ/ব্যাংকের টাকা আর ডিসকাউন্ট আলাদা সারিতে
+    // (লেজারে এক সারিতেই জমা থাকে; শুধু দেখানোর সময় ভাগ — মোট ডেবিট/ক্রেডিট ও ব্যালান্স একই, আগের ভাউচারেও খাটে)
+    try {
+      const dmap = {};
+      const loadDisc = async function (mod, table, idf) {
+        const ids = rows.filter(function (r) { return r.RefModule === mod; }).map(function (r) { return r.RefID; });
+        if (!ids.length) return;
+        const { data } = await supabaseClient.from(table).select(idf + ',Discount').in(idf, ids);
+        (data || []).forEach(function (v) { dmap[mod + '|' + v[idf]] = Number(v.Discount) || 0; });
+      };
+      await loadDisc('ReceiptVoucher', 'ReceiptVoucher', 'RecID'); await loadDisc('PaymentVoucher', 'PaymentVoucher', 'PayID');
+      rows = [].concat.apply([], rows.map(function (r) {
+        const d = dmap[r.RefModule + '|' + r.RefID] || 0, dr = Number(r.Debit) || 0, cr = Number(r.Credit) || 0, amt = dr || cr;
+        if (!(d > 0.004) || !(amt > 0)) return [r];
+        const dd = Math.min(d, amt);
+        const cash = Object.assign({}, r, dr ? { Debit: dr - dd } : { Credit: cr - dd });
+        const disc = Object.assign({}, r, { RefModule: r.RefModule + '-Discount', Debit: dr ? dd : 0, Credit: cr ? dd : 0 });
+        return amt - dd > 0.004 ? [cash, disc] : [disc];
+      }));
+    } catch (e) {}   // ডিসকাউন্ট পড়া না গেলে আগের মতো এক সারি
     lastRows = rows;
 
     if (rows.length === 0) {   // কেন খালি — পোস্ট না হওয়া (খসড়া) ভাউচার আছে কিনা দেখানো
