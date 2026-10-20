@@ -12527,13 +12527,17 @@ async function openPrintableVoucherView(docType, docId, opts) {
   // পূর্বের বকেয়া = এই ভাউচারের লেজার-এন্ট্রির ঠিক আগের ব্যালেন্স (পোস্ট না হলে বর্তমান ব্যালেন্স)
   let prevBalance = 0;
   if (!isCashParty && header[partyIdField]) {
-    try {
+    try {   // ভাউচার ফর্মের "পার্টি জের"-এর একই নিয়মে — তারিখ পর্যন্ত, এই ভাউচার ও এর জোড়া ফেরত বাদে
       const pType = isSales ? 'Customer' : 'Supplier';
-      const { data: own } = await supabaseClient.from('PartyLedger').select('id').eq('PartyType', pType).eq('PartyID', header[partyIdField]).eq('RefID', docId).order('id', { ascending: true }).limit(1);
-      let q = supabaseClient.from('PartyLedger').select('Balance').eq('PartyType', pType).eq('PartyID', header[partyIdField]);
-      if (own && own[0]) q = q.lt('id', own[0].id);
-      const { data: prev } = await q.order('id', { ascending: false }).limit(1);
-      prevBalance = (prev && prev[0]) ? Number(prev[0].Balance) || 0 : 0;
+      const ownIds = [docId];
+      if (!isReturn) {
+        try {
+          const lr = isSales ? ['SalesReturn', 'SRID', 'RefSIID'] : ['PurchaseReturn', 'PRetID', 'RefPIID'];
+          const r = await supabaseClient.from(lr[0]).select('*').eq(lr[2], docId);
+          ((r && !r.error && r.data) || []).forEach(function (x) { ownIds.push(x[lr[1]]); });
+        } catch (e) {}
+      }
+      prevBalance = await partyLedgerJer(pType, header[partyIdField], { upTo: header.InvoiceDate || header.Date, exclude: ownIds });
     } catch (e) { prevBalance = 0; }
   }
 
@@ -13197,6 +13201,48 @@ function voucherPartySumWire(P, kind) {
 window.addEventListener('resize', function () {
   ['pv3', 'sv3'].forEach(function (P) { ['Jer', 'Vch', 'Cash', 'Bal'].forEach(function (k) { voucherPsFit(document.getElementById(P + '_Ps' + k + 'Box')); }); });
 });
+
+/* ===== পার্টি জের — পার্টি লেজার পেজের নিয়মেই হিসাব =====
+   একই কোড + একই নামের গ্রাহক ও সাপ্লায়ার = একটাই পার্টি (প্রারম্ভিক জের Cr হলে সাপ্লায়ার দিকে বসে, Dr হলে গ্রাহক দিকে)।
+   জের = এই পার্টির সব লেজার-এন্ট্রির Σ(ডেবিট − ক্রেডিট) — ভাউচারের তারিখ পর্যন্ত, এই ভাউচার (ও এর জোড়া ফেরত) বাদে।
+   আগে শুধু এক দিকের (গ্রাহক বা সাপ্লায়ার) শেষ সারির জমা "Balance" দেখা হতো — অন্য দিকের এন্ট্রি ও প্রারম্ভিক জের বাদ পড়ত। */
+async function partyLedgerIdsFor(partyType, partyId) {
+  const [customers, suppliers] = await Promise.all([cachedList('Customers'), cachedList('Suppliers')]);
+  const norm = function (x) { return String(x || '').replace(/\s+/g, ' ').trim().toLowerCase(); };
+  const keyOf = function (r, id) { const label = r.CompanyName || r.Name; return r.Code ? r.Code + '|' + norm(label) : id; };
+  const me = partyType === 'Customer' ? customers.find(function (c) { return c.CustomerID === partyId; }) : suppliers.find(function (s) { return s.SupplierID === partyId; });
+  const out = { cust: partyType === 'Customer' ? [partyId] : [], supp: partyType === 'Supplier' ? [partyId] : [] };
+  if (!me || !me.Code) return out;
+  const key = keyOf(me, partyId);
+  customers.forEach(function (c) { if (c.Status !== 'Deleted' && keyOf(c, c.CustomerID) === key && out.cust.indexOf(c.CustomerID) === -1) out.cust.push(c.CustomerID); });
+  suppliers.forEach(function (s) { if (s.Status !== 'Deleted' && keyOf(s, s.SupplierID) === key && out.supp.indexOf(s.SupplierID) === -1) out.supp.push(s.SupplierID); });
+  return out;
+}
+/** opts: { upTo: 'yyyy-mm-dd' (এই তারিখ পর্যন্ত), exclude: [এই ভাউচারের id-গুলো] } — ফেরতঃ ডেঃ ধনাত্মক, ক্রেঃ ঋণাত্মক */
+async function partyLedgerJer(partyType, partyId, opts) {
+  opts = opts || {};
+  if (!partyId || partyId === 'CUS-CASH' || partyId === 'SUP-CASH') return 0;
+  const ids = await partyLedgerIdsFor(partyType, partyId);
+  const ex = (opts.exclude || []).filter(Boolean);
+  const upTo = String(opts.upTo || '').slice(0, 10);
+  let total = 0;
+  const sumType = async function (type, list) {
+    if (!list.length) return;
+    for (let from = 0; ; from += 1000) {   // ১০০০ সারির বেশি হলেও সব আনা
+      const { data, error } = await supabaseClient.from('PartyLedger').select('id,Date,RefID,Debit,Credit').eq('PartyType', type).in('PartyID', list).order('id', { ascending: true }).range(from, from + 999);
+      if (error) throw new Error(error.message);
+      (data || []).forEach(function (r) {
+        if (ex.indexOf(r.RefID) !== -1) return;
+        if (upTo && String(r.Date || '').slice(0, 10) > upTo) return;
+        total += (Number(r.Debit) || 0) - (Number(r.Credit) || 0);
+      });
+      if (!data || data.length < 1000) break;
+    }
+  };
+  await sumType('Customer', ids.cust);
+  await sumType('Supplier', ids.supp);
+  return Math.round(total * 100) / 100;
+}
 
 /** পোস্ট করা ভাউচার দেখার সময় পার্টি জের = এই ভাউচারের আগের ব্যালান্স (লেজারে এর প্রথম এন্ট্রির আগে) */
 async function voucherPartyPrevBalance(partyType, partyId, refIds) {
@@ -14120,12 +14166,13 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
       return;
     }
     balInput.value = t('লোড হচ্ছে...','Loading...');
-    const { data } = await supabaseClient.from('PartyLedger').select('Balance').eq('PartyType', 'Supplier').eq('PartyID', supplierId).order('id', { ascending: false }).limit(1);
-    let balance = (data && data[0]) ? Number(data[0].Balance) || 0 : 0;
-    if (window.__pv3ViewPostedIds) {   // পোস্ট করা ভাউচার — জের = এই ভাউচারের আগের ব্যালান্স
-      const pb = await voucherPartyPrevBalance('Supplier', supplierId, window.__pv3ViewPostedIds);
-      if (pb !== null) balance = pb;
-    }
+    // জের = পার্টি লেজারের নিয়মে (গ্রাহক+সাপ্লায়ার দুই দিক, প্রারম্ভিক জের সহ) ভাউচারের তারিখ পর্যন্ত, এই ভাউচার বাদে
+    const jerTok = (window.__pv3JerTok = (window.__pv3JerTok || 0) + 1);
+    const ownIds = [existingId, window.__pv3LinkedReturn && window.__pv3LinkedReturn.header ? window.__pv3LinkedReturn.header.PRetID : null].concat(window.__pv3ViewPostedIds || []);
+    let balance = 0;
+    try { balance = await partyLedgerJer('Supplier', supplierId, { upTo: val('pv3_Date'), exclude: ownIds }); }
+    catch (e) { showToast(t('পার্টি জের আনা যায়নি — ', 'Could not load party balance — ') + e.message, 'error'); }
+    if (jerTok !== window.__pv3JerTok || val('pv3_SupplierID') !== supplierId) return;   // এর মধ্যে পার্টি/তারিখ বদলেছে — পুরনো উত্তর বাদ
     balInput.value = formatAmountDrCr(balance, true);
     window.__pv3PartyBalance = balance;
     voucherPartySumUpdate('pv3', 'purchase');
@@ -14292,6 +14339,7 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
 
   document.getElementById('pv3_SupplierID').addEventListener('change', toggleCashSupplier);
   toggleCashSupplier();
+  document.getElementById('pv3_Date').addEventListener('change', function () { toggleCashSupplier(); });   // তারিখ বদলালে জের নতুন করে
   voucherPartySumWire('pv3', 'purchase');
   (function () {   // পার্টি মোবাইল — সাপ্লায়ারের তথ্য থেকে অটো (নগদ পার্টিতে নগদের মোবাইল)
     const upd = function () {
@@ -15344,12 +15392,13 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
       return;
     }
     balInput.value = t('লোড হচ্ছে...','Loading...');
-    const { data } = await supabaseClient.from('PartyLedger').select('Balance').eq('PartyType', 'Customer').eq('PartyID', customerId).order('id', { ascending: false }).limit(1);
-    let balance = (data && data[0]) ? Number(data[0].Balance) || 0 : 0;
-    if (window.__sv3ViewPostedIds) {   // পোস্ট করা ভাউচার — জের = এই ভাউচারের আগের ব্যালান্স
-      const pb = await voucherPartyPrevBalance('Customer', customerId, window.__sv3ViewPostedIds);
-      if (pb !== null) balance = pb;
-    }
+    // জের = পার্টি লেজারের নিয়মে (গ্রাহক+সাপ্লায়ার দুই দিক, প্রারম্ভিক জের সহ) ভাউচারের তারিখ পর্যন্ত, এই ভাউচার বাদে
+    const jerTok = (window.__sv3JerTok = (window.__sv3JerTok || 0) + 1);
+    const ownIds = [existingId, window.__sv3LinkedReturn && window.__sv3LinkedReturn.header ? window.__sv3LinkedReturn.header.SRID : null].concat(window.__sv3ViewPostedIds || []);
+    let balance = 0;
+    try { balance = await partyLedgerJer('Customer', customerId, { upTo: val('sv3_Date'), exclude: ownIds }); }
+    catch (e) { showToast(t('পার্টি জের আনা যায়নি — ', 'Could not load party balance — ') + e.message, 'error'); }
+    if (jerTok !== window.__sv3JerTok || val('sv3_CustomerID') !== customerId) return;   // এর মধ্যে পার্টি/তারিখ বদলেছে — পুরনো উত্তর বাদ
     balInput.value = formatAmountDrCr(balance, true);
     window.__sv3PartyBalance = balance;
     voucherPartySumUpdate('sv3', 'sales');
@@ -15507,6 +15556,7 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
 
   document.getElementById('sv3_CustomerID').addEventListener('change', toggleCashCustomer);
   toggleCashCustomer();
+  document.getElementById('sv3_Date').addEventListener('change', function () { toggleCashCustomer(); });   // তারিখ বদলালে জের নতুন করে
   voucherPartySumWire('sv3', 'sales');
   (function () {   // পার্টি মোবাইল — গ্রাহকের তথ্য থেকে অটো (নগদ পার্টিতে নগদের মোবাইল)
     const upd = function () {
