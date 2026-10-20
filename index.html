@@ -699,6 +699,13 @@ async function postBankCashBookEntry(bankAccId, date, refModule, refId, debit, c
 
 /** প্রতিটা ডকুমেন্ট টাইপ পোস্ট করলে ঠিক কী স্টক-প্রভাব পড়বে, তার
  *  ব্যবসায়িক নিয়ম। Status='Posted' হওয়ার আগেই এটা রান হয় (postDocument কেস দেখুন)। */
+/** ফেরত লাইনের নিট টাকা — কমিশন বাদ দিয়ে (NetAmount); পুরনো লাইনে NetAmount না থাকলে পরিমাণ × দর − কমিশন।
+ *  পোস্টিং (পার্টি লেজার/ক্যাশ বই), ভাউচার তালিকা ও নগদ পার্টির লেজার — সব জায়গায় এই একই হিসাব। */
+function returnLineNet(l) {
+  const has = function (v) { return v !== null && v !== undefined && v !== ''; };
+  if (has(l.NetAmount)) return Number(l.NetAmount) || 0;
+  return (Number(l.Quantity) || 0) * (Number(l.Rate) || 0) - (Number(l.CommissionAmount) || 0);
+}
 async function runPostingLogic(docType, header, docId) {
   const today = new Date().toISOString().slice(0, 10);
 
@@ -748,7 +755,7 @@ async function runPostingLogic(docType, header, docId) {
     let returnTotal = 0;
     for (const line of (lines || [])) {
       await postSalesStock(line.ItemID, warehouseId, header.Date || today, 'PurchaseReturn', 'PurchaseReturn', docId, line.Quantity, -1, { kg: line.QtyKg, pcs: line.QtyPcs });
-      returnTotal += (Number(line.Quantity) || 0) * (Number(line.Rate) || 0);
+      returnTotal += returnLineNet(line);   // কমিশন বাদে নিট টাকা
     }
     if (header.SupplierID === 'SUP-CASH') {
       // নগদ ক্রয়-ফেরত — টাকা ফেরত আসবে সরাসরি ক্যাশ অ্যাকাউন্টে
@@ -833,7 +840,7 @@ async function runPostingLogic(docType, header, docId) {
     let salesReturnTotal = 0;
     for (const line of (lines || [])) {
       await postSalesStock(line.ItemID, header.WarehouseID, header.Date || today, 'SalesReturn', 'SalesReturn', docId, line.Quantity, 1, { kg: line.QtyKg, pcs: line.QtyPcs });
-      salesReturnTotal += (Number(line.Quantity) || 0) * (Number(line.Rate) || 0);
+      salesReturnTotal += returnLineNet(line);   // কমিশন বাদে নিট টাকা
     }
     if (header.CustomerID === 'CUS-CASH') {
       // নগদ বিক্রয়-ফেরত — টাকা ফেরত দেওয়া হবে সরাসরি ক্যাশ অ্যাকাউন্ট থেকে
@@ -12885,8 +12892,12 @@ async function renderPurchaseVoucherPage(content, defaultType) {
     const merged = invoices.filter(function (r) { return r.Status !== 'Deleted'; }).map(function (r) {
       return { type:'PurchaseInvoice', typeLabel:['ক্রয় ভাউচার','Purchase Voucher'], id:r.PIID, date:r.InvoiceDate, supplierId:r.SupplierID, walkInName:r.WalkInPartyName, purchaserId:r.PurchaserID, amount:r.TotalAmount, status:r.Status };
     }).concat(returns.filter(function (r) { return r.Status !== 'Deleted'; }).map(function (r) {
-      return { type:'PurchaseReturn', typeLabel:['ক্রয় ফেরত ভাউচার','Purchase Return Voucher'], id:r.PRetID, date:r.Date, supplierId:r.SupplierID, purchaserId:r.PurchaserID, amount:null, status:r.Status };
+      return { type:'PurchaseReturn', typeLabel:['ক্রয় ফেরত ভাউচার','Purchase Return Voucher'], id:r.PRetID, date:r.Date, supplierId:r.SupplierID, walkInName:r.WalkInPartyName, purchaserId:r.PurchaserID, amount:null, status:r.Status };
     }));
+    try {   // ফেরতের মূল্য — লাইন থেকে (হেডারে মোট টাকা থাকে না)
+      const rt = await voucherReturnTotals('PR_Return_Lines', 'PRetID', merged.filter(function (r) { return r.type === 'PurchaseReturn'; }).map(function (r) { return r.id; }));
+      merged.forEach(function (r) { if (r.type === 'PurchaseReturn') r.amount = rt[r.id] !== undefined ? rt[r.id] : 0; });
+    } catch (e) {}
     merged.sort(function (a, b) { return String(a.date||'').localeCompare(String(b.date||'')); });
 
     const wrap = document.getElementById('pvTableWrap');
@@ -13467,6 +13478,20 @@ const VOUCHER_BOTTOM_CSS = `
     .vcard .vc3 .vic{width:100%;height:40px;font-size:16px;margin:0;}
   }`;
 
+/** ফেরত ভাউচারের মূল্য — হেডারে মোট টাকা রাখা হয় না, তাই লাইন থেকেঃ Σ নিট টাকা (কমিশন বাদে)
+ *  (পোস্টিংয়ে পার্টি লেজার/ক্যাশ বইতে ঠিক এই টাকাই যায়, তাই তালিকা ও লেজার মেলে) — ফেরতঃ {id: টাকা} */
+async function voucherReturnTotals(linesSheet, idField, ids) {
+  const tot = {};
+  ids = (ids || []).filter(Boolean);
+  for (let i = 0; i < ids.length; i += 200) {   // অনেক ভাউচার হলে ভাগ করে আনা
+    const { data, error } = await supabaseClient.from(linesSheet).select('*').in(idField, ids.slice(i, i + 200));
+    if (error) throw new Error(error.message);
+    (data || []).forEach(function (l) { tot[l[idField]] = (tot[l[idField]] || 0) + returnLineNet(l); });   // কমিশন বাদে নিট
+  }
+  Object.keys(tot).forEach(function (k) { tot[k] = Math.round(tot[k] * 100) / 100; });
+  return tot;
+}
+
 async function voucherListRender(P, kind, mode, highlight) {
   const el = document.getElementById(P + '_VBList'); if (!el) return;
   el.innerHTML = `<div class="empty-state" style="padding:12px;">${t('লোড হচ্ছে...', 'Loading...')}</div>`;
@@ -13482,6 +13507,12 @@ async function voucherListRender(P, kind, mode, highlight) {
   }
   rows.sort(function (a, b) { return String(b.date).localeCompare(String(a.date)) || String(b.id).localeCompare(String(a.id), undefined, { numeric: true }); });
   rows = rows.slice(0, 40);
+  for (const ty of K.types.filter(function (x) { return /Return$/.test(x[0]); })) {   // ফেরতের মূল্য লাইন থেকে
+    const ids = rows.filter(function (r) { return r.dt === ty[0] && !r.total; }).map(function (r) { return r.id; });
+    if (!ids.length) continue;
+    let tot = {}; try { tot = await voucherReturnTotals(ty[3], ty[1], ids); } catch (e) {}
+    rows.forEach(function (r) { if (r.dt === ty[0] && !r.total) r.total = tot[r.id] || 0; });
+  }
   if (mode === 'challan') {   // চালানঃ পরিমাণ (কেজি/পিস)
     for (const ty of K.types) {
       const ids = rows.filter(function (r) { return r.dt === ty[0]; }).map(function (r) { return r.id; });
@@ -15476,8 +15507,12 @@ async function renderSalesVoucherPage(content, defaultType) {
     const merged = invoices.filter(function (r) { return r.Status !== 'Deleted'; }).map(function (r) {
       return { type:'SalesInvoice', typeLabel:['বিক্রয় ভাউচার','Sales Voucher'], id:r.SIID, date:r.InvoiceDate, customerId:r.CustomerID, walkInName:r.WalkInPartyName, salespersonId:r.SalespersonID, amount:r.TotalAmount, status:r.Status };
     }).concat(returns.filter(function (r) { return r.Status !== 'Deleted'; }).map(function (r) {
-      return { type:'SalesReturn', typeLabel:['বিক্রয় ফেরত ভাউচার','Sales Return Voucher'], id:r.SRID, date:r.Date, customerId:r.CustomerID, salespersonId:r.SalespersonID, amount:null, status:r.Status };
+      return { type:'SalesReturn', typeLabel:['বিক্রয় ফেরত ভাউচার','Sales Return Voucher'], id:r.SRID, date:r.Date, customerId:r.CustomerID, walkInName:r.WalkInPartyName, salespersonId:r.SalespersonID, amount:null, status:r.Status };
     }));
+    try {   // ফেরতের মূল্য — লাইন থেকে (হেডারে মোট টাকা থাকে না)
+      const rt = await voucherReturnTotals('SR_Lines', 'SRID', merged.filter(function (r) { return r.type === 'SalesReturn'; }).map(function (r) { return r.id; }));
+      merged.forEach(function (r) { if (r.type === 'SalesReturn') r.amount = rt[r.id] !== undefined ? rt[r.id] : 0; });
+    } catch (e) {}
     merged.sort(function (a, b) { return String(a.date||'').localeCompare(String(b.date||'')); });
 
     const wrap = document.getElementById('svTableWrap');
@@ -17932,7 +17967,7 @@ async function renderPartyLedger(content, partyTypeFilter) {
       const tot = {}; if (!ids.length) return tot;
       const { data, error } = await supabaseClient.from(table).select('*').in(idCol, ids);
       if (error) throw new Error(error.message);
-      (data || []).forEach(function (l) { tot[l[idCol]] = (tot[l[idCol]] || 0) + (Number(l.Quantity) || 0) * (Number(l.Rate) || 0); });
+      (data || []).forEach(function (l) { tot[l[idCol]] = (tot[l[idCol]] || 0) + returnLineNet(l); });   // কমিশন বাদে নিট
       return tot;
     };
     const out = [];
@@ -19040,7 +19075,7 @@ function plCompute(D, from, to, opt) {
   let sRet = 0; const detSRet = [];
   Object.keys(srH).forEach(function (id) {
     const h = srH[id], d = d10(h.Date); if (!inR(d)) return;
-    const v = (srL[id] || []).reduce(function (s, l) { return s + n(l.Quantity) * n(l.Rate); }, 0);   // পোস্টিং-এর নিয়মেই (পার্টি লেজারের সাথে মেলে)
+    const v = (srL[id] || []).reduce(function (s, l) { return s + returnLineNet(l); }, 0);   // পোস্টিং-এর নিয়মেই — কমিশন বাদে নিট (পার্টি লেজারের সাথে মেলে)
     sRet += v; detSRet.push({ date: d, base: 'SalesReturn', id: id, desc: h.CustomerID === 'CUS-CASH' ? t('নগদ', 'Cash') : (custName[h.CustomerID] || h.CustomerID || ''), amt: v });
   });
 
@@ -19065,7 +19100,7 @@ function plCompute(D, from, to, opt) {
   let pRet = 0; const detPRet = [];
   Object.keys(prH).forEach(function (id) {
     const h = prH[id], d = d10(h.Date); if (!inR(d)) return;
-    const v = (prL[id] || []).reduce(function (s, l) { return s + n(l.Quantity) * n(l.Rate); }, 0);
+    const v = (prL[id] || []).reduce(function (s, l) { return s + returnLineNet(l); }, 0);   // পোস্টিং-এর নিয়মেই — কমিশন বাদে নিট
     pRet += v; detPRet.push({ date: d, base: 'PurchaseReturn', id: id, desc: h.SupplierID === 'SUP-CASH' ? t('নগদ', 'Cash') : (supName[h.SupplierID] || h.SupplierID || ''), amt: v });
   });
 
