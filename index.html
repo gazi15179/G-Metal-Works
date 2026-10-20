@@ -839,7 +839,12 @@ async function runPostingLogic(docType, header, docId) {
     if (error) throw new Error(error.message);
     let salesReturnTotal = 0;
     for (const line of (lines || [])) {
-      await postSalesStock(line.ItemID, header.WarehouseID, header.Date || today, 'SalesReturn', 'SalesReturn', docId, line.Quantity, 1, { kg: line.QtyKg, pcs: line.QtyPcs });
+      if (line.ScrapItemID && Number(line.ScrapKg) > 0) {
+        // খারাপ ফেরত মাল — আসল আইটেমের স্টকে নয়, ভাঙ্গাড়ী আইটেমের স্টকে কেজি হিসেবে ঢোকে
+        await postSalesStock(line.ScrapItemID, header.WarehouseID, header.Date || today, 'SalesReturn', 'SalesReturn', docId, Number(line.ScrapKg), 1, { kg: Number(line.ScrapKg), pcs: 0 });
+      } else {
+        await postSalesStock(line.ItemID, header.WarehouseID, header.Date || today, 'SalesReturn', 'SalesReturn', docId, line.Quantity, 1, { kg: line.QtyKg, pcs: line.QtyPcs });
+      }
       salesReturnTotal += returnLineNet(line);   // কমিশন বাদে নিট টাকা
     }
     if (header.CustomerID === 'CUS-CASH') {
@@ -13187,7 +13192,7 @@ async function openPrintableVoucherView(docType, docId, opts) {
       itemId: l.ItemID, qty: qty, rate: rate, amount: amt,
       qtyKg: qKg, qtyPcs: qPc, rateKg: Number(l.RateKg) || 0, ratePc: Number(l.RatePc) || 0,
       costRate: (l.CostRate !== null && l.CostRate !== undefined) ? (Number(l.CostRate) || 0) : (Number((itemMap[l.ItemID] || {}).StandardCost) || 0),
-      commRate: Number(l.CommissionRate) || 0, commAmount: commAmt,
+      commRate: Number(l.CommissionRate) || 0, commAmount: commAmt, scrapItemId: l.ScrapItemID || null,
       netAmount: (l.NetAmount !== null && l.NetAmount !== undefined) ? Number(l.NetAmount) : (amt - commAmt)
     };
   });
@@ -14063,6 +14068,13 @@ const SV_TABLE_CSS = `
   .svt td.ps .vps-val{height:24px;}
   .svt .vbtn{display:flex;align-items:center;justify-content:center;width:100%;height:26px;border:0;margin:0;border-radius:0;background:var(--ink-900);color:var(--amber);font-weight:700;font-size:15px;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;}
   .svt .vbtn.vret{background:#7a2e1a;color:#fff;}
+  .svt .vret2{display:flex;align-items:stretch;height:100%;}
+  .svt .vret2 .vbtn{flex:1;min-width:0;}
+  .svt .vscrap{display:flex;align-items:center;gap:2px;padding:0 3px;font-size:10.5px;font-weight:700;cursor:pointer;white-space:nowrap;background:rgba(120,124,130,.15);user-select:none;-webkit-tap-highlight-color:transparent;}
+  .svt .vscrap input{width:14px;height:14px;margin:0;accent-color:#2e7d32;}
+  .svt .vscrap:has(input:checked){background:#2e7d32;color:#fff;}
+  .svt .vret2:has(.vscrap input:checked) .vbtn.vret{background:#2e7d32;}
+  .svt .vscrap.vset-off,.svt .vscrap:has(input:disabled){opacity:.35;pointer-events:none;}
   .svt .vbtn:active{filter:brightness(1.25);}
   .svt input.vset-off,.svt select.vset-off{opacity:.4 !important;cursor:not-allowed;}
   .svt label.vbtn.vdis,.svt button.vbtn:disabled{opacity:.35;pointer-events:none;}
@@ -14098,6 +14110,7 @@ const SV_PANEL_CSS = `
   .svp tr.tabs th.tab:not(.on):hover{filter:brightness(1.12);}
   .svp td.c{text-align:center;} .svp td.l{text-align:left;white-space:nowrap;} .svp td.r{text-align:right;white-space:nowrap;} .svp td.b{font-weight:700;}
   .svp td small{color:var(--text-muted);font-size:10px;}
+  .svp td small.scr{color:#2e7d32;font-weight:700;}
   .svp tbody tr[data-k]{cursor:pointer;touch-action:manipulation;}
   .svp tbody tr.sel td{background:#fff1b8 !important;color:#1b1f24;}
   .svp tbody tr.edit td{background:#ffe2a8 !important;color:#1b1f24;box-shadow:inset 0 1px 0 #c27a12,inset 0 -1px 0 #c27a12;}
@@ -14181,6 +14194,7 @@ function vfsFields(P) {
   if (C.profit) list.push(['profit', 'লাভ', 'Profit', 'in', x(['_ShowProfitCheck'])]);
   list.push(['addLine', C.bn + ' লাইন +', C.en + ' line +', 'in', x([C.addLine])]);
   list.push(['addRet', C.bn + ' ফেরৎ +', C.en + ' return +', 'in', x(['_AddReturnLineBtn'])]);
+  if (P === 'sv3') list.push(['scrap', 'ফেরৎ → ভাঙ্গাড়ী', 'Return → scrap', 'in', x(['_ScrapCheck'])]);   // খারাপ ফেরত মাল সরাসরি ভাঙ্গাড়ী স্টকে
   return list;
 }
 
@@ -14193,7 +14207,11 @@ async function vfsLoad(P) {
     const raw = all && all[VFS_CFG[P].key];
     const saved = raw ? (typeof raw === 'object' ? raw : JSON.parse(raw)) : null;
     if (saved && typeof saved === 'object') Object.keys(set).forEach(function (k) { if (saved[k] === false) set[k] = false; });
+    if (P === 'sv3') set.scrapItem = (saved && saved.scrapItem) || '';
   } catch (e) {}   // পড়তে না পারলে সব চালু — ভাউচারের কাজ আটকাবে না
+  if (P === 'sv3' && !set.scrapItem) {   // বাছাই করা না থাকলে নাম দেখে "ভাঙ্গাড়ী" আইটেম খোঁজা
+    try { const hit = (await cachedList('Items')).find(function (i) { return i.Status !== 'Deleted' && /ভাঙ্গাড়ী|ভাঙ্গারি|ভাঙাড়ি|ভাংগাড়ী|scrap/i.test(String(i.ItemName || '')); }); if (hit) set.scrapItem = hit.ItemID; } catch (e) {}
+  }
   return set;
 }
 
@@ -14269,6 +14287,7 @@ function vfsHide(P, set) {
   hide(wrapOf('_DiscCheck', '.field'), !set.disc);
   hide(wrapOf('_VatCheck', '.field'), !set.vat);
   hide(wrapOf(C.payType, '.vcashbank'), !set.cash && !set.bank);
+  if (P === 'sv3') hide(wrapOf('_ScrapCheck', 'label'), set.scrap === false);   // ফেরৎ → ভাঙ্গাড়ী টিক
 }
 
 /** ফর্ম খোলার শেষে — সেটিং আনা, প্রয়োগ, আর পরে কোনো ঘর আবার চালু হলে আবার বন্ধ */
@@ -14295,6 +14314,13 @@ async function renderVoucherFieldSettingsPage(content, P) {
   const set = await vfsLoad(P);
   const NB = C.nameBn || (C.bn + ' ভাউচার'), NE = C.nameEn || (C.en + ' Voucher');   // যেমন "কালেকশন ভাউচার"
   const title = t(NB + ' সেটিং', NE + ' Settings');
+  let scrapOpts = '';
+  if (P === 'sv3') {   // ভাঙ্গাড়ী আইটেম — কেজি এককের আইটেম আগে
+    const [items, units] = await Promise.all([cachedList('Items'), cachedList('UOM')]);
+    scrapOpts = items.filter(function (i) { return i.Status !== 'Deleted' && !isPieceUOM(i.UOMID, units); })
+      .sort(function (a, b) { return String(a.ItemName || '').localeCompare(String(b.ItemName || ''), 'bn'); })
+      .map(function (i) { return `<option value="${attr(i.ItemID)}" ${set.scrapItem === i.ItemID ? 'selected' : ''}>${escapeHtml(i.ItemName || i.ItemID)}</option>`; }).join('');
+  }
   let half = FL.findIndex(function (f) { return f[0] === 'ratePc'; });
   if (half < 0) half = Math.ceil(FL.length / 2);   // পেমেন্ট ভাউচারঃ অর্ধেক অর্ধেক   // বাম কলামঃ পার্টি জোন … পরিমান(কেজি); ডানঃ দর(পিস) … ফেরৎ +
   const rowCount = Math.max(half, FL.length - half);
@@ -14324,6 +14350,9 @@ async function renderVoucherFieldSettingsPage(content, P) {
     <div class="panel"><div class="modal-body" style="padding:16px;">
       <div class="svs-wrap" id="svsWrap" data-keynav="1">
         <table class="svs-tbl"><thead><tr><th colspan="4">${title}</th></tr></thead><tbody>${rows}</tbody></table>
+        ${P === 'sv3' ? `<div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><label for="svs_scrapItem" style="font-weight:700;font-size:13px;">♻️ ${t('ভাঙ্গাড়ী আইটেম', 'Scrap item')}</label>
+          <select id="svs_scrapItem" style="flex:1;min-width:200px;height:34px;"><option value="">— ${t('বাছাই করুন', 'Select')} —</option>${scrapOpts}</select></div>
+          <div class="svs-note" style="margin-top:4px;">${t('ফেরৎ লাইনে "ভাঙ্গাড়ী" টিক দিলে মাল এই আইটেমের স্টকে কেজি হিসেবে যায় (আসল আইটেমের স্টকে নয়)। একক কেজি এমন আইটেম বাছাই করুন।', 'Return lines ticked "scrap" go into this item\'s stock in kg instead of the original item. Pick a kg-unit item.')}</div>` : ''}
         <div class="svs-bar">
           <button type="button" class="btn btn-outline" id="svsAll" data-perm-safe="1">☑ ${t('সব টিক দিন', 'Tick all')}</button>
           <button type="button" class="btn btn-outline" id="svsNone" data-perm-safe="1">☐ ${t('সব টিক তুলুন', 'Untick all')}</button>
@@ -14333,11 +14362,12 @@ async function renderVoucherFieldSettingsPage(content, P) {
       </div>
     </div></div>`;
   const boxes = function () { return FL.map(function (f) { return document.getElementById('svs_' + f[0]); }); };   // ক্রমঃ বাম কলাম উপর→নিচ, তারপর ডান কলাম
+  const navList = function () { const l = boxes(), si = document.getElementById('svs_scrapItem'); if (si) l.push(si); return l; };
   document.getElementById('svsAll').addEventListener('click', function () { boxes().forEach(function (b) { b.checked = true; }); });
   document.getElementById('svsNone').addEventListener('click', function () { boxes().forEach(function (b) { b.checked = false; }); });
   document.getElementById('svsWrap').addEventListener('keydown', function (e) {
     if (e.key !== 'Enter' && e.key !== 'Escape') return;
-    const list = boxes(), i = list.indexOf(document.activeElement);
+    const list = navList(), i = list.indexOf(document.activeElement);
     if (i === -1) return;
     e.preventDefault(); e.stopPropagation();
     if (e.key === 'Enter') { if (list[i + 1]) list[i + 1].focus(); else document.getElementById('svsSave').focus(); }
@@ -14346,11 +14376,12 @@ async function renderVoucherFieldSettingsPage(content, P) {
   document.getElementById('svsSave').addEventListener('click', async function () {
     const btn = this, data = {};
     boxes().forEach(function (b) { data[b.getAttribute('data-k')] = b.checked; });
+    const si = document.getElementById('svs_scrapItem'); if (si) data.scrapItem = si.value;
     btn.disabled = true;
     try {
       await api('saveSystemSetting', { key: C.key, value: JSON.stringify(data) });
       const chk = await vfsLoad(P);   // সেভ ঠিকমতো হলো কিনা — আবার পড়ে মিলিয়ে দেখা
-      if (Object.keys(data).some(function (k) { return chk[k] !== data[k]; })) throw new Error(t('সেটিং সেভ হয়নি — আবার চেষ্টা করুন।', 'Settings were not saved — try again.'));
+      if (Object.keys(data).some(function (k) { return !(k === 'scrapItem' && !data[k]) && chk[k] !== data[k]; })) throw new Error(t('সেটিং সেভ হয়নি — আবার চেষ্টা করুন।', 'Settings were not saved — try again.'));
       showToast(t(NB + ' সেটিং সেভ হয়েছে ✅', NE + ' settings saved ✅'), 'success');
     } catch (err) { showToast(err.message, 'error'); }
     finally { btn.disabled = false; }
@@ -15671,7 +15702,7 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
     ? sv3RetSrc.map(function (l) {
         const amt = Math.round((Number(l.Quantity)||0) * (Number(l.Rate)||0));
         const commAmt = Number(l.CommissionAmount) || 0;
-        return { itemId: l.ItemID, warehouseId: sv3RetHdr.WarehouseID, qty: Number(l.Quantity)||0, qtyKg: Number(l.QtyKg)||0, qtyPcs: Number(l.QtyPcs)||0, rateKg: Number(l.RateKg)||0, ratePc: Number(l.RatePc)||0, rateBasis: l.RateBasis || null, rate: Number(l.Rate)||0, amount: amt, commRate: Number(l.CommissionRate)||0, commAmount: commAmt, netAmount: l.NetAmount !== null && l.NetAmount !== undefined ? Number(l.NetAmount) : (amt - commAmt), costRate: sv3CostRateOf(l) };
+        return { itemId: l.ItemID, warehouseId: sv3RetHdr.WarehouseID, qty: Number(l.Quantity)||0, qtyKg: Number(l.QtyKg)||0, qtyPcs: Number(l.QtyPcs)||0, rateKg: Number(l.RateKg)||0, ratePc: Number(l.RatePc)||0, rateBasis: l.RateBasis || null, rate: Number(l.Rate)||0, amount: amt, commRate: Number(l.CommissionRate)||0, commAmount: commAmt, netAmount: l.NetAmount !== null && l.NetAmount !== undefined ? Number(l.NetAmount) : (amt - commAmt), costRate: sv3CostRateOf(l), scrapItemId: l.ScrapItemID || null, scrapKg: Number(l.ScrapKg) || 0 };
       })
     : [];
   window.__sv3LastStockQty = '';
@@ -15756,7 +15787,7 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
         <tr class="h"><th colspan="2" data-f="amount">${t('মূল্য','Amount')}</th><th class="i" data-f="addLine">${t('বিক্রয় লাইন','Sale line')}</th><th class="i" data-f="addRet">${t('বিক্রয় ফেরৎ','Sale return')}</th></tr>
         <tr><td colspan="2" data-f="amount"><input id="sv3_Amount" type="number" step="any" min="0" inputmode="decimal" class="vbold" title="${attr(t('মোট মূল্য লিখলে কেজি ও পিসের দর নিজে বসে','Typing the total fills both rates'))}"></td>
           <td data-f="addLine"><label class="vbtn" title="${attr(t('বিক্রয় লাইন যোগ','Add sale line'))}"><input type="checkbox" id="sv3_ConfirmSaleCheck" class="vhide"> (+)</label></td>
-          <td data-f="addRet"><button type="button" id="sv3_AddReturnLineBtn" class="vbtn vret" title="${attr(t('বিক্রয় ফেরৎ লাইন যোগ','Add sale return line'))}">(+)</button></td></tr>
+          <td data-f="addRet"><div class="vret2"><label class="vscrap" title="${attr(t('টিক দিলে এই ফেরত মাল ভাঙ্গাড়ী স্টকে যাবে (কেজি)','Tick: this returned item goes to scrap stock (kg)'))}"><input type="checkbox" id="sv3_ScrapCheck">${t('ভাঙ্গাড়ী','Scrap')}</label><button type="button" id="sv3_AddReturnLineBtn" class="vbtn vret" title="${attr(t('বিক্রয় ফেরৎ লাইন যোগ','Add sale return line'))}">(+)</button></div></td></tr>
       </table>
       <div id="sv3_CommResultRow" style="display:none;"><input type="hidden" id="sv3_NetLineAmount"></div>
       <input type="hidden" id="sv3_PreviewStockQty"><input type="hidden" id="sv3_PreviewStockRate">
@@ -15890,6 +15921,11 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
         const warehouseId = window.__sv3ReturnLines[0].warehouseId;
         if (!warehouseId) throw new Error(t('ফেরত লাইনে গুদাম আবশ্যক।','Warehouse is required for return lines.'));
         const lineData = window.__sv3ReturnLines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, QtyKg: l.qtyKg || 0, QtyPcs: l.qtyPcs || 0, RateKg: l.rateKg || 0, RatePc: l.ratePc || 0, RateBasis: l.rateBasis || null, Rate: l.rate, CommissionRate: l.commRate || 0, CommissionAmount: l.commAmount || 0, NetAmount: l.netAmount !== undefined ? l.netAmount : l.amount, CostRate: l.costRate || 0 }; });
+        if (window.__sv3ReturnLines.some(function (l) { return l.scrapItemId; })) {   // ভাঙ্গাড়ী লাইন — নতুন ঘর দুটো দরকার
+          const chk = await supabaseClient.from('SR_Lines').select('ScrapItemID,ScrapKg').limit(1);
+          if (chk && chk.error) throw new Error(t('ভাঙ্গাড়ী সেভ করতে Supabase-এ একবার এই SQL চালান: ALTER TABLE "SR_Lines" ADD COLUMN IF NOT EXISTS "ScrapItemID" text, ADD COLUMN IF NOT EXISTS "ScrapKg" numeric;', 'Run this SQL in Supabase once: ALTER TABLE "SR_Lines" ADD COLUMN IF NOT EXISTS "ScrapItemID" text, ADD COLUMN IF NOT EXISTS "ScrapKg" numeric;'));
+          lineData.forEach(function (d, i) { const l = window.__sv3ReturnLines[i]; d.ScrapItemID = l.scrapItemId || null; d.ScrapKg = l.scrapItemId ? l.scrapKg : null; });
+        }
         const headerData = Object.assign({}, common, { Date: val('sv3_Date'), WarehouseID: warehouseId });
         if (hasSale && sv3MainId) headerData.RefSIID = sv3MainId;   // কোন SalesInvoice-এর সাথে জোড়া
         if (sv3RetEditId) {
@@ -16406,7 +16442,17 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
   document.getElementById('sv3_AddReturnLineBtn').addEventListener('click', function () {
     const line = collectCurrentLine();
     if (!line) return;
+    const scrapBox = document.getElementById('sv3_ScrapCheck');
+    if (scrapBox && scrapBox.checked) {   // খারাপ ফেরত মাল → ভাঙ্গাড়ী স্টকে (ওজন কেজির ঘর থেকে — হাতে বদলানো যায়)
+      const scrapItem = (window.__sv3FieldSet || {}).scrapItem;
+      if (!scrapItem) { showToast(t('বিক্রয় ভাউচার সেটিং-এ "ভাঙ্গাড়ী আইটেম" বাছাই করুন।', 'Pick the scrap item in Sales Voucher Settings.'), 'error'); return; }
+      if (scrapItem === line.itemId) { showToast(t('ভাঙ্গাড়ী আইটেমকেই ভাঙ্গাড়ীতে নেওয়া যায় না — টিক তুলে দিন।', 'The scrap item itself cannot go to scrap — untick it.'), 'error'); return; }
+      const kg = Number(line.qtyKg) > 0 ? Number(line.qtyKg) : (window.__sv3Piece ? (Number(line.qty) || 0) * (Number(window.__sv3AvgKgPc) || 0) : (Number(line.qty) || 0));
+      if (!(kg > 0)) { showToast(t('ভাঙ্গাড়ীর ওজন (কেজি) লিখুন।', 'Enter the scrap weight (kg).'), 'error'); document.getElementById('sv3_QtyKg').focus(); return; }
+      line.scrapItemId = scrapItem; line.scrapKg = Math.round(kg * 1000) / 1000; line.qtyKg = line.scrapKg;
+    }
     const upd = sv3PlaceLine('ret', line);
+    if (scrapBox) scrapBox.checked = false;
     resetLineEntry();
     renderRightSummary();
     showToast(upd ? t('লাইন হালনাগাদ হয়েছে ✅','Line updated ✅') : t('বিক্রয় ফেরত লাইন যোগ হয়েছে ✅','Sale return line added ✅'), 'success');
@@ -16431,8 +16477,8 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
     const rp = Number(l.ratePc) || (piece ? Number(l.rate) || 0 : (pcs ? amt / pcs : 0));
     const rk = Number(l.rateKg) || (!piece ? Number(l.rate) || 0 : (kg ? amt / kg : 0));
     const net = Number(l.netAmount !== undefined && l.netAmount !== null ? l.netAmount : amt) || 0;
-    const profit = net - qty * (Number(l.costRate) || 0);
-    return { name: item.ItemName || l.itemId || '', pcs: pcs, kg: kg, rp: rp, rk: rk, net: net, comm: Number(l.commRate) || 0, profit: profit };
+    const profit = l.scrapItemId ? net : net - qty * (Number(l.costRate) || 0);   // ভাঙ্গাড়ী ফেরতে মাল স্টকে ফেরে না — পুরো টাকাই ক্ষতি
+    return { name: item.ItemName || l.itemId || '', pcs: pcs, kg: kg, rp: rp, rk: rk, net: net, comm: Number(l.commRate) || 0, profit: profit, scrapKg: l.scrapItemId ? (Number(l.scrapKg) || kg) : 0 };
   }
   function sv3DraftView() {   // উপরের ঘরে এখন যা লেখা আছে
     const itemId = val('sv3_ItemID');
@@ -16443,7 +16489,8 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
     const net = amt - amt * cr / 100;
     const qty = Number(val('sv3_Qty')) || 0;
     const item = window.__sv3ItemMap[itemId] || {};
-    return { name: item.ItemName || '', pcs: pcs, kg: kg, rp: rp, rk: rk, net: net, comm: cr, profit: itemId ? net - qty * (Number(window.__sv3CostRate) || 0) : 0, draft: true };
+    const scr = sv3El('sv3_ScrapCheck') && sv3El('sv3_ScrapCheck').checked;
+    return { name: item.ItemName || '', pcs: pcs, kg: kg, rp: rp, rk: rk, net: net, comm: cr, profit: itemId ? net - qty * (Number(window.__sv3CostRate) || 0) : 0, draft: true, scrapKg: scr ? (kg || -1) : 0 };
   }
   function sv3ShowProfit() {
     const set = window.__sv3FieldSet;
@@ -16464,7 +16511,7 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
       const x = editing ? (draft || v) : v;
       const no2 = editing ? `<span class="pe-x" data-pe="cancel" title="${attr(t('এডিট বাতিল', 'Cancel edit'))}">✕</span><span class="pe-x" data-pe="del" title="${attr(t('লাইন মুছুন', 'Delete line'))}">🗑</span>` : no;
       return `<tr data-k="${k}" data-i="${i}" class="${cls || ''}${editing ? ' edit' : ''}${sv3PanelSel && sv3PanelSel.k === k && sv3PanelSel.i === i ? ' sel' : ''}">
-        <td class="c">${no2}</td><td class="l">${escapeHtml(x.name)}${x.comm ? ` <small>(${t('কমিঃ', 'comm.')} ${sv3Fmt(x.comm)}%)</small>` : ''}</td>
+        <td class="c">${no2}</td><td class="l">${escapeHtml(x.name)}${x.comm ? ` <small>(${t('কমিঃ', 'comm.')} ${sv3Fmt(x.comm)}%)</small>` : ''}${x.scrapKg ? ` <small class="scr">♻ ${t('ভাঙ্গাড়ী', 'scrap')}${x.scrapKg > 0 ? ' ' + sv3Fmt(x.scrapKg, 3) + ' ' + t('কেজি', 'kg') : ''}</small>` : ''}</td>
         <td class="r">${sv3Fmt(x.pcs, 3)}</td><td class="r">${sv3Fmt(x.kg, 3)}</td><td class="r">${sv3Rate(x.rp)}</td><td class="r">${sv3Rate(x.rk)}</td>
         <td class="r b">${sv3Fmt(x.net, 2)}</td>${pf(k === 'ret' ? -x.profit : x.profit)}</tr>`;
     };
@@ -16475,7 +16522,7 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
     const sv = sales.map(sv3LineView), rv = rets.map(sv3LineView);
     let body = '';
     sv.forEach(function (v, i) { body += row(v, i + 1, 'sale', i); });
-    if (draft && !ed) body += `<tr class="draft"><td class="c">＋</td><td class="l">${escapeHtml(draft.name) || '<i>' + t('নতুন লাইন', 'New line') + '</i>'}</td><td class="r">${sv3Fmt(draft.pcs, 3)}</td><td class="r">${sv3Fmt(draft.kg, 3)}</td><td class="r">${sv3Rate(draft.rp)}</td><td class="r">${sv3Rate(draft.rk)}</td><td class="r b">${sv3Fmt(draft.net, 2)}</td>${pf(draft.profit)}</tr>`;
+    if (draft && !ed) body += `<tr class="draft"><td class="c">＋</td><td class="l">${escapeHtml(draft.name) || '<i>' + t('নতুন লাইন', 'New line') + '</i>'}${draft.scrapKg ? ` <small class="scr">♻ ${t('ভাঙ্গাড়ী', 'scrap')}</small>` : ''}</td><td class="r">${sv3Fmt(draft.pcs, 3)}</td><td class="r">${sv3Fmt(draft.kg, 3)}</td><td class="r">${sv3Rate(draft.rp)}</td><td class="r">${sv3Rate(draft.rk)}</td><td class="r b">${sv3Fmt(draft.net, 2)}</td>${pf(draft.profit)}</tr>`;
     if (!sv.length && !rv.length && !draft) body += `<tr class="empty"><td colspan="${cols}">${t('উপরে আইটেম, পরিমাণ ও দর লিখলে এখানে দেখা যাবে', 'Lines appear here as you type above')}</td></tr>`;
     const saleProfit = sum(sv, 'profit'), retProfit = sum(rv, 'profit');
     if (sv.length) body += totRow(t('মোটঃ বিক্রয়ঃ', 'Total sales:'), sv, saleProfit);
@@ -16528,6 +16575,7 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
     if (!window.__sv3Edit && sv3DraftView() && !confirm(t('উপরে লেখা নতুন লাইনটা বাদ দিয়ে এই লাইন এডিট করবেন?', 'Discard the line being typed and edit this one?'))) return;
     window.__sv3Edit = { k: k, i: i };
     resetLineEntry();
+    if (sv3El('sv3_ScrapCheck')) sv3El('sv3_ScrapCheck').checked = !!(k === 'ret' && l.scrapItemId);   // ভাঙ্গাড়ী ফেরত লাইনের টিক ফিরে আসে
     const sel = sv3El('sv3_ItemID');
     if (!Array.prototype.some.call(sel.options, function (o) { return o.value === l.itemId; })) {   // ফিল্টারে না থাকলেও যেন বসে
       const it = window.__sv3ItemMap[l.itemId] || {}; const o = document.createElement('option'); o.value = l.itemId; o.textContent = it.ItemName || l.itemId; sel.appendChild(o);
@@ -16936,7 +16984,8 @@ async function stockOverviewData() {
         const h = hm[l[idf]]; if (!h) return;
         const piece = isPieceUOM((itemMap[l.ItemID] || {}).UOMID, units), q = Number(l.Quantity) || 0;
         const net = (l.NetAmount !== null && l.NetAmount !== undefined && l.NetAmount !== '') ? Number(l.NetAmount) : (Number(l.Amount) || q * (Number(l.Rate) || 0));
-        sales.push({ ItemID: l.ItemID, WarehouseID: h.WarehouseID, date: String(h[df] || '').slice(0, 10), kg: piece ? (Number(l.QtyKg) || 0) : q, pc: piece ? q : (Number(l.QtyPcs) || 0), net: net, sign: sign });
+        const scrap = !!l.ScrapItemID;   // ভাঙ্গাড়ীতে যাওয়া ফেরত — মাল এই আইটেমের স্টকে ফেরেনি, তাই খরচও ফেরত ধরা হয় না
+        sales.push({ ItemID: l.ItemID, WarehouseID: h.WarehouseID, date: String(h[df] || '').slice(0, 10), kg: scrap ? 0 : (piece ? (Number(l.QtyKg) || 0) : q), pc: scrap ? 0 : (piece ? q : (Number(l.QtyPcs) || 0)), net: net, sign: sign });
       });
     };
     add(sil, sih, 'SIID', 'InvoiceDate', 1); add(srl, srh, 'SRID', 'Date', -1);
@@ -20079,7 +20128,7 @@ function buildVoucherTableBody(opts) {
       const x = kp(l);
       return `<tr>
         <td>${B(startIdx + i + 1)}</td>
-        <td class="l">${escapeHtml(item.ItemName || l.itemId)}</td>
+        <td class="l">${escapeHtml(item.ItemName || l.itemId)}${l.scrapItemId ? ' <small>(ভাঙ্গাড়ী)</small>' : ''}</td>
         <td>${Q3(x.kg)}</td><td>${Q3(x.pc)}</td>
         <td class="r">${R2(x.rk)}</td><td class="r">${R2(x.rp)}</td>
         <td class="r">${M(l.amount)}</td>${pcol ? `<td class="r pcol">${PF(sign * lineProfit(l))}</td>` : ''}
