@@ -4916,6 +4916,7 @@ async function hvPrint(K, rec, lines, ctx) {
   if (!w) { showToast(t('পপ-আপ ব্লক হয়েছে — এই সাইটের জন্য পপ-আপ অনুমতি দিন।', 'Pop-up was blocked — please allow pop-ups for this site.'), 'error'); return; }
   w.document.write('<p style="font-family:sans-serif;padding:20px;">লোড হচ্ছে...</p>');
   let co = {}; try { co = (await api('getSingleton', { sheet: 'CompanyProfile' })) || {}; } catch (e) {}
+  if (ctx.jerP) { try { ctx.jer = await ctx.jerP; } catch (e) { ctx.jer = 0; } }
   const B = function (v) { return escapeHtml(bnDigits(v)); };
   const M = function (n) { return B((Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })); };
   const total = lines.reduce(function (s, l) { return s + (Number(l.Amount) || 0); }, 0);
@@ -4928,7 +4929,17 @@ async function hvPrint(K, rec, lines, ctx) {
   const rows = lines.map(function (l, i) { return `<tr><td>${B(i + 1)}</td><td class="l">${escapeHtml(l.HeadName || '')}</td><td class="l">${escapeHtml(l.Description || '')}</td>${hasQ ? `<td class="r">${Q(l.Qty)}</td><td class="r">${Q(l.Rate)}</td>` : ''}<td class="r">${M(l.Amount)}</td></tr>`; }).join('');
   const nc = hasQ ? 5 : 3;
   const recv = ctx.party ? Math.min(Math.max(Number(rec.Received) || 0, 0), total) : 0;
-  const dueRows = ctx.party ? `<tr><td colspan="${nc}" class="r">নগদ গ্রহণঃ</td><td class="r">${M(recv)}</td></tr><tr class="grand-all"><td colspan="${nc}" class="r">পার্টির কাছে বাকিঃ</td><td class="r">${M(total - recv)}</td></tr>` : '';
+  const dueRows = ctx.party ? `<tr><td colspan="${nc}" class="r">নগদ গ্রহণঃ</td><td class="r">${M(recv)}</td></tr><tr><td colspan="${nc}" class="r">এই ভাউচারে বাকিঃ</td><td class="r">${M(total - recv)}</td></tr>` : '';
+  // পার্টির জের-বক্স (কালেকশন/পেমেন্ট ভাউচারের মত)ঃ পূর্বের জের + বিল (ডেঃ) − নগদ গ্রহণ (ক্রেঃ) = বর্তমান জের; ধনাত্মক = ডেঃ (পার্টি দেবে)
+  const DC = function (v) { const r = Math.round((Number(v) || 0) * 100) / 100; return M(Math.abs(r)) + ' ' + (r < 0 ? 'ক্রেঃ' : 'ডেঃ'); };
+  const jer = Number(ctx.jer) || 0, bal = jer + total - recv;
+  const jerBox = ctx.party ? `<div class="v-sum"><table>
+    <tr><td class="k" colspan="3">পূর্বের জেরঃ</td><td class="v">${DC(jer)}</td></tr>
+    <tr><td class="k" colspan="3">এই ভাউচারের বিলঃ</td><td class="v">${DC(total)}</td></tr>
+    ${recv > 0 ? `<tr><td class="k" colspan="3">নগদ গ্রহণঃ</td><td class="v">${DC(-recv)}</td></tr>` : ''}
+    <tr class="thick big"><td class="k" colspan="3">বর্তমান জেরঃ</td><td class="v">${DC(bal)}</td></tr>
+    <tr><td class="k" colspan="3">${bal >= -0.005 ? 'পার্টির কাছে মোট বাকিঃ' : 'পার্টির পাওনা (আমরা দেব)ঃ'}</td><td class="v">${M(Math.abs(Math.round(bal * 100) / 100))}</td></tr>
+  </table></div>` : '';
   const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${escapeHtml(K.bn)} — ${escapeHtml(rec[K.idf])}</title>
 <link href="https://fonts.googleapis.com/css2?family=Anek+Bangla:wght@400;500;600;700&family=Oswald:wght@600;700&display=swap" rel="stylesheet">
@@ -4964,6 +4975,7 @@ async function hvPrint(K, rec, lines, ctx) {
     <tbody>${rows}</tbody>
     <tbody><tr class="grand-all"><td colspan="${nc}" class="r">মোট ${ctx.party ? 'বিল' : escapeHtml(K.netBn)}ঃ (${escapeHtml(ctx.methodBn || 'নগদ')})</td><td class="r">${M(total)}</td></tr>${dueRows}</tbody>
   </table>
+  ${jerBox}
   <div class="sign-row"><div>${K.sign1}</div><div>অথরাইজেশন স্বাঃ<br>${escapeHtml(currentUser ? (currentUser.FullName || '') : '')}</div><div>প্রস্তুতকারীর স্বাঃ<br>${escapeHtml(currentUser ? (currentUser.FullName || '') : '')}</div></div>
 </body></html>`;
   w.document.open(); w.document.write(html); w.document.close();
@@ -5422,7 +5434,11 @@ async function renderHeadVoucherPage(content, kind) {
   };
   const printRec = function (rec) {
     if (!rec) return;
-    return hvPrint(K, rec, linesById[rec[K.idf]] || [], { methodBn: methodLabel(pmOf(rec), rec.BankCashAccID, true, rec.PartyID), party: K.qty && pmOf(rec) === 'Credit' ? partyOfId(rec.PartyID) : null });
+    const party = K.qty && pmOf(rec) === 'Credit' ? partyOfId(rec.PartyID) : null;
+    // পূর্বের জেরঃ পোস্ট করা ভাউচার হলে এই ভাউচারের লেজার-এন্ট্রির ঠিক আগের ব্যালান্স, খসড়া হলে পার্টির বর্তমান ব্যালান্স
+    // (প্রমিস — প্রিন্ট-উইন্ডো আগে খোলে, যাতে পপ-আপ ব্লক না হয়; জের পরে আসে)
+    const jerP = party ? payvPartyJer({ table: K.table }, party, rec.Status === 'Posted' ? rec[K.idf] : null).catch(function () { return 0; }) : Promise.resolve(0);
+    return hvPrint(K, rec, linesById[rec[K.idf]] || [], { methodBn: methodLabel(pmOf(rec), rec.BankCashAccID, true, rec.PartyID), party: party, jerP: jerP });
   };
 
   /* ---- ◀ ▶ ---- */
