@@ -160,6 +160,19 @@ button{font-family:inherit;}
 .icon-btn:hover{background:var(--bg);}
 .icon-btn svg{width:17px;height:17px;}
 .icon-btn.spinning svg{animation:spin .7s linear;}
+.act-bell-wrap{position:relative;}
+.act-badge{position:absolute;top:-5px;right:-5px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;background:#dc2626;color:#fff;font-size:10.5px;font-weight:700;line-height:17px;text-align:center;display:none;box-shadow:0 0 0 2px var(--surface);}
+.act-badge.show{display:block;}
+.act-panel{display:none;position:fixed;top:58px;right:10px;width:min(380px,calc(100vw - 20px));max-height:min(70vh,520px);overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.18);z-index:900;}
+.act-panel.open{display:block;}
+.act-ph{position:sticky;top:0;display:flex;justify-content:space-between;align-items:center;gap:6px;padding:9px 12px;background:var(--surface);border-bottom:1px solid var(--border);font-size:13px;}
+.act-ph button{border:1px solid var(--border);background:var(--bg);border-radius:7px;padding:4px 9px;font-size:11.5px;cursor:pointer;font-family:inherit;color:var(--text);}
+.act-it{padding:8px 12px;border-bottom:1px solid var(--border);font-size:12px;line-height:1.45;cursor:pointer;}
+.act-it:hover{background:var(--bg);} .act-it.new{background:#fffbeb;} .act-it b{font-size:12.5px;}
+.act-it small{color:var(--text-muted);font-size:11px;}
+.act-tag{display:inline-block;border-radius:6px;padding:0 6px;font-size:10.5px;font-weight:700;margin-right:4px;}
+.act-k-new{background:#dcfce7;color:#166534;} .act-k-edit{background:#dbeafe;color:#1e40af;} .act-k-post{background:#ede9fe;color:#5b21b6;}
+.act-k-del{background:#fee2e2;color:#991b1b;} .act-k-log{background:#e5e7eb;color:#374151;}
 .modal-tool-btn.spinning svg{animation:spin .7s linear;}
 @keyframes spin{to{transform:rotate(360deg);}}
 .lang-switch{display:flex;align-items:center;background:var(--bg);border:1px solid var(--border);border-radius:999px;padding:3px;font-family:'Oswald',sans-serif;font-size:12px;font-weight:600;letter-spacing:.03em;flex-shrink:0;}
@@ -397,6 +410,10 @@ table.data-table{width:100%;border-collapse:collapse;font-size:13px;}
       <div class="crumb"><div id="crumbTitle">ড্যাশবোর্ড</div><small id="crumbPath">কোর / ড্যাশবোর্ড</small></div>
       <div class="topbar-actions">
         <div id="digitalClock" style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 12px;white-space:nowrap;">--:--:--</div>
+        <div class="act-bell-wrap" id="actBellWrap" style="display:none;">
+          <button class="icon-btn" id="actBell" title="কার্যকলাপের নোটিফিকেশন" aria-label="নোটিফিকেশন"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span class="act-badge" id="actBadge"></span></button>
+          <div class="act-panel" id="actPanel"></div>
+        </div>
         <button class="icon-btn" id="refreshBtn" title="Refresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg></button>
         <div class="lang-switch" id="langSwitch"><button data-lang="bn" class="active">বাং</button><button data-lang="en">EN</button></div>
         <div class="acct" id="acctBtn">
@@ -482,7 +499,7 @@ const MODULES = [
     {key:'coa', bn:'হিসাবের তালিকা', en:'Chart of Accounts'},{key:'bankCash', bn:'ব্যাংক ও ক্যাশ অ্যাকাউন্ট', en:'Bank & Cash Accounts'},
     {key:'jv', bn:'জার্নাল ভাউচার', en:'Journal Voucher'},{key:'cv', bn:'কনট্রা ভাউচার', en:'Contra Voucher'},{key:'cvSettings', bn:'কনট্রা ভাউচার সেটিং', en:'Contra Voucher Settings'},
     {key:'pv', bn:'পেমেন্ট ভাউচার', en:'Payment Voucher'},{key:'payvSettings', bn:'পেমেন্ট ভাউচার সেটিং', en:'Payment Voucher Settings'},{key:'rv', bn:'কালেকশন ভাউচার', en:'Collection Voucher'},{key:'recvSettings', bn:'কালেকশন ভাউচার সেটিং', en:'Collection Voucher Settings'},{key:'ev', bn:'এক্সপেন্স ভাউচার', en:'Expense Voucher'},{key:'evSettings', bn:'এক্সপেন্স ভাউচার সেটিং', en:'Expense Voucher Settings'},{key:'icv', bn:'রিসিপ্ট ভাউচার', en:'Receipt Voucher'},{key:'icvSettings', bn:'রিসিপ্ট ভাউচার সেটিং', en:'Receipt Voucher Settings'},{key:'costLedger', bn:'খরচ খাত লেজার', en:'Cost Head Ledger'},{key:'ownerCapital', bn:'মালিকের মূলধন', en:'Owner Capital'},{key:'loans', bn:'ধার-দেনা (পাওনা/দেনা)', en:'Loans (receivable/payable)'},
-    {key:'bankBook', bn:'ব্যাংক ও নগদ বই', en:'Bank & Cash Book'},{key:'trialBalance', bn:'ট্রায়াল ব্যালেন্স', en:'Trial Balance'},
+    {key:'bankBook', bn:'ব্যাংক ও নগদ বই', en:'Bank & Cash Book'},{key:'cashHandover', bn:'ক্যাশ হস্তান্তর', en:'Cash Handover'},{key:'userCash', bn:'ইউজার ক্যাশ হিসাব', en:'User Cash Account'},{key:'trialBalance', bn:'ট্রায়াল ব্যালেন্স', en:'Trial Balance'},
   ]},
   {key:'assets', bn:'স্থায়ী সম্পদ', en:'Fixed Assets', sub:[
     {key:'assetNames', bn:'সম্পদের নাম', en:'Asset Names'},
@@ -512,7 +529,7 @@ const MODULES = [
 ];
 
 // এখন পর্যন্ত যেসব পেজ সত্যিই কাজ করে (Phase 3 — Core মডিউল)
-const READY_PAGES = ['dashboard','svSettings','pvSettings','payvSettings','recvSettings','ev','evSettings','icv','icvSettings','costLedger','cvSettings','companyProfile','userManagement','roles','activityLog',
+const READY_PAGES = ['dashboard','cashHandover','userCash','svSettings','pvSettings','payvSettings','recvSettings','ev','evSettings','icv','icvSettings','costLedger','cvSettings','companyProfile','userManagement','roles','activityLog',
   'items','customers','suppliers','warehouses','uom','categories','employees','party','partyLedger','zones','groups','purchasers','salespersons','bankMaster',
   'pr','po','grn','pi','pret','pvoucherList',
   'stockOverview','goodsReceive','materialIssue','stockTransfer','stockAdjust','stockLedger',
@@ -535,6 +552,102 @@ const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_
 
 let currentUser = null;
 let currentLang = 'bn';
+
+/* ============================================================
+   কার্যকলাপ লগ (Activity Log) — সব ব্যবহারকারীর সব লেখা-কাজ
+   (নতুন / এডিট / পোস্ট / ডিলিট / লগইন / লগআউট) নিজে থেকেই activity_log-এ জমা হয়।
+   supabaseClient.from(...)-এর insert/update/upsert/delete ধরা হয়; একটা কাজে
+   অনেক টেবিলে লেখা হলে (লাইন, স্টক, লেজার) ১.২ সেকেন্ডের মধ্যে যা হয় সব মিলিয়ে একটাই লগ।
+   ============================================================ */
+const ACT_TABLE_BN = {
+  SalesInvoice:'বিক্রয় ভাউচার', PurchaseInvoice:'ক্রয় ভাউচার', SalesReturn:'বিক্রয় ফেরত', PurchaseReturn:'ক্রয় ফেরত',
+  PaymentVoucher:'পেমেন্ট ভাউচার', ReceiptVoucher:'কালেকশন ভাউচার', IncomeVoucher:'রিসিপ্ট ভাউচার', ExpenseVoucher:'খরচ ভাউচার',
+  JournalVoucher:'জার্নাল ভাউচার', ContraVoucher:'কন্ট্রা ভাউচার', DeliveryChallan:'চালান', GRN:'জিআরএন',
+  MaterialIssue:'মালামাল ইস্যু', StockTransfer:'স্টক ট্রান্সফার', StockAdjustment:'স্টক সমন্বয়', ProcessingVoucher:'প্রসেসিং কষ্টিং',
+  DailyProduction:'দৈনিক উৎপাদন', TeamProduction:'দৈনিক উৎপাদন ও দল', Payroll:'সেলারী ভাউচার', SalaryIssue:'সেলারী ইস্যু',
+  Attendance:'হাজিরা', DailyBonus:'বোনাস', SizeRates:'সাইজ রেট', WorkRoles:'কাজের ধরন', PayHeads:'পে-হেড',
+  Loan:'লোন', LoanTxn:'লোন কিস্তি/লেনদেন', LoanPerson:'ধার-দেনা পার্টি', LoanVoucher:'ধার-দেনা ভাউচার',
+  FixedAsset:'স্থায়ী সম্পদ', AssetMaster:'সম্পদ মাস্টার', AssetCategory:'সম্পদ ক্যাটাগরি', AssetPurchase:'সম্পদ ক্রয়', AssetSale:'সম্পদ বিক্রয়',
+  items:'আইটেম মাস্টার', customers:'কাস্টমার', suppliers:'সাপ্লায়ার', warehouses:'গুদাম', zones:'জোন', categories:'ক্যাটাগরি',
+  item_groups:'গ্রুপ', uom:'ইউনিট', employees:'কর্মচারী', users:'ব্যবহারকারী', roles:'ভূমিকা ও অনুমতি',
+  system_settings:'সেটিং', company_profile:'কোম্পানি প্রোফাইল', BankCashAccounts:'ব্যাংক ও ক্যাশ হিসাব', ChartOfAccounts:'হিসাবের খাত',
+  current_stock:'স্টক', stock_ledger:'স্টক লেজার', PartyLedger:'পার্টি লেজার', BankCashBook:'ক্যাশ/ব্যাংক বুক'
+};
+const ACT_OWN_ID = { items:'ItemID', customers:'CustomerID', suppliers:'SupplierID', warehouses:'WarehouseID', users:'UserID', roles:'RoleID',
+  employees:'EmployeeID', BankCashAccounts:'BankAccID', zones:'ZoneID', categories:'CategoryID', uom:'UOMID', item_groups:'GroupID' };
+const ACT_FK = /^(PartyID|CustomerID|SupplierID|WarehouseID|ItemID|UserID|RoleID|ZoneID|CategoryID|UOMID|GroupID|EmployeeID|BankCashAccID|AccountID|FromAccountID|ToAccountID|BankAccIDForPayment|CreatedBy|PostedBy|SalespersonID|PurchaserID)$/;
+const ACT_INTERNAL = /^(current_stock|stock_ledger|PartyLedger|BankCashBook)$|_(Lines|Members|Costs|Items|Details)$/;
+const __rawFrom = supabaseClient.from.bind(supabaseClient);   // লগ টেবিলে লেখা/পড়া এটা দিয়ে — যাতে নিজের লেখা আবার লগ না হয়
+let __actQ = [], __actTimer = null, __actLogIdMode = null;
+supabaseClient.from = function (table) {
+  const qb = __rawFrom(table);
+  if (table === 'activity_log') return qb;
+  ['insert', 'update', 'upsert', 'delete'].forEach(function (op) {
+    const orig = qb[op]; if (typeof orig !== 'function') return;
+    qb[op] = function (values) { const fb = orig.apply(qb, arguments); try { actWatch(fb, table, op, values); } catch (e) {} return fb; };
+  });
+  return qb;
+};
+function actWatch(fb, table, op, values) {
+  const filt = {};
+  ['eq', 'in', 'match'].forEach(function (m) {
+    const o = fb[m]; if (typeof o !== 'function') return;
+    fb[m] = function (k, v) { if (m === 'match' && k && typeof k === 'object') Object.assign(filt, k); else filt[k] = Array.isArray(v) ? v.join(', ') : v; return o.apply(fb, arguments); };
+  });
+  const th = fb.then;
+  fb.then = function (ok, bad) { return th.call(fb, function (r) { try { if (r && !r.error) actQueue(table, op, values, filt, r.data); } catch (e) {} return ok ? ok(r) : r; }, bad); };
+}
+function actQueue(table, op, values, filt, resData) {
+  if (!currentUser) return;
+  const v = Array.isArray(values) ? (values[0] || {}) : (values || {});
+  const keys = Object.keys(v);
+  if (op === 'update' && keys.length && keys.every(function (k) { return k === 'LastLogin'; })) return;   // লগইনের সময় শেষ-লগইন হালনাগাদ — লগ নয়
+  const rd = Array.isArray(resData) ? (resData[0] || {}) : (resData && typeof resData === 'object' ? resData : {});
+  __actQ.push({ table: table, op: op, v: v, rd: rd, n: Array.isArray(values) ? values.length : 1, filt: filt });
+  clearTimeout(__actTimer); __actTimer = setTimeout(actFlush, 1200);
+}
+function actSummary(q) {
+  const main = q.find(function (x) { return !ACT_INTERNAL.test(x.table); }) || q[0], v = main.v;
+  let kind = { insert: 'নতুন', update: 'এডিট', upsert: 'সেভ', delete: 'ডিলিট' }[main.op] || main.op;
+  if (main.op === 'update' && v.Status === 'Posted') kind = 'পোস্ট';
+  if (main.op === 'update' && (v.Status === 'Deleted' || (v.IsActive === false && Object.keys(v).length <= 2))) kind = 'ডিলিট';
+  if (main.op === 'delete' && q.some(function (x) { return x.op === 'insert' && x.table === main.table; })) kind = 'এডিট';   // মুছে আবার বসানো = এডিট
+  const own = ACT_OWN_ID[main.table] || ((typeof DOC_TYPE_MAP !== 'undefined' && DOC_TYPE_MAP[main.table]) ? DOC_TYPE_MAP[main.table].idField : '');
+  let id = (own && (main.filt[own] || v[own] || (main.rd || {})[own])) || '';
+  if (!id) { const fk = Object.keys(main.filt)[0]; if (fk) id = main.filt[fk]; }
+  if (!id) { const k = Object.keys(v).find(function (k) { return /ID$/.test(k) && !ACT_FK.test(k) && typeof v[k] === 'string' && v[k]; }); if (k) id = v[k]; }
+  const name = v.ItemName || v.PartyName || v.CustomerName || v.SupplierName || v.FullName || v.RoleName || v.HeadName || v.Name || v.SettingKey || v.Key || '';
+  const amtRaw = [v.NetAmount, v.NetTotal, v.GrandTotal, v.TotalAmount, v.Amount].find(function (x) { return x !== undefined && x !== null && x !== '' && !isNaN(Number(x)); });
+  let label = ACT_TABLE_BN[main.table] || main.table;
+  if (main.table === 'ContraVoucher' && (v.RefNo === 'HANDOVER' || /হস্তান্তর/.test(v.Narration || ''))) label = 'ক্যাশ হস্তান্তর';
+  if (main.table === 'ContraVoucher' && kind === 'পোস্ট' && !v.RefNo) label = 'কন্ট্রা/ক্যাশ হস্তান্তর';
+  let d = label + (id ? ' ' + id : '') + (name ? ' — ' + name : '');
+  if (amtRaw !== undefined && Number(amtRaw)) d += ' · ৳' + Number(amtRaw).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  if (main.n > 1) d += ' (' + main.n + 'টা সারি)';
+  const extra = q.length - 1; if (extra > 0) d += ' (+' + extra + 'টা সংশ্লিষ্ট লেখা)';
+  return { Action: kind, Details: d.slice(0, 500) };
+}
+function actFlush() {
+  clearTimeout(__actTimer); __actTimer = null;
+  const q = __actQ; __actQ = [];
+  if (!q.length || !currentUser) return Promise.resolve(false);
+  return actInsert(actSummary(q));
+}
+function actDevice() { return /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent || '') ? 'মোবাইল' : 'কম্পিউটার'; }
+/** activity_log-এ একটা সারি — LogID কলামের ধরন অজানা, তাই তিনভাবে চেষ্টা (কোনটা চলে মনে রাখে); লগ ব্যর্থ হলেও আসল কাজ থামে না */
+async function actInsert(row) {
+  if (!currentUser) return false;
+  row = Object.assign({ Timestamp: new Date().toISOString(), UserID: currentUser.UserID }, row);
+  const modes = __actLogIdMode ? [__actLogIdMode] : ['plain', 'text', 'num'];
+  for (let i = 0; i < modes.length; i++) {
+    const r = Object.assign({}, row);
+    if (modes[i] === 'text') r.LogID = 'LOG-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+    if (modes[i] === 'num') r.LogID = Date.now() * 1000 + Math.floor(Math.random() * 1000);
+    try { const res = await __rawFrom('activity_log').insert(r); if (!res.error) { __actLogIdMode = modes[i]; return true; } } catch (e) {}
+  }
+  return false;
+}
+window.addEventListener('pagehide', function () { if (__actQ.length) actFlush(); });
 let rolesCache = [];
 let openTabs = [];      // [{key, moduleLabel, pageLabel}, ...] — উপরে যেই পেজগুলো ট্যাব হিসেবে খোলা আছে
 let activeTabKey = null;
@@ -1396,6 +1509,7 @@ document.getElementById('loginForm').addEventListener('submit', async function (
     const password = document.getElementById('loginPassword').value;
     const result = await api('login', { email: email, password: password });
     currentUser = result.user;
+    actInsert({ Action: 'লগইন', Details: actDevice() + ' থেকে লগইন' });
     await bootApp();
   } catch (err) {
     errBox.textContent = err.message;
@@ -1406,6 +1520,8 @@ document.getElementById('loginForm').addEventListener('submit', async function (
 });
 
 document.getElementById('logoutBtn').addEventListener('click', async function () {
+  try { await actFlush(); await actInsert({ Action: 'লগআউট', Details: actDevice() + ' থেকে লগআউট' }); } catch (e) {}
+  actBellStop();
   try { await api('logout', {}); } catch (e) {}
   currentUser = null;
   document.getElementById('app').classList.remove('ready');
@@ -1428,6 +1544,9 @@ async function bootApp() {
     PERM = { admin: true, configured: false, pages: {} };
   }
   buildSidebar();
+  __userCashBoxes = null;
+  actBellStart();
+  if (PERM && PERM.admin) cashHandoverPendingToast();
   await applyCompanyLogo();
   await navigateTo('dashboard', t('কোর','Core'), t('ড্যাশবোর্ড','Dashboard'));
 }
@@ -1571,7 +1690,9 @@ async function navigateTo(pageKey, moduleLabel, pageLabel) {
     else if (pageKey === 'prodDaily') await renderProdDailyPage(content);
     else if (pageKey === 'procCosting') await renderProcCostingPage(content);
     else if (pageKey === 'pv') await renderPaymentVoucherPage(content);   // নতুন পেমেন্ট ভাউচার (বিক্রয় ভাউচারের মত)
-    else if (pageKey === 'cv') await renderContraVoucherPage(content);   // কনট্রা ভাউচার — নতুন নকশা
+    else if (pageKey === 'cv') await renderContraVoucherPage(content);
+    else if (pageKey === 'cashHandover') await renderCashHandoverPage(content);   // ইউজারের ক্যাশ বাক্স → মালিকের মূল ক্যাশ (বুঝে পেলাম)
+    else if (pageKey === 'userCash') await renderUserCashPage(content);           // কে কত নগদ পেল/দিল/বুঝিয়ে দিল/হাতে বাকি   // কনট্রা ভাউচার — নতুন নকশা
     else if (pageKey === 'cvSettings') await renderVoucherFieldSettingsPage(content, 'conv');
     else if (pageKey === 'costLedger') await renderCostHeadLedger(content);   // দৈনিক উৎপাদনের খরচ — খাতওয়ারি বকেয়া ও সমন্বয়
     else if (pageKey === 'ev') await renderExpenseVoucherPage(content);   // এক্সপেন্স ভাউচার (খাত ভিত্তিক)
@@ -7248,9 +7369,36 @@ async function renderFixedAssetPage(content) {
 /** নগদ (ক্যাশ) অ্যাকাউন্ট — আগে সব জায়গায় 'BC-CASH' লেখা ছিল; কিন্তু সেই আইডির অ্যাকাউন্টের নাম বদলে
  *  ব্যাংক (যেমন অগ্রণী ব্যাংক সিসি) করা হলে নগদ বিক্রয়/গ্রহণের টাকা ব্যাংকে চলে যেত।
  *  এখনঃ ধরন "Cash" ও নামে নগদ/ক্যাশ — সেটা; না পেলে প্রথম Cash ধরনের; তাও না থাকলে BC-CASH */
+/* ---------- ইউজারের নিজস্ব ক্যাশ বাক্স ----------
+ * system_settings → UserCashBoxes = { UserID: BankAccID }। যার বাক্স আছে, সে লগইন থাকা অবস্থায় যেকোনো "নগদ" লেনদেন
+ * (বিক্রয়, ক্রয়, কালেকশন, পেমেন্ট, খরচ, রিসিপ্ট…) তার নিজের বাক্সে যায়; বাকিদের (মালিক) মূল নগদে।
+ * বাক্স থেকে মালিকের কাছে টাকা যায় "ক্যাশ হস্তান্তর" দিয়ে — মালিক "বুঝে পেলাম" চাপলে তবেই হিসাবে ধরে। */
+let __userCashBoxes = null;
+async function userCashBoxesLoad(force) {
+  if (__userCashBoxes && !force) return __userCashBoxes;
+  let obj = {};
+  try { const all = await api('getSystemSettings', {}); const raw = all && all.UserCashBoxes; obj = raw ? (typeof raw === 'object' ? raw : JSON.parse(raw)) : {}; } catch (e) { obj = {}; }
+  __userCashBoxes = (obj && typeof obj === 'object' && !Array.isArray(obj)) ? obj : {};
+  return __userCashBoxes;
+}
+async function userCashBoxesSave(obj) {
+  await api('saveSystemSetting', { key: 'UserCashBoxes', value: JSON.stringify(obj) });
+  __userCashBoxes = obj;
+}
 async function cashAccountId() {
+  const boxes = await userCashBoxesLoad();
+  const mine = currentUser && boxes[currentUser.UserID];
+  if (mine) {
+    let accs = []; try { accs = await cachedList('BankCashAccounts'); } catch (e) { accs = []; }
+    if (accs.some(function (a) { return a.BankAccID === mine && a.Status !== 'Deleted'; })) { window.__cashAccIdCache = mine; return mine; }
+  }
+  return mainCashAccountId();
+}
+/** মালিকের মূল নগদ — ইউজারদের ক্যাশ বাক্স বাদ দিয়ে */
+async function mainCashAccountId() {
   let accs = [];
-  try { accs = (await cachedList('BankCashAccounts')).filter(function (a) { return a.Status !== 'Deleted'; }); } catch (e) { accs = []; }
+  const boxIds = Object.values(await userCashBoxesLoad());
+  try { accs = (await cachedList('BankCashAccounts')).filter(function (a) { return a.Status !== 'Deleted' && boxIds.indexOf(a.BankAccID) === -1; }); } catch (e) { accs = []; }
   const cash = accs.filter(function (a) { return a.Type === 'Cash'; });
   const pick = cash.find(function (a) { return /নগদ|cash|ক্যাশ/i.test(a.AccountName || ''); }) || cash[0] || accs.find(function (a) { return a.BankAccID === 'BC-CASH'; });
   const id = pick ? pick.BankAccID : 'BC-CASH';
@@ -7273,7 +7421,7 @@ function bookRefLabel(m) {
 
 /** ভুল জায়গায় যাওয়া নগদের এন্ট্রি খোঁজা — BC-CASH এ পড়েছে, কিন্তু নগদ অ্যাকাউন্ট অন্যটা */
 async function findMisplacedCashRows(book) {
-  const cashId = await cashAccountId();
+  const cashId = await mainCashAccountId();
   if (cashId === 'BC-CASH') return { cashId: cashId, rows: [] };
   const cand = book.filter(function (r) { return r.BankCashAccID === 'BC-CASH' && /^(Sales|Purchase)(Invoice|Return)(-Receipt|-Payment)?$/.test(r.RefModule || ''); });
   if (!cand.length) return { cashId: cashId, rows: [] };
@@ -19842,23 +19990,478 @@ async function renderFinancialReport(content) {
 /* ============================================================
    ১৪) পেজ: ACTIVITY LOG
    ============================================================ */
-async function renderActivityLog(content) {
-  const [activity, users] = await Promise.all([api('list', { sheet: 'ActivityLog' }), cachedList('Users')]);
-  const userMap = {}; users.forEach(function (u) { userMap[u.UserID] = u.FullName; });
-  const sorted = activity.slice().sort(function (a, b) { return new Date(b.Timestamp) - new Date(a.Timestamp); }).slice(0, 200);
+function actKindClass(a) {
+  a = String(a || '');
+  if (/নতুন|সেভ/.test(a)) return 'new'; if (/পোস্ট/.test(a)) return 'post'; if (/ডিলিট/.test(a)) return 'del';
+  if (/লগ/.test(a)) return 'log'; return 'edit';
+}
+function actWhen(ts) {
+  const d = new Date(ts); if (isNaN(d)) return { d: String(ts || ''), t: '' };
+  const p = function (n) { return String(n).padStart(2, '0'); };
+  let h = d.getHours(); const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12;
+  return { d: p(d.getDate()) + '-' + p(d.getMonth() + 1) + '-' + d.getFullYear(), t: p(h) + ':' + p(d.getMinutes()) + ' ' + ap };
+}
+async function actUserMap() {
+  let users = []; try { users = await cachedList('Users'); } catch (e) {}
+  const m = {}; users.forEach(function (u) { m[u.UserID] = u.FullName || u.Email || u.UserID; }); return { map: m, users: users };
+}
 
+/* ---------- নোটিফিকেশন ঘণ্টা (শুধু অ্যাডমিন) — অন্য ব্যবহারকারীর নতুন কাজ ---------- */
+let __actPollTimer = null, __actLastTop = '';
+function actSeenKey() { return 'gmw.actSeen.' + (currentUser ? currentUser.UserID : ''); }
+function actSeenGet() { try { return localStorage.getItem(actSeenKey()) || ''; } catch (e) { return ''; } }
+function actSeenSet(v) { try { localStorage.setItem(actSeenKey(), v); } catch (e) {} }
+function actBellStop() { clearInterval(__actPollTimer); __actPollTimer = null; const w = document.getElementById('actBellWrap'); if (w) w.style.display = 'none'; }
+function actBellStart() {
+  actBellStop();
+  if (!currentUser || !(PERM && PERM.admin)) return;
+  document.getElementById('actBellWrap').style.display = '';
+  if (!actSeenGet()) actSeenSet(new Date(Date.now() - 24 * 3600 * 1000).toISOString());   // প্রথমবারঃ গত ২৪ ঘণ্টার কাজ নতুন হিসেবে
+  __actLastTop = '';
+  actPoll(true);
+  __actPollTimer = setInterval(function () { if (!document.hidden) actPoll(false); }, 45000);
+  if (!window.__actBellWired) {
+    window.__actBellWired = true;
+    document.addEventListener('visibilitychange', function () { if (!document.hidden && __actPollTimer) actPoll(false); });
+    document.getElementById('actBell').addEventListener('click', function (e) { e.stopPropagation(); actPanelToggle(); });
+    document.getElementById('actPanel').addEventListener('click', function (e) { e.stopPropagation(); });
+    document.addEventListener('click', function () { const p = document.getElementById('actPanel'); if (p) p.classList.remove('open'); });
+  }
+}
+async function actFetchOthers(sinceIso, limit) {
+  let q = __rawFrom('activity_log').select('*').neq('UserID', currentUser.UserID).order('Timestamp', { ascending: false }).limit(limit);
+  if (sinceIso) q = q.gt('Timestamp', sinceIso);
+  const { data, error } = await q; if (error) throw new Error(error.message); return data || [];
+}
+async function actPoll(first) {
+  if (!currentUser) return;
+  try {
+    const rows = await actFetchOthers(actSeenGet(), 100);
+    const b = document.getElementById('actBadge');
+    b.textContent = rows.length >= 100 ? '99+' : String(rows.length); b.classList.toggle('show', rows.length > 0);
+    const top = rows[0] ? String(rows[0].Timestamp) + '|' + rows[0].UserID : '';
+    if (!first && top && top !== __actLastTop) {
+      const um = (await actUserMap()).map;
+      showToast('🔔 ' + (um[rows[0].UserID] || 'ব্যবহারকারী') + ': ' + (rows[0].Action || '') + ' — ' + String(rows[0].Details || '').slice(0, 70), 'success');
+    }
+    __actLastTop = top;
+  } catch (e) { /* নেট না থাকলে চুপচাপ — পরের বার আবার */ }
+}
+async function actPanelToggle() {
+  const p = document.getElementById('actPanel');
+  if (p.classList.contains('open')) { p.classList.remove('open'); return; }
+  p.innerHTML = '<div class="act-ph"><b>কার্যকলাপ</b></div><div class="act-it"><small>লোড হচ্ছে…</small></div>'; p.classList.add('open');
+  try {
+    const seen = actSeenGet();
+    const [rows, um] = await Promise.all([actFetchOthers('', 25), actUserMap()]);
+    p.innerHTML = `<div class="act-ph"><b>🔔 অন্যদের সাম্প্রতিক কাজ</b><span><button id="actAllBtn">সব দেখুন</button></span></div>` +
+      (rows.length ? rows.map(function (r) {
+        const w = actWhen(r.Timestamp), isNew = seen && String(r.Timestamp) > seen;
+        return `<div class="act-it ${isNew ? 'new' : ''}"><b>${escapeHtml(um.map[r.UserID] || r.UserID || '')}</b> <span class="act-tag act-k-${actKindClass(r.Action)}">${escapeHtml(r.Action || '')}</span><br>${escapeHtml(r.Details || '')}<br><small>${escapeHtml(w.d + ' ' + w.t)}</small></div>`;
+      }).join('') : '<div class="act-it"><small>অন্য কোনো ব্যবহারকারীর কাজ এখনো নেই।</small></div>');
+    actSeenSet(new Date().toISOString());
+    const b = document.getElementById('actBadge'); b.classList.remove('show'); b.textContent = '';
+    const open = function () { p.classList.remove('open'); navigateTo('activityLog', t('কোর', 'Core'), t('কার্যকলাপ লগ', 'Activity Log')); };
+    document.getElementById('actAllBtn').addEventListener('click', open);
+    p.querySelectorAll('.act-it').forEach(function (el) { el.addEventListener('click', open); });
+  } catch (e) { p.innerHTML = '<div class="act-ph"><b>কার্যকলাপ</b></div><div class="act-it"><small>লোড হয়নিঃ ' + escapeHtml(e.message) + '</small></div>'; }
+}
+
+/* ============================================================
+   ক্যাশ হস্তান্তর ও ইউজার ক্যাশ হিসাব
+   ============================================================ */
+const HANDOVER_REF = 'HANDOVER';
+function ucFmt(x) { return (Number(x) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+async function ucBookRows(accIds) {
+  if (!accIds.length) return [];
+  let all = [], from = 0;
+  for (;;) {
+    const { data, error } = await supabaseClient.from('BankCashBook').select('*').in('BankCashAccID', accIds).order('id', { ascending: true }).range(from, from + 999);
+    if (error) throw new Error(error.message);
+    all = all.concat(data || []); if (!data || data.length < 1000) break; from += 1000;
+  }
+  return all;
+}
+async function ucPendingHandovers() {
+  const { data, error } = await supabaseClient.from('ContraVoucher').select('*').eq('RefNo', HANDOVER_REF).eq('Status', 'Draft');
+  if (error) throw new Error(error.message);
+  return data || [];
+}
+async function cashHandoverPendingToast() {
+  try { const p = await ucPendingHandovers(); if (p.length) { const tot = p.reduce(function (a, r) { return a + (Number(r.Amount) || 0); }, 0); showToast('💵 ' + p.length + 'টা ক্যাশ হস্তান্তর আপনার "বুঝে পেলাম"-এর অপেক্ষায় — মোট ৳' + ucFmt(tot), 'success'); } } catch (e) {}
+}
+async function ucContext() {
+  const [boxes, users, accs] = await Promise.all([userCashBoxesLoad(true), cachedList('Users'), cachedList('BankCashAccounts')]);
+  const main = await mainCashAccountId();
+  const uName = {}; users.forEach(function (u) { uName[u.UserID] = u.FullName || u.Email || u.UserID; });
+  const accOk = function (id) { return accs.some(function (a) { return a.BankAccID === id && a.Status !== 'Deleted'; }); };
+  const byAcc = {}; Object.keys(boxes).forEach(function (uid) { if (accOk(boxes[uid])) byAcc[boxes[uid]] = uid; });
+  return { boxes: boxes, users: users, accs: accs, main: main, uName: uName, byAcc: byAcc };
+}
+function ucBalance(rows, accId) { return rows.filter(function (r) { return r.BankCashAccID === accId; }).reduce(function (a, r) { return a + (Number(r.Debit) || 0) - (Number(r.Credit) || 0); }, 0); }
+
+/* ---------- পেজ: ক্যাশ হস্তান্তর ---------- */
+async function renderCashHandoverPage(content) {
+  const C = await ucContext();
+  const isAdmin = !!(PERM && PERM.admin);
+  const myBox = currentUser && C.boxes[currentUser.UserID] && C.byAcc[C.boxes[currentUser.UserID]] ? C.boxes[currentUser.UserID] : '';
+  const today = ownToday();
   content.innerHTML = `
-    <div class="page-head"><div><h1>কার্যকলাপ লগ</h1><p>সাম্প্রতিক ২০০টা কার্যকলাপ (সবচেয়ে নতুনটা উপরে)</p></div></div>
-    <div class="panel"><div id="activityWrap"></div></div>`;
+    <style>
+      .ch-card{border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:10px;background:var(--surface);}
+      .ch-g{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:end;} .ch-g .field{margin:0;} .ch-g input{height:36px;}
+      .ch-g .wide{grid-column:1 / -1;} .ch-bal{font-size:13px;margin-bottom:8px;} .ch-bal b{font-size:16px;}
+      @media (max-width:760px){ .ch-g input{font-size:16px;} }
+      .ch-tbl{width:100%;border-collapse:collapse;font-size:11px;}
+      .ch-tbl th{background:#f1f5f9;font-size:11px;font-weight:700;text-align:center;padding:5px 6px;border-bottom:1px solid var(--border);white-space:nowrap;}
+      .ch-tbl td{font-size:11px;text-align:center;padding:4px 6px;border-bottom:1px solid var(--border);}
+      .ch-tbl tr.pend td{background:#fffbeb;} .ch-tbl tr.done td{background:#f0fdf4;} .ch-tbl tr.rej td{background:#fef2f2;color:#991b1b;}
+      .ch-tbl tr{cursor:pointer;} .ch-tbl tr.sel td{outline:1.5px solid #2563eb;outline-offset:-1.5px;}
+      .ch-b{height:26px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;padding:0 8px;font-size:11.5px;font-family:inherit;margin:1px;}
+      .ch-b.ok{background:#16a34a;color:#fff;border-color:#16a34a;} .ch-b.no{color:#b91c1c;}
+    </style>
+    <div class="page-head"><div><h1>${t('ক্যাশ হস্তান্তর', 'Cash Handover')}</h1><p>${t('নিজের হাতের নগদ মালিককে বুঝিয়ে দেওয়া — মালিক "বুঝে পেলাম" চাপলে তবেই হিসাবে ধরে', 'Hand your cash to the owner — counted only after the owner confirms')}</p></div></div>
+    <div id="chMine"></div>
+    <div class="panel"><div id="chList"></div></div>`;
+  const mineEl = document.getElementById('chMine'), listEl = document.getElementById('chList');
 
+  async function draw() {
+    let pending = [], all = [];
+    try {
+      const { data, error } = await supabaseClient.from('ContraVoucher').select('*').eq('RefNo', HANDOVER_REF).order('Date', { ascending: false }).limit(500);
+      if (error) throw new Error(error.message);
+      all = data || [];
+    } catch (e) { listEl.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; return; }
+    if (!isAdmin) all = all.filter(function (r) { return r.FromAccountID === myBox; });
+    pending = all.filter(function (r) { return r.Status === 'Draft'; });
+    let myBal = 0, myPend = 0;
+    if (myBox) {
+      const rows = await ucBookRows([myBox]);
+      myBal = ucBalance(rows, myBox);
+      myPend = pending.filter(function (r) { return r.FromAccountID === myBox; }).reduce(function (a, r) { return a + (Number(r.Amount) || 0); }, 0);
+      mineEl.innerHTML = `<div class="ch-card">
+        <div class="ch-bal">${t('আমার হাতে নগদ', 'Cash in my hand')}: <b>৳${ucFmt(myBal)}</b>${myPend ? ` · <span style="color:#b45309;">${t('বুঝে পাওয়ার অপেক্ষায়', 'Awaiting confirmation')}: ৳${ucFmt(myPend)}</span>` : ''}</div>
+        <div class="ch-g">
+          <div class="field"><label>${t('তারিখ', 'Date')}</label>${dmyDateField('ch_Date', today)}</div>
+          <div class="field"><label>${t('পরিমান (৳)', 'Amount (৳)')}</label><input id="ch_Amt" type="number" inputmode="decimal" step="0.01" min="0" autocomplete="off"></div>
+          <div class="field wide"><label>${t('বিবরন', 'Note')}</label><input id="ch_Note" autocomplete="off" placeholder="${attr(t('যেমনঃ আজকের বিক্রয়ের নগদ', 'e.g. today’s cash sales'))}"></div>
+          <button class="btn btn-outline" id="ch_Cancel" style="margin:0;">${t('বাতিল', 'Cancel')}</button>
+          <button class="btn btn-primary" id="ch_Save" style="margin:0;">💾 ${t('বুঝিয়ে দিলাম', 'Hand over')}</button>
+        </div></div>`;
+      wireDmyFields(mineEl);
+      const order = ['ch_Date', 'ch_Amt', 'ch_Note', 'ch_Save'];
+      order.forEach(function (id, i) {
+        document.getElementById(id).addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') { e.preventDefault(); if (id === 'ch_Save' || id === 'ch_Note') { document.getElementById('ch_Save').click(); return; } document.getElementById(order[i + 1]).focus(); }
+          else if (e.key === 'Escape' && i > 0) { e.preventDefault(); document.getElementById(order[i - 1]).focus(); }
+        });
+      });
+      document.getElementById('ch_Cancel').addEventListener('click', function () { document.getElementById('ch_Amt').value = ''; document.getElementById('ch_Note').value = ''; });
+      document.getElementById('ch_Save').addEventListener('click', async function () {
+        const amt = Math.round((Number(document.getElementById('ch_Amt').value) || 0) * 100) / 100, date = dmyIso('ch_Date');
+        if (!date) { showToast(t('তারিখ দিন (দিন-মাস-বছর)।', 'Enter the date (dd-mm-yyyy).'), 'error'); return; }
+        if (!(amt > 0)) { showToast(t('পরিমান দিন।', 'Enter the amount.'), 'error'); document.getElementById('ch_Amt').focus(); return; }
+        if (amt - (myBal - myPend) > 0.004) { showToast(t('হাতে আছে ৳', 'You only have ৳') + ucFmt(myBal - myPend) + t(' (অপেক্ষমাণ বাদে) — এর বেশি বুঝিয়ে দেওয়া যাবে না।', ' (excluding pending) — cannot hand over more.'), 'error'); return; }
+        if (!C.main || C.main === myBox) { showToast(t('মালিকের মূল নগদ অ্যাকাউন্ট পাওয়া যায়নি।', 'Main cash account not found.'), 'error'); return; }
+        this.disabled = true;
+        try {
+          const note = document.getElementById('ch_Note').value.trim();
+          const { error } = await supabaseClient.from('ContraVoucher').insert({ Date: date, FromAccountID: myBox, ToAccountID: C.main, Amount: amt, RefNo: HANDOVER_REF,
+            Narration: 'ক্যাশ হস্তান্তর — ' + (currentUser.FullName || currentUser.Email || '') + (note ? ' · ' + note : ''), Status: 'Draft' });
+          if (error) throw new Error(error.message);
+          showToast(t('সেভ হয়েছে ✅ — মালিক "বুঝে পেলাম" চাপলে হিসাবে ধরবে', 'Saved ✅ — counted once the owner confirms'), 'success');
+          await draw();
+        } catch (e) { showToast(e.message, 'error'); this.disabled = false; }
+      });
+    } else if (!isAdmin) {
+      mineEl.innerHTML = `<div class="ch-card">${t('আপনার নামে কোনো ক্যাশ বাক্স চালু নেই — মালিককে "ইউজার ক্যাশ হিসাব" পেজ থেকে চালু করতে বলুন।', 'No cash box is enabled for you — ask the owner to enable it in User Cash Account.')}</div>`;
+    } else mineEl.innerHTML = '';
+
+    if (!all.length) { listEl.innerHTML = `<div class="empty-state">${t('এখনো কোনো ক্যাশ হস্তান্তর নেই।', 'No cash handovers yet.')}</div>`; return; }
+    const sorted = pending.concat(all.filter(function (r) { return r.Status !== 'Draft'; }));
+    listEl.innerHTML = `<div style="font-size:12.5px;margin-bottom:6px;"><b>${isAdmin ? t('সব ক্যাশ হস্তান্তর', 'All handovers') : t('আমার হস্তান্তর', 'My handovers')}</b>${pending.length ? ` · <span style="color:#b45309;">${pending.length}${t('টা অপেক্ষমাণ', ' pending')}</span>` : ''}</div>
+      <div style="overflow-x:auto;"><table class="ch-tbl"><thead><tr><th>${t('ক্রঃ', '#')}</th><th>${t('তারিখ', 'Date')}</th><th>${t('ভাউচার নং', 'No')}</th><th>${t('কে দিল', 'From')}</th><th>${t('পরিমান', 'Amount')}</th><th>${t('বিবরন', 'Note')}</th><th>${t('অবস্থা', 'Status')}</th><th></th></tr></thead><tbody>` +
+      sorted.map(function (r, i) {
+        const st = r.Status === 'Posted' ? ['done', '✅ ' + t('বুঝে পেয়েছেন', 'Received')] : r.Status === 'Deleted' ? ['rej', '✖ ' + t('বাতিল', 'Rejected')] : ['pend', '⏳ ' + t('অপেক্ষমাণ', 'Pending')];
+        const who = C.uName[C.byAcc[r.FromAccountID]] || r.FromAccountID;
+        let act = `<button class="ch-b" data-v="${attr(r.ContraID)}" title="${attr(t('দেখুন', 'View'))}">👁</button>`;
+        if (r.Status === 'Draft' && isAdmin) act += `<button class="ch-b ok" data-ok="${attr(r.ContraID)}">✅ ${t('বুঝে পেলাম', 'Received')}</button><button class="ch-b no" data-no="${attr(r.ContraID)}">✖ ${t('বাতিল', 'Reject')}</button>`;
+        else if (r.Status === 'Draft' && r.FromAccountID === myBox) act += `<button class="ch-b no" data-del="${attr(r.ContraID)}" title="${attr(t('ডিলিট', 'Delete'))}">🗑</button>`;
+        return `<tr class="${st[0]}" data-id="${attr(r.ContraID)}"><td>${i + 1}</td><td>${escapeHtml(isoToDmy(r.Date))}</td><td>${escapeHtml(r.ContraID || '')}</td><td>${escapeHtml(who)}</td><td>${ucFmt(r.Amount)}</td><td>${escapeHtml(String(r.Narration || '').replace(/^ক্যাশ হস্তান্তর — [^·]*·?\s*/, ''))}</td><td>${st[1]}</td><td style="white-space:nowrap;">${act}</td></tr>`;
+      }).join('') + '</tbody></table></div>';
+  }
+  listEl.addEventListener('click', async function (e) {
+    const b = e.target.closest('button');
+    const tr = e.target.closest('tr[data-id]');
+    if (tr && !b) { listEl.querySelectorAll('tr.sel').forEach(function (x) { x.classList.remove('sel'); }); tr.classList.add('sel'); return; }
+    if (!b) return;
+    const id = b.dataset.v || b.dataset.ok || b.dataset.no || b.dataset.del;
+    if (b.dataset.v) { showHandover(id); return; }
+    b.disabled = true;
+    try {
+      if (b.dataset.ok) {
+        if (!confirm(t('এই টাকা বুঝে পেয়েছেন? মূল নগদে যোগ হবে।', 'Did you receive this cash? It will be added to main cash.'))) { b.disabled = false; return; }
+        await api('postDocument', { docType: 'ContraVoucher', docId: id });
+        showToast(t('বুঝে পেলাম ✅ — মূল নগদে যোগ হয়েছে', 'Received ✅ — added to main cash'), 'success');
+      } else if (b.dataset.no || b.dataset.del) {
+        if (!confirm(b.dataset.no ? t('এই হস্তান্তর বাতিল করবেন? টাকা ইউজারের হাতেই থাকবে।', 'Reject? The cash stays with the user.') : t('এই হস্তান্তর ডিলিট করবেন?', 'Delete this handover?'))) { b.disabled = false; return; }
+        const { data: cur } = await supabaseClient.from('ContraVoucher').select('Status').eq('ContraID', id).maybeSingle();
+        if (cur && cur.Status === 'Posted') throw new Error(t('এটা আগেই বুঝে নেওয়া হয়েছে।', 'Already received.'));
+        await api('delete', { sheet: 'ContraVoucher', idField: 'ContraID', idValue: id });
+        showToast(t('বাতিল হয়েছে', 'Rejected'), 'success');
+      }
+      await draw();
+    } catch (err) { showToast(err.message, 'error'); b.disabled = false; }
+  });
+  listEl.addEventListener('dblclick', function (e) { const tr = e.target.closest('tr[data-id]'); if (tr) showHandover(tr.getAttribute('data-id')); });
+  async function showHandover(id) {
+    const { data: r } = await supabaseClient.from('ContraVoucher').select('*').eq('ContraID', id).maybeSingle(); if (!r) return;
+    openModal({ title: t('ক্যাশ হস্তান্তর — ', 'Cash handover — ') + id, bodyHtml: `<div style="font-size:13.5px;line-height:1.9;">
+      <b>${t('তারিখ', 'Date')}:</b> ${escapeHtml(isoToDmy(r.Date))}<br><b>${t('কে দিল', 'From')}:</b> ${escapeHtml(C.uName[C.byAcc[r.FromAccountID]] || r.FromAccountID)}<br>
+      <b>${t('পরিমান', 'Amount')}:</b> ৳${ucFmt(r.Amount)}<br><b>${t('বিবরন', 'Note')}:</b> ${escapeHtml(r.Narration || '')}<br>
+      <b>${t('অবস্থা', 'Status')}:</b> ${r.Status === 'Posted' ? '✅ ' + t('বুঝে পেয়েছেন', 'Received') : r.Status === 'Deleted' ? '✖ ' + t('বাতিল', 'Rejected') : '⏳ ' + t('অপেক্ষমাণ', 'Pending')}</div>`, onSave: async function () {} });
+    const sb = document.getElementById('modalSaveBtn'); if (sb) sb.style.display = 'none';
+  }
+  await draw();
+}
+
+/* ---------- পেজ: ইউজার ক্যাশ হিসাব ---------- */
+async function renderUserCashPage(content) {
+  const isAdmin = !!(PERM && PERM.admin);
+  const fy = await getFiscalYearStart(), today = ownToday();
+  let C = await ucContext();
+  content.innerHTML = `
+    <style>
+      .uc-f{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;align-items:end;margin-bottom:8px;} .uc-f .field{margin:0;}
+      .uc-f input,.uc-f select{height:34px;font-size:13px;} .uc-f .btn{height:34px;margin:0;}
+      @media (max-width:760px){ .uc-f{grid-template-columns:1fr 1fr;} .uc-f input,.uc-f select{font-size:16px;} }
+      .uc-tbl{width:100%;border-collapse:collapse;font-size:11px;}
+      .uc-tbl th{position:sticky;top:0;background:#f1f5f9;font-size:11px;font-weight:700;text-align:center;padding:5px 6px;border-bottom:1px solid var(--border);white-space:nowrap;}
+      .uc-tbl td{font-size:11px;text-align:center;padding:4px 6px;border-bottom:1px solid var(--border);white-space:nowrap;}
+      .uc-tbl tfoot td{font-weight:700;background:#f8fafc;} .uc-tbl tbody tr{cursor:pointer;} .uc-tbl tr.sel td{outline:1.5px solid #2563eb;outline-offset:-1.5px;}
+      .uc-tbl td.bal{font-weight:700;color:#166534;} .uc-tbl td.neg{color:#b91c1c;} .uc-tbl td.pend{color:#b45309;}
+      .uc-b{width:28px;height:24px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;padding:0;}
+      .uc-set{margin-top:12px;border-top:1px dashed var(--border);padding-top:10px;}
+      .uc-set label{display:flex;align-items:center;gap:8px;font-size:13px;padding:6px 4px;border-bottom:1px solid var(--border);cursor:pointer;} .uc-set input{width:18px;height:18px;margin:0;}
+    </style>
+    <div class="page-head"><div><h1>${t('ইউজার ক্যাশ হিসাব', 'User Cash Account')}</h1><p>${t('কে কত নগদ পেল, কত দিল/খরচ করল, কত বুঝিয়ে দিল আর হাতে কত বাকি', 'Cash received, paid, handed over and in hand per user')}</p></div></div>
+    <div class="panel">
+      <div class="uc-f">
+        <div class="field"><label>${t('তারিখ হইতে', 'From')}</label>${dmyDateField('uc_From', fy)}</div>
+        <div class="field"><label>${t('তারিখ পর্যন্ত', 'To')}</label>${dmyDateField('uc_To', today)}</div>
+        <div class="field"><label>${t('ব্যবহারকারী', 'User')}</label><select id="uc_User"></select></div>
+        <button class="btn btn-primary" id="uc_Go">${t('দেখান', 'Show')}</button>
+      </div>
+      <div style="overflow-x:auto;" id="uc_Wrap"></div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">${t('এক ট্যাপে সারি বাছাই, দুই ট্যাপে বা 👁 দিয়ে তারিখ ধরে বিস্তারিত। "বুঝিয়ে দিল" = মালিক "বুঝে পেলাম" চাপা হস্তান্তর; অপেক্ষমাণগুলো এখনো ইউজারের হাতে ধরা।', 'Tap selects, double tap or 👁 shows details. Pending handovers still count as in hand.')}</div>
+      ${isAdmin ? '<div class="uc-set" id="uc_Set"></div>' : ''}
+    </div>`;
+  wireDmyFields(content);
+  const wrap = document.getElementById('uc_Wrap');
+  let book = [], pend = [];
+  function boxUsers() { return Object.keys(C.boxes).filter(function (uid) { return C.byAcc[C.boxes[uid]] === uid && (isAdmin || uid === currentUser.UserID); }); }
+  function fillUsers() {
+    const list = boxUsers(), sel = document.getElementById('uc_User'), cur = sel.value;
+    sel.innerHTML = (isAdmin ? `<option value="">${t('সব ব্যবহারকারী', 'All users')}</option>` : '') + list.map(function (uid) { return `<option value="${attr(uid)}">${escapeHtml(C.uName[uid] || uid)}</option>`; }).join('');
+    if (cur && list.indexOf(cur) !== -1) sel.value = cur;
+  }
+  function calc(uid, f, to) {
+    const acc = C.boxes[uid], rows = book.filter(function (r) { return r.BankCashAccID === acc; });
+    const o = { uid: uid, acc: acc, open: 0, recv: 0, paid: 0, hand: 0, pend: 0, bal: 0, rows: [] };
+    rows.forEach(function (r) {
+      const d = String(r.Date || '').slice(0, 10), dr = Number(r.Debit) || 0, cr = Number(r.Credit) || 0;
+      if (d < f) { o.open += dr - cr; return; }
+      if (d > to) return;
+      o.recv += dr;
+      if (cr && r.RefModule === 'ContraVoucher') o.hand += cr; else o.paid += cr;
+      o.rows.push(r);
+    });
+    o.bal = o.open + o.recv - o.paid - o.hand;
+    o.pend = pend.filter(function (p) { return p.FromAccountID === acc; }).reduce(function (a, p) { return a + (Number(p.Amount) || 0); }, 0);
+    return o;
+  }
+  async function load() {
+    const f = dmyIso('uc_From') || fy, to = dmyIso('uc_To') || today;
+    const list = boxUsers();
+    if (!list.length) { wrap.innerHTML = `<div class="empty-state">${isAdmin ? t('এখনো কারো ক্যাশ বাক্স চালু নেই — নিচে টিক দিয়ে চালু করুন।', 'No cash box enabled yet — tick below.') : t('আপনার নামে কোনো ক্যাশ বাক্স চালু নেই।', 'No cash box is enabled for you.')}</div>`; return; }
+    wrap.innerHTML = '<div class="empty-state">লোড হচ্ছে…</div>';
+    try { [book, pend] = await Promise.all([ucBookRows(list.map(function (u) { return C.boxes[u]; })), ucPendingHandovers()]); }
+    catch (e) { wrap.innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; return; }
+    const pick = document.getElementById('uc_User').value;
+    const res = (pick ? [pick] : list).map(function (uid) { return calc(uid, f, to); });
+    const T = res.reduce(function (a, o) { ['open', 'recv', 'paid', 'hand', 'bal', 'pend'].forEach(function (k) { a[k] += o[k]; }); return a; }, { open: 0, recv: 0, paid: 0, hand: 0, bal: 0, pend: 0 });
+    wrap.innerHTML = `<table class="uc-tbl"><thead><tr><th>${t('ক্রঃ', '#')}</th><th>${t('ব্যবহারকারী', 'User')}</th><th>${t('পূর্বের জের', 'Opening')}</th><th>${t('নগদ পেল', 'Received')}</th><th>${t('দিল / খরচ', 'Paid')}</th><th>${t('বুঝিয়ে দিল', 'Handed over')}</th><th>${t('হাতে বাকি', 'In hand')}</th><th>${t('অপেক্ষমাণ', 'Pending')}</th><th></th></tr></thead><tbody>` +
+      res.map(function (o, i) { return `<tr data-u="${attr(o.uid)}"><td>${i + 1}</td><td>${escapeHtml(C.uName[o.uid] || o.uid)}</td><td>${ucFmt(o.open)}</td><td>${ucFmt(o.recv)}</td><td>${ucFmt(o.paid)}</td><td>${ucFmt(o.hand)}</td><td class="bal ${o.bal < -0.004 ? 'neg' : ''}">${ucFmt(o.bal)}</td><td class="pend">${o.pend ? ucFmt(o.pend) : '—'}</td><td><button class="uc-b" data-v="${attr(o.uid)}" title="${attr(t('দেখুন', 'View'))}">👁</button></td></tr>`; }).join('') +
+      `</tbody>${res.length > 1 ? `<tfoot><tr><td colspan="2">${t('মোট', 'Total')}</td><td>${ucFmt(T.open)}</td><td>${ucFmt(T.recv)}</td><td>${ucFmt(T.paid)}</td><td>${ucFmt(T.hand)}</td><td>${ucFmt(T.bal)}</td><td>${T.pend ? ucFmt(T.pend) : '—'}</td><td></td></tr></tfoot>` : ''}</table>`;
+    wrap.__res = res;
+  }
+  function detail(uid) {
+    const o = (wrap.__res || []).find(function (x) { return x.uid === uid; }); if (!o) return;
+    let run = o.open;
+    const lbl = function (r) { return (typeof BOOK_REF_LABEL !== 'undefined' && BOOK_REF_LABEL[r.RefModule]) || r.RefModule || ''; };
+    const body = `<div style="font-size:12px;margin-bottom:6px;">${t('পূর্বের জের', 'Opening')}: <b>৳${ucFmt(o.open)}</b></div><div style="overflow-x:auto;"><table class="uc-tbl"><thead><tr><th>${t('তারিখ', 'Date')}</th><th>${t('বিবরণ', 'Details')}</th><th>${t('পেল', 'In')}</th><th>${t('দিল', 'Out')}</th><th>${t('ব্যালান্স', 'Balance')}</th></tr></thead><tbody>` +
+      (o.rows.length ? o.rows.map(function (r) { run += (Number(r.Debit) || 0) - (Number(r.Credit) || 0);
+        const hand = r.RefModule === 'ContraVoucher' && (Number(r.Credit) || 0) > 0;
+        return `<tr><td>${escapeHtml(isoToDmy(r.Date))}</td><td>${escapeHtml(hand ? t('মালিককে বুঝিয়ে দিল', 'Handed to owner') : lbl(r))} ${escapeHtml(r.RefID || '')}</td><td>${Number(r.Debit) ? ucFmt(r.Debit) : ''}</td><td>${Number(r.Credit) ? ucFmt(r.Credit) : ''}</td><td>${ucFmt(run)}</td></tr>`; }).join('') : `<tr><td colspan="5">${t('এই সময়ে কোনো লেনদেন নেই।', 'No transactions in this period.')}</td></tr>`) +
+      `</tbody></table></div><div style="font-size:12.5px;margin-top:6px;">${t('হাতে বাকি', 'In hand')}: <b>৳${ucFmt(o.bal)}</b>${o.pend ? ` · ${t('অপেক্ষমাণ হস্তান্তর', 'Pending')}: ৳${ucFmt(o.pend)}` : ''}</div>`;
+    openModal({ title: t('ক্যাশ হিসাব — ', 'Cash account — ') + (C.uName[uid] || uid), wide: true, bodyHtml: body, onSave: async function () {} });
+    const sb = document.getElementById('modalSaveBtn'); if (sb) sb.style.display = 'none';
+  }
+  wrap.addEventListener('click', function (e) {
+    const b = e.target.closest('[data-v]'); if (b) { detail(b.getAttribute('data-v')); return; }
+    const tr = e.target.closest('tr[data-u]'); if (!tr) return;
+    wrap.querySelectorAll('tr.sel').forEach(function (x) { x.classList.remove('sel'); }); tr.classList.add('sel');
+  });
+  wrap.addEventListener('dblclick', function (e) { const tr = e.target.closest('tr[data-u]'); if (tr) detail(tr.getAttribute('data-u')); });
+
+  // অ্যাডমিনঃ কার কার ক্যাশ বাক্স চালু
+  function drawSetup() {
+    const el = document.getElementById('uc_Set'); if (!el) return;
+    const users = C.users.filter(function (u) { return u.Status !== 'Deleted' && u.UserID !== currentUser.UserID; });
+    el.innerHTML = `<div style="font-size:13px;margin-bottom:4px;"><b>⚙️ ${t('ক্যাশ বাক্স চালু / বন্ধ', 'Enable cash boxes')}</b></div>
+      <div style="font-size:11.5px;color:var(--text-muted);margin-bottom:4px;">${t('টিক দিলে ওই ব্যবহারকারীর নামে আলাদা নগদ অ্যাকাউন্ট খুলবে; সে লগইন করে যত "নগদ" লেনদেন করবে সব তার বাক্সে যাবে।', 'Ticked users get their own cash account; their cash transactions go there.')}</div>` +
+      (users.length ? users.map(function (u) { const on = !!(C.boxes[u.UserID] && C.byAcc[C.boxes[u.UserID]]); return `<label><input type="checkbox" data-box="${attr(u.UserID)}"${on ? ' checked' : ''}> ${escapeHtml(u.FullName || u.Email || u.UserID)}${on ? ` <small style="color:var(--text-muted);">(${escapeHtml(C.boxes[u.UserID])})</small>` : ''}</label>`; }).join('') : `<div style="font-size:12px;">${t('আর কোনো ব্যবহারকারী নেই।', 'No other users.')}</div>`);
+  }
+  if (isAdmin) document.getElementById('uc_Set').addEventListener('change', async function (e) {
+    const el = e.target; if (!el.dataset || !el.dataset.box) return;
+    const uid = el.dataset.box, u = C.users.find(function (x) { return x.UserID === uid; }) || {};
+    el.disabled = true;
+    try {
+      const boxes = Object.assign({}, await userCashBoxesLoad(true));
+      if (el.checked) {
+        let acc = boxes[uid];
+        const exists = acc && C.accs.some(function (a) { return a.BankAccID === acc && a.Status !== 'Deleted'; });
+        if (!exists) {
+          const row = await api('create', { sheet: 'BankCashAccounts', data: { AccountName: 'ক্যাশ বাক্স — ' + (u.FullName || u.Email || uid), Type: 'Cash', IsActive: true } });
+          acc = row && row.BankAccID; if (!acc) throw new Error(t('ক্যাশ অ্যাকাউন্ট তৈরি হয়নি।', 'Cash account not created.'));
+        }
+        boxes[uid] = acc;
+      } else {
+        const acc = boxes[uid];
+        if (acc) { const bal = ucBalance(await ucBookRows([acc]), acc);
+          if (Math.abs(bal) > 0.004 && !confirm(t('এই ব্যবহারকারীর হাতে এখনো ৳', 'This user still holds ৳') + ucFmt(bal) + t(' আছে। বাক্স বন্ধ করলে নতুন নগদ মূল ক্যাশে যাবে, কিন্তু এই টাকা বাক্সেই থাকবে। বন্ধ করবেন?', '. Close anyway?'))) { el.checked = true; el.disabled = false; return; } }
+        delete boxes[uid];
+      }
+      await userCashBoxesSave(boxes);
+      delete listCache.BankCashAccounts;
+      C = await ucContext();
+      showToast(t('সেভ হয়েছে ✅ — ওই ব্যবহারকারী পরের লগইন/রিফ্রেশে এটা পাবে', 'Saved ✅ — applies on the user’s next login/refresh'), 'success');
+      fillUsers(); drawSetup(); load();
+    } catch (err) { showToast(err.message, 'error'); el.checked = !el.checked; el.disabled = false; }
+  });
+
+  fillUsers(); drawSetup();
+  document.getElementById('uc_Go').addEventListener('click', function () {
+    if ((document.getElementById('uc_From').value && !dmyIso('uc_From')) || (document.getElementById('uc_To').value && !dmyIso('uc_To'))) { showToast(t('তারিখ দিন-মাস-বছর আকারে দিন, যেমন 01-10-2026', 'Enter dates as dd-mm-yyyy'), 'error'); return; }
+    load();
+  });
+  document.getElementById('uc_User').addEventListener('change', load);
+  const order = ['uc_From', 'uc_To', 'uc_User', 'uc_Go'];
+  order.forEach(function (id, i) {
+    document.getElementById(id).addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); if (id === 'uc_Go' || id === 'uc_User') { document.getElementById('uc_Go').click(); return; } document.getElementById(order[i + 1]).focus(); }
+      else if (e.key === 'Escape' && i > 0) { e.preventDefault(); document.getElementById(order[i - 1]).focus(); }
+    });
+  });
+  load();
+}
+
+/* ============================================================
+   ১৪) পেজ: ACTIVITY LOG — সব ব্যবহারকারীর কাজ, তারিখ/ব্যবহারকারী/কাজ দিয়ে খোঁজা
+   ============================================================ */
+async function renderActivityLog(content) {
+  const fy = await getFiscalYearStart();
+  const now = new Date(), today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+  const U = await actUserMap();
+  const userOpts = U.users.filter(function (u) { return u.Status !== 'Deleted'; }).map(function (u) { return `<option value="${attr(u.UserID)}">${escapeHtml(u.FullName || u.Email || u.UserID)}</option>`; }).join('');
+  content.innerHTML = `
+    <style>
+      .al-f{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;align-items:end;margin-bottom:8px;}
+      .al-f .field{margin:0;} .al-f label{font-size:11.5px;} .al-f select,.al-f input{height:34px;font-size:13px;}
+      .al-f .btn{height:34px;margin:0;padding:0 12px;}
+      @media (max-width:760px){ .al-f{grid-template-columns:1fr 1fr;} .al-f select,.al-f input{font-size:16px;} }
+      .al-sum{font-size:11.5px;color:var(--text-muted);margin:2px 0 8px;display:flex;flex-wrap:wrap;gap:6px;}
+      .al-sum span{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:2px 8px;}
+      .al-wrap{overflow:auto;max-height:calc(100vh - 290px);border:1px solid var(--border);border-radius:8px;}
+      .al-tbl{width:100%;border-collapse:collapse;font-size:11px;}
+      .al-tbl th{position:sticky;top:0;z-index:1;background:#f1f5f9;font-size:11px;font-weight:700;text-align:center;padding:5px 6px;border-bottom:1px solid var(--border);white-space:nowrap;}
+      .al-tbl td{font-size:11px;font-weight:400;text-align:center;padding:3px 6px;border-bottom:1px solid var(--border);}
+      .al-tbl td.dt{white-space:nowrap;} .al-tbl tr{cursor:pointer;}
+      .al-tbl tr.k-new td{background:#f0fdf4;} .al-tbl tr.k-edit td{background:#eff6ff;} .al-tbl tr.k-post td{background:#f5f3ff;}
+      .al-tbl tr.k-del td{background:#fef2f2;} .al-tbl tr.k-log td{background:#f8fafc;color:#64748b;}
+      .al-tbl tr.sel td{outline:1.5px solid #2563eb;outline-offset:-1.5px;}
+      .al-ic{width:26px;height:24px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;padding:0;font-size:12px;}
+    </style>
+    <div class="page-head"><div><h1>${t('কার্যকলাপ লগ', 'Activity Log')}</h1><p>${t('কে কখন কী করেছে — সব ব্যবহারকারীর নতুন/এডিট/পোস্ট/ডিলিট/লগইন নিজে থেকেই জমা হয়', 'Who did what and when — recorded automatically')}</p></div></div>
+    <div class="panel">
+      <div class="al-f">
+        <div class="field"><label>${t('তারিখ হইতে', 'From')}</label>${dmyDateField('al_From', fy)}</div>
+        <div class="field"><label>${t('তারিখ পর্যন্ত', 'To')}</label>${dmyDateField('al_To', today)}</div>
+        <div class="field"><label>${t('ব্যবহারকারী', 'User')}</label><select id="al_User"><option value="">${t('সব ব্যবহারকারী', 'All users')}</option>${userOpts}</select></div>
+        <div class="field"><label>${t('কাজ', 'Action')}</label><select id="al_Kind"><option value="">${t('সব কাজ', 'All')}</option><option value="new">${t('নতুন / সেভ', 'New / save')}</option><option value="edit">${t('এডিট', 'Edit')}</option><option value="post">${t('পোস্ট', 'Post')}</option><option value="del">${t('ডিলিট', 'Delete')}</option><option value="log">${t('লগইন / লগআউট', 'Login / logout')}</option></select></div>
+        <div class="field"><label>${t('খুঁজুন', 'Search')}</label><input id="al_Q" placeholder="${attr(t('ভাউচার নং, আইটেম…', 'Voucher no, item…'))}"></div>
+        <button class="btn btn-primary" id="al_Go">${t('দেখান', 'Show')}</button>
+      </div>
+      <div class="al-sum" id="al_Sum"></div>
+      <div class="al-wrap" id="activityWrap"></div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">${t('এক ট্যাপে সারি বাছাই, দুই ট্যাপে বা 👁 দিয়ে বিস্তারিত। লগ নিরাপত্তার জন্য এডিট/ডিলিট করা যায় না।', 'Tap selects, double tap or 👁 shows details. Log entries cannot be edited or deleted.')}</div>
+    </div>`;
+  wireDmyFields(content);
+  let rows = [];
   const wrap = document.getElementById('activityWrap');
-  if (sorted.length === 0) { wrap.innerHTML = '<div class="empty-state">এখনো কোনো কার্যকলাপ রেকর্ড হয়নি।</div>'; return; }
-  wrap.innerHTML = `<table class="data-table"><thead><tr><th>সময়</th><th>ব্যবহারকারী</th><th>কাজ</th><th>বিস্তারিত</th></tr></thead><tbody>
-    ${sorted.map(function (a) {
-      return `<tr><td>${escapeHtml(new Date(a.Timestamp).toLocaleString())}</td><td>${escapeHtml(userMap[a.UserID] || a.UserID)}</td>
-        <td>${escapeHtml(a.Action)}</td><td>${escapeHtml(a.Details)}</td></tr>`;
-    }).join('')}
-  </tbody></table>`;
+  async function load() {
+    const f = dmyIso('al_From') || fy, to = dmyIso('al_To') || today;
+    const toNext = new Date(to + 'T00:00:00'); toNext.setDate(toNext.getDate() + 1);
+    wrap.innerHTML = '<div class="empty-state">লোড হচ্ছে…</div>';
+    let q = __rawFrom('activity_log').select('*').gte('Timestamp', new Date(f + 'T00:00:00').toISOString()).lt('Timestamp', toNext.toISOString()).order('Timestamp', { ascending: false }).limit(2000);
+    const uid = document.getElementById('al_User').value; if (uid) q = q.eq('UserID', uid);
+    const { data, error } = await q;
+    if (error) { wrap.innerHTML = `<div class="empty-state">${t('লগ পড়া যায়নিঃ ', 'Could not read the log: ')}${escapeHtml(error.message)}</div>`; return; }
+    rows = data || []; draw();
+  }
+  function draw() {
+    const kind = document.getElementById('al_Kind').value, qy = document.getElementById('al_Q').value.trim().toLowerCase();
+    const list = rows.filter(function (r) {
+      if (kind && actKindClass(r.Action) !== kind) return false;
+      return !qy || [r.Action, r.Details, U.map[r.UserID]].some(function (v) { return String(v || '').toLowerCase().indexOf(qy) !== -1; });
+    });
+    const per = {}; list.forEach(function (r) { const n = U.map[r.UserID] || r.UserID || '?'; per[n] = (per[n] || 0) + 1; });
+    document.getElementById('al_Sum').innerHTML = `<span>${t('মোট ', 'Total ')}${list.length}${t('টা', '')}</span>` + Object.keys(per).sort(function (a, b) { return per[b] - per[a]; }).map(function (n) { return `<span>${escapeHtml(n)}: ${per[n]}</span>`; }).join('') + (rows.length >= 2000 ? `<span>${t('প্রথম ২০০০টা — তারিখ ছোট করুন', 'First 2000 — narrow the dates')}</span>` : '');
+    if (!list.length) { wrap.innerHTML = `<div class="empty-state">${t('এই সময়ে কোনো কার্যকলাপ নেই।', 'No activity in this period.')}</div>`; return; }
+    wrap.innerHTML = `<table class="al-tbl"><thead><tr><th>${t('ক্রঃ', '#')}</th><th>${t('তারিখ', 'Date')}</th><th>${t('সময়', 'Time')}</th><th>${t('ব্যবহারকারী', 'User')}</th><th>${t('কাজ', 'Action')}</th><th>${t('বিস্তারিত', 'Details')}</th><th></th></tr></thead><tbody>` +
+      list.map(function (r, i) { const w = actWhen(r.Timestamp), k = actKindClass(r.Action);
+        return `<tr class="k-${k}" data-i="${rows.indexOf(r)}"><td>${i + 1}</td><td class="dt">${escapeHtml(w.d)}</td><td class="dt">${escapeHtml(w.t)}</td><td>${escapeHtml(U.map[r.UserID] || r.UserID || '')}</td><td><span class="act-tag act-k-${k}">${escapeHtml(r.Action || '')}</span></td><td>${escapeHtml(r.Details || '')}</td><td><button class="al-ic" data-v="${rows.indexOf(r)}" title="${attr(t('দেখুন', 'View'))}">👁</button></td></tr>`; }).join('') + '</tbody></table>';
+  }
+  function show(i) {
+    const r = rows[i]; if (!r) return; const w = actWhen(r.Timestamp);
+    openModal({ title: t('কার্যকলাপ', 'Activity'), bodyHtml: `<div style="font-size:13.5px;line-height:1.9;">
+      <b>${t('ব্যবহারকারী', 'User')}:</b> ${escapeHtml(U.map[r.UserID] || r.UserID || '')}<br><b>${t('তারিখ ও সময়', 'Date & time')}:</b> ${escapeHtml(w.d + ' ' + w.t)}<br>
+      <b>${t('কাজ', 'Action')}:</b> <span class="act-tag act-k-${actKindClass(r.Action)}">${escapeHtml(r.Action || '')}</span><br><b>${t('বিস্তারিত', 'Details')}:</b> ${escapeHtml(r.Details || '')}</div>`, onSave: async function () {} });
+    const sb = document.getElementById('modalSaveBtn'); if (sb) sb.style.display = 'none';
+  }
+  wrap.addEventListener('click', function (e) {
+    const v = e.target.closest('[data-v]'); if (v) { show(Number(v.getAttribute('data-v'))); return; }
+    const tr = e.target.closest('tr[data-i]'); if (!tr) return;
+    wrap.querySelectorAll('tr.sel').forEach(function (x) { x.classList.remove('sel'); }); tr.classList.add('sel');
+  });
+  wrap.addEventListener('dblclick', function (e) { const tr = e.target.closest('tr[data-i]'); if (tr) show(Number(tr.getAttribute('data-i'))); });
+  document.getElementById('al_Go').addEventListener('click', function () {
+    if ((document.getElementById('al_From').value && !dmyIso('al_From')) || (document.getElementById('al_To').value && !dmyIso('al_To'))) { showToast(t('তারিখ দিন-মাস-বছর আকারে দিন, যেমন 01-10-2026', 'Enter dates as dd-mm-yyyy'), 'error'); return; }
+    load();
+  });
+  document.getElementById('al_User').addEventListener('change', load);
+  document.getElementById('al_Kind').addEventListener('change', draw);
+  document.getElementById('al_Q').addEventListener('input', draw);
+  // Enter = পরের ঘর, Escape = আগের ঘর (শেষ ঘরে Enter = দেখান)
+  const order = ['al_From', 'al_To', 'al_User', 'al_Kind', 'al_Q', 'al_Go'];
+  order.forEach(function (id, i) {
+    document.getElementById(id).addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); if (id === 'al_Go' || id === 'al_Q') { document.getElementById('al_Go').click(); return; } document.getElementById(order[i + 1]).focus(); }
+      else if (e.key === 'Escape' && i > 0) { e.preventDefault(); document.getElementById(order[i - 1]).focus(); }
+    });
+  });
+  actSeenSet(new Date().toISOString()); const bd = document.getElementById('actBadge'); if (bd) { bd.classList.remove('show'); bd.textContent = ''; }
+  load();
 }
 
 /* ============================================================
