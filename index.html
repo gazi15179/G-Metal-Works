@@ -2752,13 +2752,19 @@ const ITEM_MASTER_CSS = `
   .im-tbl .badge{padding:1px 7px !important;font-size:10.5px !important;line-height:1.4;}
   .im-tbl .im-ic:disabled{opacity:.3;cursor:default;}
   .im-tbl small{color:var(--text-muted);font-size:10.5px;} .im-tbl .im-show-m{display:none;}
+  .im-tbl .im-cl{display:inline-flex;align-items:center;justify-content:center;min-width:22px;min-height:20px;margin:-2px 4px -2px -3px;vertical-align:middle;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+  .im-tbl .im-cl input{width:15px;height:15px;margin:0;accent-color:#1f7a4d;cursor:pointer;}
+  .im-tbl tbody tr.im-off td.fz{color:#9aa2ad;}
+  .im-tbl tbody tr.im-off td.fz .im-nm{text-decoration:line-through;text-decoration-color:rgba(154,162,173,.6);}
+  .im-tools select{padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);font-size:13px;}
   @media (max-width:760px){
     #itemTableWrap{max-height:72vh;}
     .im-tbl{font-size:11px;} .im-tbl th,.im-tbl td{padding:2px 5px !important;}
     .im-tbl .fz{min-width:104px;max-width:132px;}
     .im-tbl .im-hide-m{display:none;} .im-tbl .im-show-m{display:block;}
     .im-tbl .im-ic{min-width:34px;height:32px;font-size:14px;}
-    .im-tools input{font-size:16px;}
+    .im-tools input{font-size:16px;} .im-tools select{font-size:14px;}
+    .im-tbl .im-cl{min-width:30px;min-height:30px;} .im-tbl .im-cl input{width:18px;height:18px;}
   }`;
 
 async function renderItemMasterPage(content) {
@@ -2770,9 +2776,12 @@ async function renderItemMasterPage(content) {
       </div>
       <button class="btn btn-primary" style="width:auto;" id="itemAddBtn">Item +</button></div>
     <div class="panel">
-      <div class="im-tools"><input id="imSearch" type="search" autocomplete="off" placeholder="${attr(t('নাম, কোড, গ্রুপ বা ক্যাটাগরি দিয়ে খুঁজুন…', 'Search by name, code, group or category…'))}"><span class="im-cnt" id="imCount"></span></div>
+      <div class="im-tools"><input id="imSearch" type="search" autocomplete="off" placeholder="${attr(t('নাম, কোড, গ্রুপ বা ক্যাটাগরি দিয়ে খুঁজুন…', 'Search by name, code, group or category…'))}">
+        <select id="imShowF" title="${attr(t('টিক = স্টক ওভারভিউ ও বিক্রয় ভাউচারের আইটেম তালিকায় দেখাবে', 'Ticked = shown in Stock Overview and the sales voucher item list'))}">
+          <option value="all">${t('সব আইটেম', 'All items')}</option><option value="on">☑ ${t('টিক দেওয়া', 'Ticked')}</option><option value="off">☐ ${t('টিক ছাড়া', 'Unticked')}</option></select>
+        <span class="im-cnt" id="imCount"></span></div>
       <div id="itemTableWrap"><div class="empty-state">${t('লোড হচ্ছে...', 'Loading...')}</div></div>
-      <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">${t('এখানে প্রারম্ভিক জের — বর্তমান স্টক দেখতে ইনভেন্টরি → স্টক ওভারভিউ। জের দিতে/বদলাতে ✏️ এডিট → "২) প্রারম্ভিক জের"। মূল একক = যে এককে কেনা-বেচা হয় (পরিমাণ মোটা)। "পুরনো জের" = দর সেভ হওয়ার আগের, দর স্ট্যান্ডার্ড কস্ট থেকে — এডিট করে আসল দর দিন।', 'Opening stock shown here — current stock is in Stock Overview. Edit an item to set its opening stock.')}</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">${t('এখানে প্রারম্ভিক জের — বর্তমান স্টক দেখতে ইনভেন্টরি → স্টক ওভারভিউ। জের দিতে/বদলাতে ✏️ এডিট → "২) প্রারম্ভিক জের"। মূল একক = যে এককে কেনা-বেচা হয় (পরিমাণ মোটা)। "পুরনো জের" = দর সেভ হওয়ার আগের, দর স্ট্যান্ডার্ড কস্ট থেকে — এডিট করে আসল দর দিন।', 'Opening stock shown here — current stock is in Stock Overview. Edit an item to set its opening stock.')}<br>☑ ${t('নামের বামে টিক = এই আইটেম স্টক ওভারভিউ ও বিক্রয় ভাউচারের আইটেম তালিকায় দেখাবে; টিক তুলে দিলে দেখাবে না। হেডারের টিক = নিচে যা দেখা যাচ্ছে (খোঁজা থাকলে শুধু সেগুলো) সব একসাথে। নতুন আইটেমে আপনা থেকে টিক থাকে।', 'Tick left of the name = item shows in Stock Overview and the sales voucher item list. Header tick = all rows currently listed. New items are ticked automatically.')}</div>
     </div>`;
 
   let rowsData = [], itemById = {};
@@ -2782,6 +2791,7 @@ async function renderItemMasterPage(content) {
       cachedList('UOM'), (async function () { try { const r = await supabaseClient.from('stock_ledger').select('ItemID,WarehouseID,Date,QtyIn,QtyOut,PiecesIn,PiecesOut').eq('RefModule', 'Items').eq('TransactionType', 'Opening'); return (r && r.data) || []; } catch (e) { return []; } })(),
       cachedList('Warehouses')
     ]);
+    window.__soSalesHidden = await salesItemHiddenLoad();   // টিক না থাকা আইটেম — স্টক ওভারভিউ ও বিক্রয় ভাউচারে দেখাবে না
     const groupMap = {}; groups.forEach(function (g) { groupMap[g.GroupID] = g.GroupName; });
     const catMap = {}; categories.forEach(function (c) { catMap[c.CategoryID] = c.CategoryName; });
     const unitMap = {}; units.forEach(function (u) { unitMap[u.UOMID] = u; });
@@ -2818,9 +2828,17 @@ async function renderItemMasterPage(content) {
   function renderTable() {
     const wrap = document.getElementById('itemTableWrap'); if (!wrap) return;
     const qy = String((document.getElementById('imSearch') || {}).value || '').trim().toLowerCase();
-    const list = !qy ? rowsData : rowsData.filter(function (x) { return [x.r.ItemID, x.r.ItemName, x.group, x.cat, x.wh, x.unit].some(function (v) { return String(v || '').toLowerCase().indexOf(qy) !== -1; }); });
+    const showF = String((document.getElementById('imShowF') || {}).value || 'all');
+    const hid = window.__soSalesHidden || new Set();
+    const isOn = function (x) { return !hid.has(String(x.r.ItemID)); };
+    const list = rowsData.filter(function (x) {
+      if (showF === 'on' && !isOn(x)) return false;
+      if (showF === 'off' && isOn(x)) return false;
+      return !qy || [x.r.ItemID, x.r.ItemName, x.group, x.cat, x.wh, x.unit].some(function (v) { return String(v || '').toLowerCase().indexOf(qy) !== -1; });
+    });
     const itemsShown = new Set(list.map(function (x) { return x.r.ItemID; })).size;
-    document.getElementById('imCount').textContent = t('মোট ', 'Total ') + itemsShown + t('টা আইটেম', ' items') + (qy ? t(' (খোঁজা)', ' (filtered)') : '');
+    const onAll = rowsData.filter(isOn).length;
+    document.getElementById('imCount').textContent = t('মোট ', 'Total ') + itemsShown + t('টা আইটেম', ' items') + ((qy || showF !== 'all') ? t(' (খোঁজা)', ' (filtered)') : '') + ' · ☑ ' + onAll + '/' + rowsData.length;
     if (!list.length) { wrap.innerHTML = `<div class="empty-state">${t('এই খোঁজায় কোনো আইটেম নেই।', 'No items match.')}</div>`; return; }
     const q3 = function (x) { return Math.abs(x) < 0.0005 ? '—' : (+x.toFixed(3)).toLocaleString('en-IN', { maximumFractionDigits: 3 }); };
     const m2 = function (x) { return x ? x.toFixed(2) : '—'; };
@@ -2832,9 +2850,10 @@ async function renderItemMasterPage(content) {
       const neg = function (v) { return v < -0.0005 ? 'neg' : ''; };
       const statusCell = isTrue(x.r.IsActive) ? `<span class="badge active">${t('সক্রিয়','Active')}</span>` : `<span class="badge inactive">${t('নিষ্ক্রিয়','Inactive')}</span>`;
       const ic = function (act, icon, title, dis) { return `<button type="button" class="im-ic" data-im="${act}" data-id="${attr(x.r.ItemID)}" data-wh="${attr(x.s ? x.s.WarehouseID : '')}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
-      return `<tr>
+      const on = isOn(x);
+      return `<tr class="${on ? '' : 'im-off'}">
         <td class="im-hide-m">${escapeHtml(x.r.ItemID)}</td>
-        <td class="fz">${escapeHtml(x.r.ItemName)}<div class="im-show-m"><small>${escapeHtml(x.cat || '')}</small></div></td>
+        <td class="fz"><label class="im-cl" title="${attr(t('টিক = স্টক ওভারভিউ ও বিক্রয় ভাউচারের আইটেম তালিকায় দেখাবে', 'Ticked = shown in Stock Overview and the sales voucher item list'))}"><input type="checkbox" class="im-chk" data-item="${attr(x.r.ItemID)}"${on ? ' checked' : ''}></label><span class="im-nm">${escapeHtml(x.r.ItemName)}</span><div class="im-show-m"><small>${escapeHtml(x.cat || '')}</small></div></td>
         <td class="im-hide-m">${escapeHtml(x.group || '—')}</td><td class="im-hide-m">${escapeHtml(x.cat || '—')}</td>
         <td>${escapeHtml(x.unit)}</td><td>${escapeHtml(x.wh || '—')}</td><td class="im-hide-m">${x.date ? escapeHtml(formatShortDate(x.date)) : '—'}${x.old ? `<div><small style="color:#b45309;">${t('পুরনো জের', 'old')}</small></div>` : ''}</td>
         <td class="r gq gstart ${!x.piece ? 'mu' : ''} ${neg(x.kg)}">${q3(x.kg)}</td><td class="r gq gend ${x.piece ? 'mu' : ''} ${neg(x.pc)}">${q3(x.pc)}</td>
@@ -2846,7 +2865,7 @@ async function renderItemMasterPage(content) {
     }).join('');
     const rk = kgPos > 0 ? vk / kgPos : 0, rp = pcPos > 0 ? vp / pcPos : 0;
     wrap.innerHTML = `<table class="data-table im-tbl"><thead>
-        <tr class="h1"><th rowspan="2" class="im-hide-m">${t('কোড','Code')}</th><th rowspan="2" class="fz">${t('নাম','Name')}</th><th rowspan="2" class="im-hide-m">${t('গ্রুপ','Group')}</th><th rowspan="2" class="im-hide-m">${t('ক্যাটাগরি','Category')}</th>
+        <tr class="h1"><th rowspan="2" class="im-hide-m">${t('কোড','Code')}</th><th rowspan="2" class="fz"><label class="im-cl" title="${attr(t('তালিকায় যা দেখা যাচ্ছে সব টিক / সব বাদ', 'Tick / untick all listed rows'))}"><input type="checkbox" id="imChkAll"></label>${t('নাম','Name')}</th><th rowspan="2" class="im-hide-m">${t('গ্রুপ','Group')}</th><th rowspan="2" class="im-hide-m">${t('ক্যাটাগরি','Category')}</th>
           <th rowspan="2">${t('মূল একক','Main unit')}</th><th rowspan="2">${t('গুদাম','Warehouse')}</th><th rowspan="2" class="im-hide-m">${t('জেরের তারিখ','Opening date')}</th>
           <th colspan="2" class="gq gstart gend">${t('প্রারম্ভিক পরিমাণ','Opening qty')}</th><th colspan="2" class="gr gend">${t('প্রারম্ভিক দর','Opening rate')}</th>
           <th rowspan="2">${t('প্রারম্ভিক মূল্য','Opening value')}</th><th rowspan="2">${t('অবস্থা','Status')}</th><th rowspan="2"></th></tr>
@@ -2854,8 +2873,30 @@ async function renderItemMasterPage(content) {
       </thead><tbody>${body}</tbody>
       <tfoot><tr><td class="im-hide-m"></td><td class="fz">${t('মোট', 'Total')}<div><small>${t('দর = গড়', 'rate = average')}</small></div></td><td class="im-hide-m"></td><td class="im-hide-m"></td><td></td><td></td><td class="im-hide-m"></td>
         <td class="r gstart">${q3(tKg)}</td><td class="r gend">${q3(tPc)}</td><td class="r">${m2(rk)}</td><td class="r gend">${m2(rp)}</td><td class="r">${tVal.toFixed(2)}</td><td></td><td></td></tr></tfoot></table>`;
+    imSyncHead();
     // দ্বিতীয় হেডার-সারি ঠিক প্রথমটার নিচে (আসল উচ্চতা মেপে)
     fitImHead(); requestAnimationFrame(fitImHead); setTimeout(fitImHead, 250);
+  }
+  function imSyncHead() {
+    const wrap = document.getElementById('itemTableWrap'); if (!wrap) return;
+    const all = wrap.querySelector('#imChkAll'); if (!all) return;
+    const boxes = wrap.querySelectorAll('input.im-chk'), on = Array.prototype.filter.call(boxes, function (b) { return b.checked; }).length;
+    all.checked = boxes.length > 0 && on === boxes.length; all.indeterminate = on > 0 && on < boxes.length;
+  }
+  /* টিক বদলালেঃ তালিকা (system_settings → SalesItemHidden) আধা সেকেন্ড পরে একবারে সেভ — স্টক ওভারভিউ ও বিক্রয় ভাউচার এটাই পড়ে */
+  let imSaveTimer = null;
+  function imSaveHidden() {
+    clearTimeout(imSaveTimer);
+    imSaveTimer = setTimeout(async function () {
+      try { await salesItemHiddenSave(window.__soSalesHidden); showToast(t('সেভ হয়েছে — স্টক ওভারভিউ ও বিক্রয় ভাউচারে শুধু টিক দেওয়া আইটেম', 'Saved — Stock Overview and sales voucher show ticked items only'), 'success'); if (window.__stockOverviewRerender) window.__stockOverviewRerender(); }
+      catch (err) { showToast(t('সেভ হয়নিঃ ', 'Not saved: ') + err.message, 'error'); }
+    }, 500);
+  }
+  function imApply(itemId, on) {
+    if (!window.__soSalesHidden) window.__soSalesHidden = new Set();
+    if (on) window.__soSalesHidden.delete(itemId); else window.__soSalesHidden.add(itemId);
+    const wrap = document.getElementById('itemTableWrap'); if (!wrap) return;
+    wrap.querySelectorAll('input.im-chk').forEach(function (b) { if (b.getAttribute('data-item') !== itemId) return; b.checked = on; const tr = b.closest('tr'); if (tr) tr.classList.toggle('im-off', !on); });
   }
   // দ্বিতীয় হেডার-সারি (কেজি/পিস) ঠিক প্রথম সারির নিচে — প্রথম সারির আসল উচ্চতা মেপে; পেজ তখনো না দেখা গেলে পরে আবার
   function fitImHead() {
@@ -2871,6 +2912,15 @@ async function renderItemMasterPage(content) {
   window.__refreshItemList = loadList;
   document.getElementById('itemAddBtn').addEventListener('click', function () { openItemForm(null); });
   document.getElementById('imSearch').addEventListener('input', renderTable);
+  document.getElementById('imShowF').addEventListener('change', renderTable);
+  document.getElementById('itemTableWrap').addEventListener('change', function (e) {
+    const el = e.target; if (!el || el.type !== 'checkbox') return;
+    if (el.id === 'imChkAll') { const on = el.checked, seen = {}; document.querySelectorAll('#itemTableWrap input.im-chk').forEach(function (b) { const id = b.getAttribute('data-item'); if (!seen[id]) { seen[id] = true; imApply(id, on); } }); }
+    else if (el.classList.contains('im-chk')) imApply(el.getAttribute('data-item'), el.checked);
+    else return;
+    imSyncHead(); imSaveHidden();
+    const f = document.getElementById('imShowF'); if (f && f.value !== 'all') setTimeout(renderTable, 700);   // "টিক দেওয়া/ছাড়া" ছাঁকনিতে তালিকা হালনাগাদ
+  });
   document.getElementById('itemTableWrap').addEventListener('click', async function (e) {
     const b = e.target.closest('[data-im]'); if (!b || b.disabled) return;
     const id = b.getAttribute('data-id'), act = b.getAttribute('data-im'), rec = itemById[id];
@@ -15731,7 +15781,7 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
   window.__sv3FieldSet = null;   // আগের খোলা ফর্মের সেটিং যেন না লাগে — নতুন করে পড়া হবে
   window.__sv3SchedulePreview = null;   // আগের ফর্মের প্রিভিউ যেন না চলে
   const svSetP = svFieldSettingsLoad();   // বিক্রয় ভাউচার সেটিং — কোন ঘর চালু/বন্ধ
-  const svHiddenP = salesItemHiddenLoad();   // স্টক ওভারভিউর চেকবক্সঃ টিক না থাকা আইটেম তালিকায় নেই
+  const svHiddenP = salesItemHiddenLoad();   // আইটেম মাস্টারের চেকবক্সঃ টিক না থাকা আইটেম তালিকায় নেই
   const svData = await cachedListMultiple(['Customers', 'Items', 'ItemGroups', 'Categories', 'UOM', 'Warehouses', 'BankCashAccounts', 'ExpenseCategories']);
   const customers = svData.Customers, items = svData.Items,
         groups = svData.ItemGroups, categories = svData.Categories, units = svData.UOM, warehouses = svData.Warehouses,
@@ -17148,14 +17198,13 @@ function stockOverviewTableHtml(rows, fromDate, toDate, forPrint) {
   const body = rows.map(function (R) {
     const c = R.c; tIn += R.val(c.inKg, c.inPc); tOut += R.val(c.outKg, c.outPc); tBal += R.val(c.balKg, c.balPc); if (R.profit) tPf += R.profit;
     acc(G.in, c.inKg, c.inPc, R.val(c.inKg, c.inPc)); acc(G.out, c.outKg, c.outPc, R.val(c.outKg, c.outPc)); acc(G.bal, c.balKg, c.balPc, R.val(c.balKg, c.balPc));
-    const soOn = !(window.__soSalesHidden && window.__soSalesHidden.has(String(c.ItemID)));
-    const soChk = forPrint ? '' : `<label class="so-cl" title="${attr(t('টিক = বিক্রয় ভাউচারের আইটেম তালিকায় দেখাবে', 'Ticked = shown in the sales voucher item list'))}"><input type="checkbox" class="so-chk" data-item="${attr(c.ItemID)}"${soOn ? ' checked' : ''}></label>`;
-    return `<tr${forPrint ? '' : ` class="so-row${soOn ? '' : ' so-off'}" data-item="${attr(c.ItemID)}" data-wh="${attr(c.WarehouseID)}"`}><td class="l fz">${soChk}${escapeHtml(R.item.ItemName || c.ItemID)}</td><td title="${attr(t('দরের উৎসঃ ', 'Rate from: ') + R.r.src)}">${escapeHtml(R.unit)}</td><td>${escapeHtml(R.wh)}</td>
+    const soOn = !(window.__soSalesHidden && window.__soSalesHidden.has(String(c.ItemID)));   // টিক আইটেম মাস্টারে; টিক ছাড়া আইটেম শুধু "সব আইটেম" চালু থাকলে আসে (ধূসর)
+    return `<tr${forPrint ? '' : ` class="so-row${soOn ? '' : ' so-off'}" data-item="${attr(c.ItemID)}" data-wh="${attr(c.WarehouseID)}"`}><td class="l fz">${escapeHtml(R.item.ItemName || c.ItemID)}</td><td title="${attr(t('দরের উৎসঃ ', 'Rate from: ') + R.r.src)}">${escapeHtml(R.unit)}</td><td>${escapeHtml(R.wh)}</td>
       ${grp(R, c.inKg, c.inPc, false, 'gi')}${grp(R, c.outKg, c.outPc, false, 'go')}${showPf ? pfCell(R.profit) : ''}${grp(R, c.balKg, c.balPc, true, 'gb')}
       ${forPrint ? '' : `<td class="vw"><button type="button" class="so-eye" title="${attr(t('ভাউচার দেখুন — এডিট, ডিলিট, পোস্ট', 'Vouchers — edit, delete, post'))}" aria-label="${attr(t('দেখুন', 'View'))}" onclick='openStockItemVouchers(${JSON.stringify(c.ItemID)}, ${JSON.stringify(c.WarehouseID)}, ${JSON.stringify(fromDate)}, ${JSON.stringify(toDate)})'>👁️</button></td>`}</tr>`;
   }).join('');
   return `<table class="data-table so-tbl"><thead>
-      <tr class="h1"><th rowspan="2" class="fz">${forPrint ? '' : `<label class="so-cl" title="${attr(t('সব টিক / সব বাদ — বিক্রয় ভাউচারের আইটেম তালিকা', 'Tick / untick all — sales voucher item list'))}"><input type="checkbox" id="so_ChkAll"></label>`}${t('আইটেম', 'Item')}</th><th rowspan="2" title="${attr(t('যে এককে কেনা-বেচা হয়; মূল্য এই এককের দরে — ঘরে মোটা করে দেখানো', 'The unit it is bought/sold in; value uses this unit’s rate — shown in bold'))}">${t('মূল একক', 'Main unit')}</th><th rowspan="2">${t('ওয়্যারহাউজ', 'Warehouse')}</th>
+      <tr class="h1"><th rowspan="2" class="fz">${t('আইটেম', 'Item')}</th><th rowspan="2" title="${attr(t('যে এককে কেনা-বেচা হয়; মূল্য এই এককের দরে — ঘরে মোটা করে দেখানো', 'The unit it is bought/sold in; value uses this unit’s rate — shown in bold'))}">${t('মূল একক', 'Main unit')}</th><th rowspan="2">${t('ওয়্যারহাউজ', 'Warehouse')}</th>
         <th colspan="5" class="hi gend gstart">⬇ ${t('স্টক ইন', 'Stock in')}</th><th colspan="5" class="ho gend">⬆ ${t('স্টক আউট', 'Stock out')}</th>${showPf ? `<th rowspan="2" class="hpf" title="${attr(t('বিক্রয়ের নিট মূল্য − বিক্রি হওয়া মালের খরচ (এই সময়ে) — শুধু আপনি দেখেন, প্রিন্টে আসে না', 'Sales net − cost of goods sold (this period) — admin only, not printed'))}">📈 ${t('লাভ', 'Profit')}</th>` : ''}<th colspan="5" class="hb gend">= ${t('স্টক ব্যালান্স', 'Stock balance')}</th>${forPrint ? '' : `<th rowspan="2" class="vw">👁️</th>`}</tr>
       <tr class="h2">${sub('gi')}${sub('go')}${sub('gb')}</tr></thead>
     <tbody>${body}</tbody>
@@ -17361,11 +17410,17 @@ function soSalesCheckWire(wrap) {
   wrap.__soSyncHead = syncHead;
 }
 
+/** স্টক ওভারভিউঃ আইটেম মাস্টারে টিক দেওয়া আইটেমই দেখায়; "সব আইটেম" চালু থাকলে টিক ছাড়াগুলোও (ধূসর) — পর্দা ও প্রিন্ট দুটোতেই */
+function soVisibleRows(rows) {
+  if (window.__soShowAll) return rows;
+  const hid = window.__soSalesHidden; if (!hid || !hid.size) return rows;
+  return rows.filter(function (R) { return !hid.has(String(R.c.ItemID)); });
+}
 async function renderStockOverview(content) {
   const dNow = new Date(), today = dNow.getFullYear() + '-' + String(dNow.getMonth() + 1).padStart(2, '0') + '-' + String(dNow.getDate()).padStart(2, '0');
   const monthStart = await getFiscalYearStart(today);   // "হইতে" ডিফল্টঃ অর্থবছরের শুরু (01-07-2026)
   content.innerHTML = `
-    <style>${STOCK_OV_CSS} ${STOCK_OV_FREEZE_CSS} ${DMY_CSS} .so-dates label{font-size:11.5px;} .so-warn{background:#fff3e0;border:1px solid #f0b46a;color:#7a4300;border-radius:8px;padding:9px 12px;font-size:12.5px;margin-bottom:10px;} .so-legend{font-size:11.5px;color:var(--text-muted);margin-top:6px;} @media (max-width:760px){ .so-legend{font-size:10.5px;} }</style>
+    <style>${STOCK_OV_CSS} ${STOCK_OV_FREEZE_CSS} ${DMY_CSS} .so-dates label{font-size:11.5px;} .so-warn{background:#fff3e0;border:1px solid #f0b46a;color:#7a4300;border-radius:8px;padding:9px 12px;font-size:12.5px;margin-bottom:10px;} .so-legend{font-size:11.5px;color:var(--text-muted);margin-top:6px;} .so-all{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);cursor:pointer;white-space:nowrap;} .so-all input{width:16px;height:16px;margin:0;accent-color:#1f7a4d;} @media (max-width:760px){ .so-legend{font-size:10.5px;} }</style>
     <div class="page-head"><div>
         <h1 class="i18n" data-bn="স্টক ওভারভিউ" data-en="Stock Overview">${t('স্টক ওভারভিউ', 'Stock Overview')}</h1>
         <p>${t('নির্বাচিত সময়ের স্টক ইন/আউট এবং সামগ্রিক স্টক ব্যালান্স — কেজি ও পিস আলাদা', 'Stock in/out for the period and overall balance — kg and pcs separately')}</p>
@@ -17374,14 +17429,15 @@ async function renderStockOverview(content) {
         <div class="field so-dates" style="margin:0;"><label>${t('তারিখ হইতে', 'Date from')}</label>${dmyDateField('so_DateFrom', monthStart)}</div>
         <div class="field so-dates" style="margin:0;"><label>${t('তারিখ পর্যন্ত', 'Date to')}</label>${dmyDateField('so_DateTo', today)}</div>
         <button class="btn btn-primary" style="width:auto;" id="so_ApplyBtn">${t('প্রয়োগ করুন', 'Apply')}</button>
+        <label class="so-all" title="${attr(t('আইটেম মাস্টারে টিক ছাড়া আইটেমগুলোও দেখাও (ধূসর)', 'Also show items unticked in Item Master (grey)'))}"><input type="checkbox" id="so_ShowAll"${window.__soShowAll ? ' checked' : ''}> ${t('সব আইটেম', 'All items')}</label>
         <button class="btn btn-outline" style="width:auto;" id="so_PrintBtn">🖨️ ${t('A4 প্রিন্ট', 'A4 Print')}</button>
       </div>
     </div>
     <div id="so_Warn"></div>
     <div class="panel"><div id="stockOverviewWrap"><div class="empty-state">${t('লোড হচ্ছে...', 'Loading...')}</div></div>
-      <div class="so-legend">${t('মূল একক = যে এককে আইটেম কেনা-বেচা হয়; মূল্য সেই এককের দরে, পরিমাণ মোটা করে দেখানো। দরঃ সর্বশেষ পোস্ট করা প্রসেসিং বা ক্রয় থেকে (না থাকলে স্ট্যান্ডার্ড কস্ট) — এককের ঘরে মাউস রাখলে উৎস দেখায়। লাল = মাইনাস ব্যালান্স।', 'Main unit = the unit it is traded in; value uses that unit’s rate (bold). Rates come from the latest posted processing or purchase (else standard cost). Red = negative balance.')}</div></div>`;
+      <div class="so-legend">${t('মূল একক = যে এককে আইটেম কেনা-বেচা হয়; মূল্য সেই এককের দরে, পরিমাণ মোটা করে দেখানো। দরঃ সর্বশেষ পোস্ট করা প্রসেসিং বা ক্রয় থেকে (না থাকলে স্ট্যান্ডার্ড কস্ট) — এককের ঘরে মাউস রাখলে উৎস দেখায়। লাল = মাইনাস ব্যালান্স। শুধু আইটেম মাস্টারে টিক দেওয়া আইটেম দেখায় — বাকিগুলো দেখতে "সব আইটেম"।', 'Main unit = the unit it is traded in; value uses that unit’s rate (bold). Rates come from the latest posted processing or purchase (else standard cost). Red = negative balance.')}</div></div>`;
   const [D, soHidden] = await Promise.all([stockOverviewData(), salesItemHiddenLoad()]);
-  window.__soSalesHidden = soHidden;   // টিক না থাকা আইটেম — বিক্রয় ভাউচারে দেখাবে না
+  window.__soSalesHidden = soHidden;   // আইটেম মাস্টারে টিক না থাকা আইটেম — এখানে ও বিক্রয় ভাউচারে দেখাবে না
   window.__stockOverviewLedger = D.ledger;
   window.__stockOverviewData = D;
   const warn = [];
@@ -17390,12 +17446,11 @@ async function renderStockOverview(content) {
   document.getElementById('so_Warn').innerHTML = warn.length ? `<div class="so-warn">⚠️ ${warn.join(t(' আর ', ' and '))} ${t('এখনো পোস্ট হয়নি — এগুলোর স্টক এখানে যোগ হয়নি। মাইনাস দেখালে আগে এগুলো পোস্ট করুন।', 'not posted yet — their stock is not counted here. Post them first if you see negatives.')}</div>` : '';
   function renderReport(fromDate, toDate) {
     const wrap = document.getElementById('stockOverviewWrap'); if (!wrap) return;
-    const rows = stockOverviewRows(D, fromDate, toDate);
-    wrap.innerHTML = rows.length ? stockOverviewTableHtml(rows, fromDate, toDate, false) : `<div class="empty-state">${t('এই সময়ে কোনো স্টক মুভমেন্ট নেই।', 'No stock movement in this period.')}</div>`;
+    const rows = soVisibleRows(stockOverviewRows(D, fromDate, toDate));
+    wrap.innerHTML = rows.length ? stockOverviewTableHtml(rows, fromDate, toDate, false) : `<div class="empty-state">${t('এই সময়ে কোনো স্টক মুভমেন্ট নেই (আইটেম মাস্টারে টিক দেওয়া আইটেমের)।', 'No stock movement in this period (for ticked items).')}</div>`;
     // দ্বিতীয় হেডার-সারি ঠিক প্রথম সারির নিচে স্থির — প্রথম সারির আসল উচ্চতা মেপে (কম্পিউটার/মোবাইল দুটোতেই মেলে)
     const fitHead = function () { const h1 = wrap.querySelector('.so-tbl thead tr.h1'); if (!h1) return; const hh = Math.round(h1.getBoundingClientRect().height); wrap.querySelectorAll('.so-tbl thead tr.h2 th').forEach(function (th) { th.style.top = hh + 'px'; }); };
     fitHead(); requestAnimationFrame(fitHead);
-    soSalesCheckWire(wrap); if (wrap.__soSyncHead) wrap.__soSyncHead();
     if (!window.__soFitWired) { window.__soFitWired = true; window.addEventListener('resize', function () { const w2 = document.getElementById('stockOverviewWrap'); if (w2) { const h1 = w2.querySelector('.so-tbl thead tr.h1'); if (h1) { const hh = Math.round(h1.getBoundingClientRect().height); w2.querySelectorAll('.so-tbl thead tr.h2 th').forEach(function (th) { th.style.top = hh + 'px'; }); } } }); }
   }
   renderReport(monthStart, today);
@@ -17413,6 +17468,7 @@ async function renderStockOverview(content) {
   });
   document.getElementById('so_ApplyBtn').addEventListener('click', function () {
     if ((document.getElementById('so_DateFrom').value && !dmyIso('so_DateFrom')) || (document.getElementById('so_DateTo').value && !dmyIso('so_DateTo'))) { showToast(t('তারিখ দিন-মাস-বছর আকারে দিন, যেমন 01-10-2026', 'Enter dates as dd-mm-yyyy, e.g. 01-10-2026'), 'error'); return; } renderReport(dmyIso('so_DateFrom') || monthStart, dmyIso('so_DateTo') || today); });
+  document.getElementById('so_ShowAll').addEventListener('change', function () { window.__soShowAll = this.checked; renderReport(dmyIso('so_DateFrom') || monthStart, dmyIso('so_DateTo') || today); });
   document.getElementById('so_PrintBtn').addEventListener('click', function () { openStockReportPrintView(dmyIso('so_DateFrom') || monthStart, dmyIso('so_DateTo') || today); });
 }
 
@@ -17760,7 +17816,8 @@ async function openStockItemVouchers(itemId, warehouseId, fromDate, toDate) {
 
 async function openStockReportPrintView(fromDate, toDate) {
   const D = window.__stockOverviewData || await stockOverviewData();
-  const rows = stockOverviewRows(D, fromDate, toDate);
+  if (!window.__soSalesHidden) window.__soSalesHidden = await salesItemHiddenLoad();
+  const rows = soVisibleRows(stockOverviewRows(D, fromDate, toDate));
   const html = `<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>স্টক রিপোর্ট ${escapeHtml(fromDate)} - ${escapeHtml(toDate)}</title>
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
