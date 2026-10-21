@@ -14042,6 +14042,68 @@ function voucherViewPostedApply(P, kind, dt, id) {
    শুধু-দেখার ঘর (পার্টি জের/ভাউচার বিক্রয়/নগদ/ব্যালান্স, স্টক, স্টক দর) বন্ধ থাকলে অংক দেখায় না।
    সেটিং থাকে system_settings টেবিলে, Key = 'SalesVoucherFields' (JSON) — নতুন SQL লাগে না।
    কোনো সেটিং না থাকলে সব ঘর চালু (আগের মতো)। প্রিন্ট/প্রিন্ট প্রিভিউতে কোনো প্রভাব নেই। ===== */
+/* ক্রয়/বিক্রয় ভাউচার — চিকন শিরোনাম ও উপরের অংশ, ডেস্কটপে উঁচু উইন্ডো (দর/মূল্য পর্যন্ত স্ক্রল ছাড়াই) */
+const SV_COMPACT_CSS = `
+  .modal:has(#sv3_TabEntryPanel),.modal:has(#pv3_TabEntryPanel){max-height:97vh;}
+  .modal:not(.modal-max):has(#sv3_TabEntryPanel),.modal:not(.modal-max):has(#pv3_TabEntryPanel){height:97vh;}
+  .modal-overlay:has(#sv3_TabEntryPanel),.modal-overlay:has(#pv3_TabEntryPanel){padding-top:1.5vh !important;padding-bottom:1.5vh !important;}
+  .modal:has(#sv3_TabEntryPanel) .modal-head,.modal:has(#pv3_TabEntryPanel) .modal-head{padding:6px 14px;}
+  .modal:has(#sv3_TabEntryPanel) .modal-foot,.modal:has(#pv3_TabEntryPanel) .modal-foot{padding:6px 14px;}
+  .modal:has(#sv3_TabEntryPanel) .modal-foot .btn,.modal:has(#pv3_TabEntryPanel) .modal-foot .btn{padding-top:7px;padding-bottom:7px;}
+  .modal:has(#sv3_TabEntryPanel) .modal-body,.modal:has(#pv3_TabEntryPanel) .modal-body{padding:8px 14px !important;scroll-behavior:auto;}
+  #sv3_Freeze,#pv3_Freeze{top:-8px;margin:-8px -14px 4px;padding:6px 14px 3px;box-shadow:0 4px 6px -6px rgba(0,0,0,.35);}
+  #sv3_Freeze .vnavh,#pv3_Freeze .vnavh{margin:0 0 3px;padding:1px 2px;font-size:12px;min-height:0;}
+  #sv3_Freeze .vnav,#pv3_Freeze .vnav{width:34px;height:20px;font-size:11px;border-radius:4px;}
+  #sv3_Freeze .vposted,#pv3_Freeze .vposted{margin:0 0 3px;padding:3px 6px;}
+  #sv3_Freeze .svt tr.h th,#pv3_Freeze .svt tr.h th{height:16px;padding:0 3px;font-size:11px;}
+  #sv3_Freeze .svt td.ps,#pv3_Freeze .svt td.ps{padding:1px;}
+  #sv3_Freeze .svt td.ps .vps-val,#pv3_Freeze .svt td.ps .vps-val{height:21px;}
+  #sv3_Freeze .svt td input:not([type=checkbox]),#sv3_Freeze .svt td select,#pv3_Freeze .svt td input:not([type=checkbox]),#pv3_Freeze .svt td select{height:23px;}
+  /* সংখ্যার ঘরে ▲▼ তীর নেই — জায়গা বাঁচে, ভুলে মাউস-চাকায় সংখ্যা বদলায় না */
+  :is(#sv3_TabEntryPanel,#pv3_TabEntryPanel) .svt input[type=number]{-moz-appearance:textfield;appearance:textfield;}
+  :is(#sv3_TabEntryPanel,#pv3_TabEntryPanel) .svt input[type=number]::-webkit-inner-spin-button,:is(#sv3_TabEntryPanel,#pv3_TabEntryPanel) .svt input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
+  @media (max-width:760px){
+    #sv3_Freeze,#pv3_Freeze{top:-8px;margin:-8px -8px 3px;padding:6px 8px 3px;}
+    .modal:has(#sv3_TabEntryPanel) .modal-body,.modal:has(#pv3_TabEntryPanel) .modal-body{padding:8px 8px !important;}
+    #sv3_Freeze .vnav,#pv3_Freeze .vnav{height:22px;width:36px;}
+  }`;
+
+/** ক্রয়/বিক্রয় ভাউচার — মসৃণ কাজঃ
+ *  ১) উপরের আটকানো অংশের নিচে ঘর লুকায় না (scroll-padding = আটকানো অংশের উচ্চতা)
+ *  ২) পরিমাণ / দর / মূল্য / কমিশনের কোনো ঘরে গেলে পুরো "পরিমান থেকে মূল্য (+)" অংশ একসাথে চোখের সামনে আসে — টানাটানি লাগে না
+ *  ৩) সংখ্যার ঘরে মাউস-চাকা ঘোরালে সংখ্যা বদলায় না, পাতা স্ক্রল হয় */
+function voucherSmoothWire(P) {
+  const body = document.getElementById('modalBody'), frz = document.getElementById(P + '_Freeze');
+  const panel = document.getElementById(P + '_TabEntryPanel');
+  if (!body || !frz || !panel) return;
+  const setPad = function () { body.style.scrollPaddingTop = (frz.offsetHeight + 4) + 'px'; };
+  setPad();
+  if (window.ResizeObserver) { const ro = new ResizeObserver(setPad); ro.observe(frz); }
+  const blockIds = ['_QtyPcs', '_QtyKg', '_RatePc', '_RateKg', '_Amount', '_CommRate', '_AvgRatePc', '_AvgRateKg'];
+  const visibleRows = function () {   // পরিমান-হেডার থেকে মূল্য-(+) সারি পর্যন্ত (লুকানো সারি বাদ)
+    const lbl = document.getElementById(P + '_LblPcs'), amt = document.getElementById(P + '_Amount');
+    const startRow = lbl ? lbl.closest('tr').previousElementSibling : null, endRow = amt ? amt.closest('tr') : null;
+    return { start: startRow && startRow.style.display !== 'none' ? startRow : (lbl ? lbl.closest('tr') : null), end: endRow };
+  };
+  panel.addEventListener('focusin', function (e) {
+    const el = e.target;
+    if (!el || !el.id || blockIds.indexOf(el.id.slice(P.length)) === -1) return;
+    setTimeout(function () {   // ব্রাউজারের নিজের স্ক্রলের পরে
+      const r = visibleRows(); if (!r.start || !r.end) return;
+      const top = body.getBoundingClientRect().top + frz.offsetHeight + 4, bottom = body.getBoundingClientRect().bottom - 4;
+      const a = r.start.getBoundingClientRect(), z = r.end.getBoundingClientRect(), me = el.getBoundingClientRect();
+      if (a.top >= top - 1 && z.bottom <= bottom + 1) return;   // পুরো অংশ আগেই দেখা যাচ্ছে
+      let delta = a.top - top;   // অংশের শুরু আটকানো অংশের ঠিক নিচে
+      if (z.bottom - delta > bottom && (z.bottom - a.top) > (bottom - top)) delta = me.top - top - 2;   // পর্দা ছোট হলে অন্তত এই ঘর
+      body.scrollTop += delta;
+    }, 30);
+  });
+  panel.addEventListener('wheel', function (e) {
+    const el = e.target;
+    if (el && el.type === 'number' && document.activeElement === el) { e.preventDefault(); body.scrollTop += e.deltaY; }
+  }, { passive: false });
+}
+
 /* বিক্রয় ভাউচার — টেবিল আকারের ইনপুট ফর্ম (ধূসর হেডার, নিচে ঘর)। শুধু স্ক্রিনে; প্রিন্ট আগের মতই */
 const SV_TABLE_CSS = `
   .svt{width:100%;table-layout:fixed;border-collapse:collapse;border:1.5px solid #4a4f57;margin:0 0 8px;background:var(--surface);}
@@ -14526,7 +14588,7 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
       </style>
       <div class="pv3-compact">
       <style>${VOUCHER_GRID_CSS}${VOUCHER_PSUM_CSS}</style>
-      <style>${SV_TABLE_CSS}</style>
+      <style>${SV_TABLE_CSS}${SV_COMPACT_CSS}</style>
       <div class="vfreeze" id="pv3_Freeze">
       ${voucherNavHeader('pv3', t('ক্রয় ভাউচার','Purchase Voucher'))}
       <div id="pv3_PostedBar" class="vposted" style="display:none;"></div>
@@ -15550,7 +15612,8 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
   pv3PanelWire();   // লাইভ প্রিভিউ পেনেল (আগের প্রিভিউ/তালিকা/প্রিন্ট বোতামের জায়গায়)
   renderRightSummary();
   showTab('entry');
-  vfsWire('pv3', pvSetP);   // ক্রয় ভাউচার সেটিং — টিক না থাকা ঘর দেখা যাবে না
+  vfsWire('pv3', pvSetP);
+  voucherSmoothWire('pv3');   // চিকন উপরের অংশ, দর/মূল্যে টানাটানি ছাড়া   // ক্রয় ভাউচার সেটিং — টিক না থাকা ঘর দেখা যাবে না
   if (pv3ViewPosted) voucherViewPostedApply('pv3', 'purchase', existingDocType, existingId);
   voucherNavWire('pv3', 'purchase', existingDocType, existingId);   // ◀ ▶ আগের/পরের ভাউচার
 }
@@ -15769,7 +15832,7 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
       </style>
       <div class="sv3-compact">
       <style>${VOUCHER_GRID_CSS}${VOUCHER_PSUM_CSS}</style>
-      <style>${SV_TABLE_CSS}</style>
+      <style>${SV_TABLE_CSS}${SV_COMPACT_CSS}</style>
       <div class="vfreeze" id="sv3_Freeze">
       ${voucherNavHeader('sv3', t('বিক্রয় ভাউচার','Sales Voucher'))}
       <div id="sv3_PostedBar" class="vposted" style="display:none;"></div>
@@ -16785,6 +16848,7 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
   renderRightSummary();
   showTab('entry');
   svFieldSettingsWire(svSetP);   // বিক্রয় ভাউচার সেটিং — বন্ধ ঘর এডিট করা যাবে না
+  voucherSmoothWire('sv3');   // চিকন উপরের অংশ, দর/মূল্যে টানাটানি ছাড়া
   if (sv3ViewPosted) voucherViewPostedApply('sv3', 'sales', existingDocType, existingId);
   voucherNavWire('sv3', 'sales', existingDocType, existingId);   // ◀ ▶ আগের/পরের ভাউচার
 }
