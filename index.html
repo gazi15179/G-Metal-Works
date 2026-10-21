@@ -643,8 +643,15 @@ async function actInsert(row) {
     const r = Object.assign({}, row);
     if (modes[i] === 'text') r.LogID = 'LOG-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
     if (modes[i] === 'num') r.LogID = Date.now() * 1000 + Math.floor(Math.random() * 1000);
-    try { const res = await __rawFrom('activity_log').insert(r); if (!res.error) { __actLogIdMode = modes[i]; return true; } } catch (e) {}
+    try {
+      const res = await __rawFrom('activity_log').insert(r);
+      if (!res.error) { __actLogIdMode = modes[i]; window.__actLastErr = ''; try { localStorage.removeItem('gmw.actErr'); } catch (e) {} return true; }
+      window.__actLastErr = res.error.message || String(res.error.code || 'unknown');
+    } catch (e) { window.__actLastErr = e.message || String(e); }
   }
+  // লগ সেভ হচ্ছে না — কারণটা রেখে দিই, যাতে কার্যকলাপ লগ পেজে দেখা যায় (আসল কাজ থামে না)
+  try { localStorage.setItem('gmw.actErr', new Date().toISOString() + ' | ' + window.__actLastErr); } catch (e) {}
+  if (PERM && PERM.admin && !window.__actErrShown) { window.__actErrShown = true; showToast('⚠️ কার্যকলাপ লগ সেভ হচ্ছে না: ' + window.__actLastErr, 'error'); }
   return false;
 }
 window.addEventListener('pagehide', function () { if (__actQ.length) actFlush(); });
@@ -20402,6 +20409,8 @@ async function renderActivityLog(content) {
         <div class="field"><label>${t('খুঁজুন', 'Search')}</label><input id="al_Q" placeholder="${attr(t('ভাউচার নং, আইটেম…', 'Voucher no, item…'))}"></div>
         <button class="btn btn-primary" id="al_Go">${t('দেখান', 'Show')}</button>
       </div>
+      <div style="display:flex;justify-content:flex-end;margin:-2px 0 6px;"><button class="btn btn-outline" id="al_Test" style="width:auto;margin:0;height:30px;padding:0 10px;font-size:12px;">🔧 ${t('লগ পরীক্ষা', 'Test log')}</button></div>
+      <div id="al_Diag" style="display:none;margin:4px 0 8px;padding:8px 10px;border:1px solid #fecaca;background:#fef2f2;color:#991b1b;border-radius:8px;font-size:12px;line-height:1.6;"></div>
       <div class="al-sum" id="al_Sum"></div>
       <div class="al-wrap" id="activityWrap"></div>
       <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">${t('এক ট্যাপে সারি বাছাই, দুই ট্যাপে বা 👁 দিয়ে বিস্তারিত। লগ নিরাপত্তার জন্য এডিট/ডিলিট করা যায় না।', 'Tap selects, double tap or 👁 shows details. Log entries cannot be edited or deleted.')}</div>
@@ -20459,6 +20468,17 @@ async function renderActivityLog(content) {
       if (e.key === 'Enter') { e.preventDefault(); if (id === 'al_Go' || id === 'al_Q') { document.getElementById('al_Go').click(); return; } document.getElementById(order[i + 1]).focus(); }
       else if (e.key === 'Escape' && i > 0) { e.preventDefault(); document.getElementById(order[i - 1]).focus(); }
     });
+  });
+  function diag(msg) { const d = document.getElementById('al_Diag'); if (!msg) { d.style.display = 'none'; return; } d.style.display = ''; d.innerHTML = msg; }
+  let savedErr = ''; try { savedErr = localStorage.getItem('gmw.actErr') || ''; } catch (e) {}
+  if (window.__actLastErr || savedErr) diag('⚠️ ' + t('এই ডিভাইসে কার্যকলাপ লগ সেভ হয়নি', 'Activity log could not be saved on this device') + ': <b>' + escapeHtml(window.__actLastErr || savedErr.split(' | ').slice(1).join(' | ')) + '</b><br>' + t('সমাধানঃ Supabase → SQL Editor-এ activity_log_fix.sql একবার চালান, তারপর "🔧 লগ পরীক্ষা" চাপুন।', 'Fix: run activity_log_fix.sql in Supabase SQL Editor, then press Test log.'));
+  document.getElementById('al_Test').addEventListener('click', async function () {
+    this.disabled = true;
+    const ok = await actInsert({ Action: 'পরীক্ষা', Details: actDevice() + ' থেকে লগ পরীক্ষা' });
+    if (!ok) { diag('⚠️ ' + t('লগ লেখা যায়নিঃ ', 'Could not write the log: ') + '<b>' + escapeHtml(window.__actLastErr || '') + '</b><br>' + t('Supabase → SQL Editor-এ activity_log_fix.sql চালান।', 'Run activity_log_fix.sql in Supabase.')); this.disabled = false; return; }
+    const { data, error } = await __rawFrom('activity_log').select('*').eq('Action', 'পরীক্ষা').order('Timestamp', { ascending: false }).limit(1);
+    if (error || !data || !data.length) { diag('⚠️ ' + t('লগ লেখা গেছে কিন্তু পড়া যাচ্ছে না', 'Written but cannot be read') + (error ? ': <b>' + escapeHtml(error.message) + '</b>' : '') + '<br>' + t('Supabase → SQL Editor-এ activity_log_fix.sql চালান।', 'Run activity_log_fix.sql in Supabase.')); this.disabled = false; return; }
+    diag(''); showToast(t('লগ ঠিকমতো কাজ করছে ✅', 'Activity log works ✅'), 'success'); this.disabled = false; load();
   });
   actSeenSet(new Date().toISOString()); const bd = document.getElementById('actBadge'); if (bd) { bd.classList.remove('show'); bd.textContent = ''; }
   load();
