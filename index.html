@@ -14242,7 +14242,7 @@ function vfsStockDisplay(P, set) {
 function vfsApply(P, set) {
   set = set || window['__' + P + 'FieldSet'];
   if (!document.getElementById(P + '_TabEntryPanel')) return;
-  if (!set) { const all = {}; vfsFields(P).forEach(function (f) { all[f[0]] = true; }); vfsStockDisplay(P, all); return; }   // সেটিং আসার আগে — সব চালু ধরে স্টক ঘর
+  if (!set) { const all = {}; vfsFields(P).forEach(function (f) { all[f[0]] = true; }); vfsStockDisplay(P, all); if (P === 'sv3' || P === 'pv3') vfsReflow(P, all); return; }   // সেটিং আসার আগে — সব চালু ধরে স্টক ঘর
   const C = VFS_CFG[P];
   const off = function (el) { if (!el) return; el.disabled = true; el.classList.add('vset-off'); el.title = t(C.bn + ' ভাউচার সেটিং-এ বন্ধ', 'Turned off in ' + C.en + ' Voucher Settings'); };
   vfsFields(P).forEach(function (f) {
@@ -14270,13 +14270,50 @@ function vfsApply(P, set) {
   vfsHide(P, set);
 }
 
+/** ক্রয়/বিক্রয় ভাউচারের টেবিল — টিক না থাকা ঘর পুরোপুরি সরে যায়, ডানের ঘর বাঁয়ে এসে জায়গা নেয়
+ *  (বাকি ঘরগুলো চওড়া হয়ে পুরো সারি ভরে)। টেবিল ১২ কলামের গ্রিড — ৪/৩/২/১টা ঘর সমান ভাগে বসে।
+ *  একটা "অংশ" = হেডার সারি(গুলো) + তার নিচের ঘরের সারি; এক অংশের সব সারি একই কলামে মিলে থাকে। */
+function vfsReflow(P, set) {
+  const panel = document.getElementById(P + '_TabEntryPanel'); if (!panel) return;
+  const shown = function (c) { const keys = (c.getAttribute('data-f') || '').split(' ').filter(Boolean); return !keys.length || !keys.every(function (k) { return set[k] === false; }); };
+  const cs = function (c) { if (!c.dataset.cs) c.dataset.cs = String(c.colSpan || 1); return Number(c.dataset.cs) || 1; };   // আসল (৪ কলামের) মাপ মনে রাখা
+  const layout = function (sec) {
+    const leaf = [false, false, false, false]; let pos = 0;
+    Array.prototype.forEach.call(sec[sec.length - 1].cells, function (c) { const n = cs(c), vis = shown(c); for (let i = 0; i < n; i++) leaf[pos + i] = vis; pos += n; });
+    const v = leaf.filter(Boolean).length;
+    sec.forEach(function (tr) {
+      tr.style.display = v ? '' : 'none';
+      let p = 0;
+      Array.prototype.forEach.call(tr.cells, function (c) {
+        const n = cs(c); let k = 0; for (let i = 0; i < n; i++) if (leaf[p + i]) k++; p += n;
+        c.classList.remove('svh');
+        if (!v) return;
+        if (!k) c.style.display = 'none';
+        else { c.style.display = ''; c.colSpan = k * (12 / v); }
+      });
+    });
+  };
+  panel.querySelectorAll('table.svt').forEach(function (tbl) {
+    const cg = tbl.querySelector('colgroup');
+    if (cg && cg.children.length !== 12) cg.innerHTML = '<col>'.repeat(12);
+    let sec = [];
+    Array.prototype.forEach.call(tbl.rows, function (tr) {
+      sec.push(tr);
+      if (!tr.classList.contains('h') && !tr.classList.contains('h2')) { layout(sec); sec = []; }
+    });
+    if (sec.length) layout(sec);
+  });
+  ['Jer', 'Vch', 'Cash', 'Bal'].forEach(function (k) { voucherPsFit(document.getElementById(P + '_Ps' + k + 'Box')); });   // চওড়া বদলালে টাকার লেখা আবার মাপে
+}
+
 /** টিক না থাকা ঘর ভাউচারে দেখা যায় না — টেবিলের হেডার ও ঘর ফাঁকা; একটা সারির সব ঘর বন্ধ হলে পুরো সারিই লুকায়। */
 function vfsHide(P, set) {
-  document.querySelectorAll('#modalBody .svt [data-f]').forEach(function (c) {
+  if (P === 'sv3' || P === 'pv3') vfsReflow(P, set);   // ডানের ঘর বাঁয়ে সরে আসে
+  else document.querySelectorAll('#modalBody .svt [data-f]').forEach(function (c) {
     const keys = c.getAttribute('data-f').split(' ');
     c.classList.toggle('svh', keys.every(function (k) { return set[k] === false; }));
   });
-  document.querySelectorAll('#modalBody .svt tr').forEach(function (tr) {
+  if (P !== 'sv3' && P !== 'pv3') document.querySelectorAll('#modalBody .svt tr').forEach(function (tr) {
     const cells = tr.children;
     tr.style.display = (cells.length && Array.prototype.every.call(cells, function (c) { return c.classList.contains('svh'); })) ? 'none' : '';
   });
