@@ -14495,12 +14495,12 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
       <div id="pv3_PostedBar" class="vposted" style="display:none;"></div>
       <table class="svt">
         <colgroup><col><col><col><col></colgroup>
+        <tr class="h"><th data-f="jer">${t('পার্টি জের','Party opening')}</th><th data-f="vch">${t('ভাউচার ক্রয়','Voucher purchase')}</th><th data-f="vcash">${t('ভাউচার নগদ','Voucher cash')}</th><th data-f="vbal">${t('ভাউচার ব্যালান্স','Voucher balance')}</th></tr>
+        <tr id="pv3_PartySum">${['Jer','Vch','Cash','Bal'].map(function (k) { return `<td class="ps${k === 'Bal' ? ' vps-bal' : ''}" data-f="${({Jer:'jer',Vch:'vch',Cash:'vcash',Bal:'vbal'})[k]}"><div class="vps-val" id="pv3_Ps${k}Box"><b id="pv3_Ps${k}">0.00</b><span id="pv3_Ps${k}T" class="vps-tag zero"></span></div></td>`; }).join('')}</tr>
         <tr class="h"><th data-f="zone">${t('পার্টি জোন','Party zone')}<input type="checkbox" id="pv3_ZoneCheck" checked class="vhide" tabindex="-1"></th><th colspan="2" data-f="cust">${t('পার্টির নাম','Party name')}</th><th data-f="mobile">${t('পার্টি মোবাইল','Party mobile')}</th></tr>
         <tr><td data-f="zone"><select id="pv3_ZoneFilter"><option value="">${t('সব জোন','All Zones')}</option>${pv3ZoneList.map(function(z){return `<option value="${attr(z)}">${escapeHtml(z)}</option>`;}).join('')}</select></td>
           <td colspan="2" class="tl" data-f="cust"><select id="pv3_SupplierID"><option value="">—</option>${suppliers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.SupplierID)}" data-zone="${attr(r.Zone||'')}" ${rec.SupplierID===r.SupplierID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select></td>
           <td data-f="mobile"><input id="pv3_PartyMobile" readonly tabindex="-1" class="ro" placeholder="${attr(t('অটো','Auto'))}"></td></tr>
-        <tr class="h"><th data-f="jer">${t('পার্টি জের','Party opening')}</th><th data-f="vch">${t('ভাউচার ক্রয়','Voucher purchase')}</th><th data-f="vcash">${t('ভাউচার নগদ','Voucher cash')}</th><th data-f="vbal">${t('ভাউচার ব্যালান্স','Voucher balance')}</th></tr>
-        <tr id="pv3_PartySum">${['Jer','Vch','Cash','Bal'].map(function (k) { return `<td class="ps${k === 'Bal' ? ' vps-bal' : ''}" data-f="${({Jer:'jer',Vch:'vch',Cash:'vcash',Bal:'vbal'})[k]}"><div class="vps-val" id="pv3_Ps${k}Box"><b id="pv3_Ps${k}">0.00</b><span id="pv3_Ps${k}T" class="vps-tag zero"></span></div></td>`; }).join('')}</tr>
       </table>
       <input type="hidden" id="pv3_SupplierBalance">
       </div>
@@ -15738,12 +15738,12 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
       <div id="sv3_PostedBar" class="vposted" style="display:none;"></div>
       <table class="svt">
         <colgroup><col><col><col><col></colgroup>
+        <tr class="h"><th data-f="jer">${t('পার্টি জের','Party opening')}</th><th data-f="vch">${t('ভাউচার বিক্রয়','Voucher sales')}</th><th data-f="vcash">${t('ভাউচার নগদ','Voucher cash')}</th><th data-f="vbal">${t('ভাউচার ব্যালান্স','Voucher balance')}</th></tr>
+        <tr id="sv3_PartySum">${['Jer','Vch','Cash','Bal'].map(function (k) { return `<td class="ps${k === 'Bal' ? ' vps-bal' : ''}" data-f="${({Jer:'jer',Vch:'vch',Cash:'vcash',Bal:'vbal'})[k]}"><div class="vps-val" id="sv3_Ps${k}Box"><b id="sv3_Ps${k}">0.00</b><span id="sv3_Ps${k}T" class="vps-tag zero"></span></div></td>`; }).join('')}</tr>
         <tr class="h"><th data-f="zone">${t('পার্টি জোন','Party zone')}<input type="checkbox" id="sv3_ZoneCheck" checked class="vhide" tabindex="-1"></th><th colspan="2" data-f="cust">${t('পার্টির নাম','Party name')}</th><th data-f="mobile">${t('পার্টি মোবাইল','Party mobile')}</th></tr>
         <tr><td data-f="zone"><select id="sv3_ZoneFilter"><option value="">${t('সব জোন','All Zones')}</option>${sv3ZoneList.map(function(z){return `<option value="${attr(z)}">${escapeHtml(z)}</option>`;}).join('')}</select></td>
           <td colspan="2" class="tl" data-f="cust"><select id="sv3_CustomerID"><option value="">—</option>${customers.filter(function(r){return r.Status!=='Deleted';}).map(function(r){const label=(r.CompanyName||r.Name)+(r.Zone?' — '+r.Zone:'');return `<option value="${attr(r.CustomerID)}" data-zone="${attr(r.Zone||'')}" ${rec.CustomerID===r.CustomerID?'selected':''}>${escapeHtml(label)}</option>`;}).join('')}</select></td>
           <td data-f="mobile"><input id="sv3_PartyMobile" readonly tabindex="-1" class="ro" placeholder="${attr(t('অটো','Auto'))}"></td></tr>
-        <tr class="h"><th data-f="jer">${t('পার্টি জের','Party opening')}</th><th data-f="vch">${t('ভাউচার বিক্রয়','Voucher sales')}</th><th data-f="vcash">${t('ভাউচার নগদ','Voucher cash')}</th><th data-f="vbal">${t('ভাউচার ব্যালান্স','Voucher balance')}</th></tr>
-        <tr id="sv3_PartySum">${['Jer','Vch','Cash','Bal'].map(function (k) { return `<td class="ps${k === 'Bal' ? ' vps-bal' : ''}" data-f="${({Jer:'jer',Vch:'vch',Cash:'vcash',Bal:'vbal'})[k]}"><div class="vps-val" id="sv3_Ps${k}Box"><b id="sv3_Ps${k}">0.00</b><span id="sv3_Ps${k}T" class="vps-tag zero"></span></div></td>`; }).join('')}</tr>
       </table>
       <input type="hidden" id="sv3_CustomerBalance">
       </div>
