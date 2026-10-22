@@ -12222,6 +12222,11 @@ async function renderProductionVoucherPage(content) {
                 : { on: false, date: today, qty: '', wh: mainWh, rate: '', value: '', basis: 'rate', fg: [''] };
   };
   const st = { date: today, rm: [newLine(null)] };
+  // উৎপাদন খরচের খাত
+  const PC_HEADS = [['কর্মচারী', 'Workers'], ['বিবিধ খরচ', 'Misc. costs'], ['মেশিনারিজ', 'Machinery'], ['ডাই', 'Dies']];
+  const headOpts = function (sel) { return `<option value="">${t('— খাত —', '— head —')}</option>` + PC_HEADS.map(function (h) { return `<option value="${attr(h[0])}" ${h[0] === sel ? 'selected' : ''}>${escapeHtml(t(h[0], h[1]))}</option>`; }).join(''); };
+  const newPC = function (prev) { return prev ? { date: prev.date, qty: prev.qty, head: '', rate: '', value: '', basis: 'rate' } : { date: today, qty: '', head: '', rate: '', value: '', basis: 'rate' }; };
+  st.pc = [newPC(null)];
 
   content.innerHTML = `
     <style>${VOUCHER_GRID_CSS}
@@ -12240,7 +12245,7 @@ async function renderProductionVoucherPage(content) {
       .prv-tbl input[type=number]{text-align:right;-moz-appearance:textfield;}
       .prv-tbl input[type=number]::-webkit-outer-spin-button,.prv-tbl input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
       .prv-tbl .w-date{width:118px;} .prv-tbl .w-date .dmy-in{height:28px;font-size:12px;padding:2px 26px 2px 6px;}
-      .prv-tbl .w-qty{width:72px;} .prv-tbl .w-wh{width:84px;} .prv-tbl .w-rate{width:72px;} .prv-tbl .w-val{width:88px;} .prv-tbl .w-fg{width:118px;}
+      .prv-tbl .w-qty{width:72px;} .prv-tbl .w-wh{width:84px;} .prv-tbl .w-rate{width:72px;} .prv-tbl .w-val{width:88px;} .prv-tbl .w-fg{width:118px;} .prv-tbl .w-head{width:112px;}
       .prv-tbl input.ov{border-color:#c27a12;box-shadow:inset 0 0 0 1px #c27a12;}
       .prv-fg{display:flex;align-items:center;gap:3px;flex-wrap:nowrap;}
       .prv-fgx{border:0;background:transparent;color:var(--danger);cursor:pointer;font-size:12px;padding:0 2px;}
@@ -12253,7 +12258,7 @@ async function renderProductionVoucherPage(content) {
       @media (max-width:760px){
         .prv .panel{padding:8px;}
         .prv-tbl input,.prv-tbl select{height:26px;font-size:11.5px;}
-        .prv-tbl .w-date{width:108px;} .prv-tbl .w-qty{width:60px;} .prv-tbl .w-wh{width:72px;} .prv-tbl .w-rate{width:60px;} .prv-tbl .w-val{width:76px;} .prv-tbl .w-fg{width:104px;}
+        .prv-tbl .w-date{width:108px;} .prv-tbl .w-qty{width:60px;} .prv-tbl .w-wh{width:72px;} .prv-tbl .w-rate{width:60px;} .prv-tbl .w-val{width:76px;} .prv-tbl .w-fg{width:104px;} .prv-tbl .w-head{width:100px;}
         .prv-b{width:24px;height:24px;}
       }
     </style>
@@ -12267,6 +12272,8 @@ async function renderProductionVoucherPage(content) {
       </div>
       <div class="prv-sec">${t('কাঁচামাল', 'Raw material')} <small id="prv_SelInfo"></small></div>
       <div class="prv-tw" id="prv_RM"></div>
+      <div class="prv-sec" style="margin-top:14px;">${t('উৎপাদন খরচ', 'Production cost')}</div>
+      <div class="prv-tw" id="prv_PC"></div>
     </div></div>`;
 
   function lineValue(l) { return l.basis === 'value' ? n(l.value) : n(l.qty) * n(l.rate); }
@@ -12298,6 +12305,7 @@ async function renderProductionVoucherPage(content) {
     let q = 0, v = 0; st.rm.forEach(function (l) { q += n(l.qty); v += lineValue(l); });
     const tq = $('prv_TQty'), tr = $('prv_TRate'), tv = $('prv_TVal');
     if (tq) tq.textContent = show(q) || '0'; if (tr) tr.textContent = q > 0 && v > 0 ? (v / q).toFixed(2) : '—'; if (tv) tv.textContent = v.toFixed(2);
+    if ($('prv_PVal')) pcTotals();   // কাঁচামালের কেজি বদলালে প্রতি কেজি খরচও
     const on = st.rm.filter(function (l) { return l.on; }).length;
     $('prv_SelInfo').textContent = on ? t('নির্বাচিত লাইনঃ ', 'Selected: ') + on : '';
   }
@@ -12341,9 +12349,65 @@ async function renderProductionVoucherPage(content) {
     const i = Number(el.getAttribute('data-i')), k = Number(el.getAttribute('data-k'));
     if (i === st.rm.length - 1 && k === st.rm[i].fg.length - 1) setTimeout(function () { st.rm.push(newLine(st.rm[i])); render(`tbody tr:nth-child(${i + 2}) [data-f="qty"]`); }, 0);
   });
+  // ---------- উৎপাদন খরচঃ ক্রঃ | তারিখ | পরিমাণ | মজুরি খাত | দর | মূল্য ----------
+  function renderPC(focus) {
+    $('prv_PC').innerHTML = `<table class="prv-tbl"><thead><tr><th class="sk1">${t('ক্রঃ', 'No.')}</th>
+        <th>${t('তারিখ', 'Date')}</th><th>${t('পরিমাণ (কেজি)', 'Qty (kg)')}</th><th>${t('মজুরি খাত', 'Cost head')}</th><th>${t('দর', 'Rate')}</th><th>${t('মূল্য', 'Value')}</th><th></th></tr></thead><tbody>
+      ${st.pc.map(function (l, i) {
+        const v = lineValue(l), r = lineRate(l);
+        return `<tr><td class="sk1">${i + 1}</td>
+          <td class="w-date"><input type="date" data-p="${i}" data-f="date" value="${attr(l.date)}" class="w-date"></td>
+          <td><input type="number" step="any" min="0" inputmode="decimal" data-p="${i}" data-f="qty" value="${attr(l.qty)}" class="w-qty"></td>
+          <td><select data-p="${i}" data-f="head" class="w-head">${headOpts(l.head)}</select></td>
+          <td><input type="number" step="any" min="0" inputmode="decimal" data-p="${i}" data-f="rate" value="${attr(l.basis === 'value' ? (r ? r.toFixed(2) : '') : l.rate)}" class="w-rate ${l.basis === 'rate' && l.rate ? 'ov' : ''}"></td>
+          <td><input type="number" step="any" min="0" inputmode="decimal" data-p="${i}" data-f="value" value="${attr(l.basis === 'value' ? l.value : (v ? v.toFixed(2) : ''))}" class="w-val ${l.basis === 'value' && l.value ? 'ov' : ''}"></td>
+          <td style="white-space:nowrap;"><button type="button" class="prv-b del" data-pdel="${i}" title="${attr(t('লাইন মুছুন', 'Remove line'))}">✕</button> <button type="button" class="prv-b plus" data-padd="${i}" title="${attr(t('নিচে একটা লাইন যোগ', 'Add a line below'))}">＋</button></td></tr>`;
+      }).join('')}</tbody>
+      <tfoot><tr><td class="sk1"></td><td>${t('মোট', 'Total')} (${st.pc.length})</td><td class="r" id="prv_PQty"></td><td></td><td class="r" id="prv_PRate"></td><td class="r" id="prv_PVal"></td><td></td></tr></tfoot></table>`;
+    pcTotals();
+    if (focus) { const el = $('prv_PC').querySelector(focus); if (el) el.focus(); }
+  }
+  function pcTotals() {
+    // একই কেজির উপর কয়েক খাত — তাই পরিমাণ যোগ নয়; দরের ঘরে প্রতি কেজি খরচ = মোট খরচ ÷ কাঁচামালের মোট কেজি
+    let v = 0; st.pc.forEach(function (l) { v += lineValue(l); });
+    const rawKg = st.rm.reduce(function (s2, l) { return s2 + n(l.qty); }, 0);
+    const tq = $('prv_PQty'), tr = $('prv_PRate'), tv = $('prv_PVal');
+    if (tq) tq.textContent = rawKg ? t('কাঁচামাল ', 'raw ') + (show(rawKg) || '0') : '—';
+    if (tr) { tr.textContent = rawKg > 0 && v > 0 ? (v / rawKg).toFixed(2) + t('/কেজি', '/kg') : '—'; tr.title = t('প্রতি কেজি খরচ = মোট খরচ ÷ কাঁচামালের মোট কেজি', 'Cost per kg = total cost ÷ total raw kg'); }
+    if (tv) tv.textContent = v.toFixed(2);
+  }
+  const pbox = $('prv_PC');
+  pbox.addEventListener('input', function (e) {
+    const el = e.target, f = el.getAttribute('data-f'); if (!f || f === 'head') return;
+    const i = Number(el.getAttribute('data-p')), l = st.pc[i];
+    if (f === 'rate') { l.rate = el.value; l.basis = 'rate'; }
+    else if (f === 'value') { l.value = el.value; l.basis = el.value === '' ? 'rate' : 'value'; if (l.basis === 'value') l.rate = ''; }
+    else l[f] = el.value;
+    const tr = pbox.querySelectorAll('tbody tr')[i], re = tr.querySelector('[data-f="rate"]'), ve = tr.querySelector('[data-f="value"]');
+    if (l.basis === 'value') { const r = lineRate(l); if (document.activeElement !== re) re.value = r ? r.toFixed(2) : ''; }
+    else { const v = lineValue(l); if (document.activeElement !== ve) ve.value = v ? v.toFixed(2) : ''; }
+    re.classList.toggle('ov', l.basis === 'rate' && !!l.rate); ve.classList.toggle('ov', l.basis === 'value' && !!l.value);
+    pcTotals();
+  });
+  pbox.addEventListener('change', function (e) {
+    const el = e.target, f = el.getAttribute('data-f'); if (!f) return;
+    const l = st.pc[Number(el.getAttribute('data-p'))]; if (f === 'head' || f === 'date') l[f] = el.value;
+  });
+  pbox.addEventListener('click', function (e) {
+    const a = e.target.closest('[data-padd]'), d = e.target.closest('[data-pdel]');
+    if (a) { const i = Number(a.getAttribute('data-padd')); st.pc.splice(i + 1, 0, newPC(st.pc[i])); renderPC(`tbody tr:nth-child(${i + 2}) [data-f="head"]`); return; }
+    if (d) { const i = Number(d.getAttribute('data-pdel')); st.pc.splice(i, 1); if (!st.pc.length) st.pc.push(newPC(null)); renderPC(); }
+  });
+  // শেষ লাইনের মূল্যের ঘরে Enter = নতুন লাইন
+  pbox.addEventListener('keydown', function (e) {
+    const el = e.target; if (e.key !== 'Enter' || el.getAttribute('data-f') !== 'value') return;
+    const i = Number(el.getAttribute('data-p'));
+    if (i === st.pc.length - 1) setTimeout(function () { st.pc.push(newPC(st.pc[i])); renderPC(`tbody tr:nth-child(${i + 2}) [data-f="head"]`); }, 0);
+  });
+
   $('prv_Date').addEventListener('change', function () { st.date = this.value; });
   wireSequentialKeyNav($('prv_Form'));
-  render();
+  render(); renderPC();
 }
 
 async function renderProcessingPage(content) {
