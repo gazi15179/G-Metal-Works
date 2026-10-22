@@ -4269,15 +4269,20 @@ async function payvPrint(K, rec, ctx) {
       <tr class="grand-all"><td colspan="3" class="r">নীট ${K.netBn}ঃ (${escapeHtml(ctx.accLabel || '')})</td><td class="r">${M(net)}</td></tr>
     </tbody>
   </table>
-  <div class="v-sum"><table>
-    <tr><td class="k" colspan="3">পূর্বের জেরঃ</td><td class="v">${DC(jer)}</td></tr>
-    ${disc
-      // ডিসকাউন্ট আলাদা লাইনে — নীট (নগদ/ব্যাংক) আর ডিসকাউন্ট দুটোই জের থেকে বাদ; বর্তমান জের = পূর্বের জের − নীট − ডিসকাউন্ট
-      ? `<tr><td class="k" colspan="3">${K.netBn}ঃ (${escapeHtml(ctx.accLabel || '')})</td><td class="v">${DC(K.sign * net)}</td></tr>
-    <tr><td class="k" colspan="3">ডিসকাউন্টঃ</td><td class="v">${DC(K.sign * disc)}</td></tr>`
-      : `<tr><td class="k" colspan="3">${K.vchBn}ঃ</td><td class="v">${DC(eff)}</td></tr>`}
-    <tr class="thick big"><td class="k" colspan="3">বর্তমান জেরঃ</td><td class="v">${DC(bal)}</td></tr>
-    <tr><td class="k" colspan="3">${(isSup ? bal < 0 : bal > 0) || !Math.round(bal * 100) ? 'অবশিষ্ট বকেয়াঃ' : 'অগ্রিমঃ'}</td><td class="v">${dueTxt(bal)}</td></tr>
+  <div class="v-sum"><table class="v-dcb">
+    <tr class="hd"><td class="k">বিবরণ</td><td class="n">ডেবিট</td><td class="n">ক্রেডিট</td><td class="n">ব্যালান্স</td></tr>
+    <tr><td class="k">পূর্বের জেরঃ</td><td class="n"></td><td class="n"></td><td class="n b">${DC(jer)}</td></tr>
+    ${(function () {
+      // ডেবিট-ক্রেডিট-ব্যালান্সঃ প্রতিটা লাইনের টাকা নিজের দিকে, পাশে তার পরের ব্যালান্স; ডিসকাউন্ট আলাদা লাইনে
+      const lines = disc ? [[K.netBn + 'ঃ (' + (ctx.accLabel || '') + ')', net], ['ডিসকাউন্টঃ', disc]] : [[K.vchBn + 'ঃ', gross]];
+      let run = jer;
+      return lines.map(function (x) {
+        run += K.sign * x[1];
+        return `<tr><td class="k">${escapeHtml(x[0])}</td><td class="n">${K.sign > 0 ? M(x[1]) : ''}</td><td class="n">${K.sign < 0 ? M(x[1]) : ''}</td><td class="n b">${DC(run)}</td></tr>`;
+      }).join('');
+    })()}
+    <tr class="thick big"><td class="k">মোট / বর্তমান জেরঃ</td><td class="n">${M(K.sign > 0 ? gross : 0)}</td><td class="n">${M(K.sign < 0 ? gross : 0)}</td><td class="n">${DC(bal)}</td></tr>
+    <tr><td class="k">${(isSup ? bal < 0 : bal > 0) || !Math.round(bal * 100) ? 'অবশিষ্ট বকেয়াঃ' : 'অগ্রিমঃ'}</td><td class="n"></td><td class="n"></td><td class="n b">${dueTxt(bal)}</td></tr>
   </table></div>
   <div class="sign-row"><div>${K.sign1}</div><div>অথরাইজেশন স্বাঃ<br>${escapeHtml(currentUser ? (currentUser.FullName || '') : '')}</div><div>প্রস্তুতকারীর স্বাঃ<br>${escapeHtml(currentUser ? (currentUser.FullName || '') : '')}</div></div>
 </body></html>`;
@@ -5787,6 +5792,7 @@ async function renderCostHeadLedger(content) {
       .chl .chl-bar{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;margin:0 0 10px;}
       .chl .chl-bar label{font-size:11.5px;color:var(--text-muted);display:flex;align-items:center;gap:4px;margin:0;}
       .chl .chl-bar .dmy-in{width:112px !important;height:30px;font-size:12px;}
+      @media (max-width:760px){ .chl .chl-bar label:first-child{width:100%;} .chl .chl-bar #chl_Head{flex:1;min-width:0;} }
       .chl .chl-bar .btn{width:auto;height:32px;padding:0 12px;margin:0;font-size:12.5px;}
       .chl h4{margin:12px 0 6px;font-size:13px;}
       .chl .chl-sel td{background:#fff1b8 !important;}
@@ -5809,6 +5815,7 @@ async function renderCostHeadLedger(content) {
     <div class="payv chl">
       <div class="page-head"><div><h1>${t('খরচ খাত লেজার', 'Cost Head Ledger')}</h1><p>${t('দৈনিক উৎপাদনে ধরা খরচ ও মজুরি (বকেয়া) আর এক্সপেন্স ভাউচার / সেলারী ইস্যুতে দেওয়া টাকা (সমন্বয়) — খাতওয়ারি', 'Costs & wages charged in daily production (accrued) vs paid by expense vouchers / salary issues (settled) — per head')}</p></div></div>
       <div class="chl-bar">
+        <label>${t('খাত', 'Head')} <select id="chl_Head" style="height:32px;min-width:190px;max-width:100%;font-size:12.5px;"><option value="">${t('— সব খাত —', '— All heads —')}</option></select></label>
         <label>${t('হইতে', 'From')} <input type="date" id="chl_From" value="${attr(st.from)}"></label>
         <label>${t('পর্যন্ত', 'To')} <input type="date" id="chl_To" value="${attr(st.to)}"></label>
         <button type="button" class="btn btn-outline" id="chl_Refresh" data-perm-safe="1">🔄 ${t('রিফ্রেশ', 'Refresh')}</button>
@@ -5862,9 +5869,25 @@ async function renderCostHeadLedger(content) {
       const rows = payRows.filter(function (p) { return p.headId === hid; });
       LH.push({ key: 'H:' + hid, name: h ? h.name : (rows[0] && rows[0].headName) || hid, p: false, sub: t('শুধু এক্সপেন্স ভাউচার', 'Expense vouchers only'), kind: 'other', entries: rows.map(evEntry) });
     });
+    // ৪) বাকি সব খরচের খাত (এখনো টাকা দেওয়া হয়নি) — ড্রপডাউনে সব খাত পাওয়ার জন্য; তালিকায় শুধু বাছাই করলে দেখায়
+    (heads || []).forEach(function (h) {
+      const key = String(h.id).indexOf('P:') === 0 ? String(h.id) : 'H:' + h.id;
+      if (LH.some(function (L) { return L.key === key; })) return;
+      LH.push({ key: key, name: String(h.name || h.id).replace(/\s*\(P\)$/, ''), p: String(h.id).indexOf('P:') === 0, sub: t('শুধু এক্সপেন্স ভাউচার', 'Expense vouchers only'), kind: 'other', entries: [] });
+    });
     LH.forEach(function (L) { L.entries.sort(function (a, b) { return a.date.localeCompare(b.date) || (a.cr && !b.cr ? -1 : !a.cr && b.cr ? 1 : 0); }); });
   };
 
+  const fillHeads = function () {
+    const sel = $('chl_Head'); if (!sel) return;
+    const op = function (L) { return `<option value="${attr(L.key)}">${escapeHtml(L.name + (L.p ? ' (P)' : ''))}</option>`; };
+    const pL = LH.filter(function (L) { return L.kind !== 'other'; }), oL = LH.filter(function (L) { return L.kind === 'other'; }).sort(function (a, b) { return String(a.name).localeCompare(String(b.name), 'bn'); });
+    sel.innerHTML = `<option value="">${t('— সব খাত —', '— All heads —')}</option>` +
+      (pL.length ? `<optgroup label="${attr(t('উৎপাদনের খরচ ও মজুরি (P)', 'Production costs & wages (P)'))}">${pL.map(op).join('')}</optgroup>` : '') +
+      (oL.length ? `<optgroup label="${attr(t('অন্যান্য খরচের খাত', 'Other expense heads'))}">${oL.map(op).join('')}</optgroup>` : '');
+    sel.value = LH.some(function (L) { return L.key === st.sel; }) ? st.sel : '';
+    if (!sel.value) st.sel = '';
+  };
   const figures = function (L) {
     const from = st.from, to = st.to;
     const op = L.entries.filter(function (x) { return from && x.date < from; }).reduce(function (s, x) { return s + x.cr - x.dr; }, 0);
@@ -5877,8 +5900,9 @@ async function renderCostHeadLedger(content) {
   const render = function () {
     let sl = 0, tOp = 0, tCr = 0, tDr = 0, tBal = 0, secDone = false;
     const rowsHtml = LH.map(function (L) {
+      if (st.sel && L.key !== st.sel) return '';   // ড্রপডাউনে খাত বাছা — শুধু সেটা
       const f = figures(L);
-      if (L.kind === 'other' && !f.inR.length && !f.op) return '';
+      if (L.kind === 'other' && !f.inR.length && !f.op && st.sel !== L.key) return '';
       if (L.kind !== 'other') { tOp += f.op; tCr += f.cr; tDr += f.dr; tBal += f.bal; }   // মোট — শুধু (P) খাত (বকেয়া-সমন্বয়ের হিসাব)
       sl++;
       let sec = '';
@@ -5889,14 +5913,14 @@ async function renderCostHeadLedger(content) {
         <td class="c"><button type="button" class="pvx-ic" data-v="${attr(L.key)}" title="${attr(t('লেজার দেখুন', 'View ledger'))}" data-perm-safe="1">👁️</button></td></tr>`;
     }).join('');
     $('chl_Sum').innerHTML = rowsHtml || `<tr><td colspan="7" class="c" style="padding:14px;color:var(--text-muted);">${t('এখনো কিছু নেই।', 'Nothing yet.')}</td></tr>`;
-    $('chl_SumFoot').innerHTML = sl ? `<tr><td colspan="2" class="r">${t('মোট (P খাত)', 'Total (P heads)')}</td><td class="r">${dc(tOp)}</td><td class="r">${fmt(tCr)}</td><td class="r">${fmt(tDr)}</td><td class="r">${dc(tBal)}</td><td></td></tr>` : '';
+    $('chl_SumFoot').innerHTML = sl && !st.sel ? `<tr><td colspan="2" class="r">${t('মোট (P খাত)', 'Total (P heads)')}</td><td class="r">${dc(tOp)}</td><td class="r">${fmt(tCr)}</td><td class="r">${fmt(tDr)}</td><td class="r">${dc(tBal)}</td><td></td></tr>` : '';
     renderDetail();
   };
 
   const renderDetail = function () {
     const wrap = $('chl_DetailWrap');
     const L = LH.find(function (x) { return x.key === st.sel; });
-    if (!L) { wrap.innerHTML = `<p style="font-size:12px;color:var(--text-muted);margin-top:10px;">${t('খাতের সারিতে দুই চাপ (বা 👁️) দিলে তারিখওয়ারি লেজার দেখাবে।', 'Double-tap a head row (or 👁️) to see its date-wise ledger.')}</p>`; return; }
+    if (!L) { wrap.innerHTML = `<p style="font-size:12px;color:var(--text-muted);margin-top:10px;">${t('উপরে "খাত" ড্রপডাউন থেকে খাত বাছলে (বা সারিতে 👁️ / দুই চাপ) তারিখওয়ারি লেজার দেখাবে।', 'Choose a head above (or 👁️ on a row) to see its date-wise ledger.')}</p>`; return; }
     const f = figures(L);
     let bal = f.op;
     const body = f.inR.map(function (x) {
@@ -5915,18 +5939,19 @@ async function renderCostHeadLedger(content) {
 
   $('chl_Sum').addEventListener('click', function (e) {
     const v = e.target.closest('[data-v]'); if (!v) return;
-    st.sel = v.getAttribute('data-v'); render();
+    st.sel = v.getAttribute('data-v'); if ($('chl_Head')) $('chl_Head').value = st.sel; render();
     const w = $('chl_DetailWrap'); if (w && w.scrollIntoView) w.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   });
   $('chl_DetailWrap').addEventListener('click', function (e) {
     const b = e.target.closest('[data-ev]'); if (b) { voucherEdit('ExpenseVoucher', b.getAttribute('data-ev')); return; }
     if (e.target.closest('[data-sal]')) navigateTo('salaryIssue', t('এইচআর ও পে-রোল', 'HR & Payroll'), t('সেলারী ইস্যু', 'Salary Issue'));
   });
+  $('chl_Head').addEventListener('change', function () { st.sel = this.value; render(); if (st.sel) { const w = $('chl_DetailWrap'); if (w && w.scrollIntoView) w.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } });
   $('chl_From').addEventListener('change', function () { st.from = this.value; render(); });
   $('chl_To').addEventListener('change', function () { st.to = this.value; render(); });
-  $('chl_Refresh').addEventListener('click', async function () { try { listCache = {}; await load(); render(); } catch (err) { showToast(err.message, 'error'); } });
+  $('chl_Refresh').addEventListener('click', async function () { try { listCache = {}; await load(); fillHeads(); render(); } catch (err) { showToast(err.message, 'error'); } });
 
-  try { await load(); render(); }
+  try { await load(); fillHeads(); render(); }
   catch (err) { $('chl_Sum').innerHTML = `<tr><td colspan="7" class="c">${escapeHtml(err.message)}</td></tr>`; }
 }
 
@@ -20959,7 +20984,7 @@ const VOUCHER_TABLE_CSS = `
   .v-sum td.k{text-align:right;} .v-sum td.v{text-align:right;font-weight:600;}
   .v-sum tr.vat td{background:#f7f7f7;}
   .v-sum tr.thick td{border-top:2px solid #000;}
-  .v-sum tr.big td{font-weight:700;font-size:12px;}
+  .v-sum tr.big td{font-weight:700;font-size:12px;} .v-dcb{width:100%;table-layout:fixed;} .v-dcb td.n{text-align:center;width:22%;white-space:nowrap;border-left:.5px solid #999;} .v-dcb td.n.b{font-weight:600;} .v-dcb tr.hd td{background:#eef0f3;font-weight:700;text-align:center !important;font-size:10.5px;} .v-dcb td.k{width:34%;}
   /* লাভের হিসাব — শুধু স্ক্রিনে, প্রিন্টে কখনো আসবে না */
   .v-profit{margin-top:6px;border:1.5px dashed #15803d;border-radius:6px;padding:4px;background:#f0fdf4;position:relative;z-index:1;}
   .v-profit h5{margin:2px 4px 4px;font-size:11.5px;color:#15803d;}
