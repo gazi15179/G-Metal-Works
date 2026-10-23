@@ -11094,7 +11094,8 @@ async function renderProdDailyPage(content) {
       .pdl-tbl input.ov{border-color:#d97706;background:rgba(217,119,6,.10);font-weight:700;}
       .pdl-bar input[type=date]{height:32px;}
       .pdl-tbl td.warn input[data-f="fgk"]{border-color:var(--danger);box-shadow:0 0 0 1px var(--danger) inset;}
-      .pdl-tag{display:inline-block;font-size:10px;background:#e8eefc;color:#2f4fa8;border-radius:5px;padding:1px 5px;margin-left:2px;}
+      .pdl-hsel{display:flex;align-items:center;gap:2px;justify-content:center;} .pdl-hsel select{height:24px;font-size:11px;font-weight:700;padding:1px 3px;max-width:110px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:inherit;} .pdl-hx{border:0;background:transparent;color:#b42318;cursor:pointer;font-size:11px;padding:0 2px;} .pdl-hadd{border:1px solid #16a34a;color:#16a34a;background:#eefaf2;border-radius:5px;cursor:pointer;font-weight:700;font-size:12px;padding:0 5px;line-height:20px;}
+    .pdl-tag{display:inline-block;font-size:10px;background:#e8eefc;color:#2f4fa8;border-radius:5px;padding:1px 5px;margin-left:2px;}
       .pdl-ico{border:1px solid var(--border);background:var(--surface);border-radius:6px;padding:2px 5px;font-size:12px;cursor:pointer;margin:0 1px;line-height:1.2;}
       .pdl-ico:disabled{opacity:.35;cursor:default;}
       .pdl-views{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
@@ -11232,7 +11233,8 @@ async function renderProdDailyPage(content) {
   // ঘরের টাকা নিজে = সার্কেলের কেজি × "সাইজ অনুযায়ী মজুরি দর" (দর = প্রতি কেজি সার্কেল)। লাইনে কয়েক সাইজ থাকলে
   // সার্কেল ভাগ হয় যে যে তৈরী পণ্য বানানো হলো তাদের ওজনের অনুপাতে (ওজন না থাকলে পিসের অনুপাতে); হাতে বদলানো যায় (কমলা)
   // সেভ হয় আগের মতোই TeamProduction-এ (DPLineID দিয়ে লাইনের সাথে যুক্ত); দর আসে "সাইজ অনুযায়ী মজুরি দর" পেজ থেকে, না থাকলে ঘরেই "দর নেই — দিন" — তাই সেলারী ভাউচার ও প্রসেসিং ভাউচার নিজে থেকেই পায়
-  const roles = gp.laborRoles, croles = gp.costRoles;
+  const roles = gp.laborRoles.slice(), croles = gp.costRoles.slice();   // ২য় অংশের কলাম — হেডারের ড্রপডাউন/＋/✕ দিয়ে বদলায় (কপি, যাতে অন্য পেজে প্রভাব না পড়ে)
+  const allRolesTP = (gp.roles && gp.roles.length ? gp.roles : gp.laborRoles.concat(gp.costRoles)).slice();
   function team(L) { return st.team[L.key] = st.team[L.key] || { tpId: null, who: {}, amt: {}, camt: {}, locked: false, dirty: false }; }
   const ovOf = function (m, r) { return m[r] !== undefined && m[r] !== ''; };
   function circleShares(L) {   // [{x, kg}] — প্রতিটা তৈরী পণ্যের ভাগে কত কেজি সার্কেল
@@ -11278,7 +11280,8 @@ async function renderProdDailyPage(content) {
   function teamRowHtml(L) {
     const T = team(L);
     const tag = !L.id ? `<span class="pdl-tag" style="background:#fdecea;color:#b42318;" title="${attr(t('১ম অংশে (দৈনিক উৎপাদন) লাইনটা আগে সেভ করুন', 'Save this line in part 1 first'))}">${t('আগে সেভ', 'save first')}</span>`
-      : T.locked ? `<span class="pdl-tag" title="${attr(t('এই লাইনের মজুরি সেলারী ভাউচারে উঠে গেছে — বদলানো যায় না', 'Already in a salary voucher — locked'))}">${t('বেতনে উঠেছে', 'in salary')}</span>` : '';
+      : T.locked ? `<button type="button" class="pdl-ico" data-tunlock="${L.key}" title="${attr(t('এডিট (এডমিন) — এই লাইনের মজুরি সেলারী ভাউচারে উঠে গেছে', 'Edit (admin) — wages already in a salary voucher'))}">✏️</button><span class="pdl-tag" title="${attr(t('এই লাইনের মজুরি সেলারী ভাউচারে উঠে গেছে — এডমিন ✏️ দিয়ে বদলাতে পারেন', 'Already in a salary voucher — admin can edit'))}">${t('বেতনে উঠেছে', 'in salary')}</span>`
+      : T.billed ? `<span class="pdl-tag" style="background:#fff1d6;color:#8a5a00;" title="${attr(t('বেতনে ওঠা লাইন এডিট হচ্ছে — সেভের পর সেলারী ভাউচার মিলিয়ে নিন', 'Editing a billed line — check the salary voucher after saving'))}">${t('এডিট হচ্ছে', 'editing')}</span>` : '';
     return `<tr data-tk="${L.key}" class="${T.dirty ? 'dirty' : T.tpId ? 'saved' : ''}">
       <td class="sl">${L.serial}<span class="slc">${show(L.v.raw) || ''}</span></td><td class="fgi">${fgiHtml(L)}</td><td class="cir"><b>${show(L.v.raw) || 0}</b></td>
       ${roles.map(function (ro) { return wageCell(L, ro); }).join('')}${croles.map(function (ro) { return costCell(L, ro); }).join('')}${totCell(L)}
@@ -11310,9 +11313,49 @@ async function renderProdDailyPage(content) {
     });
     if (!list.length) body = `<tr><td class="sl"></td><td colspan="${cols - 1}"><div class="empty-state" style="padding:16px;">${t('এই তারিখে কোনো লাইন নেই — ১ম অংশে (দৈনিক উৎপাদন) লাইন যোগ করুন।', 'No lines — add lines in part 1 (daily production).')}</div></td></tr>`;
     $('pdlWrap').innerHTML = `<table class="pdl-tbl pdl-team"><thead><tr class="h1"><th class="sl">${t('ক্রঃ', 'No.')}</th><th class="fgi">${t('তৈরী আইটেম', 'Finished items')}</th><th class="cir">${t('সার্কেল', 'Circle')}<span class="u">${t('(কেজি)', '(kg)')}</span></th>
-        ${roles.map(function (ro) { return `<th>${escapeHtml(ro.RoleName)}</th>`; }).join('')}${croles.map(function (ro) { return `<th class="cst" title="${attr(t('খরচের খাত — প্রসেসিং ভাউচারে যায়', 'Cost head — goes to processing'))}">${escapeHtml(ro.RoleName)}</th>`; }).join('')}
+        ${roles.map(function (ro, k) { return `<th>${headSel('L', k, ro, k === roles.length - 1)}</th>`; }).join('')}${croles.map(function (ro, k) { return `<th class="cst" title="${attr(t('খরচের খাত — প্রসেসিং ভাউচারে যায়', 'Cost head — goes to processing'))}">${headSel('C', k, ro, k === croles.length - 1)}</th>`; }).join('')}
         <th>${t('মোট', 'Total')}<span class="u">${t('(মজুরি + খরচ)', '(wages + costs)')}</span></th><th></th></tr></thead><tbody>${body}</tbody><tfoot id="pdlFoot"></tfoot></table>`;
     renderTeamSum();
+  }
+  // হেডারের ড্রপডাউনঃ এই গ্রুপে বা অন্য গ্রুপে আগে থেকে থাকা কলাম বাদে সব কাজ/খাত
+  function headSel(g, k, ro, last) {
+    const used = {}; roles.concat(croles).forEach(function (x) { used[x.RoleID] = true; });
+    const opts = allRolesTP.filter(function (x) { return x.RoleID === ro.RoleID || !used[x.RoleID]; })
+      .map(function (x) { return `<option value="${attr(x.RoleID)}" ${x.RoleID === ro.RoleID ? 'selected' : ''}>${escapeHtml(x.RoleName)}</option>`; }).join('');
+    return `<div class="pdl-hsel"><select data-hrole="${g}|${k}" title="${attr(t('কলাম বদলান', 'Change column'))}">${opts}</select><button type="button" class="pdl-hx" data-hx="${g}|${k}" title="${attr(t('কলাম সরান', 'Remove column'))}">✕</button>${last ? `<button type="button" class="pdl-hadd" data-hadd="${g}" title="${attr(g === 'L' ? t('কাজের নতুন কলাম', 'Add a job column') : t('খরচের নতুন কলাম', 'Add a cost column'))}">＋</button>` : ''}</div>`;
+  }
+  // কলামে কোনো লাইনের লেখা আছে কিনা / বেতনে ওঠা (লক) লাইনে আছে কিনা
+  function colHasData(g, r, lockedOnly) {
+    return st.lines.some(function (L) { const T = team(L); if (lockedOnly && !T.locked) return false; return g === 'L' ? !!(T.who[r] || ovOf(T.amt, r)) : (ovOf(T.camt, r) || (lockedOnly && calcAmt(L, r) > 0)); });
+  }
+  function markTeamDirty() { st.lines.forEach(function (L) { const T = team(L); if (L.id && !T.locked && (T.tpId || roles.some(function (ro) { return T.who[ro.RoleID]; }))) T.dirty = true; }); }
+  function rerenderTeamKeepScroll() { const sc = $('pdlWrap'), top = sc.scrollTop, left = sc.scrollLeft; renderTeam(); sc.scrollTop = top; sc.scrollLeft = left; }
+  function teamHeadChange(g, k, newId) {
+    const list = g === 'L' ? roles : croles, old = list[k], nr = allRolesTP.find(function (x) { return x.RoleID === newId; }); if (!old || !nr || old.RoleID === newId) return;
+    if (colHasData(g, old.RoleID, true)) { showToast(t('এই কলামে বেতনে ওঠা লাইনের মজুরি আছে — আগে সেই লাইন ✏️ খুলুন।', 'This column has wages already in a salary voucher — unlock those lines first.'), 'error'); rerenderTeamKeepScroll(); return; }
+    st.lines.forEach(function (L) {   // লেখা কর্মচারী/টাকা নতুন কলামে সরে যায়
+      const T = team(L), o = old.RoleID;
+      if (g === 'L') { if (T.who[o]) { T.who[newId] = T.who[o]; delete T.who[o]; } if (ovOf(T.amt, o)) { T.amt[newId] = T.amt[o]; } delete T.amt[o]; }
+      else { if (ovOf(T.camt, o)) T.camt[newId] = T.camt[o]; delete T.camt[o]; }
+    });
+    list[k] = nr; markTeamDirty(); rerenderTeamKeepScroll();
+  }
+  function teamHeadRemove(g, k) {
+    const list = g === 'L' ? roles : croles, old = list[k]; if (!old) return;
+    if (list.length <= 1) { showToast(t('অন্তত একটা কলাম থাকতে হবে।', 'Keep at least one column.'), 'error'); return; }
+    if (colHasData(g, old.RoleID, true)) { showToast(t('এই কলামে বেতনে ওঠা লাইনের মজুরি আছে — আগে সেই লাইন ✏️ খুলুন।', 'This column has wages already in a salary voucher — unlock those lines first.'), 'error'); return; }
+    const has = colHasData(g, old.RoleID, false) || (g === 'C' && st.lines.some(function (L) { return calcAmt(L, old.RoleID) > 0; }));
+    if (has && !confirm(old.RoleName + t(' কলামে লেখা/হিসাব আছে — সরালে এর টাকা বাদ যাবে (সেভ করলে)। সরাবেন?', ' has entries — removing drops them (on save). Remove?'))) return;
+    st.lines.forEach(function (L) { const T = team(L); if (T.locked) return; delete T.who[old.RoleID]; delete T.amt[old.RoleID]; delete T.camt[old.RoleID]; });
+    list.splice(k, 1); markTeamDirty(); rerenderTeamKeepScroll();
+  }
+  function teamHeadAdd(g) {
+    const used = {}; roles.concat(croles).forEach(function (x) { used[x.RoleID] = true; });
+    const free = allRolesTP.filter(function (x) { return !used[x.RoleID]; });
+    if (!free.length) { showToast(t('সব কাজ/খাত কলামে আছে — "দরের কলাম" পেজে নতুন কলাম যোগ করুন।', 'All columns are in use — add new ones on the rate-columns page.'), 'error'); return; }
+    const kind = g === 'L' ? 'Labor' : 'Cost', pick = free.find(function (x) { return x.Kind === kind; }) || free[0];
+    (g === 'L' ? roles : croles).push(pick); rerenderTeamKeepScroll();
+    const sel = $('pdlWrap').querySelector(`[data-hrole="${g}|${(g === 'L' ? roles : croles).length - 1}"]`); if (sel) sel.focus();
   }
   function refreshTeamRow(L) { const tr = $('pdlWrap').querySelector(`tr[data-tk="${L.key}"]`); if (tr) tr.outerHTML = teamRowHtml(L); renderTeamSum(); }
   async function loadTeam() {
@@ -11338,10 +11381,12 @@ async function renderProdDailyPage(content) {
       ((rm && rm.data) || []).filter(function (m) { return String(m.TeamProdID) === String(h.TeamProdID) && m.RoleID; }).forEach(function (m) {
         T.who[m.RoleID] = m.EmployeeID;
         if (Math.abs(n(m.Amount) - calcAmt(L, m.RoleID)) > 0.004) T.amt[m.RoleID] = String(n(m.Amount));
-        if (m.BilledIn) T.locked = true;
+        if (m.BilledIn) { T.locked = true; (T.billed = T.billed || {})[m.RoleID] = m.BilledIn; }
+        if (!roles.concat(croles).some(function (x) { return x.RoleID === m.RoleID; })) { const rr = allRolesTP.find(function (x) { return x.RoleID === m.RoleID; }); if (rr) roles.push(rr); }
       });
       ((rc && !rc.error && rc.data) || []).filter(function (c) { return String(c.TeamProdID) === String(h.TeamProdID) && c.RoleID; }).forEach(function (c) {
         if (Math.abs(n(c.Amount) - calcAmt(L, c.RoleID)) > 0.004) T.camt[c.RoleID] = String(n(c.Amount));
+        if (!roles.concat(croles).some(function (x) { return x.RoleID === c.RoleID; })) { const rr = allRolesTP.find(function (x) { return x.RoleID === c.RoleID; }); if (rr) croles.push(rr); }
       });
     });
   }
@@ -11365,7 +11410,7 @@ async function renderProdDailyPage(content) {
     try {
       for (const L of list) {
         const T = team(L), kg = n(L.v.raw) || itemsKg(L);   // মজুরির ভিত্তি সার্কেলের কেজি
-        const mems = roles.filter(function (ro) { return T.who[ro.RoleID]; }).map(function (ro) { const a = wageOf(L, ro.RoleID); return { EmployeeID: T.who[ro.RoleID], RoleID: ro.RoleID, Rate: kg > 0 ? a / kg : 0, Amount: a }; });
+        const mems = roles.filter(function (ro) { return T.who[ro.RoleID]; }).map(function (ro) { const a = wageOf(L, ro.RoleID); const m = { EmployeeID: T.who[ro.RoleID], RoleID: ro.RoleID, Rate: kg > 0 ? a / kg : 0, Amount: a }; if (T.billed && T.billed[ro.RoleID]) m.BilledIn = T.billed[ro.RoleID]; return m; });
         const costs = croles.map(function (ro) { if (!ovOf(T.camt, ro.RoleID) && !calcAmt(L, ro.RoleID)) return null; const a = costOf(L, ro.RoleID); return { RoleID: ro.RoleID, Rate: kg > 0 ? a / kg : 0, Amount: a }; }).filter(Boolean);
         let tp = T.tpId;
         if (tp) { for (const tb of ['TeamProduction_Members', 'TeamProduction_Costs', 'TeamProduction_Items']) { const { error } = await supabaseClient.from(tb).delete().eq('TeamProdID', tp); if (error && tb !== 'TeamProduction_Costs') throw new Error(error.message); } }
@@ -11382,6 +11427,7 @@ async function renderProdDailyPage(content) {
         if (mems.length) { const { error } = await supabaseClient.from('TeamProduction_Members').insert(mems.map(function (m) { return Object.assign({ TeamProdID: tp }, m); })); if (error) throw new Error(error.message); }
         if (costs.length) { const { error } = await supabaseClient.from('TeamProduction_Costs').insert(costs.map(function (c) { return Object.assign({ TeamProdID: tp }, c); })); if (error) throw new Error(error.message + t(' — (22_team_production_costs.sql রান করা আছে কিনা দেখুন)', ' — (check that 22_team_production_costs.sql has been run)')); }
         T.dirty = false;
+        if (T.billed) T.locked = true;   // বেতনে ওঠা লাইন সেভের পর আবার লক
       }
       if (!quiet) showToast(t('সেভ হয়েছে ✅ — মজুরি সেলারী ভাউচারে ও প্রসেসিংয়ে যাবে', 'Saved ✅ — wages go to the salary voucher and processing'), 'success');
     } catch (err) { showToast(err.message, 'error'); }
@@ -11522,6 +11568,7 @@ async function renderProdDailyPage(content) {
     renderSum();
   });
   wrap.addEventListener('change', function (e) {
+    if (st.view === 'team' && e.target.hasAttribute('data-hrole')) { const p2 = e.target.getAttribute('data-hrole').split('|'); teamHeadChange(p2[0], Number(p2[1]), e.target.value); return; }
     if (st.view === 'team') {
       const el = e.target, L = byKey(el.getAttribute('data-tk')); if (!L) return;
       const T = team(L);
@@ -11560,6 +11607,18 @@ async function renderProdDailyPage(content) {
       st.lines.forEach(function (x) { if (x.id && team(x).tpId && !team(x).locked && x.it.some(function (y) { return y.id && itemKg(y) > 0; })) team(x).dirty = true; });
       const sc = $('pdlWrap'), top = sc.scrollTop, left = sc.scrollLeft; renderTeam(); sc.scrollTop = top; sc.scrollLeft = left;
       return;
+    }
+    if (st.view === 'team') {
+      const hx = e.target.closest('[data-hx]'), ha = e.target.closest('[data-hadd]'), un = e.target.closest('[data-tunlock]');
+      if (hx) { const p2 = hx.getAttribute('data-hx').split('|'); teamHeadRemove(p2[0], Number(p2[1])); return; }
+      if (ha) { teamHeadAdd(ha.getAttribute('data-hadd')); return; }
+      if (un) {   // বেতনে ওঠা লাইনঃ এডমিন পাসওয়ার্ড দিয়ে খোলা
+        const L = byKey(un.getAttribute('data-tunlock')); if (!L) return;
+        if (!(await voucherAskAdmin(t('বেতনে ওঠা লাইনের মজুরি বদলাতে এডমিন পাসওয়ার্ড দিন:', 'Admin password to edit wages already in a salary voucher:')))) return;
+        if (!confirm(t('এই লাইনের মজুরি সেলারী ভাউচারে উঠে গেছে। এখানে বদলালে সেলারী ভাউচার নিজে বদলাবে না — সেভের পর সেলারী ভাউচারটা খুলে মিলিয়ে নিন। চালিয়ে যাবেন?', 'These wages are already in a salary voucher. Changing them here does not change that voucher — check it after saving. Continue?'))) return;
+        team(L).locked = false; refreshTeamRow(L);
+        return;
+      }
     }
     const tb = e.target.closest('[data-tact]');
     if (tb) { if (!tb.disabled) await saveTeam([tb.getAttribute('data-tk')]); return; }
