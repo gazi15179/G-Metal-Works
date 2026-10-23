@@ -3975,7 +3975,14 @@ async function renderSimpleVoucherPage(content, config) {
 async function openSimpleVoucherForm(existing) {
   const config = window.__activeSimpleVoucherConfig;
   const isEdit = !!existing;
-  const isPosted = isEdit && existing.Status === 'Posted';
+  let isPosted = isEdit && existing.Status === 'Posted';
+  // পোস্ট করা ভাউচারঃ এডমিন হলে পাসওয়ার্ড → আনপোস্ট (হিসাব ফেরত) → এডিট; না হলে শুধু দেখা
+  if (isPosted && currentUser && currentUser.RoleID === 'ROLE-ADMIN') {
+    if (await unpostVoucherWithAdminAuth(config.docType || config.sheet, existing[config.idField], config.sheet, config.idField)) {
+      existing = Object.assign({}, existing, { Status: 'Draft' }); isPosted = false;
+      if (window.__refreshSimpleVoucherList) await window.__refreshSimpleVoucherList();
+    }
+  }
 
   const fkFieldsList = config.fields.filter(function (f) { return f.type === 'select-fk'; });
   const uniqueFkSheets = Array.from(new Set(fkFieldsList.map(function (f) { return f.fkSheet; })));
@@ -10343,13 +10350,14 @@ async function renderSalaryIssuePage(content) {
     const body = document.getElementById('siBody');
     if (!st.emp) { body.innerHTML = `<div style="color:var(--text-muted);font-size:13px;padding:6px 0;">${t('কর্মচারী বাছাই করুন, অথবা নিচের বকেয়া তালিকা থেকে "ইস্যু" চাপুন।','Pick an employee, or press "Issue" in the dues list below.')}</div>`; return; }
     const L = st.ledger[st.emp] || { vouchers: [], issues: [], earned: 0, paid: 0, due: 0 };
-    const amt = Number(st.amount) || 0, after = L.due - amt;
+    const editAdd = editAddFor(st.emp), due = L.due + editAdd;   // এডিটে এই ইস্যুর আগের টাকা বকেয়ায় ফেরত ধরা
+    const amt = Number(st.amount) || 0, after = due - amt;
     const rows = voucherDues(L).filter(function (x) { return x.due > 0.005; });
     body.innerHTML = `
       <div class="si-sum">
         <div>${t('মোট পাওনা (সব ভাউচার)','Total earned')}<b>${hrMoney(L.earned)}</b></div>
-        <div>${t('আগে দেওয়া হয়েছে','Already paid')}<b>${hrMoney(L.paid)}</b></div>
-        <div class="due">${L.due >= 0 ? t('বর্তমান বকেয়া','Current due') : t('অগ্রিম দেওয়া আছে','Advance paid')}<b>${hrMoney(Math.abs(L.due))}</b></div>
+        <div>${t('আগে দেওয়া হয়েছে','Already paid')}<b>${hrMoney(L.paid - editAdd)}</b></div>
+        <div class="due">${due >= 0 ? t('বর্তমান বকেয়া','Current due') : t('অগ্রিম দেওয়া আছে','Advance paid')}<b>${hrMoney(Math.abs(due))}</b></div>
       </div>
       ${rows.length ? `<div class="si-box"><table class="si-vt"><thead><tr><th>${t('ভাউচার','Voucher')}</th><th>${t('সময়কাল','Period')}</th><th>${t('ভাউচারের টাকা','Amount')}</th><th>${t('দেওয়া','Paid')}</th><th>${t('বাকি','Due')}</th></tr></thead><tbody>
         ${rows.map(function (x) { return `<tr><td class="l">${escapeHtml(x.v.VoucherNo || x.v.PayrollID)}</td><td class="l">${escapeHtml(payrollPeriodLabel(x.v))}</td><td>${hrMoney(x.amt)}</td><td>${hrMoney(x.paid)}</td><td><b>${hrMoney(x.due)}</b></td></tr>`; }).join('')}
@@ -10371,7 +10379,8 @@ async function renderSalaryIssuePage(content) {
         </div>
         ${st.otpMode ? otpBox() : ''}
       </div>
-      <div class="si-acts"><button class="btn btn-primary" id="siSave" ${st.otpMode && !st.otp.verified ? 'disabled title="' + t('আগে OTP যাচাই করুন','Verify the OTP first') + '"' : ''}>💾 ${t('ইস্যু ও সেভ','Issue & save')}</button></div>`;
+      ${st.editIssue ? `<div style="background:#fff6dc;border:1px solid #e3b75c;border-radius:8px;padding:6px 10px;font-size:12px;margin-top:8px;">✏️ ${t('এডিট হচ্ছেঃ ', 'Editing: ')}<b>${escapeHtml(st.editIssue.IssueNo)}</b> — ${t('বদলে "আপডেট" চাপুন; আগের ক্যাশ/ব্যাংকের এন্ট্রি নতুন টাকায় বদলে যাবে', 'change and press Update; the cash/bank entry is replaced')}</div>` : ''}
+      <div class="si-acts">${st.editIssue ? `<button class="btn btn-outline" id="siEditCancel" style="width:auto;">${t('এডিট বাতিল', 'Cancel edit')}</button> ` : ''}<button class="btn btn-primary" id="siSave" ${st.otpMode && !st.otp.verified ? 'disabled title="' + t('আগে OTP যাচাই করুন','Verify the OTP first') + '"' : ''}>💾 ${st.editIssue ? t('আপডেট', 'Update') : t('ইস্যু ও সেভ','Issue & save')}</button></div>`;
   }
   function empPhone() { return String((base.empMap[st.emp] || {}).Phone || '').trim(); }
   function maskPhone(p) { p = String(p || ''); return p.length > 5 ? p.slice(0, 3) + '****' + p.slice(-3) : p; }
@@ -10420,12 +10429,13 @@ async function renderSalaryIssuePage(content) {
       const e = base.empMap[x.EmployeeID] || {};
       return `<div class="si-li"><div><b>${escapeHtml(x.IssueNo || x.IssueID)}</b> · ${escapeHtml(e.Name || x.EmployeeID)}
           <div class="meta">${escapeHtml(formatShortDate(x.IssueDate))} · ${escapeHtml(accName[x.BankCashAccID] || '')} · <b>${hrMoney(x.Amount)}</b>${x.OtpVerified ? ' · <span style="color:#166534;">✔ OTP</span>' : ''}${x.Note ? ' · ' + escapeHtml(x.Note) : ''}</div></div>
-        <div class="ic"><button data-view="${attr(x.IssueID)}" title="${t('প্রিন্ট','Print')}" aria-label="${t('প্রিন্ট','Print')}">👁</button><button data-del="${attr(x.IssueID)}" title="${t('ডিলিট','Delete')}" aria-label="${t('ডিলিট','Delete')}">🗑</button></div></div>`;
+        <div class="ic"><button data-view="${attr(x.IssueID)}" title="${t('প্রিন্ট','Print')}" aria-label="${t('প্রিন্ট','Print')}">👁</button><button data-edit="${attr(x.IssueID)}" title="${t('এডিট (এডমিন)','Edit (admin)')}" aria-label="${t('এডিট','Edit')}">✏️</button><button data-del="${attr(x.IssueID)}" title="${t('ডিলিট','Delete')}" aria-label="${t('ডিলিট','Delete')}">🗑</button></div></div>`;
     }).join('') : `<div style="color:var(--text-muted);font-size:13px;">${t('এখনো কোনো সেলারী ইস্যু নেই।','No salary issues yet.')}</div>`;
   }
   async function reloadAll() { await loadLedger(); renderBody(); renderDues(); renderList(); }
 
   function pickEmp(id) {
+    st.editIssue = null;   // অন্য কর্মচারী বাছাই = এডিট বাতিল
     st.emp = id; resetOtp(); const e = base.empMap[id] || {};
     document.getElementById('siEmp').value = e.Name || id;
     const L = st.ledger[id]; st.amount = L && L.due > 0 ? L.due : ''; st.note = '';
@@ -10442,19 +10452,42 @@ async function renderSalaryIssuePage(content) {
     if (!st.emp) throw new Error(t('কর্মচারী বাছাই করুন।','Select an employee.'));
     if (!(amt > 0)) throw new Error(t('টাকার পরিমাণ লিখুন।','Enter the amount.'));
     if (!st.acc) throw new Error(t('ক্যাশ/ব্যাংক অ্যাকাউন্ট বাছাই করুন (হিসাব → ব্যাংক ও ক্যাশ অ্যাকাউন্ট)।','Select a cash/bank account.'));
-    const L = st.ledger[st.emp] || { due: 0 };
+    const L0 = st.ledger[st.emp] || { due: 0 }, L = { due: L0.due + editAddFor(st.emp) };
     if (amt > L.due + 0.005 && !confirm(t('বকেয়ার (' + hrMoney(L.due) + ') চেয়ে বেশি দিচ্ছেন — বাড়তি অংশ অগ্রিম হিসেবে থাকবে। চালিয়ে যাবেন?','Paying more than due — the extra becomes an advance. Continue?'))) return null;
-    const no = await nextNo();
+    const ed = st.editIssue, no = ed ? ed.IssueNo : await nextNo();
     if (st.otpMode && !st.otp.verified) throw new Error(t('আগে OTP যাচাই করুন, অথবা "OTP ছাড়া" বাছাই করুন।','Verify the OTP first, or choose "Without OTP".'));
     if (st.otpMode && Math.abs((Number(st.otp.amount) || 0) - amt) > 0.005) throw new Error(t('OTP পাঠানোর পর টাকার অঙ্ক বদলেছে — আবার OTP পাঠান।','Amount changed after sending the OTP — send it again.'));
     const row = { IssueNo: no, IssueDate: st.date, EmployeeID: st.emp, BankCashAccID: st.acc, Amount: amt, Note: st.note || '', DueBefore: L.due, Status: 'Active' };
     if (st.otpMode) { row.OtpVerified = true; row.OtpPhone = st.otp.sentTo; row.OtpAt = st.otp.verifiedAt; row.OtpRef = st.otp.id; }
+    if (ed) {   // এডিটঃ একই ইস্যু নম্বর; আগের ক্যাশ/ব্যাংক বইয়ের এন্ট্রি মুছে নতুন টাকায়
+      const upd = Object.assign({}, row); delete upd.Status;
+      const { data: ud, error: ue } = await supabaseClient.from('SalaryIssue').update(upd).eq('IssueID', ed.IssueID).select();
+      if (ue) throw new Error(ue.message);
+      await supabaseClient.from('BankCashBook').delete().eq('RefModule', 'SalaryIssue').eq('RefID', ed.IssueNo);
+      if (ed.BankCashAccID && ed.BankCashAccID !== st.acc) { try { await rebalanceBankCashBook(ed.BankCashAccID); } catch (e) {} }
+      await postBankCashBookEntry(st.acc, st.date, 'SalaryIssue', no, 0, amt);
+      try { await rebalanceBankCashBook(st.acc); } catch (e) {}
+      st.editIssue = null; listCache = {};
+      return (ud && ud[0]) || Object.assign({}, ed, row);
+    }
     const { data, error } = await supabaseClient.from('SalaryIssue').insert(row).select();
     if (error) throw new Error(error.message);
     try { await postBankCashBookEntry(st.acc, st.date, 'SalaryIssue', no, 0, amt); } // টাকা বের হলো — ক্যাশ/ব্যাংক বইতে Credit
     catch (err) { await supabaseClient.from('SalaryIssue').delete().eq('IssueID', data[0].IssueID); throw err; }
     listCache = {};
     return data[0];
+  }
+  function editAddFor(emp) { return (st.editIssue && st.editIssue.EmployeeID === emp) ? (Number(st.editIssue.Amount) || 0) : 0; }
+  /** ইস্যু এডিট — এডমিন পাসওয়ার্ড; ফর্মে আগের সব তথ্য আসে, "আপডেট"-এ একই নম্বরে বদলায় */
+  async function editIssue(id) {
+    const x = (st.allIssues || []).find(function (y) { return String(y.IssueID) === String(id); }); if (!x) return;
+    if (!(await voucherAskAdmin(t('সেলারী ইস্যু এডিট করতে এডমিন পাসওয়ার্ড দিন:', 'Admin password to edit a salary issue:')))) return;
+    pickEmp(x.EmployeeID);
+    st.editIssue = x; st.amount = Number(x.Amount) || ''; st.note = x.Note || ''; st.acc = x.BankCashAccID || st.acc; st.date = String(x.IssueDate || st.date).slice(0, 10);
+    const di = document.getElementById('siDate'); di.value = st.date; di.dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('siNo').value = x.IssueNo;
+    renderBody();
+    showToast(t('এডিট হচ্ছেঃ ', 'Editing: ') + x.IssueNo, 'success');
   }
   async function del(id) {
     const x = (st.allIssues || []).find(function (y) { return String(y.IssueID) === String(id); }); if (!x) return;
@@ -10501,7 +10534,7 @@ async function renderSalaryIssuePage(content) {
     if (el.id === 'siAmt') {
       st.amount = el.value;
       if (st.otpMode && st.otp.id && Math.abs((Number(st.otp.amount) || 0) - (Number(el.value) || 0)) > 0.005) { resetOtp(); setTimeout(renderBody, 0); }
-      const L = st.ledger[st.emp] || { due: 0 }, after = L.due - (Number(el.value) || 0);
+      const L = st.ledger[st.emp] || { due: 0 }, after = L.due + editAddFor(st.emp) - (Number(el.value) || 0);
       document.getElementById('siNow').textContent = hrMoney(Number(el.value) || 0);
       document.getElementById('siAfter').textContent = hrMoney(Math.abs(after));
       document.getElementById('siAfterL').textContent = after >= 0 ? t('বকেয়া','due') : t('অগ্রিম','advance');
@@ -10538,6 +10571,7 @@ async function renderSalaryIssuePage(content) {
     const ci = document.getElementById('siOtpCode'); if (ci && !st.otp.verified) ci.focus();
   });
   body.addEventListener('click', async function (ev) {
+    if (ev.target.closest('#siEditCancel')) { st.editIssue = null; st.emp = ''; document.getElementById('siEmp').value = ''; st.amount = ''; document.getElementById('siNo').value = ''; renderBody(); return; }
     const b = ev.target.closest('#siSave'); if (!b) return;
     b.disabled = true;
     try {
@@ -10557,6 +10591,7 @@ async function renderSalaryIssuePage(content) {
     const b = ev.target.closest('button'); if (!b) return;
     try {
       if (b.dataset.view) { const x = st.allIssues.find(function (y) { return String(y.IssueID) === b.dataset.view; }); if (x) await printIssue(x); }
+      else if (b.dataset.edit) await editIssue(b.dataset.edit);
       else if (b.dataset.del) await del(b.dataset.del);
     } catch (err) { showToast(err.message, 'error'); }
   });
@@ -10570,7 +10605,7 @@ async function renderSalaryIssuePage(content) {
       const x = (st.allIssues || []).find(function (y) { return String(y.IssueID) === String(req.id); });
       if (x && (req.action === 'view' || req.action === 'pdf')) await printIssue(x);
       else if (x && req.action === 'delete') { if (permCan('salaryIssue', 3)) await del(x.IssueID); else showToast(t('ডিলিটের অনুমতি আপনার নেই।','No delete permission.'), 'error'); }
-      else if (x && req.action === 'edit') { pickEmp(x.EmployeeID); showToast(t('সেলারী ইস্যু বদলানো যায় না — ভুল হলে 🗑 ডিলিট করে নতুন ইস্যু দিন। নিচে ' + x.IssueNo + ' আছে।','Issues cannot be edited — delete and re-issue.'), 'success'); }
+      else if (x && req.action === 'edit') await editIssue(x.IssueID);
     } catch (err) { showToast(err.message, 'error'); }
   }
 }
@@ -15279,8 +15314,7 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
     // ফেরত যদি কোনো PurchaseInvoice-এর সাথে জোড়া হয় — পুরো ভাউচার (বিক্রয়/ক্রয় + ফেরত) একই ফর্মে খোলে
     if (existingDocType === 'PurchaseReturn' && existingHeader.RefPIID) return openPurchaseVoucherForm('PurchaseInvoice', existingHeader.RefPIID, navOpts);
     if (existingHeader.Status === 'Posted' && !(navOpts && navOpts.viewPosted)) {
-      showToast(t('পোস্ট হয়ে যাওয়া ভাউচার এডিট করা যাবে না।','A posted voucher cannot be edited.'), 'error');
-      return;
+      return editPostedVoucherFromList(existingDocType, existingId);   // এডমিন পাসওয়ার্ড → আনপোস্ট → এডিটে খোলে
     }
   }
   const pv3ViewPosted = !!(existingHeader && existingHeader.Status === 'Posted');   // ◀ ▶ দিয়ে খোলা পোস্ট করা ভাউচার — শুধু দেখা
@@ -16521,8 +16555,7 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
     // ফেরত যদি কোনো SalesInvoice-এর সাথে জোড়া হয় — পুরো ভাউচার (বিক্রয়/ক্রয় + ফেরত) একই ফর্মে খোলে
     if (existingDocType === 'SalesReturn' && existingHeader.RefSIID) return openSalesVoucherForm('SalesInvoice', existingHeader.RefSIID, navOpts);
     if (existingHeader.Status === 'Posted' && !(navOpts && navOpts.viewPosted)) {
-      showToast(t('পোস্ট হয়ে যাওয়া ভাউচার এডিট করা যাবে না।','A posted voucher cannot be edited.'), 'error');
-      return;
+      return editPostedVoucherFromList(existingDocType, existingId);   // এডমিন পাসওয়ার্ড → আনপোস্ট → এডিটে খোলে
     }
   }
   const sv3ViewPosted = !!(existingHeader && existingHeader.Status === 'Posted');   // ◀ ▶ দিয়ে খোলা পোস্ট করা ভাউচার — শুধু দেখা
@@ -17673,8 +17706,10 @@ async function openDocumentForm(existingId) {
     existingHeader = doc.header;
     existingLines = doc.lines;
     if (existingHeader.Status === 'Posted') {
-      showToast(t('পোস্ট হয়ে যাওয়া ডকুমেন্ট এডিট করা যাবে না।','A posted document cannot be edited.'), 'error');
-      return;
+      // পোস্ট করা ডকুমেন্টঃ এডমিন পাসওয়ার্ড → আনপোস্ট (স্টক/হিসাব ফেরত) → খসড়া হয়ে এডিটে খোলে
+      if (!(await unpostVoucherWithAdminAuth(config.docType || config.headerSheet, existingId, config.headerSheet, config.idField))) return;
+      existingHeader = Object.assign({}, existingHeader, { Status: 'Draft' });
+      if (window.__refreshDocTable) { try { await window.__refreshDocTable(); } catch (e) {} }
     }
   }
 
@@ -18221,8 +18256,8 @@ async function editPostedVoucherFromList(type, id) {
   if (/^Sales/.test(type)) await openSalesVoucherForm(type, id); else await openPurchaseVoucherForm(type, id);
   return true;
 }
-async function unpostVoucherWithAdminAuth(docType, docId) {
-  const cfg = STOCK_CARD_TYPES[docType]; if (!cfg) return false;
+async function unpostVoucherWithAdminAuth(docType, docId, table, idf) {
+  const cfg = STOCK_CARD_TYPES[docType] || (table ? { table: table, idf: idf } : null); if (!cfg) return false;
   if (!currentUser || currentUser.RoleID !== 'ROLE-ADMIN') { showToast(t('শুধু এডমিনই পোস্ট করা ভাউচার এডিট করতে পারবেন।', 'Only an Admin can edit a posted voucher.'), 'error'); return false; }
   const password = prompt(t('পোস্ট করা ভাউচার এডিট করতে এডমিন পাসওয়ার্ড দিন:', 'Enter your admin password to edit a posted voucher:'));
   if (!password) return false;
