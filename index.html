@@ -12222,10 +12222,27 @@ async function renderProductionVoucherPage(content) {
                 : { on: false, date: today, qty: '', wh: mainWh, rate: '', value: '', basis: 'rate', fg: [''] };
   };
   const st = { date: today, rm: [newLine(null)] };
-  // উৎপাদন খরচের খাত
-  const PC_HEADS = [['কর্মচারী', 'Workers'], ['বিবিধ খরচ', 'Misc. costs'], ['মেশিনারিজ', 'Machinery'], ['ডাই', 'Dies']];
-  const headOpts = function (sel) { return `<option value="">${t('— খাত —', '— head —')}</option>` + PC_HEADS.map(function (h) { return `<option value="${attr(h[0])}" ${h[0] === sel ? 'selected' : ''}>${escapeHtml(t(h[0], h[1]))}</option>`; }).join(''); };
-  const newPC = function (prev) { return prev ? { date: prev.date, qty: prev.qty, head: '', rate: '', value: '', basis: 'rate' } : { date: today, qty: '', head: '', rate: '', value: '', basis: 'rate' }; };
+  // উৎপাদন খরচ — কাজ ও খরচের কলাম ("দরের কলাম" পেজ থেকে), কর্মচারী
+  let gpc = null, basec = null;
+  try { gpc = await hrLoadGroups(); } catch (e) { gpc = null; }
+  try { basec = await hrLoadBase(); } catch (e) { basec = null; }
+  const DEF_LAB = ['শেপ', 'হাঃফিনিস', 'ফুঃফিনিস', 'পালিশ', 'হেল্পার হাঃ', 'হেল্পার ফুঃ', 'ফোরম্যান', 'ধোলাই', 'প্রডাঃম্যানেজার'];
+  const DEF_COST = ['বিদ্যুৎ', 'মেশিঃ ও ডাইস', 'মেডিসিন', 'বিবিধ'];
+  const allRoles = (gpc && gpc.roles && gpc.roles.length) ? gpc.roles.slice() : [];
+  const roleOf = function (name) {   // নাম মিলিয়ে কলাম; না থাকলে নামটাই আইডি
+    let r = allRoles.find(function (x) { return bnKey(x.RoleName) === bnKey(name); });
+    if (!r) { r = { RoleID: name, RoleName: name }; allRoles.push(r); }
+    return r.RoleID;
+  };
+  const defLab = DEF_LAB.map(roleOf), defCost = DEF_COST.map(roleOf);
+  const pcLabor = allRoles, pcCost = allRoles;   // হেডারের ড্রপডাউনে সব কলামের নাম
+  const pcEmps = basec ? basec.emps : [];
+  st.lab = defLab.slice(); st.cost = defCost.slice();
+  // নতুন লাইনঃ তারিখ পরের দিন, কর্মচারী আগের লাইনের মতো (মজুরি খালি)
+  const newPC = function (prev) {
+    return prev ? { date: nextDay(prev.date), w: prev.w.map(function (c) { return { emp: c.emp, amt: '' }; }), c: st.cost.map(function () { return ''; }) }
+                : { date: today, w: st.lab.map(function () { return { emp: '', amt: '' }; }), c: st.cost.map(function () { return ''; }) };
+  };
   st.pc = [newPC(null)];
 
   content.innerHTML = `
@@ -12245,7 +12262,13 @@ async function renderProductionVoucherPage(content) {
       .prv-tbl input[type=number]{text-align:right;-moz-appearance:textfield;}
       .prv-tbl input[type=number]::-webkit-outer-spin-button,.prv-tbl input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
       .prv-tbl .w-date{width:118px;} .prv-tbl .w-date .dmy-in{height:28px;font-size:12px;padding:2px 26px 2px 6px;}
-      .prv-tbl .w-qty{width:72px;} .prv-tbl .w-wh{width:84px;} .prv-tbl .w-rate{width:72px;} .prv-tbl .w-val{width:88px;} .prv-tbl .w-fg{width:118px;} .prv-tbl .w-head{width:112px;}
+      .prv-tbl .w-qty{width:72px;} .prv-tbl .w-wh{width:84px;} .prv-tbl .w-rate{width:72px;} .prv-tbl .w-val{width:88px;} .prv-tbl .w-fg{width:118px;}
+      .pc-h{display:flex;align-items:center;gap:2px;} .pc-h select{width:104px;height:26px;font-size:11.5px;font-weight:700;}
+      .prv-tbl .w-emp{width:104px;} .prv-tbl .w-amt{width:68px;margin-left:2px;}
+      .prv-tbl th.pc-cost{background:#fff1d6;} .prv-tbl td.pc-cost{background:#fffaf0;}
+      .prv-tbl .pc-gap{width:30px;min-width:30px;padding:0 2px !important;text-align:center;}
+      .prv-tbl .pc-tot{min-width:96px;} .pc-sub{font-size:9.5px;color:var(--text-muted);font-weight:400;}
+      .pc-foot{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;padding:6px 4px;} .pc-foot small{color:var(--text-muted);}
       .prv-tbl input.ov{border-color:#c27a12;box-shadow:inset 0 0 0 1px #c27a12;}
       .prv-fg{display:flex;align-items:center;gap:3px;flex-wrap:nowrap;}
       .prv-fgx{border:0;background:transparent;color:var(--danger);cursor:pointer;font-size:12px;padding:0 2px;}
@@ -12258,7 +12281,7 @@ async function renderProductionVoucherPage(content) {
       @media (max-width:760px){
         .prv .panel{padding:8px;}
         .prv-tbl input,.prv-tbl select{height:26px;font-size:11.5px;}
-        .prv-tbl .w-date{width:108px;} .prv-tbl .w-qty{width:60px;} .prv-tbl .w-wh{width:72px;} .prv-tbl .w-rate{width:60px;} .prv-tbl .w-val{width:76px;} .prv-tbl .w-fg{width:104px;} .prv-tbl .w-head{width:100px;}
+        .prv-tbl .w-date{width:108px;} .prv-tbl .w-qty{width:60px;} .prv-tbl .w-wh{width:72px;} .prv-tbl .w-rate{width:60px;} .prv-tbl .w-val{width:76px;} .prv-tbl .w-fg{width:104px;} .prv-tbl .w-emp{width:92px;} .prv-tbl .w-amt{width:58px;} .pc-h select{width:92px;}
         .prv-b{width:24px;height:24px;}
       }
     </style>
@@ -12274,6 +12297,7 @@ async function renderProductionVoucherPage(content) {
       <div class="prv-tw" id="prv_RM"></div>
       <div class="prv-sec" style="margin-top:14px;">${t('উৎপাদন খরচ', 'Production cost')}</div>
       <div class="prv-tw" id="prv_PC"></div>
+      <div class="pc-foot" id="prv_PFoot"></div>
     </div></div>`;
 
   function lineValue(l) { return l.basis === 'value' ? n(l.value) : n(l.qty) * n(l.rate); }
@@ -12349,60 +12373,92 @@ async function renderProductionVoucherPage(content) {
     const i = Number(el.getAttribute('data-i')), k = Number(el.getAttribute('data-k'));
     if (i === st.rm.length - 1 && k === st.rm[i].fg.length - 1) setTimeout(function () { st.rm.push(newLine(st.rm[i])); render(`tbody tr:nth-child(${i + 2}) [data-f="qty"]`); }, 0);
   });
-  // ---------- উৎপাদন খরচঃ ক্রঃ | তারিখ | পরিমাণ | মজুরি খাত | দর | মূল্য ----------
+  // ---------- উৎপাদন খরচঃ দৈনিক উৎপাদন ও দলের মতো ছক ----------
+  // কলামঃ ক্রঃ | তারিখ | কাজের কলাম (শেপ, হাঃফিনিস … প্রডাঃম্যানেজার) | খরচের কলাম (বিদ্যুৎ, মেশিঃ ও ডাইস, মেডিসিন, বিবিধ) | মোট (মজুরি + খরচ)
+  // • প্রতিটা কলামের হেডার নিজেই ড্রপডাউন (কোন কাজ/খাত); হেডারের ＋ দিয়ে নতুন কলাম, ✕ দিয়ে সরানো
+  // • কাজের কলামের ঘরেঃ কর্মচারী বাছাই + মজুরি লেখা; খরচের কলামের ঘরেঃ টাকা
+  function pcEmpOpts(sel) { return `<option value="">${t('— কর্মচারী —', '— worker —')}</option>` + pcEmps.map(function (e) { return `<option value="${attr(e.EmployeeID)}" ${e.EmployeeID === sel ? 'selected' : ''}>${escapeHtml(e.Name)}</option>`; }).join(''); }
+  function pcRoleOpts(list, sel) { return `<option value="">—</option>` + list.map(function (r) { return `<option value="${attr(r.RoleID)}" ${r.RoleID === sel ? 'selected' : ''}>${escapeHtml(r.RoleName)}</option>`; }).join(''); }
+  function pcRowWage(r) { return r.w.reduce(function (s2, c) { return s2 + n(c.amt); }, 0); }
+  function pcRowCost(r) { return r.c.reduce(function (s2, a) { return s2 + n(a); }, 0); }
   function renderPC(focus) {
-    $('prv_PC').innerHTML = `<table class="prv-tbl"><thead><tr><th class="sk1">${t('ক্রঃ', 'No.')}</th>
-        <th>${t('তারিখ', 'Date')}</th><th>${t('পরিমাণ (কেজি)', 'Qty (kg)')}</th><th>${t('মজুরি খাত', 'Cost head')}</th><th>${t('দর', 'Rate')}</th><th>${t('মূল্য', 'Value')}</th><th></th></tr></thead><tbody>
-      ${st.pc.map(function (l, i) {
-        const v = lineValue(l), r = lineRate(l);
-        return `<tr><td class="sk1">${i + 1}</td>
-          <td class="w-date"><input type="date" data-p="${i}" data-f="date" value="${attr(l.date)}" class="w-date"></td>
-          <td><input type="number" step="any" min="0" inputmode="decimal" data-p="${i}" data-f="qty" value="${attr(l.qty)}" class="w-qty"></td>
-          <td><select data-p="${i}" data-f="head" class="w-head">${headOpts(l.head)}</select></td>
-          <td><input type="number" step="any" min="0" inputmode="decimal" data-p="${i}" data-f="rate" value="${attr(l.basis === 'value' ? (r ? r.toFixed(2) : '') : l.rate)}" class="w-rate ${l.basis === 'rate' && l.rate ? 'ov' : ''}"></td>
-          <td><input type="number" step="any" min="0" inputmode="decimal" data-p="${i}" data-f="value" value="${attr(l.basis === 'value' ? l.value : (v ? v.toFixed(2) : ''))}" class="w-val ${l.basis === 'value' && l.value ? 'ov' : ''}"></td>
-          <td style="white-space:nowrap;"><button type="button" class="prv-b del" data-pdel="${i}" title="${attr(t('লাইন মুছুন', 'Remove line'))}">✕</button> <button type="button" class="prv-b plus" data-padd="${i}" title="${attr(t('নিচে একটা লাইন যোগ', 'Add a line below'))}">＋</button></td></tr>`;
-      }).join('')}</tbody>
-      <tfoot><tr><td class="sk1"></td><td>${t('মোট', 'Total')} (${st.pc.length})</td><td class="r" id="prv_PQty"></td><td></td><td class="r" id="prv_PRate"></td><td class="r" id="prv_PVal"></td><td></td></tr></tfoot></table>`;
+    const labHead = st.lab.map(function (rid, k) {
+      return `<th class="pc-lab"><div class="pc-h"><select data-hl="${k}">${pcRoleOpts(pcLabor, rid)}</select><button type="button" class="prv-fgx" data-hlx="${k}" title="${attr(t('কলাম সরান', 'Remove column'))}">✕</button></div></th>`; }).join('');
+    const costHead = st.cost.map(function (rid, k) {
+      return `<th class="pc-cost"><div class="pc-h"><select data-hc="${k}">${pcRoleOpts(pcCost, rid)}</select><button type="button" class="prv-fgx" data-hcx="${k}" title="${attr(t('কলাম সরান', 'Remove column'))}">✕</button></div></th>`; }).join('');
+    const body = st.pc.map(function (r, i) {
+      return `<tr><td class="sk1">${i + 1}</td>
+        <td class="w-date"><input type="date" data-p="${i}" data-f="date" value="${attr(r.date)}" class="w-date"></td>
+        ${r.w.map(function (c, k) { return `<td class="pc-lab"><select data-p="${i}" data-wk="${k}" class="w-emp">${pcEmpOpts(c.emp)}</select><input type="number" step="any" min="0" inputmode="decimal" data-p="${i}" data-wa="${k}" value="${attr(c.amt)}" placeholder="${attr(t('মজুরি', 'Wage'))}" class="w-amt" ${c.emp ? '' : 'disabled'}></td>`; }).join('')}
+        <td class="pc-gap"></td>
+        ${r.c.map(function (a, k) { return `<td class="pc-cost"><input type="number" step="any" min="0" inputmode="decimal" data-p="${i}" data-ca="${k}" value="${attr(a)}" placeholder="৳" class="w-amt"></td>`; }).join('')}
+        <td class="pc-gap"></td>
+        <td class="r pc-tot"><b data-pt="${i}">0.00</b><div class="pc-sub" data-ps="${i}"></div></td>
+        <td style="white-space:nowrap;"><button type="button" class="prv-b del" data-pdel="${i}" title="${attr(t('লাইন মুছুন', 'Remove line'))}">✕</button> <button type="button" class="prv-b plus" data-padd="${i}" title="${attr(t('নিচে একটা লাইন যোগ', 'Add a line below'))}">＋</button></td></tr>`;
+    }).join('');
+    $('prv_PC').innerHTML = `<table class="prv-tbl"><thead><tr><th class="sk1">${t('ক্রঃ', 'No.')}</th><th>${t('তারিখ', 'Date')}</th>
+        ${labHead}<th class="pc-gap"><button type="button" class="prv-b plus" data-hladd="1" title="${attr(t('কাজের নতুন কলাম', 'Add a job column'))}">＋</button></th>
+        ${costHead}<th class="pc-gap"><button type="button" class="prv-b plus" data-hcadd="1" title="${attr(t('খরচের নতুন কলাম', 'Add a cost column'))}">＋</button></th>
+        <th>${t('মোট (মজুরি + খরচ)', 'Total (wages + costs)')}</th><th></th></tr></thead><tbody>${body}</tbody>
+      <tfoot><tr><td class="sk1"></td><td>${t('মোট', 'Total')} (${st.pc.length})</td>
+        ${st.lab.map(function (x, k) { return `<td class="r pc-lab" data-tl="${k}"></td>`; }).join('')}<td class="pc-gap"></td>
+        ${st.cost.map(function (x, k) { return `<td class="r pc-cost" data-tc="${k}"></td>`; }).join('')}<td class="pc-gap"></td>
+        <td class="r pc-tot" id="prv_PVal"></td><td></td></tr></tfoot></table>`;
     pcTotals();
     if (focus) { const el = $('prv_PC').querySelector(focus); if (el) el.focus(); }
   }
   function pcTotals() {
-    // একই কেজির উপর কয়েক খাত — তাই পরিমাণ যোগ নয়; দরের ঘরে প্রতি কেজি খরচ = মোট খরচ ÷ কাঁচামালের মোট কেজি
-    let v = 0; st.pc.forEach(function (l) { v += lineValue(l); });
+    const box2 = $('prv_PC'); if (!box2) return;
+    let tw = 0, tc = 0;
+    st.pc.forEach(function (r, i) {
+      const w = pcRowWage(r), c = pcRowCost(r); tw += w; tc += c;
+      const a = box2.querySelector(`[data-pt="${i}"]`), b2 = box2.querySelector(`[data-ps="${i}"]`);
+      if (a) a.textContent = (w + c).toFixed(2);
+      if (b2) b2.textContent = (w || c) ? t('মজুরি ', 'w ') + w.toFixed(2) + ' · ' + t('খরচ ', 'c ') + c.toFixed(2) : '';
+    });
+    st.lab.forEach(function (x, k) { const el = box2.querySelector(`[data-tl="${k}"]`); if (el) el.textContent = st.pc.reduce(function (s2, r) { return s2 + n(r.w[k].amt); }, 0).toFixed(2); });
+    st.cost.forEach(function (x, k) { const el = box2.querySelector(`[data-tc="${k}"]`); if (el) el.textContent = st.pc.reduce(function (s2, r) { return s2 + n(r.c[k]); }, 0).toFixed(2); });
+    const tv = $('prv_PVal'); if (tv) tv.textContent = (tw + tc).toFixed(2);
     const rawKg = st.rm.reduce(function (s2, l) { return s2 + n(l.qty); }, 0);
-    const tq = $('prv_PQty'), tr = $('prv_PRate'), tv = $('prv_PVal');
-    if (tq) tq.textContent = rawKg ? t('কাঁচামাল ', 'raw ') + (show(rawKg) || '0') : '—';
-    if (tr) { tr.textContent = rawKg > 0 && v > 0 ? (v / rawKg).toFixed(2) + t('/কেজি', '/kg') : '—'; tr.title = t('প্রতি কেজি খরচ = মোট খরচ ÷ কাঁচামালের মোট কেজি', 'Cost per kg = total cost ÷ total raw kg'); }
-    if (tv) tv.textContent = v.toFixed(2);
+    const pf = $('prv_PFoot');
+    if (pf) pf.innerHTML = `<span>${t('মোট মজুরি', 'Wages')} <b>${tw.toFixed(2)}</b></span><span>${t('মোট খরচ', 'Costs')} <b>${tc.toFixed(2)}</b></span><span>${t('মোট (মজুরি + খরচ)', 'Total')} <b>${(tw + tc).toFixed(2)}</b></span>` +
+      (rawKg > 0 ? `<span title="${attr(t('মোট (মজুরি + খরচ) ÷ কাঁচামালের মোট কেজি', 'Total ÷ raw kg'))}">${t('প্রতি কেজি', 'Per kg')} <b>${((tw + tc) / rawKg).toFixed(2)}</b> <small>(${t('কাঁচামাল ', 'raw ')}${show(rawKg)} ${t('কেজি', 'kg')})</small></span>` : '');
   }
   const pbox = $('prv_PC');
   pbox.addEventListener('input', function (e) {
-    const el = e.target, f = el.getAttribute('data-f'); if (!f || f === 'head') return;
-    const i = Number(el.getAttribute('data-p')), l = st.pc[i];
-    if (f === 'rate') { l.rate = el.value; l.basis = 'rate'; }
-    else if (f === 'value') { l.value = el.value; l.basis = el.value === '' ? 'rate' : 'value'; if (l.basis === 'value') l.rate = ''; }
-    else l[f] = el.value;
-    const tr = pbox.querySelectorAll('tbody tr')[i], re = tr.querySelector('[data-f="rate"]'), ve = tr.querySelector('[data-f="value"]');
-    if (l.basis === 'value') { const r = lineRate(l); if (document.activeElement !== re) re.value = r ? r.toFixed(2) : ''; }
-    else { const v = lineValue(l); if (document.activeElement !== ve) ve.value = v ? v.toFixed(2) : ''; }
-    re.classList.toggle('ov', l.basis === 'rate' && !!l.rate); ve.classList.toggle('ov', l.basis === 'value' && !!l.value);
-    pcTotals();
+    const el = e.target, i = Number(el.getAttribute('data-p'));
+    if (el.hasAttribute('data-wa')) { st.pc[i].w[Number(el.getAttribute('data-wa'))].amt = el.value; pcTotals(); }
+    else if (el.hasAttribute('data-ca')) { st.pc[i].c[Number(el.getAttribute('data-ca'))] = el.value; pcTotals(); }
+    else if (el.getAttribute('data-f') === 'date') st.pc[i].date = el.value;
   });
   pbox.addEventListener('change', function (e) {
-    const el = e.target, f = el.getAttribute('data-f'); if (!f) return;
-    const l = st.pc[Number(el.getAttribute('data-p'))]; if (f === 'head' || f === 'date') l[f] = el.value;
+    const el = e.target;
+    if (el.hasAttribute('data-hl')) { st.lab[Number(el.getAttribute('data-hl'))] = el.value; return; }
+    if (el.hasAttribute('data-hc')) { st.cost[Number(el.getAttribute('data-hc'))] = el.value; return; }
+    const i = Number(el.getAttribute('data-p'));
+    if (el.getAttribute('data-f') === 'date') { st.pc[i].date = el.value; return; }
+    if (el.hasAttribute('data-wk')) {
+      const k = Number(el.getAttribute('data-wk')), c = st.pc[i].w[k];
+      c.emp = el.value; if (!el.value) c.amt = '';
+      const amt = el.parentNode.querySelector('[data-wa]'); amt.disabled = !el.value; if (!el.value) amt.value = ''; else amt.focus();
+      pcTotals();
+    }
   });
   pbox.addEventListener('click', function (e) {
-    const a = e.target.closest('[data-padd]'), d = e.target.closest('[data-pdel]');
-    if (a) { const i = Number(a.getAttribute('data-padd')); st.pc.splice(i + 1, 0, newPC(st.pc[i])); renderPC(`tbody tr:nth-child(${i + 2}) [data-f="head"]`); return; }
-    if (d) { const i = Number(d.getAttribute('data-pdel')); st.pc.splice(i, 1); if (!st.pc.length) st.pc.push(newPC(null)); renderPC(); }
+    const g = function (a) { return e.target.closest('[' + a + ']'); };
+    let b;
+    if ((b = g('data-hladd'))) { st.lab.push(''); st.pc.forEach(function (r) { r.w.push({ emp: '', amt: '' }); }); renderPC(`[data-hl="${st.lab.length - 1}"]`); return; }
+    if ((b = g('data-hcadd'))) { st.cost.push(''); st.pc.forEach(function (r) { r.c.push(''); }); renderPC(`[data-hc="${st.cost.length - 1}"]`); return; }
+    if ((b = g('data-hlx'))) { const k = Number(b.getAttribute('data-hlx')); if (st.pc.some(function (r) { return r.w[k].emp || n(r.w[k].amt); }) && !confirm(t('এই কলামে লেখা আছে — সরাবেন?', 'This column has entries — remove?'))) return; st.lab.splice(k, 1); st.pc.forEach(function (r) { r.w.splice(k, 1); }); renderPC(); return; }
+    if ((b = g('data-hcx'))) { const k = Number(b.getAttribute('data-hcx')); if (st.pc.some(function (r) { return n(r.c[k]); }) && !confirm(t('এই কলামে লেখা আছে — সরাবেন?', 'This column has entries — remove?'))) return; st.cost.splice(k, 1); st.pc.forEach(function (r) { r.c.splice(k, 1); }); renderPC(); return; }
+    if ((b = g('data-padd'))) { const i = Number(b.getAttribute('data-padd')); st.pc.splice(i + 1, 0, newPC(st.pc[i])); renderPC(`tbody tr:nth-child(${i + 2}) [data-wk="0"]`); return; }
+    if ((b = g('data-pdel'))) { const i = Number(b.getAttribute('data-pdel')); st.pc.splice(i, 1); if (!st.pc.length) st.pc.push(newPC(null)); renderPC(); }
   });
-  // শেষ লাইনের মূল্যের ঘরে Enter = নতুন লাইন
+  // শেষ লাইনের শেষ খরচের ঘরে Enter = নতুন লাইন
   pbox.addEventListener('keydown', function (e) {
-    const el = e.target; if (e.key !== 'Enter' || el.getAttribute('data-f') !== 'value') return;
-    const i = Number(el.getAttribute('data-p'));
-    if (i === st.pc.length - 1) setTimeout(function () { st.pc.push(newPC(st.pc[i])); renderPC(`tbody tr:nth-child(${i + 2}) [data-f="head"]`); }, 0);
+    const el = e.target; if (e.key !== 'Enter' || !el.hasAttribute('data-ca')) return;
+    const i = Number(el.getAttribute('data-p')), k = Number(el.getAttribute('data-ca'));
+    if (i === st.pc.length - 1 && k === st.cost.length - 1) setTimeout(function () { st.pc.push(newPC(st.pc[i])); renderPC(`tbody tr:nth-child(${i + 2}) [data-wk="0"]`); }, 0);
   });
 
   $('prv_Date').addEventListener('change', function () { st.date = this.value; });
