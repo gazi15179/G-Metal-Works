@@ -14916,6 +14916,14 @@ function voucherViewPostedApply(P, kind, dt, id) {
    কোনো সেটিং না থাকলে সব ঘর চালু (আগের মতো)। প্রিন্ট/প্রিন্ট প্রিভিউতে কোনো প্রভাব নেই। ===== */
 /* ক্রয়/বিক্রয় ভাউচার — চিকন শিরোনাম ও উপরের অংশ, ডেস্কটপে উঁচু উইন্ডো (দর/মূল্য পর্যন্ত স্ক্রল ছাড়াই) */
 const SV_COMPACT_CSS = `
+  .vpick{background:var(--surface,#fff);color:var(--text,#111);border:1.5px solid #c27a12;border-radius:8px;box-shadow:0 10px 28px rgba(0,0,0,.28);overflow:hidden;font-size:12.5px;}
+  .vpick-q{width:100%;box-sizing:border-box;height:32px;border:0;border-bottom:1px solid var(--border,#ddd);padding:4px 9px;font-size:12.5px;outline:none;background:transparent;color:inherit;}
+  .vpick-list{overflow-y:auto;}
+  .vpick-o{padding:5px 10px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .vpick-o.cur{font-weight:700;}
+  .vpick-o.on{background:#c27a12;color:#fff;}
+  .vpick-o:not(.on):hover{background:rgba(194,122,18,.12);}
+  .vpick-none{padding:8px 10px;color:var(--text-muted,#777);font-style:italic;}
   .modal:has(#sv3_TabEntryPanel),.modal:has(#pv3_TabEntryPanel){max-height:97vh;}
   .modal:not(.modal-max):has(#sv3_TabEntryPanel),.modal:not(.modal-max):has(#pv3_TabEntryPanel){height:97vh;}
   .modal-overlay:has(#sv3_TabEntryPanel),.modal-overlay:has(#pv3_TabEntryPanel){padding-top:1.5vh !important;padding-bottom:1.5vh !important;}
@@ -14939,6 +14947,88 @@ const SV_COMPACT_CSS = `
     .modal:has(#sv3_TabEntryPanel) .modal-body,.modal:has(#pv3_TabEntryPanel) .modal-body{padding:8px 8px !important;}
     #sv3_Freeze .vnav,#pv3_Freeze .vnav{height:22px;width:36px;}
   }`;
+
+/** আইটেম ঘরে Enter → আইটেমের তালিকা খোলে (খোঁজার ঘর সহ)। ↓ ↑ দিয়ে বাছাই, Enter দিলে আইটেম বসে আর কার্সর পরের ঘরে
+ *  (পরিমাণ → দর → মূল্য → Enter = লাইন + → আবার আইটেম)। লিখে খোঁজা যায়, Escape দিলে তালিকা বন্ধ, আইটেম যেমন ছিল।
+ *  মাউস/আঙুলে আগের মতোই সাধারণ তালিকা খোলে। */
+function voucherItemPickerWire(P) {
+  const sel = document.getElementById(P + '_ItemID');
+  const panel = document.getElementById(P + '_TabEntryPanel');
+  if (!sel || !panel) return;
+  let box = null;
+  const nextField = function () {   // আইটেমের পরের চালু ঘর (সাধারণ Enter-নিয়মের মতোই বাছাই)
+    const list = Array.from(panel.querySelectorAll('input, select, textarea')).filter(function (el) {
+      return !el.disabled && el.type !== 'checkbox' && el.offsetParent !== null && !el.classList.contains('dmy-shadow') && el.getAttribute('tabindex') !== '-1';
+    });
+    return list[list.indexOf(sel) + 1] || null;
+  };
+  const close = function () { if (box) { box.remove(); box = null; } document.removeEventListener('mousedown', outside, true); };
+  const mb = document.getElementById('modalBody');   // ফর্ম স্ক্রল হলে বা জানালার মাপ বদলালে তালিকা বন্ধ (জায়গা সরে যায়)
+  if (mb) mb.addEventListener('scroll', function () { if (box) { close(); } }, { passive: true });
+  window.addEventListener('resize', function () { if (box) close(); });
+  const outside = function (e) { if (box && !box.contains(e.target)) close(); };
+  const choose = function (value) {
+    close();
+    const changed = value !== sel.value, before = window['__' + P + 'LastStockKP'];
+    if (changed) { sel.value = value; sel.dispatchEvent(new Event('change', { bubbles: true })); }
+    sel.focus();
+    if (!sel.value) return;
+    let n = 0;
+    const go = function () {   // আইটেমের স্টক/একক হিসাব শেষ হলে (কোন ঘর চালু তা ঠিক হয়) পরের ঘরে
+      if (document.activeElement !== sel) return;   // এর মধ্যে নিজে অন্য ঘরে গেলে আর সরানো নয়
+      if (changed && window['__' + P + 'LastStockKP'] === before && n++ < 25) return setTimeout(go, 40);
+      const nx = nextField(); if (nx) { nx.focus(); try { if (nx.select) nx.select(); } catch (e) {} }
+    };
+    setTimeout(go, changed ? 40 : 0);
+  };
+  const open = function () {
+    close();
+    const opts = Array.from(sel.options).filter(function (o) { return o.value && !o.disabled; }).map(function (o) { return { v: o.value, t: o.textContent }; });
+    const r = sel.getBoundingClientRect();
+    box = document.createElement('div');
+    box.className = 'vpick';
+    box.innerHTML = `<input class="vpick-q" type="text" placeholder="${attr(t('খুঁজুন… (↓ ↑ বাছাই, Enter = বসান, Esc = বন্ধ)', 'Search… (↓ ↑ pick, Enter = choose, Esc = close)'))}"><div class="vpick-list"></div>`;
+    document.body.appendChild(box);
+    const w = Math.max(r.width, 280), left = Math.min(r.left, window.innerWidth - w - 6);
+    const below = window.innerHeight - r.bottom - 8, above = r.top - 8;
+    const maxH = Math.max(160, Math.min(340, Math.max(below, above)));
+    box.style.cssText = `position:fixed;left:${Math.max(6, left)}px;width:${w}px;z-index:100000;` + (below >= 200 || below >= above ? `top:${r.bottom + 2}px;` : `bottom:${window.innerHeight - r.top + 2}px;`);
+    const q = box.querySelector('.vpick-q'), listEl = box.querySelector('.vpick-list');
+    listEl.style.maxHeight = (maxH - 34) + 'px';
+    let shown = [], hi = 0;
+    const paint = function () {
+      const term = q.value.trim().toLowerCase();
+      shown = opts.filter(function (o) { return !term || o.t.toLowerCase().indexOf(term) !== -1; });
+      if (hi >= shown.length) hi = shown.length - 1; if (hi < 0) hi = 0;
+      listEl.innerHTML = shown.length ? shown.map(function (o, i) { return `<div class="vpick-o${i === hi ? ' on' : ''}${o.v === sel.value ? ' cur' : ''}" data-i="${i}">${escapeHtml(o.t)}</div>`; }).join('')
+        : `<div class="vpick-none">${t('কিছু পাওয়া যায়নি', 'Nothing found')}</div>`;
+      const on = listEl.querySelector('.vpick-o.on'); if (on) on.scrollIntoView({ block: 'nearest' });
+    };
+    hi = Math.max(0, opts.findIndex(function (o) { return o.v === sel.value; }));
+    paint();
+    q.addEventListener('input', function () { hi = 0; paint(); });
+    q.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); if (hi < shown.length - 1) { hi++; paint(); } }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); if (hi > 0) { hi--; paint(); } }
+      else if (e.key === 'PageDown') { e.preventDefault(); hi = Math.min(shown.length - 1, hi + 8); paint(); }
+      else if (e.key === 'PageUp') { e.preventDefault(); hi = Math.max(0, hi - 8); paint(); }
+      else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); if (shown[hi]) choose(shown[hi].v); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); sel.focus(); }
+      else if (e.key === 'Tab') { close(); }
+    });
+    listEl.addEventListener('mousedown', function (e) { const o = e.target.closest('.vpick-o'); if (!o) return; e.preventDefault(); choose(shown[Number(o.getAttribute('data-i'))].v); });
+    setTimeout(function () { document.addEventListener('mousedown', outside, true); }, 0);
+    q.focus();
+  };
+  const h = function (e) {
+    if (!document.body.contains(sel)) { window.removeEventListener('keydown', h, true); close(); return; }
+    if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return;
+    if (document.activeElement !== sel || sel.disabled) return;
+    e.preventDefault(); e.stopImmediatePropagation();   // সাধারণ "পরের ঘরে যাও" এখানে নয় — আগে তালিকা
+    open();
+  };
+  window.addEventListener('keydown', h, true);
+}
 
 /** মূল্যের ঘরে Enter → সাথে সাথে "লাইন +" (বিক্রয়/ক্রয় লাইন যোগ বা এডিট করা লাইন হালনাগাদ), তারপর কার্সর আইটেমে।
  *  লাইনে ভুল থাকলে (যেমন আইটেম নেই) বার্তা দেখায় আর কার্সর মূল্যেই থাকে। লাইন + বোতাম সেটিং-এ বন্ধ থাকলে আগের মতো পরের ঘরে যায়। */
@@ -16518,7 +16608,8 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
   showTab('entry');
   vfsWire('pv3', pvSetP);
   voucherSmoothWire('pv3');
-  voucherAmountEnterWire('pv3');   // মূল্যে Enter → ক্রয় লাইন + → আইটেম
+  voucherAmountEnterWire('pv3');
+  voucherItemPickerWire('pv3');   // আইটেমে Enter → তালিকা, ↓↑ বাছাই, Enter → পরের ঘর   // মূল্যে Enter → ক্রয় লাইন + → আইটেম
     // চিকন উপরের অংশ, দর/মূল্যে টানাটানি ছাড়া   // ক্রয় ভাউচার সেটিং — টিক না থাকা ঘর দেখা যাবে না
   if (pv3ViewPosted) voucherViewPostedApply('pv3', 'purchase', existingDocType, existingId);
   voucherNavWire('pv3', 'purchase', existingDocType, existingId);   // ◀ ▶ আগের/পরের ভাউচার
@@ -17756,7 +17847,8 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
   showTab('entry');
   svFieldSettingsWire(svSetP);   // বিক্রয় ভাউচার সেটিং — বন্ধ ঘর এডিট করা যাবে না
   voucherSmoothWire('sv3');
-  voucherAmountEnterWire('sv3');   // মূল্যে Enter → বিক্রয় লাইন + → আইটেম
+  voucherAmountEnterWire('sv3');
+  voucherItemPickerWire('sv3');   // আইটেমে Enter → তালিকা, ↓↑ বাছাই, Enter → পরের ঘর   // মূল্যে Enter → বিক্রয় লাইন + → আইটেম
     // চিকন উপরের অংশ, দর/মূল্যে টানাটানি ছাড়া
   if (sv3ViewPosted) voucherViewPostedApply('sv3', 'sales', existingDocType, existingId);
   voucherNavWire('sv3', 'sales', existingDocType, existingId);   // ◀ ▶ আগের/পরের ভাউচার
