@@ -739,6 +739,37 @@ async function api(action, payload) {
  *  নেগেটিভ হলে কমবে। এটাই সব ধরনের স্টক-মুভমেন্টের একমাত্র কেন্দ্রবিন্দু —
  *  যাতে CurrentStock ও StockLedger কখনো একে অপরের থেকে আলাদা (out of sync) না হয়ে যায়। */
 /** শুধু current_stock বদলায় (লেজারে সারি নয়) — ভাউচার ডিলিট/এডিটে স্টক ফেরতের জন্য */
+/** অনেকগুলো স্টক-সমন্বয় একসাথে (আনপোস্ট/এডিট দ্রুত করতে) — একই আইটেম×গুদামের পরিবর্তন যোগ করে একবারে পড়া ও লেখা */
+async function adjustCurrentStockBatch(list) {
+  const agg = {};
+  (list || []).forEach(function (x) {
+    if (!x || !x.itemId || !x.warehouseId) return;
+    const k = x.itemId + '\u0001' + x.warehouseId;
+    const a = agg[k] || (agg[k] = { item: x.itemId, wh: x.warehouseId, kg: 0, pcs: 0 });
+    a.kg += Number(x.kg) || 0; a.pcs += Number(x.pcs) || 0;
+  });
+  const all = Object.keys(agg).map(function (k) { return agg[k]; });
+  if (!all.length) return;
+  const byWh = {}; all.forEach(function (a) { (byWh[a.wh] = byWh[a.wh] || []).push(a); });
+  const cur = {};
+  await Promise.all(Object.keys(byWh).map(async function (wh) {
+    const items = byWh[wh].map(function (a) { return a.item; });
+    for (let i = 0; i < items.length; i += 150) {
+      const { data, error } = await supabaseClient.from('current_stock').select('*').eq('WarehouseID', wh).in('ItemID', items.slice(i, i + 150));
+      if (error) throw new Error(error.message);
+      (data || []).forEach(function (r) { cur[r.ItemID + '\u0001' + wh] = r; });
+    }
+  }));
+  const ins = [];
+  const jobs = all.map(function (a) {
+    const ex = cur[a.item + '\u0001' + a.wh];
+    if (!ex) { ins.push({ ItemID: a.item, WarehouseID: a.wh, QtyOnHand: a.kg, QtyPieces: a.pcs }); return null; }
+    return supabaseClient.from('current_stock').update({ QtyOnHand: (Number(ex.QtyOnHand) || 0) + a.kg, QtyPieces: (Number(ex.QtyPieces) || 0) + a.pcs }).eq('ItemID', a.item).eq('WarehouseID', a.wh)
+      .then(function (r) { if (r && r.error) throw new Error(r.error.message); });
+  }).filter(Boolean);
+  if (ins.length) jobs.push(supabaseClient.from('current_stock').insert(ins).then(function (r) { if (r && r.error) throw new Error(r.error.message); }));
+  await Promise.all(jobs);
+}
 async function adjustCurrentStock(itemId, warehouseId, kgDelta, piecesDelta) {
   if (!itemId || !warehouseId) return;
   kgDelta = Number(kgDelta) || 0; piecesDelta = Number(piecesDelta) || 0;
@@ -783,6 +814,19 @@ async function postStockMovement(itemId, warehouseId, date, transactionType, ref
  *  কাছে আরও দেনাদার হলাম (ক্রয়), Debit মানে দেনা কমলো (ফেরত/পেমেন্ট)।
  *  কাস্টমার — Debit মানে সে আমাদের কাছে আরও পাওনাদার হলো (বিক্রয়),
  *  Credit মানে পাওনা কমলো (ফেরত/রিসিট)। */
+/** একই পার্টির কয়েকটা এন্ট্রি (যেমন বিক্রয় + সাথে সাথে গ্রহণ) — আগের ব্যালান্স একবার পড়ে, সব সারি একবারে লেখা (দ্রুত)।
+ *  rows: [{ refModule, debit, credit }] — ক্রমানুসারে চলমান ব্যালান্স, postPartyLedgerEntry-এর একই নিয়ম */
+async function postPartyLedgerEntries(partyType, partyId, date, refId, rows) {
+  if (!partyType || !partyId) return;
+  rows = (rows || []).map(function (r) { return { m: r.refModule, d: Number(r.debit) || 0, c: Number(r.credit) || 0 }; }).filter(function (r) { return r.d !== 0 || r.c !== 0; });
+  if (!rows.length) return;
+  const { data: existing } = await supabaseClient.from('PartyLedger').select('Balance').eq('PartyType', partyType).eq('PartyID', partyId).order('id', { ascending: false }).limit(1);
+  let bal = (existing && existing[0]) ? Number(existing[0].Balance) || 0 : 0;
+  const by = currentUser ? (currentUser.FullName || currentUser.Email || null) : null;
+  const ins = rows.map(function (r) { bal = bal + r.d - r.c; return { PartyType: partyType, PartyID: partyId, Date: date, RefModule: r.m, RefID: refId, Debit: r.d, Credit: r.c, Balance: bal, CreatedBy: by }; });
+  const { error } = await supabaseClient.from('PartyLedger').insert(ins);
+  if (error) throw new Error(error.message);
+}
 async function postPartyLedgerEntry(partyType, partyId, date, refModule, refId, debit, credit) {
   if (!partyType || !partyId) return;
   debit = Number(debit) || 0; credit = Number(credit) || 0;
@@ -840,27 +884,31 @@ async function runPostingLogic(docType, header, docId) {
     if (!header.WarehouseID) throw new Error('এই ক্রয় চালানে কোনো গুদাম উল্লেখ নেই।');
     const { data: lines, error } = await supabaseClient.from('PI_Lines').select('*').eq('PIID', docId);
     if (error) throw new Error(error.message);
-    for (const line of (lines || [])) {
-      await postSalesStock(line.ItemID, header.WarehouseID, header.InvoiceDate || today, 'PurchaseInvoice', 'PurchaseInvoice', docId, line.Quantity, 1, { kg: line.QtyKg, pcs: line.QtyPcs });   // পিসের আইটেমে পিসের ঘরে
-    }
+    // স্টক আর টাকার হিসাব একসাথে চলে (দ্রুত)
+    const stockP = postSalesStockBatch((lines || []).map(function (line) {   // পিসের আইটেমে পিসের ঘরে
+      return { itemId: line.ItemID, warehouseId: header.WarehouseID, date: header.InvoiceDate || today, txType: 'PurchaseInvoice', refModule: 'PurchaseInvoice', refId: docId, qty: line.Quantity, sign: 1, other: { kg: line.QtyKg, pcs: line.QtyPcs } };
+    }));
+    const dt = header.InvoiceDate || today;
+    let moneyP;
     if (header.SupplierID === 'SUP-CASH') {
       // নগদ ক্রয় — কোনো দেনা তৈরি হবে না, সরাসরি ক্যাশ অ্যাকাউন্ট থেকে টাকা বের হয়ে যাবে
-      await postBankCashBookEntry(await cashAccountId(), header.InvoiceDate || today, 'PurchaseInvoice', docId, 0, Number(header.TotalAmount) || 0);
+      moneyP = (async function () { await postBankCashBookEntry(await cashAccountId(), dt, 'PurchaseInvoice', docId, 0, Number(header.TotalAmount) || 0); })();
     } else {
-      await postPartyLedgerEntry('Supplier', header.SupplierID, header.InvoiceDate || today, 'PurchaseInvoice', docId, 0, Number(header.TotalAmount) || 0);
-      // ভাউচারের সাথে সাথেই যদি আংশিক/পূর্ণ নগদ বা ব্যাংকে প্রদান করা হয়ে থাকে,
-      // সেটা এখনই সরবরাহকারীর দেনা থেকে বাদ যাবে
+      // ভাউচারের সাথে সাথেই যদি আংশিক/পূর্ণ নগদ বা ব্যাংকে প্রদান করা হয়ে থাকে, সেটা এখনই সরবরাহকারীর দেনা থেকে বাদ যাবে
       const cashPaid = Number(header.CashPaidAmount) || 0;
       const bankPaid = Number(header.BankPaidAmount) || 0;
-      if (cashPaid > 0) {
-        await postPartyLedgerEntry('Supplier', header.SupplierID, header.InvoiceDate || today, 'PurchaseInvoice-Payment', docId, cashPaid, 0);
-        await postBankCashBookEntry(await cashAccountId(), header.InvoiceDate || today, 'PurchaseInvoice-Payment', docId, 0, cashPaid);
-      }
-      if (bankPaid > 0 && header.BankAccIDForPayment) {
-        await postPartyLedgerEntry('Supplier', header.SupplierID, header.InvoiceDate || today, 'PurchaseInvoice-Payment', docId, bankPaid, 0);
-        await postBankCashBookEntry(header.BankAccIDForPayment, header.InvoiceDate || today, 'PurchaseInvoice-Payment', docId, 0, bankPaid);
-      }
+      const pl = [{ refModule: 'PurchaseInvoice', debit: 0, credit: Number(header.TotalAmount) || 0 }];
+      if (cashPaid > 0) pl.push({ refModule: 'PurchaseInvoice-Payment', debit: cashPaid, credit: 0 });
+      if (bankPaid > 0 && header.BankAccIDForPayment) pl.push({ refModule: 'PurchaseInvoice-Payment', debit: bankPaid, credit: 0 });
+      moneyP = Promise.all([
+        postPartyLedgerEntries('Supplier', header.SupplierID, dt, docId, pl),
+        (async function () {
+          if (cashPaid > 0) await postBankCashBookEntry(await cashAccountId(), dt, 'PurchaseInvoice-Payment', docId, 0, cashPaid);
+          if (bankPaid > 0 && header.BankAccIDForPayment) await postBankCashBookEntry(header.BankAccIDForPayment, dt, 'PurchaseInvoice-Payment', docId, 0, bankPaid);
+        })()
+      ]);
     }
+    await Promise.all([stockP, moneyP]);
     return;
   }
 
@@ -874,16 +922,19 @@ async function runPostingLogic(docType, header, docId) {
     const { data: lines, error } = await supabaseClient.from('PR_Return_Lines').select('*').eq('PRetID', docId);
     if (error) throw new Error(error.message);
     let returnTotal = 0;
-    for (const line of (lines || [])) {
-      await postSalesStock(line.ItemID, warehouseId, header.Date || today, 'PurchaseReturn', 'PurchaseReturn', docId, line.Quantity, -1, { kg: line.QtyKg, pcs: line.QtyPcs });
-      returnTotal += returnLineNet(line);   // কমিশন বাদে নিট টাকা
-    }
-    if (header.SupplierID === 'SUP-CASH') {
-      // নগদ ক্রয়-ফেরত — টাকা ফেরত আসবে সরাসরি ক্যাশ অ্যাকাউন্টে
-      await postBankCashBookEntry(await cashAccountId(), header.Date || today, 'PurchaseReturn', docId, returnTotal, 0);
-    } else {
-      await postPartyLedgerEntry('Supplier', header.SupplierID, header.Date || today, 'PurchaseReturn', docId, returnTotal, 0);
-    }
+    const stockP = postSalesStockBatch((lines || []).map(function (line) {   // সব লাইন একসাথে; টাকার হিসাবের সাথে একসাথে চলে (দ্রুত)
+      return { itemId: line.ItemID, warehouseId: warehouseId, date: header.Date || today, txType: 'PurchaseReturn', refModule: 'PurchaseReturn', refId: docId, qty: line.Quantity, sign: -1, other: { kg: line.QtyKg, pcs: line.QtyPcs } };
+    }));
+    for (const line of (lines || [])) returnTotal += returnLineNet(line);   // কমিশন বাদে নিট টাকা
+    const moneyP = (async function () {
+      if (header.SupplierID === 'SUP-CASH') {
+        // নগদ ক্রয়-ফেরত — টাকা ফেরত আসবে সরাসরি ক্যাশ অ্যাকাউন্টে
+        await postBankCashBookEntry(await cashAccountId(), header.Date || today, 'PurchaseReturn', docId, returnTotal, 0);
+      } else {
+        await postPartyLedgerEntry('Supplier', header.SupplierID, header.Date || today, 'PurchaseReturn', docId, returnTotal, 0);
+      }
+    })();
+    await Promise.all([stockP, moneyP]);
     return;
   }
 
@@ -891,9 +942,9 @@ async function runPostingLogic(docType, header, docId) {
     if (!header.WarehouseID) throw new Error('গুদাম উল্লেখ নেই।');
     const { data: lines, error } = await supabaseClient.from('MI_Lines').select('*').eq('MIID', docId);
     if (error) throw new Error(error.message);
-    for (const line of (lines || [])) {
-      await postSalesStock(line.ItemID, header.WarehouseID, header.Date || today, 'MaterialIssue', 'MaterialIssue', docId, line.Quantity, -1);
-    }
+    await postSalesStockBatch((lines || []).map(function (line) {
+      return { itemId: line.ItemID, warehouseId: header.WarehouseID, date: header.Date || today, txType: 'MaterialIssue', refModule: 'MaterialIssue', refId: docId, qty: line.Quantity, sign: -1 };
+    }));
     return;
   }
 
@@ -915,9 +966,9 @@ async function runPostingLogic(docType, header, docId) {
     if (!header.WarehouseID) throw new Error('গুদাম উল্লেখ নেই।');
     const { data: lines, error } = await supabaseClient.from('Adjustment_Lines').select('*').eq('AdjID', docId);
     if (error) throw new Error(error.message);
-    for (const line of (lines || [])) {
-      await postSalesStock(line.ItemID, header.WarehouseID, header.Date || today, 'StockAdjustment', 'StockAdjustment', docId, Math.abs(Number(line.QtyChange) || 0), (Number(line.QtyChange) || 0) < 0 ? -1 : 1);
-    }
+    await postSalesStockBatch((lines || []).map(function (line) {
+      return { itemId: line.ItemID, warehouseId: header.WarehouseID, date: header.Date || today, txType: 'StockAdjustment', refModule: 'StockAdjustment', refId: docId, qty: Math.abs(Number(line.QtyChange) || 0), sign: (Number(line.QtyChange) || 0) < 0 ? -1 : 1 };
+    }));
     return;
   }
 
@@ -930,27 +981,31 @@ async function runPostingLogic(docType, header, docId) {
     if (!header.WarehouseID) throw new Error('এই বিক্রয় চালানে কোনো গুদাম উল্লেখ নেই।');
     const { data: lines, error } = await supabaseClient.from('SI_Lines').select('*').eq('SIID', docId);
     if (error) throw new Error(error.message);
-    for (const line of (lines || [])) {
-      await postSalesStock(line.ItemID, header.WarehouseID, header.InvoiceDate || today, 'SalesInvoice', 'SalesInvoice', docId, line.Quantity, -1, { kg: line.QtyKg, pcs: line.QtyPcs });
-    }
+    // স্টক আর টাকার হিসাব (পার্টি লেজার / ক্যাশ-ব্যাংক বই) একসাথে চলে — আলাদা টেবিল, একে অপরের উপর নির্ভর করে না (দ্রুত)
+    const stockP = postSalesStockBatch((lines || []).map(function (line) {
+      return { itemId: line.ItemID, warehouseId: header.WarehouseID, date: header.InvoiceDate || today, txType: 'SalesInvoice', refModule: 'SalesInvoice', refId: docId, qty: line.Quantity, sign: -1, other: { kg: line.QtyKg, pcs: line.QtyPcs } };
+    }));
+    const dt = header.InvoiceDate || today;
+    let moneyP;
     if (header.CustomerID === 'CUS-CASH') {
       // নগদ বিক্রয় — কোনো পাওনা তৈরি হবে না, সরাসরি ক্যাশ অ্যাকাউন্টে টাকা জমা হবে
-      await postBankCashBookEntry(await cashAccountId(), header.InvoiceDate || today, 'SalesInvoice', docId, Number(header.TotalAmount) || 0, 0);
+      moneyP = (async function () { await postBankCashBookEntry(await cashAccountId(), dt, 'SalesInvoice', docId, Number(header.TotalAmount) || 0, 0); })();
     } else {
-      await postPartyLedgerEntry('Customer', header.CustomerID, header.InvoiceDate || today, 'SalesInvoice', docId, Number(header.TotalAmount) || 0, 0);
-      // ভাউচারের সাথে সাথেই যদি আংশিক/পূর্ণ নগদ বা ব্যাংকে গ্রহণ করা হয়ে থাকে,
-      // সেটা এখনই গ্রাহকের পাওনা থেকে বাদ যাবে
+      // ভাউচারের সাথে সাথেই যদি আংশিক/পূর্ণ নগদ বা ব্যাংকে গ্রহণ করা হয়ে থাকে, সেটা এখনই গ্রাহকের পাওনা থেকে বাদ যাবে
       const cashReceived = Number(header.CashReceivedAmount) || 0;
       const bankReceived = Number(header.BankReceivedAmount) || 0;
-      if (cashReceived > 0) {
-        await postPartyLedgerEntry('Customer', header.CustomerID, header.InvoiceDate || today, 'SalesInvoice-Receipt', docId, 0, cashReceived);
-        await postBankCashBookEntry(await cashAccountId(), header.InvoiceDate || today, 'SalesInvoice-Receipt', docId, cashReceived, 0);
-      }
-      if (bankReceived > 0 && header.BankAccIDForReceipt) {
-        await postPartyLedgerEntry('Customer', header.CustomerID, header.InvoiceDate || today, 'SalesInvoice-Receipt', docId, 0, bankReceived);
-        await postBankCashBookEntry(header.BankAccIDForReceipt, header.InvoiceDate || today, 'SalesInvoice-Receipt', docId, bankReceived, 0);
-      }
+      const pl = [{ refModule: 'SalesInvoice', debit: Number(header.TotalAmount) || 0, credit: 0 }];
+      if (cashReceived > 0) pl.push({ refModule: 'SalesInvoice-Receipt', debit: 0, credit: cashReceived });
+      if (bankReceived > 0 && header.BankAccIDForReceipt) pl.push({ refModule: 'SalesInvoice-Receipt', debit: 0, credit: bankReceived });
+      moneyP = Promise.all([
+        postPartyLedgerEntries('Customer', header.CustomerID, dt, docId, pl),
+        (async function () {
+          if (cashReceived > 0) await postBankCashBookEntry(await cashAccountId(), dt, 'SalesInvoice-Receipt', docId, cashReceived, 0);
+          if (bankReceived > 0 && header.BankAccIDForReceipt) await postBankCashBookEntry(header.BankAccIDForReceipt, dt, 'SalesInvoice-Receipt', docId, bankReceived, 0);
+        })()
+      ]);
     }
+    await Promise.all([stockP, moneyP]);
     return;
   }
 
@@ -959,21 +1014,22 @@ async function runPostingLogic(docType, header, docId) {
     const { data: lines, error } = await supabaseClient.from('SR_Lines').select('*').eq('SRID', docId);
     if (error) throw new Error(error.message);
     let salesReturnTotal = 0;
-    for (const line of (lines || [])) {
-      if (line.ScrapItemID && Number(line.ScrapKg) > 0) {
-        // খারাপ ফেরত মাল — আসল আইটেমের স্টকে নয়, ভাঙ্গাড়ী আইটেমের স্টকে কেজি হিসেবে ঢোকে
-        await postSalesStock(line.ScrapItemID, header.WarehouseID, header.Date || today, 'SalesReturn', 'SalesReturn', docId, Number(line.ScrapKg), 1, { kg: Number(line.ScrapKg), pcs: 0 });
+    const stockP = postSalesStockBatch((lines || []).map(function (line) {   // সব লাইন একসাথে; টাকার হিসাবের সাথে একসাথে চলে (দ্রুত)
+      const base = { warehouseId: header.WarehouseID, date: header.Date || today, txType: 'SalesReturn', refModule: 'SalesReturn', refId: docId, sign: 1 };
+      // খারাপ ফেরত মাল — আসল আইটেমের স্টকে নয়, ভাঙ্গাড়ী আইটেমের স্টকে কেজি হিসেবে ঢোকে
+      if (line.ScrapItemID && Number(line.ScrapKg) > 0) return Object.assign(base, { itemId: line.ScrapItemID, qty: Number(line.ScrapKg), other: { kg: Number(line.ScrapKg), pcs: 0 } });
+      return Object.assign(base, { itemId: line.ItemID, qty: line.Quantity, other: { kg: line.QtyKg, pcs: line.QtyPcs } });
+    }));
+    for (const line of (lines || [])) salesReturnTotal += returnLineNet(line);   // কমিশন বাদে নিট টাকা
+    const moneyP = (async function () {
+      if (header.CustomerID === 'CUS-CASH') {
+        // নগদ বিক্রয়-ফেরত — টাকা ফেরত দেওয়া হবে সরাসরি ক্যাশ অ্যাকাউন্ট থেকে
+        await postBankCashBookEntry(await cashAccountId(), header.Date || today, 'SalesReturn', docId, 0, salesReturnTotal);
       } else {
-        await postSalesStock(line.ItemID, header.WarehouseID, header.Date || today, 'SalesReturn', 'SalesReturn', docId, line.Quantity, 1, { kg: line.QtyKg, pcs: line.QtyPcs });
+        await postPartyLedgerEntry('Customer', header.CustomerID, header.Date || today, 'SalesReturn', docId, 0, salesReturnTotal);
       }
-      salesReturnTotal += returnLineNet(line);   // কমিশন বাদে নিট টাকা
-    }
-    if (header.CustomerID === 'CUS-CASH') {
-      // নগদ বিক্রয়-ফেরত — টাকা ফেরত দেওয়া হবে সরাসরি ক্যাশ অ্যাকাউন্ট থেকে
-      await postBankCashBookEntry(await cashAccountId(), header.Date || today, 'SalesReturn', docId, 0, salesReturnTotal);
-    } else {
-      await postPartyLedgerEntry('Customer', header.CustomerID, header.Date || today, 'SalesReturn', docId, 0, salesReturnTotal);
-    }
+    })();
+    await Promise.all([stockP, moneyP]);
     return;
   }
 
@@ -1090,11 +1146,9 @@ async function reversePostedDocumentStock(docType, docId) {
   // স্টক ফেরতঃ এই ভাউচারের লেজার-সারিগুলো মুছে current_stock সমন্বয় — আলাদা "উল্টো সারি" বসানো হয় না।
   // (আগে উল্টো সারি বসিয়ে আসলটা মুছে ফেলা হতো; লেজারে শুধু মাইনাস সারি থেকে যেত আর স্টক ওভারভিউ মাইনাস দেখাত)
   const { data: entries } = await supabaseClient.from('stock_ledger').select('*').eq('RefModule', docType).eq('RefID', docId);
-  for (const e of (entries || [])) {
-    const kgDelta = (Number(e.QtyOut) || 0) - (Number(e.QtyIn) || 0);
-    const piecesDelta = (Number(e.PiecesOut) || 0) - (Number(e.PiecesIn) || 0);
-    await adjustCurrentStock(e.ItemID, e.WarehouseID, kgDelta, piecesDelta);
-  }
+  await adjustCurrentStockBatch((entries || []).map(function (e) {   // সব সারি একসাথে (দ্রুত)
+    return { itemId: e.ItemID, warehouseId: e.WarehouseID, kg: (Number(e.QtyOut) || 0) - (Number(e.QtyIn) || 0), pcs: (Number(e.PiecesOut) || 0) - (Number(e.PiecesIn) || 0) };
+  }));
   await supabaseClient.from('stock_ledger').delete().eq('RefModule', docType).eq('RefID', docId);
 
   // এই ডকুমেন্টের পার্টি লেজার ও ক্যাশ/ব্যাংক বইয়ের এন্ট্রি (মূল + সাথে সাথে করা প্রদান/গ্রহণ) মুছে ফেলা হয়,
@@ -1362,13 +1416,15 @@ async function runSupabaseAction(action, p) {
 
       await runPostingLogic(p.docType, existingDoc, p.docId);
 
-      const { error } = await supabaseClient.from(cfg.table).update({ Status: 'Posted' }).eq(cfg.idField, p.docId);
-      if (error) throw new Error(error.message);
-      // একই ফর্মে দেওয়া ফেরত (জোড়া, খসড়া) — মূল ভাউচারের সাথে পোস্ট
+      // একই ফর্মে দেওয়া ফেরত (জোড়া, খসড়া) — মূল ভাউচারের সাথে পোস্ট; অবস্থা বদলানো আর ফেরত খোঁজা একসাথে (দ্রুত)
       const LR = p.docType === 'SalesInvoice' ? ['SalesReturn', 'SRID', 'RefSIID'] : p.docType === 'PurchaseInvoice' ? ['PurchaseReturn', 'PRetID', 'RefPIID'] : null;
+      const [stRes, lrRes] = await Promise.all([
+        supabaseClient.from(cfg.table).update({ Status: 'Posted' }).eq(cfg.idField, p.docId),
+        LR ? Promise.resolve(supabaseClient.from(LR[0]).select('*').eq(LR[2], p.docId)).catch(function () { return null; }) : Promise.resolve(null)
+      ]);
+      if (stRes && stRes.error) throw new Error(stRes.error.message);
       if (LR) {
-        let lr = [];
-        try { const r = await supabaseClient.from(LR[0]).select('*').eq(LR[2], p.docId); lr = (r && !r.error && r.data) || []; } catch (e) { lr = []; }
+        const lr = (lrRes && !lrRes.error && lrRes.data) || [];
         for (const r of lr) if (r.Status !== 'Posted' && r.Status !== 'Deleted') await runSupabaseAction('postDocument', { docType: LR[0], docId: r[LR[1]] });
       }
       return {};
@@ -21994,6 +22050,63 @@ async function avgKgPerPiece(itemId, warehouseId) {
   const kg = data ? Number(data.QtyOnHand) || 0 : 0, pcs = data ? Number(data.QtyPieces) || 0 : 0;
   return pcs > 0 && kg > 0 ? kg / pcs : 0;
 }
+/** দ্রুত পোস্টিং — একটা ভাউচারের সব লাইনের স্টক একসাথে।
+ *  আগেঃ প্রতি লাইনে আলাদা করে ৩–৪ বার সার্ভারে যাওয়া (স্টক পড়া → স্টক বদলানো → লেজারে লেখা), ১০ লাইন = ৩০–৪০ বার।
+ *  এখনঃ সব আইটেমের স্টক একবারে পড়া → হিসাব মেমরিতে (একই আইটেম কয়েক লাইনে থাকলে ক্রমানুসারে) →
+ *  সব লেজার-সারি একবারে লেখা → স্টকের সারিগুলো একসাথে বদলানো। ফল আগের মতোই, সময় অনেক কম।
+ *  list: [{ itemId, warehouseId, date, txType, refModule, refId, qty, sign, other:{kg,pcs} }] — postSalesStock-এর একই নিয়ম */
+async function postSalesStockBatch(list) {
+  list = (list || []).filter(Boolean);
+  if (!list.length) return;
+  list.forEach(function (m) { if (!m.itemId || !m.warehouseId) throw new Error('আইটেম বা গুদাম উল্লেখ করা নেই — স্টক পোস্ট করা যায়নি।'); });
+  const m0 = await cachedListMultiple(['Items', 'UOM']);
+  const pieceOf = {};
+  (m0.Items || []).forEach(function (i) { pieceOf[i.ItemID] = isPieceUOM(i.UOMID, m0.UOM); });
+  // ১) সব (আইটেম × গুদাম)-এর বর্তমান স্টক একবারে
+  const key = function (i, w) { return i + '\u0001' + w; };
+  const cur = {}, byWh = {};
+  list.forEach(function (m) { (byWh[m.warehouseId] = byWh[m.warehouseId] || {})[m.itemId] = true; });
+  await Promise.all(Object.keys(byWh).map(async function (wh) {
+    const items = Object.keys(byWh[wh]);
+    for (let i = 0; i < items.length; i += 150) {
+      const { data, error } = await supabaseClient.from('current_stock').select('*').eq('WarehouseID', wh).in('ItemID', items.slice(i, i + 150));
+      if (error) throw new Error(error.message);
+      (data || []).forEach(function (r) { cur[key(r.ItemID, wh)] = { kg: Number(r.QtyOnHand) || 0, pcs: Number(r.QtyPieces) || 0, exists: true, item: r.ItemID, wh: wh }; });
+    }
+  }));
+  // ২) লাইন ধরে ধরে হিসাব — postSalesStock-এর নিয়মে (পিসের আইটেমে কেজি না থাকলে পিস × তখনকার গড় ওজন)
+  const ledger = [];
+  list.forEach(function (m) {
+    const k = key(m.itemId, m.warehouseId);
+    const c = cur[k] || (cur[k] = { kg: 0, pcs: 0, exists: false, item: m.itemId, wh: m.warehouseId });
+    const qty = Number(m.qty) || 0, o = m.other || {}, sign = m.sign;
+    let kgD, pcD;
+    if (pieceOf[m.itemId]) {
+      const avg = (c.pcs > 0 && c.kg > 0) ? c.kg / c.pcs : 0;
+      const kg = Number(o.kg) > 0 ? Number(o.kg) : qty * avg;
+      kgD = sign * kg; pcD = sign * qty;
+    } else { kgD = sign * qty; pcD = sign * (Number(o.pcs) > 0 ? Number(o.pcs) : 0); }
+    kgD = Number(kgD) || 0; pcD = Number(pcD) || 0;
+    c.kg += kgD; c.pcs += pcD; c.dirty = true;
+    ledger.push({ ItemID: m.itemId, WarehouseID: m.warehouseId, Date: m.date, TransactionType: m.txType, RefModule: m.refModule, RefID: m.refId,
+      QtyIn: kgD > 0 ? kgD : 0, QtyOut: kgD < 0 ? -kgD : 0, BalanceAfter: c.kg,
+      PiecesIn: pcD > 0 ? pcD : 0, PiecesOut: pcD < 0 ? -pcD : 0, PiecesBalanceAfter: c.pcs });
+  });
+  // ৩) লেজার একবারে
+  for (let i = 0; i < ledger.length; i += 500) {
+    const { error } = await supabaseClient.from('stock_ledger').insert(ledger.slice(i, i + 500));
+    if (error) throw new Error(error.message);
+  }
+  // ৪) বর্তমান স্টক — বদলানো সারিগুলো একসাথে
+  const rows = Object.keys(cur).map(function (k) { return cur[k]; }).filter(function (c) { return c.dirty; });
+  const ins = rows.filter(function (c) { return !c.exists; }).map(function (c) { return { ItemID: c.item, WarehouseID: c.wh, QtyOnHand: c.kg, QtyPieces: c.pcs }; });
+  const jobs = rows.filter(function (c) { return c.exists; }).map(function (c) {
+    return supabaseClient.from('current_stock').update({ QtyOnHand: c.kg, QtyPieces: c.pcs }).eq('ItemID', c.item).eq('WarehouseID', c.wh).then(function (r) { if (r && r.error) throw new Error(r.error.message); });
+  });
+  if (ins.length) jobs.push(supabaseClient.from('current_stock').insert(ins).then(function (r) { if (r && r.error) throw new Error(r.error.message); }));
+  await Promise.all(jobs);
+}
+
 /** একক-সচেতন স্টক পোস্ট (বিক্রয়, ক্রয়, ফেরত, ইস্যু, সমন্বয়, ওপেনিং) — পিসের আইটেমে পিস ও (পিস × গড় ওজন) কেজি, কেজির আইটেমে শুধু কেজি */
 async function postSalesStock(itemId, warehouseId, date, txType, refModule, refId, qty, sign, other) {
   // other = { kg, pcs } — লাইনে অন্য এককের আসল পরিমাণ লেখা থাকলে সেটাই স্টকে যায় (না থাকলে পিস × গড় ওজন)
