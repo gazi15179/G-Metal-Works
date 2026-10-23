@@ -12238,12 +12238,8 @@ async function renderProductionVoucherPage(content) {
   const pcLabor = allRoles, pcCost = allRoles;   // হেডারের ড্রপডাউনে সব কলামের নাম
   const pcEmps = basec ? basec.emps : [];
   st.lab = defLab.slice(); st.cost = defCost.slice();
-  // নতুন লাইনঃ তারিখ পরের দিন, কর্মচারী আগের লাইনের মতো (মজুরি খালি)
-  const newPC = function (prev) {
-    return prev ? { date: nextDay(prev.date), w: prev.w.map(function (c) { return { emp: c.emp, amt: '' }; }), c: st.cost.map(function () { return ''; }) }
-                : { date: today, w: st.lab.map(function () { return { emp: '', amt: '' }; }), c: st.cost.map(function () { return ''; }) };
-  };
-  st.pc = [newPC(null)];
+  st.pc = [];   // কাঁচামালের টিক দেওয়া লাইন থেকে খোলে
+  st.pcTotal = 0; st.fgl = []; st.fgSkip = {};   // ফিনিশড গুডস
 
   content.innerHTML = `
     <style>${VOUCHER_GRID_CSS}
@@ -12267,7 +12263,7 @@ async function renderProductionVoucherPage(content) {
       .prv-tbl .w-emp{width:104px;} .prv-tbl .w-amt{width:68px;margin-left:2px;}
       .prv-tbl th.pc-cost{background:#fff1d6;} .prv-tbl td.pc-cost{background:#fffaf0;}
       .prv-tbl .pc-gap{width:30px;min-width:30px;padding:0 2px !important;text-align:center;}
-      .prv-tbl .pc-tot{min-width:96px;} .pc-sub{font-size:9.5px;color:var(--text-muted);font-weight:400;}
+      .prv-tbl .pc-tot{min-width:96px;} .prv-tbl .pc-info{min-width:118px;text-align:left;} .prv-tbl .pc-item{min-width:110px;text-align:left;font-weight:600;} .prv-tbl tr.pc-first td{border-top:1px solid #b8bec7;} .fg-sum{grid-template-columns:repeat(5,minmax(0,1fr)) !important;margin-bottom:6px !important;} @media (max-width:760px){ .fg-sum{grid-template-columns:repeat(2,minmax(0,1fr)) !important;} } .prv-tbl input.miss::placeholder{color:#c0392b;} .pc-sub{font-size:9.5px;color:var(--text-muted);font-weight:400;}
       .pc-foot{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;padding:6px 4px;} .pc-foot small{color:var(--text-muted);}
       .prv-tbl input.ov{border-color:#c27a12;box-shadow:inset 0 0 0 1px #c27a12;}
       .prv-fg{display:flex;align-items:center;gap:3px;flex-wrap:nowrap;}
@@ -12298,6 +12294,10 @@ async function renderProductionVoucherPage(content) {
       <div class="prv-sec" style="margin-top:14px;">${t('উৎপাদন খরচ', 'Production cost')}</div>
       <div class="prv-tw" id="prv_PC"></div>
       <div class="pc-foot" id="prv_PFoot"></div>
+      <div class="prv-sec" style="margin-top:14px;">${t('ফিনিশড গুডস (প্রস্তুত পণ্য) — স্টকে জমা হবে', 'Finished goods — go into stock')}</div>
+      <div class="vg2 fg-sum" id="prv_FGSum"></div>
+      <div class="prv-tw" id="prv_FG"></div>
+      <div id="prv_FGRecon"></div>
     </div></div>`;
 
   function lineValue(l) { return l.basis === 'value' ? n(l.value) : n(l.qty) * n(l.rate); }
@@ -12323,13 +12323,15 @@ async function renderProductionVoucherPage(content) {
       }).join('')}</tbody>
       <tfoot><tr><td class="sk1"></td><td class="sk2"></td><td>${t('মোট', 'Total')} (${st.rm.length})</td><td class="r" id="prv_TQty"></td><td></td><td class="r" id="prv_TRate"></td><td class="r" id="prv_TVal"></td><td></td><td></td></tr></tfoot></table>`;
     totals();
+    pcSync();   // টিক দেওয়া লাইন অনুযায়ী উৎপাদন খরচ
     if (focus) { const el = $('prv_RM').querySelector(focus); if (el) el.focus(); }
   }
   function totals() {
     let q = 0, v = 0; st.rm.forEach(function (l) { q += n(l.qty); v += lineValue(l); });
     const tq = $('prv_TQty'), tr = $('prv_TRate'), tv = $('prv_TVal');
     if (tq) tq.textContent = show(q) || '0'; if (tr) tr.textContent = q > 0 && v > 0 ? (v / q).toFixed(2) : '—'; if (tv) tv.textContent = v.toFixed(2);
-    if ($('prv_PVal')) pcTotals();   // কাঁচামালের কেজি বদলালে প্রতি কেজি খরচও
+    if ($('prv_PVal')) pcTotals();
+    if ($('prv_FG')) fgSync();   // কাঁচামালের কেজি/মূল্য/FG বদলালে ফিনিশড গুডসও   // কাঁচামালের কেজি বদলালে প্রতি কেজি খরচও
     const on = st.rm.filter(function (l) { return l.on; }).length;
     $('prv_SelInfo').textContent = on ? t('নির্বাচিত লাইনঃ ', 'Selected: ') + on : '';
   }
@@ -12350,15 +12352,16 @@ async function renderProductionVoucherPage(content) {
     else if (f === 'value') { l.value = el.value; l.basis = el.value === '' ? 'rate' : 'value'; if (l.basis === 'value') l.rate = ''; }
     else l[f] = el.value;
     syncRow(i);
+    if (f === 'qty' && l.on) pcSync();   // সার্কেলের কেজি বদলালে মজুরিও
   });
   box.addEventListener('change', function (e) {
     const el = e.target, f = el.getAttribute('data-f');
     if (el.id === 'prv_All') { st.rm.forEach(function (l) { l.on = el.checked; }); render(); return; }
     if (!f) return;
     const i = Number(el.getAttribute('data-i')), l = st.rm[i];
-    if (f === 'on') { l.on = el.checked; el.closest('tr').classList.toggle('on', l.on); const all = $('prv_All'); if (all) all.checked = st.rm.every(function (x) { return x.on; }); totals(); }
-    else if (f === 'fg') l.fg[Number(el.getAttribute('data-k'))] = el.value;
-    else if (f === 'wh' || f === 'date') l[f] = el.value;
+    if (f === 'on') { l.on = el.checked; el.closest('tr').classList.toggle('on', l.on); const all = $('prv_All'); if (all) all.checked = st.rm.every(function (x) { return x.on; }); totals(); pcSync(); }
+    else if (f === 'fg') { l.fg[Number(el.getAttribute('data-k'))] = el.value; if (l.on) pcSync(); fgSync(); }
+    else if (f === 'wh' || f === 'date') { l[f] = el.value; if (l.on && f === 'date') pcSync(); }
   });
   box.addEventListener('click', function (e) {
     const a = e.target.closest('[data-add]'), d = e.target.closest('[data-del]'), fa = e.target.closest('[data-fgadd]'), fx = e.target.closest('[data-fgx]');
@@ -12373,29 +12376,64 @@ async function renderProductionVoucherPage(content) {
     const i = Number(el.getAttribute('data-i')), k = Number(el.getAttribute('data-k'));
     if (i === st.rm.length - 1 && k === st.rm[i].fg.length - 1) setTimeout(function () { st.rm.push(newLine(st.rm[i])); render(`tbody tr:nth-child(${i + 2}) [data-f="qty"]`); }, 0);
   });
-  // ---------- উৎপাদন খরচঃ দৈনিক উৎপাদন ও দলের মতো ছক ----------
-  // কলামঃ ক্রঃ | তারিখ | কাজের কলাম (শেপ, হাঃফিনিস … প্রডাঃম্যানেজার) | খরচের কলাম (বিদ্যুৎ, মেশিঃ ও ডাইস, মেডিসিন, বিবিধ) | মোট (মজুরি + খরচ)
-  // • প্রতিটা কলামের হেডার নিজেই ড্রপডাউন (কোন কাজ/খাত); হেডারের ＋ দিয়ে নতুন কলাম, ✕ দিয়ে সরানো
-  // • কাজের কলামের ঘরেঃ কর্মচারী বাছাই + মজুরি লেখা; খরচের কলামের ঘরেঃ টাকা
+  // ---------- উৎপাদন খরচঃ কাঁচামালের টিক দেওয়া লাইন অনুযায়ী (দৈনিক উৎপাদন ও দলের মতো; FG এখানে নেই — দর আসে উপরের লাইনের FG থেকে) ----------
+  // • কাঁচামালের কোনো লাইনে টিক দিলে এখানে সেই ক্রঃ (S/L) অনুযায়ী একটা লাইন খোলে — তারিখ সেই লাইনের
+  // • মজুরি নিজে বসে = সেই লাইনের সার্কেল (কেজি) × "সাইজ অনুযায়ী মজুরি দর" (FG আইটেম অনুযায়ী);
+  //   কয়েকটা FG থাকলে সার্কেল সমান ভাগে প্রতিটা FG-তে। খরচের কলামও একইভাবে। হাতে বদলানো যায় (কমলা), খালি করলে আবার হিসাব
+  // • কলামের হেডার ড্রপডাউন, ＋ দিয়ে নতুন কলাম, ✕ দিয়ে সরানো
   function pcEmpOpts(sel) { return `<option value="">${t('— কর্মচারী —', '— worker —')}</option>` + pcEmps.map(function (e) { return `<option value="${attr(e.EmployeeID)}" ${e.EmployeeID === sel ? 'selected' : ''}>${escapeHtml(e.Name)}</option>`; }).join(''); }
   function pcRoleOpts(list, sel) { return `<option value="">—</option>` + list.map(function (r) { return `<option value="${attr(r.RoleID)}" ${r.RoleID === sel ? 'selected' : ''}>${escapeHtml(r.RoleName)}</option>`; }).join(''); }
+  const rateOf = function (item, rid) { return (gpc && gpc.rateOf) ? (Number(gpc.rateOf(item, rid)) || 0) : 0; };
+  /** একটা কলামের হিসাবঃ সার্কেল কেজি FG আইটেমগুলোতে সমান ভাগ × প্রতিটার দর */
+  function pcCalc(r, rid) {
+    const l = r.src, items = l.fg.filter(Boolean), q = n(l.qty);
+    if (!rid || !items.length || !(q > 0)) return { amt: 0, missing: false, tip: '' };
+    const share = q / items.length; let amt = 0, missing = false; const parts = [];
+    items.forEach(function (it) { const rt = rateOf(it, rid); if (!rt) missing = true; amt += share * rt; parts.push(((items.length > 1) ? show(share, 2) : show(q)) + ' × ' + rt.toFixed(2)); });
+    return { amt: amt, missing: missing, tip: t('সার্কেল ', 'circle ') + parts.join(' + ') + ' = ' + amt.toFixed(2) };
+  }
+  // হাতে না লেখা ঘরগুলোর টাকা নতুন করে
+  function pcAutoRow(r) {
+    r.w.forEach(function (c, k) { if (!c.ov) { const x = pcCalc(r, st.lab[k]); c.amt = (c.emp && x.amt) ? x.amt.toFixed(2) : ''; } });
+    r.c.forEach(function (c, k) { if (!c.ov) { const x = pcCalc(r, st.cost[k]); c.amt = x.amt ? x.amt.toFixed(2) : ''; } });
+  }
+  function pcNewRow(src) {
+    const last = st.pc[st.pc.length - 1];
+    const r = { src: src, w: st.lab.map(function (x, k) { return { emp: last && last.w[k] ? last.w[k].emp : '', amt: '', ov: false }; }), c: st.cost.map(function () { return { amt: '', ov: false }; }) };
+    pcAutoRow(r); return r;
+  }
+  /** টিক দেওয়া কাঁচামালের লাইন ⇄ উৎপাদন খরচের লাইন — কাঁচামালের ক্রম অনুযায়ী */
+  function pcSync() {
+    const keep = [];
+    st.rm.forEach(function (l) { if (!l.on) return; let r = st.pc.find(function (x) { return x.src === l; }); if (!r) { r = pcNewRow(l); st.pc.push(r); } keep.push(r); });
+    st.pc = keep; st.pc.forEach(pcAutoRow);
+    renderPC();
+  }
   function pcRowWage(r) { return r.w.reduce(function (s2, c) { return s2 + n(c.amt); }, 0); }
-  function pcRowCost(r) { return r.c.reduce(function (s2, a) { return s2 + n(a); }, 0); }
+  function pcRowCost(r) { return r.c.reduce(function (s2, c) { return s2 + n(c.amt); }, 0); }
   function renderPC(focus) {
     const labHead = st.lab.map(function (rid, k) {
       return `<th class="pc-lab"><div class="pc-h"><select data-hl="${k}">${pcRoleOpts(pcLabor, rid)}</select><button type="button" class="prv-fgx" data-hlx="${k}" title="${attr(t('কলাম সরান', 'Remove column'))}">✕</button></div></th>`; }).join('');
     const costHead = st.cost.map(function (rid, k) {
       return `<th class="pc-cost"><div class="pc-h"><select data-hc="${k}">${pcRoleOpts(pcCost, rid)}</select><button type="button" class="prv-fgx" data-hcx="${k}" title="${attr(t('কলাম সরান', 'Remove column'))}">✕</button></div></th>`; }).join('');
-    const body = st.pc.map(function (r, i) {
-      return `<tr><td class="sk1">${i + 1}</td>
-        <td class="w-date"><input type="date" data-p="${i}" data-f="date" value="${attr(r.date)}" class="w-date"></td>
-        ${r.w.map(function (c, k) { return `<td class="pc-lab"><select data-p="${i}" data-wk="${k}" class="w-emp">${pcEmpOpts(c.emp)}</select><input type="number" step="any" min="0" inputmode="decimal" data-p="${i}" data-wa="${k}" value="${attr(c.amt)}" placeholder="${attr(t('মজুরি', 'Wage'))}" class="w-amt" ${c.emp ? '' : 'disabled'}></td>`; }).join('')}
+    const cell = function (r, i, k, kind) {
+      const c = kind === 'w' ? r.w[k] : r.c[k], rid = kind === 'w' ? st.lab[k] : st.cost[k], x = pcCalc(r, rid);
+      const ph = (x.missing && (kind === 'c' || c.emp)) ? t('দর নেই', 'no rate') : (kind === 'w' ? t('মজুরি', 'Wage') : '৳');
+      const inp = `<input type="number" step="any" min="0" inputmode="decimal" data-p="${i}" ${kind === 'w' ? 'data-wa' : 'data-ca'}="${k}" value="${attr(c.amt)}" placeholder="${attr(ph)}" title="${attr(x.tip ? t('হিসাবঃ ', 'Calc: ') + x.tip + t(' — নিজে লিখে বদলানো যায়', ' — type to override') : '')}" class="w-amt ${c.ov ? 'ov' : ''} ${x.missing ? 'miss' : ''}" ${kind === 'w' && !c.emp ? 'disabled' : ''}>`;
+      return kind === 'w' ? `<td class="pc-lab"><select data-p="${i}" data-wk="${k}" class="w-emp">${pcEmpOpts(c.emp)}</select>${inp}</td>` : `<td class="pc-cost">${inp}</td>`;
+    };
+    const rmNo = function (r) { return st.rm.indexOf(r.src) + 1; };
+    const body = st.pc.length ? st.pc.map(function (r, i) {
+      const l = r.src, hasFG = l.fg.some(Boolean);
+      return `<tr><td class="sk1" title="${attr(t('কাঁচামালের ক্রঃ', 'Raw line no.'))}">${rmNo(r)}</td>
+        <td class="pc-info"><b>${escapeHtml(formatShortDate(l.date))}</b><div class="pc-sub">${t('সার্কেল ', 'circle ')}${show(l.qty) || 0} ${t('কেজি', 'kg')}${hasFG ? '' : ' · <span style="color:var(--danger);" title="' + attr(t('উপরের কাঁচামালের লাইনে FG আইটেম দিলে দর আসবে', 'Pick an FG item in the raw line to get rates')) + '">' + t('FG নেই — দর আসবে না', 'no FG — no rate') + '</span>'}</div></td>
+        ${r.w.map(function (c, k) { return cell(r, i, k, 'w'); }).join('')}
         <td class="pc-gap"></td>
-        ${r.c.map(function (a, k) { return `<td class="pc-cost"><input type="number" step="any" min="0" inputmode="decimal" data-p="${i}" data-ca="${k}" value="${attr(a)}" placeholder="৳" class="w-amt"></td>`; }).join('')}
+        ${r.c.map(function (c, k) { return cell(r, i, k, 'c'); }).join('')}
         <td class="pc-gap"></td>
         <td class="r pc-tot"><b data-pt="${i}">0.00</b><div class="pc-sub" data-ps="${i}"></div></td>
-        <td style="white-space:nowrap;"><button type="button" class="prv-b del" data-pdel="${i}" title="${attr(t('লাইন মুছুন', 'Remove line'))}">✕</button> <button type="button" class="prv-b plus" data-padd="${i}" title="${attr(t('নিচে একটা লাইন যোগ', 'Add a line below'))}">＋</button></td></tr>`;
-    }).join('');
+        <td><button type="button" class="prv-b del" data-pdel="${i}" title="${attr(t('এই লাইন সরান (কাঁচামালের টিক উঠে যাবে)', 'Remove (unticks the raw line)'))}">✕</button></td></tr>`;
+    }).join('') : `<tr><td class="sk1"></td><td colspan="${st.lab.length + st.cost.length + 5}" style="color:var(--text-muted);text-align:left;padding:10px !important;">${t('উপরে কাঁচামালের যে লাইনে টিক দেবেন, সেই ক্রঃ অনুযায়ী এখানে লাইন খুলবে।', 'Tick a raw-material line above to open its line here.')}</td></tr>`;
     $('prv_PC').innerHTML = `<table class="prv-tbl"><thead><tr><th class="sk1">${t('ক্রঃ', 'No.')}</th><th>${t('তারিখ', 'Date')}</th>
         ${labHead}<th class="pc-gap"><button type="button" class="prv-b plus" data-hladd="1" title="${attr(t('কাজের নতুন কলাম', 'Add a job column'))}">＋</button></th>
         ${costHead}<th class="pc-gap"><button type="button" class="prv-b plus" data-hcadd="1" title="${attr(t('খরচের নতুন কলাম', 'Add a cost column'))}">＋</button></th>
@@ -12417,53 +12455,143 @@ async function renderProductionVoucherPage(content) {
       if (b2) b2.textContent = (w || c) ? t('মজুরি ', 'w ') + w.toFixed(2) + ' · ' + t('খরচ ', 'c ') + c.toFixed(2) : '';
     });
     st.lab.forEach(function (x, k) { const el = box2.querySelector(`[data-tl="${k}"]`); if (el) el.textContent = st.pc.reduce(function (s2, r) { return s2 + n(r.w[k].amt); }, 0).toFixed(2); });
-    st.cost.forEach(function (x, k) { const el = box2.querySelector(`[data-tc="${k}"]`); if (el) el.textContent = st.pc.reduce(function (s2, r) { return s2 + n(r.c[k]); }, 0).toFixed(2); });
+    st.cost.forEach(function (x, k) { const el = box2.querySelector(`[data-tc="${k}"]`); if (el) el.textContent = st.pc.reduce(function (s2, r) { return s2 + n(r.c[k].amt); }, 0).toFixed(2); });
     const tv = $('prv_PVal'); if (tv) tv.textContent = (tw + tc).toFixed(2);
-    const rawKg = st.rm.reduce(function (s2, l) { return s2 + n(l.qty); }, 0);
+    st.pcTotal = tw + tc;
+    const kg = st.pc.reduce(function (s2, r) { return s2 + n(r.src.qty); }, 0);
     const pf = $('prv_PFoot');
     if (pf) pf.innerHTML = `<span>${t('মোট মজুরি', 'Wages')} <b>${tw.toFixed(2)}</b></span><span>${t('মোট খরচ', 'Costs')} <b>${tc.toFixed(2)}</b></span><span>${t('মোট (মজুরি + খরচ)', 'Total')} <b>${(tw + tc).toFixed(2)}</b></span>` +
-      (rawKg > 0 ? `<span title="${attr(t('মোট (মজুরি + খরচ) ÷ কাঁচামালের মোট কেজি', 'Total ÷ raw kg'))}">${t('প্রতি কেজি', 'Per kg')} <b>${((tw + tc) / rawKg).toFixed(2)}</b> <small>(${t('কাঁচামাল ', 'raw ')}${show(rawKg)} ${t('কেজি', 'kg')})</small></span>` : '');
+      (kg > 0 ? `<span title="${attr(t('মোট (মজুরি + খরচ) ÷ টিক দেওয়া লাইনের সার্কেল কেজি', 'Total ÷ ticked raw kg'))}">${t('প্রতি কেজি', 'Per kg')} <b>${((tw + tc) / kg).toFixed(2)}</b> <small>(${t('সার্কেল ', 'circle ')}${show(kg)} ${t('কেজি', 'kg')})</small></span>` : '');
+    fgRecalc();   // ফিনিশড গুডসের দর (নীট মূল্য বদলায়)
   }
   const pbox = $('prv_PC');
   pbox.addEventListener('input', function (e) {
     const el = e.target, i = Number(el.getAttribute('data-p'));
-    if (el.hasAttribute('data-wa')) { st.pc[i].w[Number(el.getAttribute('data-wa'))].amt = el.value; pcTotals(); }
-    else if (el.hasAttribute('data-ca')) { st.pc[i].c[Number(el.getAttribute('data-ca'))] = el.value; pcTotals(); }
-    else if (el.getAttribute('data-f') === 'date') st.pc[i].date = el.value;
+    const c = el.hasAttribute('data-wa') ? st.pc[i].w[Number(el.getAttribute('data-wa'))] : el.hasAttribute('data-ca') ? st.pc[i].c[Number(el.getAttribute('data-ca'))] : null;
+    if (!c) return;
+    c.amt = el.value; c.ov = el.value !== ''; el.classList.toggle('ov', c.ov);
+    pcTotals();
   });
   pbox.addEventListener('change', function (e) {
     const el = e.target;
-    if (el.hasAttribute('data-hl')) { st.lab[Number(el.getAttribute('data-hl'))] = el.value; return; }
-    if (el.hasAttribute('data-hc')) { st.cost[Number(el.getAttribute('data-hc'))] = el.value; return; }
+    if (el.hasAttribute('data-hl')) { const k = Number(el.getAttribute('data-hl')); st.lab[k] = el.value; st.pc.forEach(function (r) { r.w[k].ov = false; pcAutoRow(r); }); renderPC(); return; }
+    if (el.hasAttribute('data-hc')) { const k = Number(el.getAttribute('data-hc')); st.cost[k] = el.value; st.pc.forEach(function (r) { r.c[k].ov = false; pcAutoRow(r); }); renderPC(); return; }
     const i = Number(el.getAttribute('data-p'));
-    if (el.getAttribute('data-f') === 'date') { st.pc[i].date = el.value; return; }
-    if (el.hasAttribute('data-wk')) {
-      const k = Number(el.getAttribute('data-wk')), c = st.pc[i].w[k];
-      c.emp = el.value; if (!el.value) c.amt = '';
-      const amt = el.parentNode.querySelector('[data-wa]'); amt.disabled = !el.value; if (!el.value) amt.value = ''; else amt.focus();
-      pcTotals();
-    }
+    if (el.hasAttribute('data-wk')) { const c = st.pc[i].w[Number(el.getAttribute('data-wk'))]; c.emp = el.value; c.ov = false; pcAutoRow(st.pc[i]); renderPC(el.value ? `tbody tr:nth-child(${i + 1}) [data-wa="${el.getAttribute('data-wk')}"]` : null); return; }
+    // টাকার ঘর খালি রেখে বের হলে আবার হিসাবের টাকা
+    if ((el.hasAttribute('data-wa') || el.hasAttribute('data-ca')) && el.value === '') { pcAutoRow(st.pc[i]); renderPC(); }
   });
   pbox.addEventListener('click', function (e) {
     const g = function (a) { return e.target.closest('[' + a + ']'); };
     let b;
-    if ((b = g('data-hladd'))) { st.lab.push(''); st.pc.forEach(function (r) { r.w.push({ emp: '', amt: '' }); }); renderPC(`[data-hl="${st.lab.length - 1}"]`); return; }
-    if ((b = g('data-hcadd'))) { st.cost.push(''); st.pc.forEach(function (r) { r.c.push(''); }); renderPC(`[data-hc="${st.cost.length - 1}"]`); return; }
+    if ((b = g('data-hladd'))) { st.lab.push(''); st.pc.forEach(function (r) { r.w.push({ emp: '', amt: '', ov: false }); }); renderPC(`[data-hl="${st.lab.length - 1}"]`); return; }
+    if ((b = g('data-hcadd'))) { st.cost.push(''); st.pc.forEach(function (r) { r.c.push({ amt: '', ov: false }); }); renderPC(`[data-hc="${st.cost.length - 1}"]`); return; }
     if ((b = g('data-hlx'))) { const k = Number(b.getAttribute('data-hlx')); if (st.pc.some(function (r) { return r.w[k].emp || n(r.w[k].amt); }) && !confirm(t('এই কলামে লেখা আছে — সরাবেন?', 'This column has entries — remove?'))) return; st.lab.splice(k, 1); st.pc.forEach(function (r) { r.w.splice(k, 1); }); renderPC(); return; }
-    if ((b = g('data-hcx'))) { const k = Number(b.getAttribute('data-hcx')); if (st.pc.some(function (r) { return n(r.c[k]); }) && !confirm(t('এই কলামে লেখা আছে — সরাবেন?', 'This column has entries — remove?'))) return; st.cost.splice(k, 1); st.pc.forEach(function (r) { r.c.splice(k, 1); }); renderPC(); return; }
-    if ((b = g('data-padd'))) { const i = Number(b.getAttribute('data-padd')); st.pc.splice(i + 1, 0, newPC(st.pc[i])); renderPC(`tbody tr:nth-child(${i + 2}) [data-wk="0"]`); return; }
-    if ((b = g('data-pdel'))) { const i = Number(b.getAttribute('data-pdel')); st.pc.splice(i, 1); if (!st.pc.length) st.pc.push(newPC(null)); renderPC(); }
+    if ((b = g('data-hcx'))) { const k = Number(b.getAttribute('data-hcx')); if (st.pc.some(function (r) { return n(r.c[k].amt); }) && !confirm(t('এই কলামে লেখা আছে — সরাবেন?', 'This column has entries — remove?'))) return; st.cost.splice(k, 1); st.pc.forEach(function (r) { r.c.splice(k, 1); }); renderPC(); return; }
+    if ((b = g('data-pdel'))) { const r = st.pc[Number(b.getAttribute('data-pdel'))]; if (r) { r.src.on = false; render(); } }
   });
-  // শেষ লাইনের শেষ খরচের ঘরে Enter = নতুন লাইন
-  pbox.addEventListener('keydown', function (e) {
-    const el = e.target; if (e.key !== 'Enter' || !el.hasAttribute('data-ca')) return;
-    const i = Number(el.getAttribute('data-p')), k = Number(el.getAttribute('data-ca'));
-    if (i === st.pc.length - 1 && k === st.cost.length - 1) setTimeout(function () { st.pc.push(newPC(st.pc[i])); renderPC(`tbody tr:nth-child(${i + 2}) [data-wk="0"]`); }, 0);
+
+  // ---------- ফিনিশড গুডস (প্রস্তুত পণ্য) — প্রসেসিং কষ্টিং-এর মতো ----------
+  // • উপরের কাঁচামালের লাইনগুলোর FG আইটেম থেকে নিজে লাইন আসে; কেজি = প্রতিটা লাইনের সার্কেল সেই লাইনের FG-গুলোতে সমান ভাগ, যোগ করে
+  // • নীট ওজন = কাঁচামালের মোট কেজি; নীট মূল্য = কাঁচামালের মূল্য + উৎপাদন খরচ (মজুরি + খরচ)
+  // • প্রতি কেজি দর নিজে = নীট মূল্য ÷ নীট ওজন; মূল্য = কেজি × দর; পিস দিলে প্রতি পিস দর = মূল্য ÷ পিস
+  // • কেজি বা দর হাতে বদলানো যায় (কমলা); খালি করলে আবার নিজে। ＋ দিয়ে বাড়তি লাইন
+  const fgItemName = function (id) { const x = items.find(function (y) { return y.ItemID === id; }); return x ? x.ItemName : (id || ''); };
+  function fgNet() {
+    const w = st.rm.reduce(function (s2, l) { return s2 + n(l.qty); }, 0);
+    const rv = st.rm.reduce(function (s2, l) { return s2 + lineValue(l); }, 0);
+    const v = rv + n(st.pcTotal);
+    return { w: w, rawV: rv, pcV: n(st.pcTotal), v: v, def: w > 0 ? v / w : 0 };
+  }
+  // উপরের লাইনগুলো থেকে প্রতিটা FG আইটেমের কেজি
+  function fgAutoKg() {
+    const m = {}, order = [];
+    st.rm.forEach(function (l) {
+      const its = l.fg.filter(function (x, i, a) { return x && a.indexOf(x) === i; }); if (!its.length || !(n(l.qty) > 0)) return;
+      its.forEach(function (it) { if (m[it] === undefined) { m[it] = 0; order.push(it); } m[it] += n(l.qty) / its.length; });
+    });
+    return { m: m, order: order };
+  }
+  function fgSync() {
+    const a = fgAutoKg();
+    // উপরে যে আইটেম আর নেই, নিজে আসা আর হাতে না ছোঁয়া সেই লাইন বাদ
+    st.fgl = st.fgl.filter(function (r) { return !r.auto || a.m[r.item] !== undefined || r.kgOv || n(r.pcs) || r.rateOv; });
+    a.order.forEach(function (it) { if (!st.fgSkip[it] && !st.fgl.some(function (r) { return r.item === it; })) st.fgl.push({ item: it, auto: true, kg: '', kgOv: false, pcs: '', rk: '', rp: '', drv: 'kg', rateOv: false }); });
+    st.fgl.forEach(function (r) { if (r.auto && !r.kgOv) r.kg = a.m[r.item] ? String(+a.m[r.item].toFixed(3)) : ''; });
+    renderFG();
+  }
+  function fgValue(r, net) {
+    if (!r.rateOv) return n(r.kg) * net.def;
+    return r.drv === 'pc' ? n(r.pcs) * n(r.rp) : n(r.kg) * n(r.rk);
+  }
+  function renderFG(focus) {
+    if (!$('prv_FG')) return;
+    const opts = function (sel) { return `<option value="">${t('— আইটেম —', '— item —')}</option>` + items.map(function (i) { return `<option value="${attr(i.ItemID)}" ${i.ItemID === sel ? 'selected' : ''}>${escapeHtml(i.ItemName)}</option>`; }).join(''); };
+    $('prv_FG').innerHTML = `<table class="prv-tbl"><thead><tr><th class="sk1">${t('ক্রঃ', 'No.')}</th><th>${t('প্রস্তুত পণ্য আইটেম', 'Finished item')}</th><th>${t('পরিমাণ (কেজি)', 'Qty (kg)')}</th><th>${t('প্রতি কেজি দর', 'Rate / kg')}</th><th>${t('পরিমাণ (পিস)', 'Qty (pcs)')}</th><th>${t('প্রতি পিস দর', 'Rate / pc')}</th><th>${t('মূল্য', 'Value')}</th><th></th></tr></thead><tbody>
+      ${st.fgl.length ? st.fgl.map(function (r, i) {
+        return `<tr><td class="sk1">${i + 1}</td>
+          <td>${r.auto ? `<span class="pc-item" style="display:inline-block;min-width:110px;">${escapeHtml(fgItemName(r.item))}</span>` : `<select data-g="${i}" data-f="item" class="w-fg">${opts(r.item)}</select>`}</td>
+          <td><input type="number" step="any" min="0" inputmode="decimal" data-g="${i}" data-f="kg" value="${attr(r.kg)}" class="w-qty ${r.kgOv ? 'ov' : ''}" title="${attr(r.auto ? t('উপরের লাইনগুলো থেকে নিজে — হাতে বদলানো যায়, খালি করলে আবার নিজে', 'From the lines above — editable') : '')}"></td>
+          <td><input type="number" step="any" min="0" inputmode="decimal" data-g="${i}" data-f="rk" value="${attr(r.rk)}" class="w-rate ${r.rateOv && r.drv === 'kg' ? 'ov' : ''}"></td>
+          <td><input type="number" step="any" min="0" inputmode="decimal" data-g="${i}" data-f="pcs" value="${attr(r.pcs)}" class="w-qty"></td>
+          <td><input type="number" step="any" min="0" inputmode="decimal" data-g="${i}" data-f="rp" value="${attr(r.rp)}" class="w-rate ${r.rateOv && r.drv === 'pc' ? 'ov' : ''}"></td>
+          <td class="r"><b data-gv="${i}">0.00</b></td>
+          <td style="white-space:nowrap;"><button type="button" class="prv-b del" data-gdel="${i}" title="${attr(t('লাইন মুছুন', 'Remove line'))}">✕</button> <button type="button" class="prv-b plus" data-gadd="${i}" title="${attr(t('নিচে একটা লাইন যোগ', 'Add a line below'))}">＋</button></td></tr>`;
+      }).join('') : `<tr><td class="sk1"></td><td colspan="7" style="color:var(--text-muted);text-align:left;padding:10px !important;">${t('উপরে কাঁচামালের লাইনে FG আইটেম ও কেজি দিলে এখানে নিজে আসবে।', 'FG items from the raw lines appear here.')} <button type="button" class="prv-b plus" data-gadd="-1" title="${attr(t('লাইন যোগ', 'Add a line'))}">＋</button></td></tr>`}</tbody>
+      <tfoot><tr><td class="sk1"></td><td>${t('মোট', 'Total')}</td><td class="r" id="prv_GKg"></td><td></td><td class="r" id="prv_GPc"></td><td></td><td class="r" id="prv_GVal"></td><td></td></tr></tfoot></table>`;
+    fgRecalc();
+    if (focus) { const el = $('prv_FG').querySelector(focus); if (el) el.focus(); }
+  }
+  function fgRecalc() {
+    const box3 = $('prv_FG'); if (!box3) return;
+    const net = fgNet(); let tk = 0, tp = 0, tv = 0;
+    st.fgl.forEach(function (r, i) {
+      const v = fgValue(r, net), tr = box3.querySelectorAll('tbody tr')[i]; tk += n(r.kg); tp += n(r.pcs); tv += v;
+      if (!r.rateOv) { r.rk = net.def > 0 && n(r.kg) ? net.def.toFixed(2) : ''; r.rp = n(r.pcs) > 0 && v > 0 ? (v / n(r.pcs)).toFixed(2) : ''; }
+      else if (r.drv === 'pc') r.rk = n(r.kg) > 0 && v > 0 ? (v / n(r.kg)).toFixed(2) : '';
+      else r.rp = n(r.pcs) > 0 && v > 0 ? (v / n(r.pcs)).toFixed(2) : '';
+      if (tr) {
+        const rk = tr.querySelector('[data-f="rk"]'), rp = tr.querySelector('[data-f="rp"]'), gv = tr.querySelector('[data-gv]');
+        if (rk && document.activeElement !== rk) rk.value = r.rk; if (rp && document.activeElement !== rp) rp.value = r.rp; if (gv) gv.textContent = v.toFixed(2);
+      }
+    });
+    const set = function (id, v) { const el = $(id); if (el) el.textContent = v; };
+    set('prv_GKg', show(tk) || '0'); set('prv_GPc', show(tp, 0) || '0'); set('prv_GVal', tv.toFixed(2));
+    const sum = $('prv_FGSum');
+    if (sum) sum.innerHTML = `<div class="field"><label>${t('নীট ওজন (কেজি)', 'Net weight (kg)')}</label><input readonly class="vro vbold" value="${net.w.toFixed(3)}"></div>
+      <div class="field"><label>${t('নীট মূল্য', 'Net value')}</label><input readonly class="vro vbold" value="${net.v.toFixed(2)}" title="${attr(t('কাঁচামাল ', 'Raw ') + net.rawV.toFixed(2) + ' + ' + t('উৎপাদন খরচ ', 'cost ') + net.pcV.toFixed(2))}"></div>
+      <div class="field"><label>${t('মোট পিস', 'Total pcs')}</label><input readonly class="vro" value="${tp ? show(tp, 0) : ''}"></div>
+      <div class="field"><label>${t('প্রতি কেজি দর', 'Rate / kg')}</label><input readonly class="vro" value="${net.def.toFixed(2)}"></div>
+      <div class="field"><label>${t('প্রতি পিস দর', 'Rate / pc')}</label><input readonly class="vro" value="${tp > 0 ? (net.v / tp).toFixed(2) : '0.00'}"></div>`;
+    const rc = $('prv_FGRecon');
+    if (rc) {
+      const row = function (lbl, a, b2, unit, dec, tol) { const d = a - b2, ok = Math.abs(d) <= tol;
+        return `<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:6px 10px;border-radius:8px;margin-top:5px;font-size:12px;background:${ok ? '#e5f5ec' : '#fdf3e3'};color:${ok ? 'var(--success)' : 'var(--amber-dim)'};"><span>${lbl}: ${t('নীট', 'Net')} <b>${a.toFixed(dec)}</b> — ${t('প্রস্তুত পণ্যের মোট', 'finished total')} <b>${b2.toFixed(dec)}</b> ${unit}</span><b>${ok ? '✓ ' + t('মিলেছে', 'matched') : t('অমিল', 'Diff') + ': ' + (d > 0 ? '+' : '') + d.toFixed(dec)}</b></div>`; };
+      rc.innerHTML = st.fgl.length ? row(t('ওজন', 'Weight'), net.w, tk, t('কেজি', 'kg'), 3, 0.0005) + row(t('মূল্য', 'Value'), net.v, tv, '৳', 2, 0.5) : '';
+    }
+  }
+  const gbox = $('prv_FG');
+  gbox.addEventListener('input', function (e) {
+    const el = e.target, f = el.getAttribute('data-f'), i = Number(el.getAttribute('data-g')), r = st.fgl[i]; if (!r || !f || f === 'item') return;
+    r[f] = el.value;
+    if (f === 'kg') { r.kgOv = r.auto && el.value !== ''; el.classList.toggle('ov', r.kgOv); }
+    if (f === 'rk' || f === 'rp') { r.drv = f === 'rk' ? 'kg' : 'pc'; r.rateOv = el.value !== ''; el.classList.toggle('ov', r.rateOv); const other = el.closest('tr').querySelector(f === 'rk' ? '[data-f="rp"]' : '[data-f="rk"]'); if (other) other.classList.remove('ov'); }
+    fgRecalc();
+  });
+  gbox.addEventListener('change', function (e) {
+    const el = e.target, f = el.getAttribute('data-f'), i = Number(el.getAttribute('data-g')), r = st.fgl[i]; if (!r) return;
+    if (f === 'item') { r.item = el.value; fgRecalc(); return; }
+    if (f === 'kg' && el.value === '' && r.auto) { r.kgOv = false; fgSync(); }
+  });
+  gbox.addEventListener('click', function (e) {
+    const a = e.target.closest('[data-gadd]'), d = e.target.closest('[data-gdel]');
+    if (a) { const i = Number(a.getAttribute('data-gadd')); st.fgl.splice(i + 1, 0, { item: '', auto: false, kg: '', kgOv: false, pcs: '', rk: '', rp: '', drv: 'kg', rateOv: false }); renderFG(`tbody tr:nth-child(${i + 2}) [data-f="item"]`); return; }
+    if (d) { const r = st.fgl.splice(Number(d.getAttribute('data-gdel')), 1)[0]; if (r && r.auto) st.fgSkip[r.item] = true; renderFG(); }   // নিজে আসা লাইন মুছলে আর ফিরে আসবে না
   });
 
   $('prv_Date').addEventListener('change', function () { st.date = this.value; });
   wireSequentialKeyNav($('prv_Form'));
-  render(); renderPC();
+  render();
 }
 
 async function renderProcessingPage(content) {
