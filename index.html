@@ -521,7 +521,7 @@ const MODULES = [
   {key:'reports', bn:'রিপোর্ট', en:'Reports', sub:[
     {key:'invReport', bn:'ইনভেন্টরি প্রতিবেদন', en:'Inventory Reports'},{key:'salesReport', bn:'ক্রয় ও বিক্রয় প্রতিবেদন', en:'Purchase & Sales Reports'},
     {key:'prodReport', bn:'উৎপাদন প্রতিবেদন', en:'Production Reports'},
-    {key:'finReport', bn:'আর্থিক প্রতিবেদন', en:'Financial Reports'},{key:'plReport', bn:'লাভ-ক্ষতি হিসাব', en:'Profit & Loss'},{key:'partyBalance', bn:'পার্টি ব্যালান্স', en:'Party Balance'},
+    {key:'finReport', bn:'আর্থিক প্রতিবেদন', en:'Financial Reports'},{key:'plReport', bn:'লাভ-ক্ষতি হিসাব', en:'Profit & Loss'},{key:'partyBalance', bn:'পার্টি ব্যালান্স', en:'Party Balance'},{key:'vgSummary', bn:'ভাউচার গ্রুপ সামারী', en:'Voucher Group Summary'},
   ]},
   {key:'settings', bn:'সেটিংস', en:'Settings', sub:[
     {key:'general', bn:'সাধারণ সেটিংস', en:'General Settings'},{key:'langSettings', bn:'ভাষা সেটিংস', en:'Language Settings'},
@@ -538,7 +538,7 @@ const READY_PAGES = ['dashboard','salaryLedger','cashHandover','userCash','svSet
   'bom','processing','processingOld','prodDaily','procCosting','pOrder','pmi','fgr',
   'coa','bankCash','jv','cv','pv','rv','ownerCapital','loans','loanList','loanTxn','loanReport','assetNames','assetPurchase','assetSale','fixedAssets','bankBook','trialBalance',
   'empCategories','empInfo','workRoles','sizeRates','attendance','dailyProduction','leave','payroll','salaryIssue','payHeads','hrReports','payslip',
-  'invReport','salesReport','prodReport','finReport','plReport','partyBalance',
+  'invReport','salesReport','prodReport','finReport','plReport','partyBalance','vgSummary',
   'general','langSettings','companySettings','backup'];
 
 /* ============================================================
@@ -1744,6 +1744,7 @@ async function navigateTo(pageKey, moduleLabel, pageLabel) {
     else if (pageKey === 'prodReport') { await renderProductionReport(content); addReportPrintButton(content); }
     else if (pageKey === 'finReport') { await renderFinancialReport(content); addReportPrintButton(content); }
     else if (pageKey === 'plReport') await renderProfitLossReport(content);   // রিপোর্ট → লাভ-ক্ষতি হিসাব (শুধু এডমিন)
+    else if (pageKey === 'vgSummary') await renderVoucherGroupSummary(content);   // রিপোর্ট → ভাউচার গ্রুপ সামারী (সব ভাউচার, গ্রুপ অনুযায়ী)
     else if (pageKey === 'partyBalance') await renderPartyBalanceReport(content);   // রিপোর্ট → পার্টি ব্যালান্স (জোন/পার্টি, তারিখ-রেঞ্জ)
     else if (pageKey === 'general') await renderGeneralSettingsPage(content);
     else if (pageKey === 'langSettings') await renderLanguageSettingsPage(content);
@@ -14782,22 +14783,20 @@ function voucherPartySumUpdate(P, kind) {
   const partyId = partyEl ? partyEl.value : '';
   const isCash = partyId === (S ? 'CUS-CASH' : 'SUP-CASH');
   const jer = (partyId && !isCash) ? (Number(window['__' + P + 'PartyBalance']) || 0) : 0;
-  let paid, paidCash = 0, paidBank = 0;
-  if (isCash) { paid = grand; paidCash = grand; }   // নগদ পার্টি — পুরো টাকা নগদে, বকেয়া থাকে না (প্রিন্টের নিয়মের মতই)
+  let paid;
+  if (isCash) paid = grand;   // নগদ পার্টি — পুরো টাকা নগদে, বকেয়া থাকে না (প্রিন্টের নিয়মের মতই)
   else {
     // টাইপ করার সময়ই হিসাব — চোখের সামনের ঘর + অন্য ধরনের (লুকানো) ঘর
     const typeEl = document.getElementById(P + (S ? '_RecTypeSelect' : '_PayTypeSelect'));
     const isCashType = !typeEl || typeEl.value === 'Cash';
     const cashH = S ? '_CashReceivedAmount' : '_CashPaidAmount', bankH = S ? '_BankReceivedAmount' : '_BankPaidAmount';
     const shown = v(S ? '_RecAmount' : '_PayAmount');
-    paidCash = isCashType ? shown : v(cashH);
-    paidBank = isCashType ? v(bankH) : shown;
-    paid = paidCash + paidBank;
+    paid = isCashType ? (shown + v(bankH)) : (v(cashH) + shown);
   }
   const vch = S ? grand : -grand;          // বিক্রয় = ডেঃ, ক্রয় = ক্রেঃ
   const cash = S ? -paid : paid;           // গ্রহণ = ক্রেঃ, প্রদান = ডেঃ
   const bal = jer + vch + cash;
-  window['__' + P + 'PsCalc'] = { jer: jer, grand: grand, paid: paid, paidCash: paidCash, paidBank: paidBank, bal: bal };   // লাইভ প্রিভিউ পেনেলের জন্য
+  window['__' + P + 'PsCalc'] = { jer: jer, grand: grand, paid: paid, bal: bal };   // লাইভ প্রিভিউ পেনেলের জন্য
   const natural = S ? 1 : -1;              // শূন্য হলে স্বাভাবিক দিক (হালকা করে)
   const put = function (key, amt, zeroSign) {
     const r = Math.round(amt * 100) / 100;
@@ -15101,28 +15100,12 @@ function voucherAmountEnterWire(P) {
     e.preventDefault(); e.stopImmediatePropagation();   // সাধারণ "পরের ঘরে যাও" এখানে নয়
     chk.checked = true;
     chk.dispatchEvent(new Event('change', { bubbles: true }));
-    if (!chk.checked && !amt.value) {   // লাইন যোগ/হালনাগাদ হয়েছে — ঘর খালি → নগদ/ব্যাংক গ্রহণের ঘরে (না থাকলে আইটেমে)
-      const pay = document.getElementById(payId);
-      if (pay && !pay.disabled && pay.offsetParent !== null) { pay.focus(); try { pay.select(); } catch (x) {} }
-      else focusItem();
+    if (!chk.checked && !amt.value) {   // লাইন যোগ/হালনাগাদ হয়েছে — ঘর খালি
+      const next = [P + '_ItemID', P + '_QtyPcs', P + '_QtyKg'].map(function (id) { return document.getElementById(id); })
+        .find(function (el) { return el && !el.disabled && el.offsetParent !== null; });
+      if (next) next.focus();
     }
   };
-  // নগদ/ব্যাংক গ্রহণের (ক্রয়ে প্রদানের) ঘরে Enter → আবার আইটেমে (ঘর ছাড়লেই টাকা হিসাবে বসে; ব্যাংক হলে ব্যাংক বাছাইয়ের ঘর খোলে)
-  const payId = P + (P === 'sv3' ? '_RecAmount' : '_PayAmount');
-  const focusItem = function () {
-    const next = [P + '_ItemID', P + '_QtyPcs', P + '_QtyKg'].map(function (id) { return document.getElementById(id); })
-      .find(function (el) { return el && !el.disabled && el.offsetParent !== null; });
-    if (next) next.focus();
-  };
-  const hp = function (e) {
-    const pay = document.getElementById(payId);
-    if (!pay || !document.body.contains(pay)) { window.removeEventListener('keydown', hp, true); return; }
-    if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return;
-    if (document.activeElement !== pay) return;
-    e.preventDefault(); e.stopImmediatePropagation();
-    focusItem();
-  };
-  window.addEventListener('keydown', hp, true);
   window.addEventListener('keydown', h, true);   // window-এ আগে ধরা — সাধারণ Enter-নিয়মের (document) আগেই
 }
 
@@ -16467,8 +16450,7 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
       body += lineRow(t('নিট মোটঃ', 'Net total:'), pv3Fmt(netTotal, 2) || '0', saleProfit - retProfit - disc, 'grand');
       if (vat) { body += lineRow(t('ভ্যাটঃ (+)', 'VAT (+):'), pv3Fmt(vat, 2)); body += lineRow(t('সর্বমোটঃ', 'Grand total:'), pv3Fmt(netTotal + vat, 2), undefined, 'grand'); }
       if (c.jer && set.jer !== false) body += lineRow(t('পার্টি জেরঃ', 'Party opening:'), drcr(c.jer));
-      if (c.paidCash && set.vcash !== false) body += lineRow(t('নগদ প্রদানঃ', 'Cash paid:'), pv3Fmt(c.paidCash, 2));   // নগদে দিলে নগদ প্রদান
-      if (c.paidBank && set.vcash !== false) body += lineRow(t('ব্যাংকে প্রদানঃ', 'Bank paid:'), pv3Fmt(c.paidBank, 2));   // ব্যাংকে দিলে ব্যাংকে প্রদান
+      if (c.paid && set.vcash !== false) body += lineRow(t('নগদ/ব্যাংক প্রদানঃ', 'Paid:'), pv3Fmt(c.paid, 2));
       if (set.vbal !== false) body += lineRow(t('ভাউচার ব্যালান্সঃ', 'Voucher balance:'), drcr(c.bal || 0), undefined, 'grand');
     }
     box.innerHTML = `<table class="svp" data-rowsel="1">${colg}<thead>${tabs}
@@ -17716,8 +17698,7 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
       body += lineRow(t('নিট মোটঃ', 'Net total:'), sv3Fmt(netTotal, 2) || '0', saleProfit - retProfit - disc, 'grand');
       if (vat) { body += lineRow(t('ভ্যাটঃ (+)', 'VAT (+):'), sv3Fmt(vat, 2)); body += lineRow(t('সর্বমোটঃ', 'Grand total:'), sv3Fmt(netTotal + vat, 2), undefined, 'grand'); }
       if (c.jer && set.jer !== false) body += lineRow(t('পার্টি জেরঃ', 'Party opening:'), drcr(c.jer));
-      if (c.paidCash && set.vcash !== false) body += lineRow(t('নগদ গ্রহণঃ (−)', 'Cash received (−):'), sv3Fmt(c.paidCash, 2));   // নগদে জমা হলে নগদ গ্রহণ
-      if (c.paidBank && set.vcash !== false) body += lineRow(t('ব্যাংকে গ্রহণঃ (−)', 'Bank received (−):'), sv3Fmt(c.paidBank, 2));   // ব্যাংকে জমা হলে ব্যাংকে গ্রহণ
+      if (c.paid && set.vcash !== false) body += lineRow(t('নগদ/ব্যাংক গ্রহণঃ (−)', 'Received (−):'), sv3Fmt(c.paid, 2));
       if (set.vbal !== false) body += lineRow(t('ভাউচার ব্যালান্সঃ', 'Voucher balance:'), drcr(c.bal || 0), undefined, 'grand');
     }
     box.innerHTML = `<table class="svp" data-rowsel="1">${colg}<thead>${tabs}
@@ -20037,6 +20018,217 @@ async function renderProductionReport(content) {
    লেনদেন = তারিখ-রেঞ্জের ভেতরের ডেবিট/ক্রেডিট, অন্তিম জের = প্রারম্ভিক + ডেবিট − ক্রেডিট।
    পার্টি লেজারের মতোই একই কোড + একই নামের গ্রাহক ও সাপ্লায়ার একটা পার্টি হিসেবে মেলানো হয়।
    ============================================================ */
+/* ============================================================
+   রিপোর্ট → ভাউচার গ্রুপ সামারী
+   সফটওয়্যারের সব ভাউচার — মডিউল → গ্রুপ (ভাউচারের ধরন) অনুযায়ী; প্রতিটা গ্রুপ সংক্ষেপ (সংখ্যা·পোস্ট·খসড়া·মোট টাকা)
+   ও বিস্তারিত (প্রতিটা ভাউচার)। শুধু পড়ে — কিছু বদলায় না।
+   ঘরের নামঃ সাধারণ ডকুমেন্টগুলো সফটওয়্যারের নিজের DOC_CONFIGS থেকে; বাকিগুলো সেই ভাউচারের পেজ যে ঘর পড়ে/লেখে সেখান থেকে।
+   ফেরত, জার্নাল, এক্সপেন্স, রিসিপ্ট — মাথায় মোট টাকার ঘর নেই, তাই লাইনের যোগফল (ফেরতে সফটওয়্যারের returnLineNet)।
+   ============================================================ */
+const VGS_MODULES = [['purchase', 'ক্রয়', 'Purchase'], ['sales', 'বিক্রয়', 'Sales'], ['inv', 'ইনভেন্টরি', 'Inventory'], ['prod', 'প্রোডাকশন', 'Production'],
+  ['acc', 'হিসাব', 'Accounts'], ['loan', 'লোন', 'Loans'], ['asset', 'স্থায়ী সম্পদ', 'Fixed assets'], ['hr', 'এইচআর ও পে-রোল', 'HR & Payroll']];
+function vgsTypes() {
+  const D = (typeof DOC_CONFIGS !== 'undefined' && DOC_CONFIGS) || {};
+  const fromDoc = function (k, mod, type, bn, extra) {
+    const c = D[k]; if (!c) return null;
+    const df = (c.headerFields || []).find(function (f) { return f.type === 'date'; });
+    const pf = (c.headerFields || []).find(function (f) { return f.fkSheet === 'Customers' || f.fkSheet === 'Suppliers'; });
+    const hasAmt = !!c.computeTotal || (c.listColumns || []).some(function (x) { return x.key === 'TotalAmount'; });
+    return Object.assign({ key: type, mod: mod, bn: bn || c.titleBn, table: c.headerSheet, idf: c.idField, date: df ? df.key : 'Date',
+      party: pf ? { field: pf.key, sheet: pf.fkSheet } : null, amount: hasAmt ? 'TotalAmount' : null, lines: c.linesSheet, lineIdf: c.lineIdField, page: c.pageKey }, extra || {});
+  };
+  return [
+    fromDoc('pr', 'purchase', 'PurchaseRequisition'), fromDoc('po', 'purchase', 'PurchaseOrder'), fromDoc('grn', 'purchase', 'GRN'),
+    fromDoc('pi', 'purchase', 'PurchaseInvoice', 'ক্রয় চালান'), fromDoc('pret', 'purchase', 'PurchaseReturn', 'ক্রয় ফেরত', { lineSum: ['NetAmount'], lineFn: 'return' }),
+    fromDoc('so', 'sales', 'SalesOrder'), fromDoc('dc', 'sales', 'DeliveryChallan'),
+    fromDoc('si', 'sales', 'SalesInvoice', 'বিক্রয় চালান'), fromDoc('sr', 'sales', 'SalesReturn', 'বিক্রয় ফেরত', { lineSum: ['NetAmount'], lineFn: 'return' }),
+    fromDoc('materialIssue', 'inv', 'MaterialIssue'), fromDoc('stockTransfer', 'inv', 'StockTransfer'), fromDoc('stockAdjust', 'inv', 'StockAdjustment'),
+    { key: 'ProcessingVoucher', mod: 'prod', bn: 'প্রসেসিং কষ্টিং', table: 'ProcessingVoucher', idf: 'ProcessingID', date: 'Date', amount: 'TotalValue', page: 'processing' },
+    fromDoc('pmi', 'prod', 'ProductionMaterialIssue'), fromDoc('fgr', 'prod', 'FinishedGoodsReceive'),
+    { key: 'TeamProduction', mod: 'prod', bn: 'দৈনিক উৎপাদন (টিম)', table: 'TeamProduction', idf: 'TeamProdID', date: 'WorkDate', page: 'prodDaily' },
+    fromDoc('jv', 'acc', 'JournalVoucher', 'জার্নাল ভাউচার', { lineSum: ['Debit'] }),
+    { key: 'ContraVoucher', mod: 'acc', bn: 'কনট্রা ভাউচার (ক্যাশ হস্তান্তরসহ)', table: 'ContraVoucher', idf: 'ContraID', date: 'Date', amount: 'Amount', page: 'cv' },
+    { key: 'PaymentVoucher', mod: 'acc', bn: 'পেমেন্ট ভাউচার', table: 'PaymentVoucher', idf: 'PayID', date: 'Date', amount: 'Amount', typed: true, page: 'pv' },
+    { key: 'ReceiptVoucher', mod: 'acc', bn: 'কালেকশন ভাউচার', table: 'ReceiptVoucher', idf: 'RecID', date: 'Date', amount: 'Amount', typed: true, page: 'rv' },
+    { key: 'ExpenseVoucher', mod: 'acc', bn: 'এক্সপেন্স ভাউচার', table: 'ExpenseVoucher', idf: 'ExpID', date: 'Date', lines: 'ExpenseVoucher_Lines', lineIdf: 'ExpID', lineSum: ['Amount'], typed: true, page: 'ev' },
+    { key: 'IncomeVoucher', mod: 'acc', bn: 'রিসিপ্ট ভাউচার', table: 'IncomeVoucher', idf: 'IncID', date: 'Date', lines: 'IncomeVoucher_Lines', lineIdf: 'IncID', lineSum: ['Amount'], typed: true, page: 'icv' },
+    { key: 'CapitalVoucher', mod: 'acc', bn: 'মালিকের মূলধন', table: 'CapitalVoucher', idf: 'CapID', date: 'Date', amount: 'Amount', nameField: 'OwnerName', page: 'ownerCapital' },
+    { key: 'LoanVoucher', mod: 'acc', bn: 'ধার-দেনা', table: 'LoanVoucher', idf: 'LoanID', date: 'Date', amount: 'Amount', person: true, page: 'loans' },
+    { key: 'LoanTxn', mod: 'loan', bn: 'লোন লেনদেন / কিস্তি', table: 'LoanTxn', idf: 'TxnID', date: 'Date', loanTxn: true, page: 'loanTxn' },
+    { key: 'AssetPurchase', mod: 'asset', bn: 'এ্যাসেট ক্রয়', table: 'AssetPurchase', idf: 'APID', date: 'Date', amount: 'TotalAmount', nameField: 'PartyName', page: 'assetPurchase' },
+    { key: 'AssetSale', mod: 'asset', bn: 'এ্যাসেট বিক্রয়', table: 'AssetSale', idf: 'ASID', date: 'Date', amount: 'TotalAmount', nameField: 'PartyName', page: 'assetSale' },
+    { key: 'Payroll', mod: 'hr', bn: 'সেলারী ভাউচার', table: 'Payroll', idf: 'PayrollID', no: 'VoucherNo', date: 'VoucherDate', amount: 'TotalNetPay', employee: true, page: 'payroll' },
+    { key: 'SalaryIssue', mod: 'hr', bn: 'সেলারী ইস্যু', table: 'SalaryIssue', idf: 'IssueID', no: 'IssueNo', date: 'IssueDate', amount: 'Amount', employee: true, page: 'salaryIssue' }
+  ].filter(Boolean);
+}
+async function vgsLoad() {
+  const types = vgsTypes();
+  const all = async function (tb) { try { return { rows: await selectAllRows(tb), ok: true }; } catch (e) { return { rows: [], ok: false }; } };
+  const [cus, sup, emp, lps, loans] = await Promise.all([cachedList('Customers').catch(function () { return []; }), cachedList('Suppliers').catch(function () { return []; }),
+    cachedList('Employees').catch(function () { return []; }), all('LoanPerson'), all('Loan')]);
+  const nm = function (p) { return p ? (p.CompanyName || p.Name || p.FullName || '') : ''; };
+  const C = {}, S = {}, E = {}, P = {}, L = {};
+  (cus || []).forEach(function (x) { C[x.CustomerID] = nm(x); }); (sup || []).forEach(function (x) { S[x.SupplierID] = nm(x); });
+  (emp || []).forEach(function (x) { E[x.EmployeeID] = nm(x) || x.EmployeeID; }); lps.rows.forEach(function (x) { P[x.PersonID] = x.Name; });
+  loans.rows.forEach(function (x) { L[x.LoanID] = x.LenderName || x.Name || x.BankName || x.Title || x.LoanID; });
+  const n2 = function (v) { const x = Number(v); return isFinite(x) ? x : 0; };
+  const res = await Promise.all(types.map(async function (T) {
+    const h = await all(T.table);
+    let sums = null;
+    if (T.lineSum && T.lines) {
+      const ls = await all(T.lines); sums = {};
+      ls.rows.forEach(function (l) {
+        const id = l[T.lineIdf || T.idf]; if (id === undefined || id === null) return;
+        let v = 0;
+        if (T.lineFn === 'return' && typeof returnLineNet === 'function') v = returnLineNet(l);   // ফেরতঃ সফটওয়্যারের নিজের হিসাব (নীট, না থাকলে পরিমাণ × দর − কমিশন) — লেজার/লাভ-ক্ষতির সাথে মেলে
+        else for (const f of T.lineSum) { if (l[f] !== undefined && l[f] !== null && l[f] !== '') { v = n2(l[f]); break; } }
+        sums[id] = (sums[id] || 0) + v;
+      });
+    }
+    const rows = h.rows.filter(function (r) { return String(r.Status || '') !== 'Deleted'; }).map(function (r) {
+      let party = '';
+      if (T.party) party = (T.party.sheet === 'Customers' ? C : S)[r[T.party.field]] || r.WalkInPartyName || r.CashPartyName || r[T.party.field] || '';
+      else if (T.typed) party = r.PartyType === 'Customer' ? (C[r.PartyID] || r.PartyID || '') : r.PartyType === 'Supplier' ? (S[r.PartyID] || r.PartyID || '') : r.PartyType === 'Person' ? (P[r.PartyID] || r.PartyID || '') : (r.PartyName || r.PartyID || '');
+      else if (T.nameField) party = r[T.nameField] || '';
+      else if (T.person) party = P[r.PersonID] || r.PersonID || '';
+      else if (T.employee) party = E[r.EmployeeID] || r.EmployeeID || '';
+      else if (T.loanTxn) party = L[r.LoanID] || r.LoanID || '';
+      let amount = null;
+      if (T.lineSum) amount = sums ? (sums[r[T.idf]] || 0) : null;
+      else if (T.loanTxn) amount = (r.Amount !== undefined && r.Amount !== null && r.Amount !== '') ? n2(r.Amount) : n2(r.Principal) + n2(r.Interest) + n2(r.Charges);
+      else if (T.amount) amount = n2(r[T.amount]);
+      return { type: T.key, rawId: r[T.idf], no: (T.no && r[T.no]) || r[T.idf] || '', date: String(r[T.date] || r.Date || '').slice(0, 10), party: party, amount: amount,
+        posted: String(r.Status || '') === 'Posted', status: String(r.Status || '') };
+    });
+    return Object.assign({}, T, { ok: h.ok, rows: rows, money: T.amount || T.lineSum || T.loanTxn });
+  }));
+  return res;
+}
+async function renderVoucherGroupSummary(content) {
+  const today = ownToday(), fy = await getFiscalYearStart(today);
+  const st = { from: fy, to: today, mod: '', status: '', q: '', mode: 'cond', open: {} };
+  let G = [];
+  const fmt = function (x) { return (Number(x) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+  content.innerHTML = `<style>${PAYV_CSS}
+      #pageContent:has(.vgs){max-width:none !important;}
+      .vgs .vgs-bar{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;margin:0 0 10px;}
+      .vgs .vgs-bar label{font-size:11.5px;color:var(--text-muted);display:flex;align-items:center;gap:4px;margin:0;}
+      .vgs .vgs-bar select,.vgs .vgs-bar input[type=search]{height:32px;font-size:12.5px;}
+      .vgs .vgs-bar .btn{width:auto;height:32px;padding:0 12px;margin:0;font-size:12.5px;}
+      .vgs .vgs-seg{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+      .vgs .vgs-seg button{border:0;background:var(--surface);padding:0 12px;height:32px;font-size:12.5px;cursor:pointer;font-family:inherit;}
+      .vgs .vgs-seg button.on{background:#1a2029;color:#f2a33c;font-weight:700;}
+      .vgs .vgs-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:10px;}
+      .vgs .vgs-card{border:1px solid var(--border);border-radius:10px;padding:8px 12px;background:var(--surface);} .vgs .vgs-card small{display:block;font-size:11px;color:var(--text-muted);} .vgs .vgs-card b{font-size:16px;}
+      .vgs .pvl th,.vgs .pvl td{text-align:center !important;vertical-align:middle;font-size:11px;padding:4px 8px;}
+      .vgs .pvl th{font-weight:700;}
+      .vgs tr.vgs-mod td{background:#eef1f5 !important;font-weight:700;color:#3b4452;font-size:11.5px;}
+      .vgs tr.vgs-grp{cursor:pointer;} .vgs tr.vgs-grp td.g{font-weight:700;}
+      .vgs tr.vgs-grp .tw{display:inline-block;width:14px;color:var(--text-muted);}
+      .vgs tr.vgs-det > td{padding:0 0 6px 18px !important;background:transparent !important;}
+      .vgs table.vgs-in{width:100%;border-collapse:collapse;margin:2px 0 4px;} .vgs table.vgs-in th{background:#f6f7f9;}
+      .vgs table.vgs-in th,.vgs table.vgs-in td{border-bottom:1px solid var(--border);}
+      .vgs .vgs-draft{color:#b45309;font-weight:600;} .vgs .vgs-posted{color:#15803d;font-weight:600;}
+      @media (max-width:760px){ .vgs .pvl th,.vgs .pvl td{padding:3px 4px;} .vgs table.vgs-in th,.vgs table.vgs-in td{padding:3px 3px;} .vgs .vgs-bar label{flex:1 1 45%;} .vgs .vgs-bar select,.vgs .vgs-bar input{flex:1;min-width:0;} .vgs .hide-m{display:none;} .vgs tr.vgs-det > td{padding-left:4px !important;} }
+    </style>
+    <div class="payv vgs">
+      <div class="page-head"><div><h1>${t('ভাউচার গ্রুপ সামারী', 'Voucher Group Summary')}</h1><p>${t('সফটওয়্যারের সব ভাউচার — মডিউল ও ধরন (গ্রুপ) অনুযায়ী; প্রতিটা গ্রুপ সংক্ষেপে বা বিস্তারিত', 'Every voucher in the software — by module and type (group); condensed or detailed')}</p></div></div>
+      <div class="vgs-bar" id="vgs_Bar">
+        <label>${t('হইতে', 'From')} <input type="date" id="vgs_From" value="${attr(st.from)}"></label>
+        <label>${t('পর্যন্ত', 'To')} <input type="date" id="vgs_To" value="${attr(st.to)}"></label>
+        <label>${t('মডিউল', 'Module')} <select id="vgs_Mod"><option value="">${t('সব', 'All')}</option>${VGS_MODULES.map(function (m) { return `<option value="${m[0]}">${escapeHtml(t(m[1], m[2]))}</option>`; }).join('')}</select></label>
+        <label>${t('অবস্থা', 'Status')} <select id="vgs_St"><option value="">${t('সব', 'All')}</option><option value="posted">${t('পোস্ট করা', 'Posted')}</option><option value="draft">${t('খসড়া', 'Draft')}</option></select></label>
+        <label>${t('খোঁজ', 'Search')} <input type="search" id="vgs_Q" placeholder="${attr(t('নং বা পার্টি', 'No. or party'))}" autocomplete="off"></label>
+        <span class="vgs-seg"><button type="button" id="vgs_Cond" class="on">${t('সংক্ষেপ', 'Condensed')}</button><button type="button" id="vgs_Det">${t('বিস্তারিত', 'Detailed')}</button></span>
+        <button type="button" class="btn btn-outline" id="vgs_Print" data-perm-safe="1">🖨️ ${t('প্রিন্ট', 'Print')}</button>
+        <button type="button" class="btn btn-outline" id="vgs_Refresh" data-perm-safe="1">🔄</button>
+      </div>
+      <div class="vgs-cards" id="vgs_Cards"></div>
+      <div class="pvl-wrap"><table class="pvl" id="vgs_Tbl"><thead><tr><th class="hide-m">${t('ক্রঃ', 'Sl')}</th><th>${t('গ্রুপ (ভাউচারের ধরন)', 'Group (voucher type)')}</th><th>${t('ভাউচার', 'Vouchers')}</th><th class="hide-m">${t('পোস্ট করা', 'Posted')}</th><th class="hide-m">${t('খসড়া', 'Draft')}</th><th>${t('মোট টাকা', 'Total amount')}</th><th></th></tr></thead>
+        <tbody id="vgs_Body"><tr><td colspan="7">${t('লোড হচ্ছে...', 'Loading...')}</td></tr></tbody><tfoot id="vgs_Foot"></tfoot></table></div>
+    </div>`;
+  const $ = function (id) { return document.getElementById(id); };
+  wireSequentialKeyNav($('vgs_Bar'));
+  const pick = function (g) {   // তারিখ, অবস্থা, খোঁজ অনুযায়ী এই গ্রুপের ভাউচার
+    const q = st.q.trim().toLowerCase();
+    return g.rows.filter(function (r) {
+      if (st.from && (!r.date || r.date < st.from)) return false;
+      if (st.to && (!r.date || r.date > st.to)) return false;
+      if (st.status === 'posted' && !r.posted) return false;
+      if (st.status === 'draft' && r.posted) return false;
+      if (q && String(r.no).toLowerCase().indexOf(q) < 0 && String(r.party).toLowerCase().indexOf(q) < 0) return false;
+      return true;
+    }).sort(function (a, b) { return a.date.localeCompare(b.date) || String(a.no).localeCompare(String(b.no), undefined, { numeric: true }); });
+  };
+  const sumOf = function (rs) { return rs.reduce(function (s, r) { return s + (Number(r.amount) || 0); }, 0); };
+  const detailHtml = function (g, rs) {
+    if (!rs.length) return `<div style="padding:6px;color:var(--text-muted);font-size:11px;">${t('এই সময়ে কোনো ভাউচার নেই।', 'No vouchers in this period.')}</div>`;
+    return `<table class="vgs-in" data-rowsel="1"><thead><tr><th>${t('তারিখ', 'Date')}</th><th>${t('নং', 'No.')}</th><th>${t('পার্টি / বিবরণ', 'Party')}</th>${g.money ? `<th>${t('টাকা', 'Amount')}</th>` : ''}<th class="hide-m">${t('অবস্থা', 'Status')}</th><th></th></tr></thead><tbody>` +
+      rs.map(function (r) {
+        return `<tr class="${vkClass(r.type)}"><td>${escapeHtml(isoToDmy(r.date) || '—')}</td><td><b class="${r.posted ? 'vgs-posted' : 'vgs-draft'}" title="${attr(r.posted ? t('পোস্ট করা', 'Posted') : t('খসড়া', 'Draft'))}">${escapeHtml(r.no)}</b></td><td>${escapeHtml(r.party || '—')}</td>${g.money ? `<td>${r.amount === null ? '—' : fmt(r.amount)}</td>` : ''}
+          <td class="hide-m">${r.posted ? `<span class="vgs-posted">${t('পোস্ট করা', 'Posted')}</span>` : `<span class="vgs-draft">${escapeHtml(r.status === 'Draft' || !r.status ? t('খসড়া', 'Draft') : r.status)}</span>`}</td>
+          <td><button type="button" class="pvx-ic" data-open="${attr(r.type)}" data-id="${attr(r.rawId)}" title="${attr(t('ভাউচার দেখুন', 'Open voucher'))}" data-perm-safe="1">👁️</button></td></tr>`;
+      }).join('') + (g.money ? `<tr><td colspan="3"><b>${t('মোট', 'Total')}</b></td><td><b>${fmt(sumOf(rs))}</b></td><td class="hide-m"></td><td></td></tr>` : '') + '</tbody></table>';
+  };
+  const render = function () {
+    let sl = 0, tN = 0, tP = 0, tD = 0, nG = 0;
+    const html = VGS_MODULES.filter(function (m) { return !st.mod || st.mod === m[0]; }).map(function (m) {
+      const gs = G.filter(function (g) { return g.mod === m[0]; }).map(function (g) { return { g: g, rs: pick(g) }; }).filter(function (x) { return x.rs.length; });
+      if (!gs.length) return '';
+      const mN = gs.reduce(function (s, x) { return s + x.rs.length; }, 0);
+      return `<tr class="vgs-mod"><td colspan="7">${escapeHtml(t(m[1], m[2]))} — ${mN} ${t('টা ভাউচার', 'vouchers')}</td></tr>` + gs.map(function (x) {
+        const g = x.g, rs = x.rs, p = rs.filter(function (r) { return r.posted; }).length, open = st.mode === 'det' || st.open[g.key];
+        sl++; nG++; tN += rs.length; tP += p; tD += rs.length - p;
+        return `<tr class="vgs-grp ${vkClass(g.key)}" data-g="${attr(g.key)}"><td class="hide-m">${sl}</td><td class="g"><span class="tw">${open ? '▾' : '▸'}</span>${escapeHtml(g.bn)}</td><td><b>${rs.length}</b></td><td class="hide-m">${p}</td><td class="hide-m">${rs.length - p}</td><td>${g.money ? '<b>' + fmt(sumOf(rs)) + '</b>' : '—'}</td>
+          <td><button type="button" class="pvx-ic" data-tg="${attr(g.key)}" title="${attr(open ? t('বন্ধ করুন', 'Collapse') : t('বিস্তারিত দেখুন', 'Show details'))}" data-perm-safe="1">${open ? '▴' : '👁️'}</button></td></tr>` +
+          (open ? `<tr class="vgs-det"><td colspan="7">${detailHtml(g, rs)}</td></tr>` : '');
+      }).join('');
+    }).join('');
+    $('vgs_Body').innerHTML = html || `<tr><td colspan="7" style="padding:14px;color:var(--text-muted);">${t('এই সময়ে কোনো ভাউচার নেই।', 'No vouchers in this period.')}</td></tr>`;
+    $('vgs_Foot').innerHTML = tN ? `<tr><td class="hide-m"></td><td><b>${t('সর্বমোট', 'Grand total')}</b></td><td><b>${tN}</b></td><td class="hide-m"><b>${tP}</b></td><td class="hide-m"><b>${tD}</b></td><td></td><td></td></tr>` : '';
+    $('vgs_Cards').innerHTML = `<div class="vgs-card"><small>${t('মোট ভাউচার', 'Vouchers')}</small><b>${tN}</b></div><div class="vgs-card"><small>${t('পোস্ট করা', 'Posted')}</small><b class="vgs-posted">${tP}</b></div><div class="vgs-card"><small>${t('খসড়া', 'Draft')}</small><b class="vgs-draft">${tD}</b></div><div class="vgs-card"><small>${t('গ্রুপ', 'Groups')}</small><b>${nG}</b></div>`;
+    $('vgs_Cond').classList.toggle('on', st.mode === 'cond'); $('vgs_Det').classList.toggle('on', st.mode === 'det');
+    return { tN: tN, tP: tP, tD: tD, nG: nG };
+  };
+  const load = async function () { $('vgs_Body').innerHTML = `<tr><td colspan="7">${t('লোড হচ্ছে...', 'Loading...')}</td></tr>`; G = await vgsLoad(); render(); };
+  const openVoucher = async function (type, id) {
+    const R = (typeof VOUCHER_REGISTRY !== 'undefined') && VOUCHER_REGISTRY[type];
+    if (R && R.kind !== 'legacy' && R.kind !== 'gmwloan') { try { await voucherView(type, id); return; } catch (e) {} }
+    const g = G.find(function (x) { return x.key === type; }); if (!g || !g.page) return;
+    const mod = (MODULES.find(function (m) { return (m.sub || []).some(function (s) { return s.key === g.page; }); }) || {});
+    const sub = (mod.sub || []).find(function (s) { return s.key === g.page; }) || {};
+    await navigateTo(g.page, mod.bn || '', sub.bn || g.bn);
+  };
+  $('vgs_Tbl').addEventListener('click', function (e) {
+    const ob = e.target.closest('[data-open]'); if (ob) { openVoucher(ob.getAttribute('data-open'), ob.getAttribute('data-id')); return; }
+    const tg = e.target.closest('[data-tg]'), row = e.target.closest('tr.vgs-grp');
+    const key = tg ? tg.getAttribute('data-tg') : row ? row.getAttribute('data-g') : null; if (!key) return;
+    if (st.mode === 'det') { st.mode = 'cond'; st.open = {}; G.forEach(function (g) { st.open[g.key] = true; }); }   // বিস্তারিত থেকে একটা বন্ধ করলে বাকিগুলো খোলা থাকে
+    st.open[key] = !st.open[key]; render();
+  });
+  $('vgs_Cond').addEventListener('click', function () { st.mode = 'cond'; st.open = {}; render(); });
+  $('vgs_Det').addEventListener('click', function () { st.mode = 'det'; render(); });
+  $('vgs_From').addEventListener('change', function () { st.from = this.value; render(); });
+  $('vgs_To').addEventListener('change', function () { st.to = this.value; render(); });
+  $('vgs_Mod').addEventListener('change', function () { st.mod = this.value; render(); });
+  $('vgs_St').addEventListener('change', function () { st.status = this.value; render(); });
+  $('vgs_Q').addEventListener('input', function () { st.q = this.value; render(); });
+  $('vgs_Refresh').addEventListener('click', async function () { try { listCache = {}; await load(); } catch (err) { showToast(err.message, 'error'); } });
+  $('vgs_Print').addEventListener('click', function () {
+    const sm = render();
+    const tbl = $('vgs_Tbl').cloneNode(true);
+    tbl.querySelectorAll('button').forEach(function (b) { b.remove(); });
+    tbl.querySelectorAll('.tw').forEach(function (b) { b.remove(); });
+    const modTxt = st.mod ? t((VGS_MODULES.find(function (m) { return m[0] === st.mod; }) || [])[1] || '', '') : t('সব মডিউল', 'All modules');
+    const stTxt = st.status === 'posted' ? t('পোস্ট করা', 'Posted') : st.status === 'draft' ? t('খসড়া', 'Draft') : t('সব অবস্থা', 'All statuses');
+    printReportA4({ title: t('ভাউচার গ্রুপ সামারী', 'Voucher Group Summary') + (st.mode === 'det' ? t(' (বিস্তারিত)', ' (detailed)') : t(' (সংক্ষেপ)', ' (condensed)')),
+      period: (isoToDmy(st.from) || '…') + ' — ' + (isoToDmy(st.to) || '…'), filters: modTxt + ' · ' + stTxt + (st.q ? ' · ' + t('খোঁজঃ ', 'Search: ') + st.q : ''),
+      summary: [[t('মোট ভাউচার', 'Vouchers'), String(sm.tN)], [t('পোস্ট করা', 'Posted'), String(sm.tP)], [t('খসড়া', 'Draft'), String(sm.tD)], [t('গ্রুপ', 'Groups'), String(sm.nG)]],
+      html: '<style>table.vgs-in{width:100%;border-collapse:collapse;} tr.vgs-mod td{background:#eef1f5;font-weight:700;} th,td{text-align:center !important;}</style>' + tbl.outerHTML });
+  });
+  try { await load(); } catch (err) { $('vgs_Body').innerHTML = `<tr><td colspan="7">${escapeHtml(err.message)}</td></tr>`; }
+}
+
 async function renderPartyBalanceReport(content) {
   delete listCache.Customers; delete listCache.Suppliers;
   const dNow = new Date(), today = dNow.getFullYear() + '-' + String(dNow.getMonth() + 1).padStart(2, '0') + '-' + String(dNow.getDate()).padStart(2, '0');
