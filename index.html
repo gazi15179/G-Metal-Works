@@ -20098,7 +20098,7 @@ async function vgsLoad() {
       else if (T.loanTxn) amount = (r.Amount !== undefined && r.Amount !== null && r.Amount !== '') ? n2(r.Amount) : n2(r.Principal) + n2(r.Interest) + n2(r.Charges);
       else if (T.amount) amount = n2(r[T.amount]);
       return { type: T.key, rawId: r[T.idf], no: (T.no && r[T.no]) || r[T.idf] || '', date: String(r[T.date] || r.Date || '').slice(0, 10), party: party, amount: amount,
-        posted: String(r.Status || '') === 'Posted', status: String(r.Status || '') };
+        posted: String(r.Status || '') === 'Posted' || String(r.Status || '') === 'Active', status: String(r.Status || '') };   // সেলারী ভাউচার/ইস্যুর চালু অবস্থা 'Active'
     });
     return Object.assign({}, T, { ok: h.ok, rows: rows, money: T.amount || T.lineSum || T.loanTxn });
   }));
@@ -20219,7 +20219,8 @@ async function renderVoucherGroupSummary(content) {
         <label>${t('খোঁজ', 'Search')} <input type="search" id="vgs_Q" placeholder="${attr(t('নাম বা নং', 'Name or no.'))}" autocomplete="off"></label>
         <span class="vgs-seg"><button type="button" id="vgs_Cond" class="on">${t('সংক্ষেপ', 'Condensed')}</button><button type="button" id="vgs_Det">${t('বিস্তারিত', 'Detailed')}</button><button type="button" id="vgs_Full" class="vgs-ot">${t('সম্পূর্ণ', 'Full')}</button></span>
         <button type="button" class="btn btn-outline" id="vgs_Print" data-perm-safe="1">🖨️ ${t('প্রিন্ট', 'Print')}</button>
-        <button type="button" class="btn btn-outline" id="vgs_Csv" data-perm-safe="1" title="${attr(t('ব্যাকআপ — সব নাম ও প্রতিটা ভাউচার', 'Backup — every name and voucher'))}">⬇️ Excel</button>
+        <button type="button" class="btn btn-outline" id="vgs_Drive" data-perm-safe="1" title="${attr(t('ব্যাকআপ Google Drive-এ — সব নাম, প্রতিটা ভাউচার (Google Sheet)', 'Backup to Google Drive — every name and voucher (Google Sheet)'))}">☁️ Google Drive</button>
+        <button type="button" class="btn btn-outline" id="vgs_DriveSet" data-perm-safe="1" title="${attr(t('Google Drive সংযোগ', 'Google Drive connection'))}">⚙️</button>
         <button type="button" class="btn btn-outline" id="vgs_Refresh" data-perm-safe="1">🔄</button>
       </div>
       <div class="vgs-cards" id="vgs_Cards"></div>
@@ -20401,31 +20402,113 @@ async function renderVoucherGroupSummary(content) {
       summary: isName ? [[t('নাম / বিষয়', 'Names'), String(sm.nN || 0)]] : [[t('মোট ভাউচার', 'Vouchers'), String(sm.tN)], [t('পোস্ট করা', 'Posted'), String(sm.tP)], [t('খসড়া', 'Draft'), String(sm.tD)], [t('গ্রুপ', 'Groups'), String(sm.nG)]],
       html: '<style>table.vgs-in{width:100%;border-collapse:collapse;} tr.vgs-mod td{background:#eef1f5;font-weight:700;} th,td{text-align:center !important;} .vgs-dr{color:#1d4ed8;} .vgs-cr{color:#b42318;}</style>' + tbl.outerHTML });
   });
-  // ⬇️ Excel (CSV) — ব্যাকআপ: সব নাম ও প্রতিটা ভাউচার (দেখার মাত্রা যা-ই হোক)
-  $('vgs_Csv').addEventListener('click', function () {
-    const q = function (v) { const s = String(v === null || v === undefined ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-    const r2 = function (v) { return (Math.round((Number(v) || 0) * 100) / 100).toFixed(2); };
-    const lines = [];
-    if (st.view === 'name') {
-      lines.push(['গ্রুপ', 'নাম', 'তারিখ', 'নং', 'বিবরণ', 'ডেবিট', 'ক্রেডিট', 'ব্যালান্স', 'ডেঃ/ক্রেঃ'].map(q).join(','));
-      nameData().forEach(function (x) {
-        x.names.forEach(function (n) {
-          const f = n.f, dc = function (v) { return v > 0.004 ? 'ডেঃ' : v < -0.004 ? 'ক্রেঃ' : ''; };
-          lines.push([x.g[1], n.name, isoToDmy(st.from), '', 'প্রারম্ভিক জের', '', '', r2(Math.abs(f.op)), dc(f.op)].map(q).join(','));
-          f.rows.forEach(function (e) { lines.push([x.g[1], n.name, isoToDmy(e.date), e.no, e.desc, e.dr ? r2(e.dr) : '', e.cr ? r2(e.cr) : '', r2(Math.abs(e.bal)), dc(e.bal)].map(q).join(',')); });
-          lines.push([x.g[1], n.name, isoToDmy(st.to), '', 'মোট / সর্বশেষ ব্যালান্স', r2(f.dr), r2(f.cr), r2(Math.abs(f.close)), dc(f.close)].map(q).join(','));
-        });
+  // ======== ☁️ Google Drive ব্যাকআপ — সব নাম (সারসংক্ষেপ + সম্পূর্ণ খাতা) আর সব ভাউচার; ছাঁকনি/দেখার মাত্রা যা-ই হোক ========
+  const r2n = function (v) { return Math.round((Number(v) || 0) * 100) / 100; };
+  const dcs = function (v) { return v > 0.004 ? 'ডেঃ' : v < -0.004 ? 'ক্রেঃ' : ''; };
+  const backupSheets = function () {
+    const keep = { grp: st.grp, q: st.q }; st.grp = ''; st.q = '';
+    let data; try { data = nameData(); } finally { st.grp = keep.grp; st.q = keep.q; }
+    const sum = [['গ্রুপ', 'নাম', 'প্রারম্ভিক', 'ডেঃ/ক্রেঃ', 'ডেবিট', 'ক্রেডিট', 'ব্যালান্স', 'ডেঃ/ক্রেঃ', 'ব্যালান্সের মানে']];
+    const full = [['গ্রুপ', 'নাম', 'তারিখ', 'নং', 'বিবরণ', 'ডেবিট', 'ক্রেডিট', 'ব্যালান্স', 'ডেঃ/ক্রেঃ']];
+    data.forEach(function (x) {
+      x.names.forEach(function (n) {
+        const f = n.f;
+        sum.push([x.g[1], n.name, r2n(Math.abs(f.op)), dcs(f.op), r2n(f.dr), r2n(f.cr), r2n(Math.abs(f.close)), dcs(f.close), x.g[3]]);
+        full.push([x.g[1], n.name, isoToDmy(st.from) || '', '', 'প্রারম্ভিক জের', '', '', r2n(Math.abs(f.op)), dcs(f.op)]);
+        f.rows.forEach(function (e) { full.push([x.g[1], n.name, isoToDmy(e.date) || '', String(e.no || ''), e.desc || '', e.dr ? r2n(e.dr) : '', e.cr ? r2n(e.cr) : '', r2n(Math.abs(e.bal)), dcs(e.bal)]); });
+        full.push([x.g[1], n.name, isoToDmy(st.to) || '', '', 'মোট / সর্বশেষ ব্যালান্স', r2n(f.dr), r2n(f.cr), r2n(Math.abs(f.close)), dcs(f.close)]);
       });
-    } else {
-      lines.push(['মডিউল', 'গ্রুপ', 'তারিখ', 'নং', 'পার্টি', 'টাকা', 'অবস্থা'].map(q).join(','));
-      VGS_MODULES.forEach(function (m) { G.filter(function (g) { return g.mod === m[0]; }).forEach(function (g) { pick(g).forEach(function (r) { lines.push([m[1], g.bn, isoToDmy(r.date), r.no, r.party, r.amount === null ? '' : r2(r.amount), r.posted ? 'পোস্ট করা' : 'খসড়া'].map(q).join(',')); }); }); });
-    }
+    });
+    const vch = [['মডিউল', 'গ্রুপ', 'তারিখ', 'নং', 'পার্টি', 'টাকা', 'অবস্থা']];
+    const keep2 = { status: st.status, q: st.q }; st.status = ''; st.q = '';
+    try { VGS_MODULES.forEach(function (m) { G.filter(function (g) { return g.mod === m[0]; }).forEach(function (g) { pick(g).forEach(function (r) { vch.push([m[1], g.bn, isoToDmy(r.date) || '', String(r.no || ''), r.party || '', r.amount === null ? '' : r2n(r.amount), r.posted ? 'পোস্ট করা' : 'খসড়া']); }); }); }); }
+    finally { st.status = keep2.status; st.q = keep2.q; }
+    return [{ name: 'সারসংক্ষেপ (নাম অনুযায়ী)', rows: sum, numCols: [3, 5, 6, 7] }, { name: 'সম্পূর্ণ খাতা', rows: full, numCols: [6, 7, 8] }, { name: 'ভাউচার তালিকা', rows: vch, numCols: [6] }];
+  };
+  // বিকল্পঃ Drive-এ না গেলে ফোনে/কম্পিউটারে ফাইল (CSV) — সারসংক্ষেপ + সম্পূর্ণ খাতা
+  const downloadCsvFallback = function () {
+    const q = function (v) { const x = String(v === null || v === undefined ? '' : v); return /[",\n]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x; };
+    const shs = backupSheets(), lines = [];
+    shs[1].rows.forEach(function (r) { lines.push(r.map(q).join(',')); });
     const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-    a.download = (st.view === 'name' ? 'হিসাব-নাম-অনুযায়ী_' : 'ভাউচার-গ্রুপ-সামারী_') + (isoToDmy(st.to) || today) + '.csv';
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'হিসাব-নাম-অনুযায়ী_' + (isoToDmy(st.to) || today) + '.csv';
     document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 3000);
-    showToast(t('Excel (CSV) ফাইল ডাউনলোড হয়েছে ✅ ', 'CSV downloaded ✅ ') + (lines.length - 1) + t(' সারি', ' rows'), 'success');
-  });
+  };
+  const GAS_CODE = "/* ============================================================\n   G Metal Works — Google Drive ব্যাকআপ (Google Apps Script)\n   একবার বসাতে হয়। সফটওয়্যারের \"☁️ Google Drive\" বোতাম ব্যাকআপ এখানে পাঠায়;\n   এটা আপনার Drive-এ \"G Metal Works Backup\" ফোল্ডারে একটা Google Sheet বানিয়ে লিংক ফেরত দেয়।\n   ১) নিচের BACKUP_KEY-তে নিজের একটা গোপন চাবি লিখুন (যেমন gmw-2026-রহস্য) — সফটওয়্যারেও একই চাবি দেবেন।\n   ২) Deploy → New deployment → Web app → Execute as: Me · Who has access: Anyone → Deploy → লিংক কপি।\n   ============================================================ */\nconst BACKUP_KEY = 'এখানে-নিজের-গোপন-চাবি-লিখুন';\nconst FOLDER_NAME = 'G Metal Works Backup';\n\nfunction doGet() {\n  return out_({ ok: true, msg: 'G Metal Works Drive ব্যাকআপ চালু আছে' });\n}\n\nfunction doPost(e) {\n  try {\n    const p = JSON.parse((e && e.postData && e.postData.contents) || '{}');\n    if (!BACKUP_KEY || BACKUP_KEY === 'এখানে-নিজের-গোপন-চাবি-লিখুন') return out_({ ok: false, error: 'স্ক্রিপ্টে BACKUP_KEY বসানো হয়নি' });\n    if (p.key !== BACKUP_KEY) return out_({ ok: false, error: 'চাবি মেলেনি — সফটওয়্যার আর স্ক্রিপ্টে একই চাবি দিন' });\n    const folder = folder_(p.folder || FOLDER_NAME);\n    const ss = SpreadsheetApp.create(String(p.title || 'G Metal Works Backup').slice(0, 200));\n    (p.sheets || []).forEach(function (sh, i) {\n      const ws = i === 0 ? ss.getSheets()[0].setName(String(sh.name || 'Sheet1')) : ss.insertSheet(String(sh.name || ('Sheet' + (i + 1))));\n      const rows = sh.rows || [];\n      if (!rows.length) return;\n      const w = Math.max.apply(null, rows.map(function (r) { return r.length; }));\n      const data = rows.map(function (r) { const a = r.slice(); while (a.length < w) a.push(''); return a; });\n      ws.getRange(1, 1, data.length, w).setValues(data);\n      ws.getRange(1, 1, 1, w).setFontWeight('bold').setBackground('#eef1f5').setHorizontalAlignment('center');\n      ws.setFrozenRows(1);\n      if (data.length > 1) (sh.numCols || []).forEach(function (c) { ws.getRange(2, c, data.length - 1, 1).setNumberFormat('#,##0.00'); });\n      ws.autoResizeColumns(1, w);\n    });\n    DriveApp.getFileById(ss.getId()).moveTo(folder);\n    return out_({ ok: true, url: ss.getUrl(), name: ss.getName(), folderUrl: folder.getUrl() });\n  } catch (err) {\n    return out_({ ok: false, error: String((err && err.message) || err) });\n  }\n}\n\nfunction folder_(name) {\n  const it = DriveApp.getFoldersByName(name);\n  return it.hasNext() ? it.next() : DriveApp.createFolder(name);\n}\n\nfunction out_(o) {\n  return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);\n}\n";
+  const isAdminUser = function () { return !!(currentUser && currentUser.RoleID === 'ROLE-ADMIN'); };
+  const openDriveSetup = async function (msg) {
+    if (!isAdminUser()) { showToast(t('Google Drive সংযোগ শুধু এডমিন বসাতে পারেন।', 'Only an admin can set up Google Drive.'), 'error'); return; }
+    let cur = {}; try { cur = await api('getSystemSettings', {}); } catch (e) { cur = {}; }
+    openModal({ title: t('☁️ Google Drive সংযোগ (একবার)', '☁️ Google Drive connection (one time)'), wide: true,
+      bodyHtml: `${msg ? `<div style="background:#fdeef0;border:1px solid #f1b5bf;border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:12.5px;">${escapeHtml(msg)}</div>` : ''}
+        <ol style="font-size:12.5px;line-height:1.7;padding-left:18px;margin:0 0 10px;">
+          <li>${t('কম্পিউটারে <b>script.google.com</b> খুলুন → <b>New project</b>।', 'Open <b>script.google.com</b> → <b>New project</b>.')}</li>
+          <li>${t('নিচের কোড পুরোটা <b>📋 কপি</b> করে সেখানে বসান (আগের লেখা মুছে)।', 'Copy the code below and paste it there.')}</li>
+          <li>${t('কোডের উপরে <b>BACKUP_KEY</b>-এ নিজের একটা গোপন চাবি লিখুন — নিচের "চাবি" ঘরেও একই চাবি দিন।', 'Set <b>BACKUP_KEY</b> at the top — enter the same key below.')}</li>
+          <li>${t('<b>Deploy → New deployment → Web app</b> · Execute as: <b>Me</b> · Who has access: <b>Anyone</b> → Deploy → অনুমতি দিন।', '<b>Deploy → New deployment → Web app</b> · Execute as: <b>Me</b> · Access: <b>Anyone</b>.')}</li>
+          <li>${t('যে <b>Web app URL</b> দেখাবে সেটা কপি করে নিচে বসান → <b>পরীক্ষা</b> → <b>সেভ</b>।', 'Paste the <b>Web app URL</b> below → <b>Test</b> → <b>Save</b>.')}</li>
+        </ol>
+        <div style="position:relative;"><textarea id="gd_Code" readonly style="width:100%;height:140px;font-family:monospace;font-size:11px;box-sizing:border-box;">${escapeHtml(GAS_CODE)}</textarea>
+          <button type="button" class="btn btn-outline" id="gd_Copy" style="position:absolute;top:6px;right:6px;width:auto;height:30px;padding:0 10px;font-size:12px;">📋 ${t('কপি', 'Copy')}</button></div>
+        <div class="vg2" id="gd_Form" style="margin-top:10px;">
+          <div class="field vfull"><label>${t('Web app URL (script.google.com/macros/s/…/exec)', 'Web app URL')}</label><input id="gd_Url" type="url" autocomplete="off" value="${attr(cur.DriveBackupURL || '')}" placeholder="https://script.google.com/macros/s/.../exec"></div>
+          <div class="field"><label>${t('চাবি (স্ক্রিপ্টের BACKUP_KEY)', 'Key (BACKUP_KEY)')}</label><input id="gd_Key" autocomplete="off" value="${attr(cur.DriveBackupKey || '')}"></div>
+          <div class="field"><label>&nbsp;</label><button type="button" class="btn btn-outline" id="gd_Test">🔌 ${t('পরীক্ষা', 'Test')}</button></div>
+        </div><div id="gd_TestMsg" style="font-size:12px;margin-top:4px;"></div>`,
+      onSave: async function () {
+        const url = document.getElementById('gd_Url').value.trim(), key = document.getElementById('gd_Key').value.trim();
+        if (!/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.test(url)) throw new Error(t('ঠিক Web app URL দিন — https://script.google.com/macros/s/…/exec', 'Enter the Web app URL — https://script.google.com/macros/s/…/exec'));
+        if (key.length < 4) throw new Error(t('চাবি দিন (কমপক্ষে ৪ অক্ষর) — স্ক্রিপ্টের BACKUP_KEY-এর সমান।', 'Enter the key (4+ characters).'));
+        await api('saveSystemSetting', { key: 'DriveBackupURL', value: url });
+        await api('saveSystemSetting', { key: 'DriveBackupKey', value: key });
+        closeModal(); showToast(t('Google Drive সংযোগ সেভ হয়েছে ✅ — এখন "☁️ Google Drive" চাপুন', 'Google Drive connection saved ✅'), 'success');
+      } });
+    wireSequentialKeyNav(document.getElementById('gd_Form'));
+    document.getElementById('gd_Copy').addEventListener('click', async function () {
+      const ta = document.getElementById('gd_Code');
+      try { await navigator.clipboard.writeText(ta.value); } catch (e) { ta.select(); try { document.execCommand('copy'); } catch (e2) {} }
+      showToast(t('কোড কপি হয়েছে ✅ — Apps Script-এ বসান', 'Code copied ✅'), 'success');
+    });
+    document.getElementById('gd_Test').addEventListener('click', async function () {
+      const url = document.getElementById('gd_Url').value.trim(), out = document.getElementById('gd_TestMsg');
+      out.textContent = t('পরীক্ষা হচ্ছে…', 'Testing…');
+      try { const r = await fetch(url); const j = await r.json(); out.innerHTML = j && j.ok ? '<b style="color:#15803d;">✅ ' + escapeHtml(j.msg || t('সংযোগ ঠিক আছে', 'Connected')) + '</b>' : '<b style="color:#b42318;">❌ ' + escapeHtml((j && j.error) || t('সাড়া মেলেনি', 'No response')) + '</b>'; }
+      catch (e) { out.innerHTML = '<b style="color:#b42318;">❌ ' + escapeHtml(t('লিংকে পৌঁছানো যায়নি — Deploy-এ "Anyone" দেওয়া আছে কিনা আর ইন্টারনেট দেখুন।', 'Could not reach the link — check "Anyone" access and internet.')) + '</b>'; }
+    });
+  };
+  const driveBackup = async function () {
+    let cfg = {}; try { cfg = await api('getSystemSettings', {}); } catch (e) { cfg = {}; }
+    if (!cfg.DriveBackupURL || !cfg.DriveBackupKey) return openDriveSetup(t('Google Drive-এ ব্যাকআপের জন্য একবার সংযোগ বসাতে হবে।', 'Set up the Google Drive connection once.'));
+    const btn = $('vgs_Drive'); btn.disabled = true; const old = btn.textContent; btn.textContent = '☁️ ' + t('সেভ হচ্ছে…', 'Saving…');
+    const now = new Date(), hm = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+    const title = 'জি মেটাল ওয়ার্কস ব্যাকআপ — ' + (isoToDmy(today) || today) + ' ' + hm + ' (' + (isoToDmy(st.from) || '…') + ' — ' + (isoToDmy(st.to) || '…') + ')';
+    const fail = function (why) {
+      openModal({ title: t('☁️ Google Drive-এ সেভ হয়নি', '☁️ Not saved to Google Drive'), hideSave: true,
+        bodyHtml: `<p style="font-size:13px;">❌ ${escapeHtml(why)}</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;"><button type="button" class="btn btn-primary" id="gd_Retry" style="width:auto;">🔄 ${t('আবার চেষ্টা', 'Retry')}</button>
+          ${isAdminUser() ? `<button type="button" class="btn btn-outline" id="gd_Fix" style="width:auto;">⚙️ ${t('সংযোগ ঠিক করুন', 'Fix connection')}</button>` : ''}
+          <button type="button" class="btn btn-outline" id="gd_Local" style="width:auto;">📥 ${t('আপাতত ফাইল হিসেবে রাখুন', 'Keep as a file for now')}</button></div>` });
+      document.getElementById('gd_Retry').addEventListener('click', function () { closeModal(); driveBackup(); });
+      if (document.getElementById('gd_Fix')) document.getElementById('gd_Fix').addEventListener('click', function () { closeModal(); openDriveSetup(); });
+      document.getElementById('gd_Local').addEventListener('click', function () { downloadCsvFallback(); closeModal(); showToast(t('ফাইল ডাউনলোড হয়েছে — পরে Drive-এ তুলে রাখুন', 'File downloaded'), 'success'); });
+    };
+    try {
+      const sheets = backupSheets();
+      const r = await fetch(cfg.DriveBackupURL, { method: 'POST', body: JSON.stringify({ key: cfg.DriveBackupKey, title: title, folder: 'G Metal Works Backup', sheets: sheets }) });
+      let j = null; try { j = await r.json(); } catch (e) { j = null; }
+      if (!j || !j.ok) return fail((j && j.error) || t('Drive থেকে ঠিক সাড়া আসেনি।', 'Unexpected reply from Drive.'));
+      const nRows = sheets[0].rows.length - 1, nV = sheets[2].rows.length - 1;
+      openModal({ title: t('☁️ Google Drive-এ সেভ হয়েছে ✅', '☁️ Saved to Google Drive ✅'), hideSave: true,
+        bodyHtml: `<p style="font-size:13px;margin:0 0 8px;">${t('ফাইলঃ', 'File: ')}<b>${escapeHtml(j.name || title)}</b></p>
+          <p style="font-size:12.5px;color:var(--text-muted);margin:0 0 12px;">${nRows} ${t('টা নাম/বিষয় · সম্পূর্ণ খাতা · ', 'names · full ledger · ')}${nV} ${t('টা ভাউচার — "G Metal Works Backup" ফোল্ডারে', 'vouchers — in the "G Metal Works Backup" folder')}</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;"><a class="btn btn-primary" style="width:auto;" href="${attr(j.url)}" target="_blank" rel="noopener">📄 ${t('ফাইল খুলুন', 'Open file')}</a>${j.folderUrl ? `<a class="btn btn-outline" style="width:auto;" href="${attr(j.folderUrl)}" target="_blank" rel="noopener">📁 ${t('ফোল্ডার', 'Folder')}</a>` : ''}</div>` });
+      showToast(t('Google Drive-এ সেভ হয়েছে ✅', 'Saved to Google Drive ✅'), 'success');
+    } catch (e) {
+      fail(t('Google Drive-এ পৌঁছানো যায়নি — ইন্টারনেট সংযোগ দেখুন।', 'Could not reach Google Drive — check the internet.'));
+    } finally { btn.disabled = false; btn.textContent = old; }
+  };
+  $('vgs_Drive').addEventListener('click', function () { driveBackup().catch(function (e) { showToast(e.message, 'error'); }); });
+  $('vgs_DriveSet').addEventListener('click', function () { openDriveSetup(); });
   try { await load(); } catch (err) { $('vgs_Body').innerHTML = `<tr><td colspan="7">${escapeHtml(err.message)}</td></tr>`; }
 }
 
