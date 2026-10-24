@@ -14782,20 +14782,22 @@ function voucherPartySumUpdate(P, kind) {
   const partyId = partyEl ? partyEl.value : '';
   const isCash = partyId === (S ? 'CUS-CASH' : 'SUP-CASH');
   const jer = (partyId && !isCash) ? (Number(window['__' + P + 'PartyBalance']) || 0) : 0;
-  let paid;
-  if (isCash) paid = grand;   // নগদ পার্টি — পুরো টাকা নগদে, বকেয়া থাকে না (প্রিন্টের নিয়মের মতই)
+  let paid, paidCash = 0, paidBank = 0;
+  if (isCash) { paid = grand; paidCash = grand; }   // নগদ পার্টি — পুরো টাকা নগদে, বকেয়া থাকে না (প্রিন্টের নিয়মের মতই)
   else {
     // টাইপ করার সময়ই হিসাব — চোখের সামনের ঘর + অন্য ধরনের (লুকানো) ঘর
     const typeEl = document.getElementById(P + (S ? '_RecTypeSelect' : '_PayTypeSelect'));
     const isCashType = !typeEl || typeEl.value === 'Cash';
     const cashH = S ? '_CashReceivedAmount' : '_CashPaidAmount', bankH = S ? '_BankReceivedAmount' : '_BankPaidAmount';
     const shown = v(S ? '_RecAmount' : '_PayAmount');
-    paid = isCashType ? (shown + v(bankH)) : (v(cashH) + shown);
+    paidCash = isCashType ? shown : v(cashH);
+    paidBank = isCashType ? v(bankH) : shown;
+    paid = paidCash + paidBank;
   }
   const vch = S ? grand : -grand;          // বিক্রয় = ডেঃ, ক্রয় = ক্রেঃ
   const cash = S ? -paid : paid;           // গ্রহণ = ক্রেঃ, প্রদান = ডেঃ
   const bal = jer + vch + cash;
-  window['__' + P + 'PsCalc'] = { jer: jer, grand: grand, paid: paid, bal: bal };   // লাইভ প্রিভিউ পেনেলের জন্য
+  window['__' + P + 'PsCalc'] = { jer: jer, grand: grand, paid: paid, paidCash: paidCash, paidBank: paidBank, bal: bal };   // লাইভ প্রিভিউ পেনেলের জন্য
   const natural = S ? 1 : -1;              // শূন্য হলে স্বাভাবিক দিক (হালকা করে)
   const put = function (key, amt, zeroSign) {
     const r = Math.round(amt * 100) / 100;
@@ -15099,12 +15101,28 @@ function voucherAmountEnterWire(P) {
     e.preventDefault(); e.stopImmediatePropagation();   // সাধারণ "পরের ঘরে যাও" এখানে নয়
     chk.checked = true;
     chk.dispatchEvent(new Event('change', { bubbles: true }));
-    if (!chk.checked && !amt.value) {   // লাইন যোগ/হালনাগাদ হয়েছে — ঘর খালি
-      const next = [P + '_ItemID', P + '_QtyPcs', P + '_QtyKg'].map(function (id) { return document.getElementById(id); })
-        .find(function (el) { return el && !el.disabled && el.offsetParent !== null; });
-      if (next) next.focus();
+    if (!chk.checked && !amt.value) {   // লাইন যোগ/হালনাগাদ হয়েছে — ঘর খালি → নগদ/ব্যাংক গ্রহণের ঘরে (না থাকলে আইটেমে)
+      const pay = document.getElementById(payId);
+      if (pay && !pay.disabled && pay.offsetParent !== null) { pay.focus(); try { pay.select(); } catch (x) {} }
+      else focusItem();
     }
   };
+  // নগদ/ব্যাংক গ্রহণের (ক্রয়ে প্রদানের) ঘরে Enter → আবার আইটেমে (ঘর ছাড়লেই টাকা হিসাবে বসে; ব্যাংক হলে ব্যাংক বাছাইয়ের ঘর খোলে)
+  const payId = P + (P === 'sv3' ? '_RecAmount' : '_PayAmount');
+  const focusItem = function () {
+    const next = [P + '_ItemID', P + '_QtyPcs', P + '_QtyKg'].map(function (id) { return document.getElementById(id); })
+      .find(function (el) { return el && !el.disabled && el.offsetParent !== null; });
+    if (next) next.focus();
+  };
+  const hp = function (e) {
+    const pay = document.getElementById(payId);
+    if (!pay || !document.body.contains(pay)) { window.removeEventListener('keydown', hp, true); return; }
+    if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return;
+    if (document.activeElement !== pay) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    focusItem();
+  };
+  window.addEventListener('keydown', hp, true);
   window.addEventListener('keydown', h, true);   // window-এ আগে ধরা — সাধারণ Enter-নিয়মের (document) আগেই
 }
 
@@ -16449,7 +16467,8 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
       body += lineRow(t('নিট মোটঃ', 'Net total:'), pv3Fmt(netTotal, 2) || '0', saleProfit - retProfit - disc, 'grand');
       if (vat) { body += lineRow(t('ভ্যাটঃ (+)', 'VAT (+):'), pv3Fmt(vat, 2)); body += lineRow(t('সর্বমোটঃ', 'Grand total:'), pv3Fmt(netTotal + vat, 2), undefined, 'grand'); }
       if (c.jer && set.jer !== false) body += lineRow(t('পার্টি জেরঃ', 'Party opening:'), drcr(c.jer));
-      if (c.paid && set.vcash !== false) body += lineRow(t('নগদ/ব্যাংক প্রদানঃ', 'Paid:'), pv3Fmt(c.paid, 2));
+      if (c.paidCash && set.vcash !== false) body += lineRow(t('নগদ প্রদানঃ', 'Cash paid:'), pv3Fmt(c.paidCash, 2));   // নগদে দিলে নগদ প্রদান
+      if (c.paidBank && set.vcash !== false) body += lineRow(t('ব্যাংকে প্রদানঃ', 'Bank paid:'), pv3Fmt(c.paidBank, 2));   // ব্যাংকে দিলে ব্যাংকে প্রদান
       if (set.vbal !== false) body += lineRow(t('ভাউচার ব্যালান্সঃ', 'Voucher balance:'), drcr(c.bal || 0), undefined, 'grand');
     }
     box.innerHTML = `<table class="svp" data-rowsel="1">${colg}<thead>${tabs}
@@ -17697,7 +17716,8 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
       body += lineRow(t('নিট মোটঃ', 'Net total:'), sv3Fmt(netTotal, 2) || '0', saleProfit - retProfit - disc, 'grand');
       if (vat) { body += lineRow(t('ভ্যাটঃ (+)', 'VAT (+):'), sv3Fmt(vat, 2)); body += lineRow(t('সর্বমোটঃ', 'Grand total:'), sv3Fmt(netTotal + vat, 2), undefined, 'grand'); }
       if (c.jer && set.jer !== false) body += lineRow(t('পার্টি জেরঃ', 'Party opening:'), drcr(c.jer));
-      if (c.paid && set.vcash !== false) body += lineRow(t('নগদ/ব্যাংক গ্রহণঃ (−)', 'Received (−):'), sv3Fmt(c.paid, 2));
+      if (c.paidCash && set.vcash !== false) body += lineRow(t('নগদ গ্রহণঃ (−)', 'Cash received (−):'), sv3Fmt(c.paidCash, 2));   // নগদে জমা হলে নগদ গ্রহণ
+      if (c.paidBank && set.vcash !== false) body += lineRow(t('ব্যাংকে গ্রহণঃ (−)', 'Bank received (−):'), sv3Fmt(c.paidBank, 2));   // ব্যাংকে জমা হলে ব্যাংকে গ্রহণ
       if (set.vbal !== false) body += lineRow(t('ভাউচার ব্যালান্সঃ', 'Voucher balance:'), drcr(c.bal || 0), undefined, 'grand');
     }
     box.innerHTML = `<table class="svp" data-rowsel="1">${colg}<thead>${tabs}
