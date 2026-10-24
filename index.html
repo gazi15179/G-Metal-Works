@@ -20104,11 +20104,84 @@ async function vgsLoad() {
   }));
   return res;
 }
+/* ---------- নাম অনুযায়ী হিসাব — প্রতিটা নাম/বিষয়ের প্রারম্ভিক · ডেবিট · ক্রেডিট · ব্যালান্স (ব্যাকআপের জন্য) ----------
+   উৎসঃ পার্টি লেজার (গ্রাহক/সাপ্লায়ার/ব্যক্তি), ব্যাংক ও নগদ বই, এক্সপেন্স/রিসিপ্ট ভাউচারের লাইন, সেলারী ভাউচার/ইস্যু,
+   মূলধন ভাউচার, লোন মডিউলের নিজের হিসাব (glStatementRows/glState), এ্যাসেট রেজিস্টার। ব্যালান্স = ডেবিট − ক্রেডিট (ডেঃ/ক্রেঃ)। */
+const VGN_GROUPS = [
+  ['cus', 'গ্রাহক', 'Customers', 'ডেঃ = পাবো'], ['sup', 'সাপ্লায়ার', 'Suppliers', 'ক্রেঃ = দেবো'], ['per', 'ধার-দেনার ব্যক্তি', 'Loan persons', 'ডেঃ = পাবো · ক্রেঃ = দেবো'],
+  ['bank', 'ক্যাশ ও ব্যাংক', 'Cash & bank', 'ডেঃ = হাতে/ব্যাংকে আছে'], ['exp', 'খরচের খাত', 'Expense heads', 'ডেঃ = খরচ'], ['inc', 'আয়ের খাত', 'Income heads', 'ক্রেঃ = আয়'],
+  ['emp', 'কর্মচারী (বেতন)', 'Employees (salary)', 'ক্রেঃ = বেতন বাকি'], ['cap', 'মালিকের মূলধন', "Owner's capital", 'ক্রেঃ = মূলধন'],
+  ['loan', 'লোন', 'Loans', 'ক্রেঃ = দেনা'], ['asset', 'স্থায়ী সম্পদ (ক্রয়মূল্যে)', 'Fixed assets (at cost)', 'ডেঃ = সম্পদ']];
+function vgnRefLabel(m) {
+  if (m === OPENING_REF) return t('প্রারম্ভিক জের', 'Opening balance');
+  const base = voucherBaseTypeSafe(m), R = (typeof VOUCHER_REGISTRY !== 'undefined') && VOUCHER_REGISTRY[base];
+  const sfx = /-Payment$/.test(m) ? t(' (প্রদান)', ' (paid)') : /-Receipt$/.test(m) ? t(' (গ্রহণ)', ' (received)') : /-Discount$/.test(m) ? t(' (ডিসকাউন্ট)', ' (discount)') : '';
+  return (R && R.bn ? R.bn : bookRefLabel(m)) + sfx;
+}
+async function vgnLoad() {
+  const all = async function (tb) { try { return await selectAllRows(tb); } catch (e) { return []; } };
+  const safeList = async function (sh) { try { return await cachedList(sh); } catch (e) { return []; } };
+  const n2 = function (v) { const x = Number(v); return isFinite(x) ? x : 0; }, d10 = function (v) { return String(v || '').slice(0, 10); };
+  const live = function (r) { return String(r.Status || '') !== 'Deleted'; }, posted = function (r) { return String(r.Status || '') === 'Posted'; };
+  delete listCache.Customers; delete listCache.Suppliers; delete listCache.BankCashAccounts;
+  const [cus, sup, emp, accs, lps, pl, book, ev, evl, iv, ivl, pay, iss, cap, fa, as, asl] = await Promise.all([
+    safeList('Customers'), safeList('Suppliers'), safeList('Employees'), safeList('BankCashAccounts'), all('LoanPerson'), all('PartyLedger'), all('BankCashBook'),
+    all('ExpenseVoucher'), all('ExpenseVoucher_Lines'), all('IncomeVoucher'), all('IncomeVoucher_Lines'), all('Payroll'), all('SalaryIssue'), all('CapitalVoucher'),
+    all('FixedAsset'), all('AssetSale'), all('AssetSale_Lines')]);
+  const nm = function (p) { return p ? (p.CompanyName || p.Name || p.FullName || '') : ''; };
+  const G = {}; VGN_GROUPS.forEach(function (g) { G[g[0]] = {}; });
+  const put = function (g, id, name, e) { const box = G[g]; const k = String(id || name || '—'); (box[k] = box[k] || { id: k, name: name || k, entries: [] }).entries.push(e); };
+  // ১) পার্টি লেজার — গ্রাহক / সাপ্লায়ার / ব্যক্তি
+  const C = {}, S = {}, P = {};
+  cus.forEach(function (x) { C[x.CustomerID] = nm(x); }); sup.forEach(function (x) { S[x.SupplierID] = nm(x); }); lps.forEach(function (x) { P[x.PersonID] = x.Name; });
+  pl.forEach(function (r) {
+    const g = r.PartyType === 'Customer' ? 'cus' : r.PartyType === 'Supplier' ? 'sup' : r.PartyType === 'Person' ? 'per' : null; if (!g) return;
+    const name = (g === 'cus' ? C : g === 'sup' ? S : P)[r.PartyID] || r.PartyID;
+    put(g, r.PartyID, name, { date: d10(r.Date), open: r.RefModule === OPENING_REF, no: r.RefModule === OPENING_REF ? '' : (r.RefID || ''), ref: r.RefModule, desc: vgnRefLabel(r.RefModule), dr: n2(r.Debit), cr: n2(r.Credit), sort: n2(r.id) });
+  });
+  // ২) ক্যাশ ও ব্যাংক — অ্যাকাউন্টের প্রারম্ভিক জের + বই
+  const A = {}; accs.forEach(function (a) { A[a.BankAccID] = a; });
+  accs.filter(live).forEach(function (a) { const ob = n2(a.OpeningBalance); if (ob) put('bank', a.BankAccID, a.AccountName || a.BankAccID, { date: '', open: true, no: '', ref: '', desc: t('প্রারম্ভিক জের', 'Opening balance'), dr: ob > 0 ? ob : 0, cr: ob < 0 ? -ob : 0, sort: -1 }); });
+  book.forEach(function (b) { const a = A[b.BankCashAccID]; put('bank', b.BankCashAccID, a ? (a.AccountName || b.BankCashAccID) : b.BankCashAccID, { date: d10(b.Date), no: b.RefID || '', ref: b.RefModule, desc: vgnRefLabel(b.RefModule), dr: n2(b.Debit), cr: n2(b.Credit), sort: n2(b.id) }); });
+  // ৩) খরচের খাত / আয়ের খাত — পোস্ট করা ভাউচারের লাইন
+  const evH = {}; ev.filter(posted).forEach(function (h) { evH[h.ExpID] = h; });
+  evl.forEach(function (l) { const h = evH[l.ExpID]; if (!h) return; put('exp', l.HeadID || l.HeadName, l.HeadName || l.HeadID, { date: d10(h.Date), no: h.ExpID, ref: 'ExpenseVoucher', desc: (l.Description || h.Narration || t('এক্সপেন্স ভাউচার', 'Expense voucher')), dr: n2(l.Amount), cr: 0, sort: 0 }); });
+  const ivH = {}; iv.filter(posted).forEach(function (h) { ivH[h.IncID] = h; });
+  ivl.forEach(function (l) { const h = ivH[l.IncID]; if (!h) return; put('inc', l.HeadID || l.HeadName, l.HeadName || l.HeadID, { date: d10(h.Date), no: h.IncID, ref: 'IncomeVoucher', desc: (l.Description || h.Narration || t('রিসিপ্ট ভাউচার', 'Receipt voucher')), dr: 0, cr: n2(l.Amount), sort: 0 }); });
+  // ৪) কর্মচারী — সেলারী ভাউচার (নীট বেতন, দেবো) − সেলারী ইস্যু (প্রদান)
+  const E = {}; emp.forEach(function (x) { E[x.EmployeeID] = nm(x) || x.EmployeeID; });
+  pay.filter(live).forEach(function (r) { if (!r.EmployeeID) return; put('emp', r.EmployeeID, E[r.EmployeeID] || r.EmployeeID, { date: d10(r.VoucherDate), no: r.VoucherNo || r.PayrollID, raw: r.PayrollID, ref: 'Payroll', desc: t('সেলারী ভাউচার (বেতন)', 'Salary voucher'), dr: 0, cr: n2(r.TotalNetPay), sort: 0 }); });
+  iss.filter(live).forEach(function (r) { if (!r.EmployeeID) return; put('emp', r.EmployeeID, E[r.EmployeeID] || r.EmployeeID, { date: d10(r.IssueDate), no: r.IssueNo || r.IssueID, raw: r.IssueID, ref: 'SalaryIssue', desc: t('সেলারী ইস্যু (প্রদান)', 'Salary paid'), dr: n2(r.Amount), cr: 0, sort: 1 }); });
+  // ৫) মালিকের মূলধন — আনয়ন ক্রেঃ, উত্তোলন ডেঃ
+  cap.filter(posted).forEach(function (r) { const out = r.Type === 'Out'; put('cap', r.OwnerName || 'owner', r.OwnerName || t('মালিক', 'Owner'), { date: d10(r.Date), no: r.CapID, ref: 'CapitalVoucher', desc: out ? t('উত্তোলন', 'Drawing') : t('মূলধন আনয়ন', 'Capital in'), dr: out ? n2(r.Amount) : 0, cr: out ? 0 : n2(r.Amount), sort: 0 }); });
+  // ৬) স্থায়ী সম্পদ — ক্রয়মূল্য ডেঃ, বিক্রিত অংশের ক্রয়মূল্য ক্রেঃ
+  const FA = {}; fa.filter(posted).forEach(function (r) { FA[r.AssetID] = r; put('asset', r.AssetID, (r.AssetName || r.AssetID) + (r.Category ? ' (' + r.Category + ')' : ''), { date: d10(r.Date), no: r.SourceID || r.AssetID, ref: r.SourceID ? 'AssetPurchase' : 'FixedAsset', raw: r.SourceID || r.AssetID, desc: r.SourceID ? t('এ্যাসেট ক্রয়', 'Asset purchase') : t('প্রারম্ভিক সম্পদ', 'Opening asset'), dr: n2(r.Cost), cr: 0, sort: 0 }); });
+  const asH = {}; as.filter(posted).forEach(function (h) { asH[h.ASID] = h; });
+  asl.forEach(function (l) { const h = asH[l.ASID], r = FA[l.AssetID]; if (!h || !r) return; put('asset', r.AssetID, (r.AssetName || r.AssetID) + (r.Category ? ' (' + r.Category + ')' : ''), { date: d10(h.Date), no: h.ASID, ref: 'AssetSale', desc: t('এ্যাসেট বিক্রয় (ক্রয়মূল্য বাদ)', 'Asset sold (cost removed)'), dr: 0, cr: n2(l.CostPortion), sort: 1 }); });
+  // ৭) লোন — লোন মডিউলের নিজের হিসাব (রেঞ্জ অনুযায়ী পরে)
+  let LD = null; try { if (typeof glLoadAll === 'function') LD = await glLoadAll(); } catch (e) { LD = null; }
+  return { G: G, LD: LD };
+}
+/** একটা নামের হিসাব — তারিখ-রেঞ্জে */
+function vgnFigures(entries, from, to) {
+  let op = 0; const rows = [];
+  entries.slice().sort(function (a, b) { return (a.open === b.open ? 0 : a.open ? -1 : 1) || String(a.date).localeCompare(String(b.date)) || (a.sort - b.sort); }).forEach(function (e) {
+    if (e.open || (from && e.date && e.date < from)) { op += e.dr - e.cr; return; }
+    if (to && e.date && e.date > to) return;
+    rows.push(e);
+  });
+  let bal = op, dr = 0, cr = 0;
+  const out = rows.map(function (e) { bal += e.dr - e.cr; dr += e.dr; cr += e.cr; return Object.assign({}, e, { bal: bal }); });
+  return { op: op, dr: dr, cr: cr, close: bal, rows: out };
+}
+
 async function renderVoucherGroupSummary(content) {
   const today = ownToday(), fy = await getFiscalYearStart(today);
-  const st = { from: fy, to: today, mod: '', status: '', q: '', mode: 'cond', open: {} };
-  let G = [];
+  const st = { view: 'name', from: fy, to: today, mod: '', grp: '', status: '', q: '', mode: 'cond', open: {}, openN: {} };
+  let G = [], NB = null;
   const fmt = function (x) { return (Number(x) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+  const DCt = function (v) { const r = Math.round((Number(v) || 0) * 100) / 100; return !r ? '0.00' : fmt(Math.abs(r)) + (r > 0 ? ' ডেঃ' : ' ক্রেঃ'); };
+  const DCc = function (v) { const r = Math.round((Number(v) || 0) * 100) / 100; return !r ? '' : r > 0 ? 'vgs-dr' : 'vgs-cr'; };
   content.innerHTML = `<style>${PAYV_CSS}
       #pageContent:has(.vgs){max-width:none !important;}
       .vgs .vgs-bar{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;margin:0 0 10px;}
@@ -20118,38 +20191,120 @@ async function renderVoucherGroupSummary(content) {
       .vgs .vgs-seg{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;}
       .vgs .vgs-seg button{border:0;background:var(--surface);padding:0 12px;height:32px;font-size:12.5px;cursor:pointer;font-family:inherit;}
       .vgs .vgs-seg button.on{background:#1a2029;color:#f2a33c;font-weight:700;}
-      .vgs .vgs-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:10px;}
+      .vgs .vgs-view{margin-bottom:10px;} .vgs .vgs-view button{height:36px;font-size:13px;}
+      .vgs .vgs-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:10px;}
       .vgs .vgs-card{border:1px solid var(--border);border-radius:10px;padding:8px 12px;background:var(--surface);} .vgs .vgs-card small{display:block;font-size:11px;color:var(--text-muted);} .vgs .vgs-card b{font-size:16px;}
       .vgs .pvl th,.vgs .pvl td{text-align:center !important;vertical-align:middle;font-size:11px;padding:4px 8px;}
       .vgs .pvl th{font-weight:700;}
       .vgs tr.vgs-mod td{background:#eef1f5 !important;font-weight:700;color:#3b4452;font-size:11.5px;}
-      .vgs tr.vgs-grp{cursor:pointer;} .vgs tr.vgs-grp td.g{font-weight:700;}
-      .vgs tr.vgs-grp .tw{display:inline-block;width:14px;color:var(--text-muted);}
+      .vgs tr.vgs-mod.clk{cursor:pointer;} .vgs tr.vgs-mod small{font-weight:400;color:var(--text-muted);}
+      .vgs tr.vgs-grp,.vgs tr.vgs-nm{cursor:pointer;} .vgs tr.vgs-grp td.g,.vgs tr.vgs-nm td.g{font-weight:700;}
+      .vgs .tw{display:inline-block;width:14px;color:var(--text-muted);}
       .vgs tr.vgs-det > td{padding:0 0 6px 18px !important;background:transparent !important;}
       .vgs table.vgs-in{width:100%;border-collapse:collapse;margin:2px 0 4px;} .vgs table.vgs-in th{background:#f6f7f9;}
       .vgs table.vgs-in th,.vgs table.vgs-in td{border-bottom:1px solid var(--border);}
       .vgs .vgs-draft{color:#b45309;font-weight:600;} .vgs .vgs-posted{color:#15803d;font-weight:600;}
-      @media (max-width:760px){ .vgs .pvl th,.vgs .pvl td{padding:3px 4px;} .vgs table.vgs-in th,.vgs table.vgs-in td{padding:3px 3px;} .vgs .vgs-bar label{flex:1 1 45%;} .vgs .vgs-bar select,.vgs .vgs-bar input{flex:1;min-width:0;} .vgs .hide-m{display:none;} .vgs tr.vgs-det > td{padding-left:4px !important;} }
+      .vgs .vgs-dr{color:#1d4ed8;} .vgs .vgs-cr{color:#b42318;} .vgs td.bal{font-weight:700;}
+      @media (max-width:760px){ .vgs .pvl th,.vgs .pvl td{padding:3px 4px;} .vgs table.vgs-in th,.vgs table.vgs-in td{padding:3px 3px;} .vgs #vgs_Tbl > thead > tr > th:last-child,.vgs #vgs_Tbl > tbody > tr:not(.vgs-det) > td:last-child,.vgs #vgs_Tbl > tfoot > tr > td:last-child{display:none;}   /* মোবাইলেঃ গ্রুপ/নামের সারিতে চাপলেই খোলে — বোতাম বাড়তি, ব্যালান্সের জায়গা থাকে */ .vgs .vgs-bar label{flex:1 1 45%;} .vgs .vgs-bar select,.vgs .vgs-bar input{flex:1;min-width:0;} .vgs .hide-m{display:none;} .vgs tr.vgs-det > td{padding-left:2px !important;} }
     </style>
     <div class="payv vgs">
-      <div class="page-head"><div><h1>${t('ভাউচার গ্রুপ সামারী', 'Voucher Group Summary')}</h1><p>${t('সফটওয়্যারের সব ভাউচার — মডিউল ও ধরন (গ্রুপ) অনুযায়ী; প্রতিটা গ্রুপ সংক্ষেপে বা বিস্তারিত', 'Every voucher in the software — by module and type (group); condensed or detailed')}</p></div></div>
+      <div class="page-head"><div><h1>${t('ভাউচার গ্রুপ সামারী', 'Voucher Group Summary')}</h1><p>${t('প্রতিটা নাম/বিষয়ের প্রারম্ভিক · ডেবিট · ক্রেডিট · ব্যালান্স (সর্বশেষ অবস্থা), আর সব ভাউচার ধরন অনুযায়ী — ব্যাকআপের জন্য প্রিন্ট/PDF/Excel', 'Opening · debit · credit · balance of every name/subject, and all vouchers by type — print/PDF/Excel for backup')}</p></div></div>
+      <div class="vgs-seg vgs-view"><button type="button" id="vgs_VName" class="on">📒 ${t('নাম অনুযায়ী হিসাব', 'By name (ledger)')}</button><button type="button" id="vgs_VType">🗂️ ${t('ভাউচারের ধরন অনুযায়ী', 'By voucher type')}</button></div>
       <div class="vgs-bar" id="vgs_Bar">
         <label>${t('হইতে', 'From')} <input type="date" id="vgs_From" value="${attr(st.from)}"></label>
         <label>${t('পর্যন্ত', 'To')} <input type="date" id="vgs_To" value="${attr(st.to)}"></label>
-        <label>${t('মডিউল', 'Module')} <select id="vgs_Mod"><option value="">${t('সব', 'All')}</option>${VGS_MODULES.map(function (m) { return `<option value="${m[0]}">${escapeHtml(t(m[1], m[2]))}</option>`; }).join('')}</select></label>
-        <label>${t('অবস্থা', 'Status')} <select id="vgs_St"><option value="">${t('সব', 'All')}</option><option value="posted">${t('পোস্ট করা', 'Posted')}</option><option value="draft">${t('খসড়া', 'Draft')}</option></select></label>
-        <label>${t('খোঁজ', 'Search')} <input type="search" id="vgs_Q" placeholder="${attr(t('নং বা পার্টি', 'No. or party'))}" autocomplete="off"></label>
-        <span class="vgs-seg"><button type="button" id="vgs_Cond" class="on">${t('সংক্ষেপ', 'Condensed')}</button><button type="button" id="vgs_Det">${t('বিস্তারিত', 'Detailed')}</button></span>
+        <label class="vgs-ot">${t('গ্রুপ', 'Group')} <select id="vgs_Grp"><option value="">${t('সব', 'All')}</option>${VGN_GROUPS.map(function (g) { return `<option value="${g[0]}">${escapeHtml(t(g[1], g[2]))}</option>`; }).join('')}</select></label>
+        <label class="vgs-tt" style="display:none;">${t('মডিউল', 'Module')} <select id="vgs_Mod"><option value="">${t('সব', 'All')}</option>${VGS_MODULES.map(function (m) { return `<option value="${m[0]}">${escapeHtml(t(m[1], m[2]))}</option>`; }).join('')}</select></label>
+        <label class="vgs-tt" style="display:none;">${t('অবস্থা', 'Status')} <select id="vgs_St"><option value="">${t('সব', 'All')}</option><option value="posted">${t('পোস্ট করা', 'Posted')}</option><option value="draft">${t('খসড়া', 'Draft')}</option></select></label>
+        <label>${t('খোঁজ', 'Search')} <input type="search" id="vgs_Q" placeholder="${attr(t('নাম বা নং', 'Name or no.'))}" autocomplete="off"></label>
+        <span class="vgs-seg"><button type="button" id="vgs_Cond" class="on">${t('সংক্ষেপ', 'Condensed')}</button><button type="button" id="vgs_Det">${t('বিস্তারিত', 'Detailed')}</button><button type="button" id="vgs_Full" class="vgs-ot">${t('সম্পূর্ণ', 'Full')}</button></span>
         <button type="button" class="btn btn-outline" id="vgs_Print" data-perm-safe="1">🖨️ ${t('প্রিন্ট', 'Print')}</button>
+        <button type="button" class="btn btn-outline" id="vgs_Csv" data-perm-safe="1" title="${attr(t('ব্যাকআপ — সব নাম ও প্রতিটা ভাউচার', 'Backup — every name and voucher'))}">⬇️ Excel</button>
         <button type="button" class="btn btn-outline" id="vgs_Refresh" data-perm-safe="1">🔄</button>
       </div>
       <div class="vgs-cards" id="vgs_Cards"></div>
-      <div class="pvl-wrap"><table class="pvl" id="vgs_Tbl"><thead><tr><th class="hide-m">${t('ক্রঃ', 'Sl')}</th><th>${t('গ্রুপ (ভাউচারের ধরন)', 'Group (voucher type)')}</th><th>${t('ভাউচার', 'Vouchers')}</th><th class="hide-m">${t('পোস্ট করা', 'Posted')}</th><th class="hide-m">${t('খসড়া', 'Draft')}</th><th>${t('মোট টাকা', 'Total amount')}</th><th></th></tr></thead>
-        <tbody id="vgs_Body"><tr><td colspan="7">${t('লোড হচ্ছে...', 'Loading...')}</td></tr></tbody><tfoot id="vgs_Foot"></tfoot></table></div>
+      <div class="pvl-wrap"><table class="pvl" id="vgs_Tbl"><thead id="vgs_Head"></thead><tbody id="vgs_Body"><tr><td colspan="7">${t('লোড হচ্ছে...', 'Loading...')}</td></tr></tbody><tfoot id="vgs_Foot"></tfoot></table></div>
     </div>`;
   const $ = function (id) { return document.getElementById(id); };
   wireSequentialKeyNav($('vgs_Bar'));
-  const pick = function (g) {   // তারিখ, অবস্থা, খোঁজ অনুযায়ী এই গ্রুপের ভাউচার
+  const PAGE_OF = { Payroll: 'payroll', SalaryIssue: 'salaryIssue', CapitalVoucher: 'ownerCapital', FixedAsset: 'fixedAssets', LoanTxn: 'loanTxn', LoanVoucher: 'loans' };
+  const goPage = async function (page, label) {
+    const mod = (MODULES.find(function (m) { return (m.sub || []).some(function (s) { return s.key === page; }); }) || {});
+    const sub = (mod.sub || []).find(function (s) { return s.key === page; }) || {};
+    await navigateTo(page, mod.bn || '', sub.bn || label || '');
+  };
+  const openVoucher = async function (type, id) {
+    const base = voucherBaseTypeSafe(type);
+    const R = (typeof VOUCHER_REGISTRY !== 'undefined') && VOUCHER_REGISTRY[base];
+    if (R && R.kind !== 'legacy' && R.kind !== 'gmwloan') { try { await voucherView(base, id); return; } catch (e) {} }
+    const g = vgsTypes().find(function (x) { return x.key === base || x.table === base; });
+    const page = PAGE_OF[base] || (g && g.page);
+    if (page) return goPage(page, g ? g.bn : '');
+    showToast(t('এই এন্ট্রির ভাউচার খোলা যায় না।', 'Cannot open this entry.'), 'error');
+  };
+
+  // ======== নাম অনুযায়ী হিসাব ========
+  const nameData = function () {   // রেঞ্জ অনুযায়ী প্রতিটা গ্রুপ → নাম → হিসাব
+    const from = st.from || '0000-01-01', to = st.to || '9999-12-31', q = st.q.trim().toLowerCase();
+    return VGN_GROUPS.filter(function (g) { return !st.grp || st.grp === g[0]; }).map(function (g) {
+      let names = [];
+      if (g[0] === 'loan') {
+        const D = NB && NB.LD;
+        if (D && typeof glStatementRows === 'function') names = (D.loans || []).map(function (l) {
+          const SR = glStatementRows(l, D, from, to);   // লোন মডিউলের নিজের খাতা — { open: প্রারম্ভিক দেনা, rows }
+          const op = -(Number(SR.open) || 0);
+          let bal = op, dr = 0, cr = 0;
+          const rows = (SR.rows || []).map(function (r) { const d_ = Number(r.down) || 0, c_ = Number(r.up) || 0; dr += d_; cr += c_; bal = -(Number(r.bal) || 0); return { date: r.date, no: r.id, ref: 'LoanTxn', raw: r.id, desc: r.desc, dr: d_, cr: c_, bal: bal }; });
+          return { id: l.LoanID, name: (l.LoanName || l.Lender || l.LoanID) + (l.Lender && l.LoanName ? ' — ' + l.Lender : ''), f: { op: op, dr: dr, cr: cr, close: rows.length ? bal : op, rows: rows } };
+        });
+      } else {
+        names = Object.keys((NB && NB.G[g[0]]) || {}).map(function (k) { const x = NB.G[g[0]][k]; return { id: x.id, name: x.name, f: vgnFigures(x.entries, from, to) }; });
+      }
+      names = names.filter(function (n) { const f = n.f; return Math.abs(f.op) > 0.004 || f.rows.length || Math.abs(f.close) > 0.004; })
+        .filter(function (n) { return !q || String(n.name).toLowerCase().indexOf(q) >= 0 || n.f.rows.some(function (r) { return String(r.no).toLowerCase().indexOf(q) >= 0; }); })
+        .sort(function (a, b) { return String(a.name).localeCompare(String(b.name), 'bn'); });
+      const T = names.reduce(function (s, n) { s.op += n.f.op; s.dr += n.f.dr; s.cr += n.f.cr; s.close += n.f.close; return s; }, { op: 0, dr: 0, cr: 0, close: 0 });
+      return { g: g, names: names, T: T };
+    });
+  };
+  const entriesHtml = function (n) {
+    const f = n.f;
+    return `<table class="vgs-in"><thead><tr><th>${t('তারিখ', 'Date')}</th><th>${t('নং', 'No.')}</th><th class="hide-m">${t('বিবরণ', 'Description')}</th><th>${t('ডেবিট', 'Debit')}</th><th>${t('ক্রেডিট', 'Credit')}</th><th>${t('ব্যালান্স', 'Balance')}</th><th></th></tr></thead><tbody>
+      <tr><td>${escapeHtml(isoToDmy(st.from) || '')}</td><td></td><td class="hide-m"><i>${t('প্রারম্ভিক জের', 'Opening')}</i></td><td></td><td></td><td class="bal ${DCc(f.op)}">${DCt(f.op)}</td><td></td></tr>` +
+      f.rows.map(function (e) {
+        return `<tr class="${vkClass(voucherBaseTypeSafe(e.ref || ''))}"><td>${escapeHtml(isoToDmy(e.date) || '—')}</td><td><b>${escapeHtml(e.no || '')}</b></td><td class="hide-m">${escapeHtml(e.desc || '')}</td>
+          <td class="vgs-dr">${e.dr ? fmt(e.dr) : ''}</td><td class="vgs-cr">${e.cr ? fmt(e.cr) : ''}</td><td class="bal ${DCc(e.bal)}">${DCt(e.bal)}</td>
+          <td>${e.ref && (e.no || e.raw) ? `<button type="button" class="pvx-ic" data-open="${attr(e.ref)}" data-id="${attr(e.raw || e.no)}" title="${attr(t('ভাউচার দেখুন', 'Open voucher'))}" data-perm-safe="1">👁️</button>` : ''}</td></tr>`;
+      }).join('') +
+      `<tr><td colspan="2"><b>${t('মোট', 'Total')}</b></td><td class="hide-m"></td><td class="vgs-dr"><b>${fmt(f.dr)}</b></td><td class="vgs-cr"><b>${fmt(f.cr)}</b></td><td class="bal ${DCc(f.close)}">${DCt(f.close)}</td><td></td></tr></tbody></table>`;
+  };
+  const renderName = function () {
+    const data = nameData();
+    $('vgs_Head').innerHTML = `<tr><th>${t('গ্রুপ / নাম', 'Group / name')}</th><th class="hide-m">${t('প্রারম্ভিক', 'Opening')}</th><th>${t('ডেবিট', 'Debit')}</th><th>${t('ক্রেডিট', 'Credit')}</th><th>${t('ব্যালান্স', 'Balance')}</th><th></th></tr>`;
+    let nN = 0;
+    const html = data.map(function (x) {
+      if (!x.names.length) return '';
+      nN += x.names.length;
+      const gOpen = st.mode !== 'cond' || st.open[x.g[0]];
+      return `<tr class="vgs-mod clk" data-gk="${attr(x.g[0])}"><td style="text-align:left !important;"><span class="tw">${gOpen ? '▾' : '▸'}</span>${escapeHtml(t(x.g[1], x.g[2]))} <small>— ${x.names.length} ${t('টা নাম', 'names')} · ${escapeHtml(x.g[3])}</small></td>
+          <td class="hide-m ${DCc(x.T.op)}">${DCt(x.T.op)}</td><td class="vgs-dr">${fmt(x.T.dr)}</td><td class="vgs-cr">${fmt(x.T.cr)}</td><td class="bal ${DCc(x.T.close)}">${DCt(x.T.close)}</td><td></td></tr>` +
+        (gOpen ? x.names.map(function (n) {
+          const key = x.g[0] + '|' + n.id, nOpen = st.mode === 'full' || st.openN[key];
+          return `<tr class="vgs-nm" data-nk="${attr(key)}"><td class="g" style="text-align:left !important;padding-left:18px;"><span class="tw">${nOpen ? '▾' : '▸'}</span>${escapeHtml(n.name)}</td><td class="hide-m ${DCc(n.f.op)}">${DCt(n.f.op)}</td><td class="vgs-dr">${n.f.dr ? fmt(n.f.dr) : ''}</td><td class="vgs-cr">${n.f.cr ? fmt(n.f.cr) : ''}</td><td class="bal ${DCc(n.f.close)}">${DCt(n.f.close)}</td>
+            <td><button type="button" class="pvx-ic" data-tn="${attr(key)}" title="${attr(nOpen ? t('বন্ধ করুন', 'Collapse') : t('ভাউচারগুলো দেখুন', 'Show vouchers'))}" data-perm-safe="1">${nOpen ? '▴' : '👁️'}</button></td></tr>` +
+            (nOpen ? `<tr class="vgs-det"><td colspan="6">${entriesHtml(n)}</td></tr>` : '');
+        }).join('') : '');
+    }).join('');
+    $('vgs_Body').innerHTML = html || `<tr><td colspan="6" style="padding:14px;color:var(--text-muted);">${t('কোনো হিসাব নেই।', 'Nothing to show.')}</td></tr>`;
+    $('vgs_Foot').innerHTML = '';
+    const get = function (k) { return (data.find(function (x) { return x.g[0] === k; }) || { names: [] }).names; };
+    const cusGet = get('cus').reduce(function (s, n) { return s + Math.max(n.f.close, 0); }, 0), supOwe = get('sup').reduce(function (s, n) { return s + Math.max(-n.f.close, 0); }, 0), bank = get('bank').reduce(function (s, n) { return s + n.f.close; }, 0);
+    $('vgs_Cards').innerHTML = `<div class="vgs-card"><small>${t('নাম / বিষয়', 'Names / subjects')}</small><b>${nN}</b></div><div class="vgs-card"><small>${t('গ্রাহকের কাছে পাবো', 'Receivable from customers')}</small><b class="vgs-dr">৳${fmt(cusGet)}</b></div><div class="vgs-card"><small>${t('সাপ্লায়ারকে দেবো', 'Payable to suppliers')}</small><b class="vgs-cr">৳${fmt(supOwe)}</b></div><div class="vgs-card"><small>${t('ক্যাশ ও ব্যাংকে', 'Cash & bank')}</small><b>${DCt(bank)}</b></div>`;
+    return { data: data, nN: nN };
+  };
+
+  // ======== ভাউচারের ধরন অনুযায়ী (আগের মতো) ========
+  const pick = function (g) {
     const q = st.q.trim().toLowerCase();
     return g.rows.filter(function (r) {
       if (st.from && (!r.date || r.date < st.from)) return false;
@@ -20163,21 +20318,22 @@ async function renderVoucherGroupSummary(content) {
   const sumOf = function (rs) { return rs.reduce(function (s, r) { return s + (Number(r.amount) || 0); }, 0); };
   const detailHtml = function (g, rs) {
     if (!rs.length) return `<div style="padding:6px;color:var(--text-muted);font-size:11px;">${t('এই সময়ে কোনো ভাউচার নেই।', 'No vouchers in this period.')}</div>`;
-    return `<table class="vgs-in" data-rowsel="1"><thead><tr><th>${t('তারিখ', 'Date')}</th><th>${t('নং', 'No.')}</th><th>${t('পার্টি / বিবরণ', 'Party')}</th>${g.money ? `<th>${t('টাকা', 'Amount')}</th>` : ''}<th class="hide-m">${t('অবস্থা', 'Status')}</th><th></th></tr></thead><tbody>` +
+    return `<table class="vgs-in"><thead><tr><th>${t('তারিখ', 'Date')}</th><th>${t('নং', 'No.')}</th><th>${t('পার্টি / বিবরণ', 'Party')}</th>${g.money ? `<th>${t('টাকা', 'Amount')}</th>` : ''}<th class="hide-m">${t('অবস্থা', 'Status')}</th><th></th></tr></thead><tbody>` +
       rs.map(function (r) {
         return `<tr class="${vkClass(r.type)}"><td>${escapeHtml(isoToDmy(r.date) || '—')}</td><td><b class="${r.posted ? 'vgs-posted' : 'vgs-draft'}" title="${attr(r.posted ? t('পোস্ট করা', 'Posted') : t('খসড়া', 'Draft'))}">${escapeHtml(r.no)}</b></td><td>${escapeHtml(r.party || '—')}</td>${g.money ? `<td>${r.amount === null ? '—' : fmt(r.amount)}</td>` : ''}
           <td class="hide-m">${r.posted ? `<span class="vgs-posted">${t('পোস্ট করা', 'Posted')}</span>` : `<span class="vgs-draft">${escapeHtml(r.status === 'Draft' || !r.status ? t('খসড়া', 'Draft') : r.status)}</span>`}</td>
           <td><button type="button" class="pvx-ic" data-open="${attr(r.type)}" data-id="${attr(r.rawId)}" title="${attr(t('ভাউচার দেখুন', 'Open voucher'))}" data-perm-safe="1">👁️</button></td></tr>`;
       }).join('') + (g.money ? `<tr><td colspan="3"><b>${t('মোট', 'Total')}</b></td><td><b>${fmt(sumOf(rs))}</b></td><td class="hide-m"></td><td></td></tr>` : '') + '</tbody></table>';
   };
-  const render = function () {
+  const renderType = function () {
+    $('vgs_Head').innerHTML = `<tr><th class="hide-m">${t('ক্রঃ', 'Sl')}</th><th>${t('গ্রুপ (ভাউচারের ধরন)', 'Group (voucher type)')}</th><th>${t('ভাউচার', 'Vouchers')}</th><th class="hide-m">${t('পোস্ট করা', 'Posted')}</th><th class="hide-m">${t('খসড়া', 'Draft')}</th><th>${t('মোট টাকা', 'Total amount')}</th><th></th></tr>`;
     let sl = 0, tN = 0, tP = 0, tD = 0, nG = 0;
     const html = VGS_MODULES.filter(function (m) { return !st.mod || st.mod === m[0]; }).map(function (m) {
       const gs = G.filter(function (g) { return g.mod === m[0]; }).map(function (g) { return { g: g, rs: pick(g) }; }).filter(function (x) { return x.rs.length; });
       if (!gs.length) return '';
       const mN = gs.reduce(function (s, x) { return s + x.rs.length; }, 0);
       return `<tr class="vgs-mod"><td colspan="7">${escapeHtml(t(m[1], m[2]))} — ${mN} ${t('টা ভাউচার', 'vouchers')}</td></tr>` + gs.map(function (x) {
-        const g = x.g, rs = x.rs, p = rs.filter(function (r) { return r.posted; }).length, open = st.mode === 'det' || st.open[g.key];
+        const g = x.g, rs = x.rs, p = rs.filter(function (r) { return r.posted; }).length, open = st.mode !== 'cond' || st.open[g.key];
         sl++; nG++; tN += rs.length; tP += p; tD += rs.length - p;
         return `<tr class="vgs-grp ${vkClass(g.key)}" data-g="${attr(g.key)}"><td class="hide-m">${sl}</td><td class="g"><span class="tw">${open ? '▾' : '▸'}</span>${escapeHtml(g.bn)}</td><td><b>${rs.length}</b></td><td class="hide-m">${p}</td><td class="hide-m">${rs.length - p}</td><td>${g.money ? '<b>' + fmt(sumOf(rs)) + '</b>' : '—'}</td>
           <td><button type="button" class="pvx-ic" data-tg="${attr(g.key)}" title="${attr(open ? t('বন্ধ করুন', 'Collapse') : t('বিস্তারিত দেখুন', 'Show details'))}" data-perm-safe="1">${open ? '▴' : '👁️'}</button></td></tr>` +
@@ -20187,44 +20343,88 @@ async function renderVoucherGroupSummary(content) {
     $('vgs_Body').innerHTML = html || `<tr><td colspan="7" style="padding:14px;color:var(--text-muted);">${t('এই সময়ে কোনো ভাউচার নেই।', 'No vouchers in this period.')}</td></tr>`;
     $('vgs_Foot').innerHTML = tN ? `<tr><td class="hide-m"></td><td><b>${t('সর্বমোট', 'Grand total')}</b></td><td><b>${tN}</b></td><td class="hide-m"><b>${tP}</b></td><td class="hide-m"><b>${tD}</b></td><td></td><td></td></tr>` : '';
     $('vgs_Cards').innerHTML = `<div class="vgs-card"><small>${t('মোট ভাউচার', 'Vouchers')}</small><b>${tN}</b></div><div class="vgs-card"><small>${t('পোস্ট করা', 'Posted')}</small><b class="vgs-posted">${tP}</b></div><div class="vgs-card"><small>${t('খসড়া', 'Draft')}</small><b class="vgs-draft">${tD}</b></div><div class="vgs-card"><small>${t('গ্রুপ', 'Groups')}</small><b>${nG}</b></div>`;
-    $('vgs_Cond').classList.toggle('on', st.mode === 'cond'); $('vgs_Det').classList.toggle('on', st.mode === 'det');
     return { tN: tN, tP: tP, tD: tD, nG: nG };
   };
-  const load = async function () { $('vgs_Body').innerHTML = `<tr><td colspan="7">${t('লোড হচ্ছে...', 'Loading...')}</td></tr>`; G = await vgsLoad(); render(); };
-  const openVoucher = async function (type, id) {
-    const R = (typeof VOUCHER_REGISTRY !== 'undefined') && VOUCHER_REGISTRY[type];
-    if (R && R.kind !== 'legacy' && R.kind !== 'gmwloan') { try { await voucherView(type, id); return; } catch (e) {} }
-    const g = G.find(function (x) { return x.key === type; }); if (!g || !g.page) return;
-    const mod = (MODULES.find(function (m) { return (m.sub || []).some(function (s) { return s.key === g.page; }); }) || {});
-    const sub = (mod.sub || []).find(function (s) { return s.key === g.page; }) || {};
-    await navigateTo(g.page, mod.bn || '', sub.bn || g.bn);
+
+  const render = function () {
+    const isName = st.view === 'name';
+    if (!isName && st.mode === 'full') st.mode = 'det';
+    $('vgs_VName').classList.toggle('on', isName); $('vgs_VType').classList.toggle('on', !isName);
+    content.querySelectorAll('.vgs-ot').forEach(function (el) { el.style.display = isName ? '' : 'none'; });
+    content.querySelectorAll('.vgs-tt').forEach(function (el) { el.style.display = isName ? 'none' : ''; });
+    $('vgs_Q').placeholder = isName ? t('নাম বা নং', 'Name or no.') : t('নং বা পার্টি', 'No. or party');
+    $('vgs_Cond').classList.toggle('on', st.mode === 'cond'); $('vgs_Det').classList.toggle('on', st.mode === 'det'); $('vgs_Full').classList.toggle('on', st.mode === 'full');
+    return isName ? (NB ? renderName() : null) : renderType();
+  };
+  const load = async function () {
+    $('vgs_Body').innerHTML = `<tr><td colspan="7">${t('লোড হচ্ছে...', 'Loading...')}</td></tr>`;
+    const r = await Promise.all([vgnLoad(), vgsLoad()]); NB = r[0]; G = r[1]; render();
   };
   $('vgs_Tbl').addEventListener('click', function (e) {
     const ob = e.target.closest('[data-open]'); if (ob) { openVoucher(ob.getAttribute('data-open'), ob.getAttribute('data-id')); return; }
+    if (st.view === 'name') {
+      const tn = e.target.closest('[data-tn]'), nrow = e.target.closest('tr.vgs-nm'), grow = e.target.closest('tr.vgs-mod.clk');
+      const nk = tn ? tn.getAttribute('data-tn') : nrow ? nrow.getAttribute('data-nk') : null;
+      if (nk) { if (st.mode === 'full') { st.mode = 'det'; nameData().forEach(function (x) { x.names.forEach(function (n) { st.openN[x.g[0] + '|' + n.id] = true; }); }); } st.openN[nk] = !st.openN[nk]; render(); return; }
+      if (grow) { const gk = grow.getAttribute('data-gk'); if (st.mode !== 'cond') { st.mode = 'cond'; VGN_GROUPS.forEach(function (g) { st.open[g[0]] = true; }); } st.open[gk] = !st.open[gk]; render(); }
+      return;
+    }
     const tg = e.target.closest('[data-tg]'), row = e.target.closest('tr.vgs-grp');
     const key = tg ? tg.getAttribute('data-tg') : row ? row.getAttribute('data-g') : null; if (!key) return;
-    if (st.mode === 'det') { st.mode = 'cond'; st.open = {}; G.forEach(function (g) { st.open[g.key] = true; }); }   // বিস্তারিত থেকে একটা বন্ধ করলে বাকিগুলো খোলা থাকে
+    if (st.mode === 'det') { st.mode = 'cond'; st.open = {}; G.forEach(function (g) { st.open[g.key] = true; }); }
     st.open[key] = !st.open[key]; render();
   });
-  $('vgs_Cond').addEventListener('click', function () { st.mode = 'cond'; st.open = {}; render(); });
-  $('vgs_Det').addEventListener('click', function () { st.mode = 'det'; render(); });
+  $('vgs_VName').addEventListener('click', function () { st.view = 'name'; st.mode = 'cond'; st.open = {}; st.openN = {}; render(); });
+  $('vgs_VType').addEventListener('click', function () { st.view = 'type'; st.mode = 'cond'; st.open = {}; render(); });
+  $('vgs_Cond').addEventListener('click', function () { st.mode = 'cond'; st.open = {}; st.openN = {}; render(); });
+  $('vgs_Det').addEventListener('click', function () { st.mode = 'det'; st.openN = {}; render(); });
+  $('vgs_Full').addEventListener('click', function () { st.mode = 'full'; render(); });
   $('vgs_From').addEventListener('change', function () { st.from = this.value; render(); });
   $('vgs_To').addEventListener('change', function () { st.to = this.value; render(); });
+  $('vgs_Grp').addEventListener('change', function () { st.grp = this.value; render(); });
   $('vgs_Mod').addEventListener('change', function () { st.mod = this.value; render(); });
   $('vgs_St').addEventListener('change', function () { st.status = this.value; render(); });
   $('vgs_Q').addEventListener('input', function () { st.q = this.value; render(); });
   $('vgs_Refresh').addEventListener('click', async function () { try { listCache = {}; await load(); } catch (err) { showToast(err.message, 'error'); } });
   $('vgs_Print').addEventListener('click', function () {
-    const sm = render();
+    const sm = render() || {};
     const tbl = $('vgs_Tbl').cloneNode(true);
     tbl.querySelectorAll('button').forEach(function (b) { b.remove(); });
     tbl.querySelectorAll('.tw').forEach(function (b) { b.remove(); });
-    const modTxt = st.mod ? t((VGS_MODULES.find(function (m) { return m[0] === st.mod; }) || [])[1] || '', '') : t('সব মডিউল', 'All modules');
-    const stTxt = st.status === 'posted' ? t('পোস্ট করা', 'Posted') : st.status === 'draft' ? t('খসড়া', 'Draft') : t('সব অবস্থা', 'All statuses');
-    printReportA4({ title: t('ভাউচার গ্রুপ সামারী', 'Voucher Group Summary') + (st.mode === 'det' ? t(' (বিস্তারিত)', ' (detailed)') : t(' (সংক্ষেপ)', ' (condensed)')),
-      period: (isoToDmy(st.from) || '…') + ' — ' + (isoToDmy(st.to) || '…'), filters: modTxt + ' · ' + stTxt + (st.q ? ' · ' + t('খোঁজঃ ', 'Search: ') + st.q : ''),
-      summary: [[t('মোট ভাউচার', 'Vouchers'), String(sm.tN)], [t('পোস্ট করা', 'Posted'), String(sm.tP)], [t('খসড়া', 'Draft'), String(sm.tD)], [t('গ্রুপ', 'Groups'), String(sm.nG)]],
-      html: '<style>table.vgs-in{width:100%;border-collapse:collapse;} tr.vgs-mod td{background:#eef1f5;font-weight:700;} th,td{text-align:center !important;}</style>' + tbl.outerHTML });
+    tbl.querySelectorAll('.hide-m').forEach(function (el) { el.classList.remove('hide-m'); });
+    const modeTxt = st.mode === 'full' ? t(' (সম্পূর্ণ)', ' (full)') : st.mode === 'det' ? t(' (বিস্তারিত)', ' (detailed)') : t(' (সংক্ষেপ)', ' (condensed)');
+    const isName = st.view === 'name';
+    const filt = isName ? (st.grp ? t((VGN_GROUPS.find(function (g) { return g[0] === st.grp; }) || [])[1] || '', '') : t('সব গ্রুপ', 'All groups'))
+      : ((st.mod ? t((VGS_MODULES.find(function (m) { return m[0] === st.mod; }) || [])[1] || '', '') : t('সব মডিউল', 'All modules')) + ' · ' + (st.status === 'posted' ? t('পোস্ট করা', 'Posted') : st.status === 'draft' ? t('খসড়া', 'Draft') : t('সব অবস্থা', 'All statuses')));
+    printReportA4({ title: (isName ? t('নাম অনুযায়ী হিসাব — গ্রুপ সামারী', 'Ledger by name — group summary') : t('ভাউচার গ্রুপ সামারী', 'Voucher Group Summary')) + modeTxt,
+      period: (isoToDmy(st.from) || '…') + ' — ' + (isoToDmy(st.to) || '…'), filters: filt + (st.q ? ' · ' + t('খোঁজঃ ', 'Search: ') + st.q : ''),
+      summary: isName ? [[t('নাম / বিষয়', 'Names'), String(sm.nN || 0)]] : [[t('মোট ভাউচার', 'Vouchers'), String(sm.tN)], [t('পোস্ট করা', 'Posted'), String(sm.tP)], [t('খসড়া', 'Draft'), String(sm.tD)], [t('গ্রুপ', 'Groups'), String(sm.nG)]],
+      html: '<style>table.vgs-in{width:100%;border-collapse:collapse;} tr.vgs-mod td{background:#eef1f5;font-weight:700;} th,td{text-align:center !important;} .vgs-dr{color:#1d4ed8;} .vgs-cr{color:#b42318;}</style>' + tbl.outerHTML });
+  });
+  // ⬇️ Excel (CSV) — ব্যাকআপ: সব নাম ও প্রতিটা ভাউচার (দেখার মাত্রা যা-ই হোক)
+  $('vgs_Csv').addEventListener('click', function () {
+    const q = function (v) { const s = String(v === null || v === undefined ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const r2 = function (v) { return (Math.round((Number(v) || 0) * 100) / 100).toFixed(2); };
+    const lines = [];
+    if (st.view === 'name') {
+      lines.push(['গ্রুপ', 'নাম', 'তারিখ', 'নং', 'বিবরণ', 'ডেবিট', 'ক্রেডিট', 'ব্যালান্স', 'ডেঃ/ক্রেঃ'].map(q).join(','));
+      nameData().forEach(function (x) {
+        x.names.forEach(function (n) {
+          const f = n.f, dc = function (v) { return v > 0.004 ? 'ডেঃ' : v < -0.004 ? 'ক্রেঃ' : ''; };
+          lines.push([x.g[1], n.name, isoToDmy(st.from), '', 'প্রারম্ভিক জের', '', '', r2(Math.abs(f.op)), dc(f.op)].map(q).join(','));
+          f.rows.forEach(function (e) { lines.push([x.g[1], n.name, isoToDmy(e.date), e.no, e.desc, e.dr ? r2(e.dr) : '', e.cr ? r2(e.cr) : '', r2(Math.abs(e.bal)), dc(e.bal)].map(q).join(',')); });
+          lines.push([x.g[1], n.name, isoToDmy(st.to), '', 'মোট / সর্বশেষ ব্যালান্স', r2(f.dr), r2(f.cr), r2(Math.abs(f.close)), dc(f.close)].map(q).join(','));
+        });
+      });
+    } else {
+      lines.push(['মডিউল', 'গ্রুপ', 'তারিখ', 'নং', 'পার্টি', 'টাকা', 'অবস্থা'].map(q).join(','));
+      VGS_MODULES.forEach(function (m) { G.filter(function (g) { return g.mod === m[0]; }).forEach(function (g) { pick(g).forEach(function (r) { lines.push([m[1], g.bn, isoToDmy(r.date), r.no, r.party, r.amount === null ? '' : r2(r.amount), r.posted ? 'পোস্ট করা' : 'খসড়া'].map(q).join(',')); }); }); });
+    }
+    const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = (st.view === 'name' ? 'হিসাব-নাম-অনুযায়ী_' : 'ভাউচার-গ্রুপ-সামারী_') + (isoToDmy(st.to) || today) + '.csv';
+    document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 3000);
+    showToast(t('Excel (CSV) ফাইল ডাউনলোড হয়েছে ✅ ', 'CSV downloaded ✅ ') + (lines.length - 1) + t(' সারি', ' rows'), 'success');
   });
   try { await load(); } catch (err) { $('vgs_Body').innerHTML = `<tr><td colspan="7">${escapeHtml(err.message)}</td></tr>`; }
 }
