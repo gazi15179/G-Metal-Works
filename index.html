@@ -521,7 +521,7 @@ const MODULES = [
   {key:'reports', bn:'রিপোর্ট', en:'Reports', sub:[
     {key:'invReport', bn:'ইনভেন্টরি প্রতিবেদন', en:'Inventory Reports'},{key:'salesReport', bn:'ক্রয় ও বিক্রয় প্রতিবেদন', en:'Purchase & Sales Reports'},
     {key:'prodReport', bn:'উৎপাদন প্রতিবেদন', en:'Production Reports'},
-    {key:'finReport', bn:'আর্থিক প্রতিবেদন', en:'Financial Reports'},{key:'plReport', bn:'লাভ-ক্ষতি হিসাব', en:'Profit & Loss'},{key:'partyBalance', bn:'পার্টি ব্যালান্স', en:'Party Balance'},{key:'vgSummary', bn:'ভাউচার গ্রুপ সামারী', en:'Voucher Group Summary'},
+    {key:'finReport', bn:'আর্থিক প্রতিবেদন', en:'Financial Reports'},{key:'plReport', bn:'লাভ-ক্ষতি হিসাব', en:'Profit & Loss'},{key:'partyBalance', bn:'পার্টি ব্যালান্স', en:'Party Balance'},{key:'vgSummary', bn:'গ্রুপ সামারী', en:'Group Summary'},
   ]},
   {key:'settings', bn:'সেটিংস', en:'Settings', sub:[
     {key:'general', bn:'সাধারণ সেটিংস', en:'General Settings'},{key:'langSettings', bn:'ভাষা সেটিংস', en:'Language Settings'},
@@ -1744,7 +1744,7 @@ async function navigateTo(pageKey, moduleLabel, pageLabel) {
     else if (pageKey === 'prodReport') { await renderProductionReport(content); addReportPrintButton(content); }
     else if (pageKey === 'finReport') { await renderFinancialReport(content); addReportPrintButton(content); }
     else if (pageKey === 'plReport') await renderProfitLossReport(content);   // রিপোর্ট → লাভ-ক্ষতি হিসাব (শুধু এডমিন)
-    else if (pageKey === 'vgSummary') await renderVoucherGroupSummary(content);   // রিপোর্ট → ভাউচার গ্রুপ সামারী (সব ভাউচার, গ্রুপ অনুযায়ী)
+    else if (pageKey === 'vgSummary') await renderVoucherGroupSummary(content);   // রিপোর্ট → গ্রুপ সামারী (নাম/ধরন অনুযায়ী, পাশে অপশনের প্যানেল)
     else if (pageKey === 'partyBalance') await renderPartyBalanceReport(content);   // রিপোর্ট → পার্টি ব্যালান্স (জোন/পার্টি, তারিখ-রেঞ্জ)
     else if (pageKey === 'general') await renderGeneralSettingsPage(content);
     else if (pageKey === 'langSettings') await renderLanguageSettingsPage(content);
@@ -20031,7 +20031,7 @@ async function renderProductionReport(content) {
    পার্টি লেজারের মতোই একই কোড + একই নামের গ্রাহক ও সাপ্লায়ার একটা পার্টি হিসেবে মেলানো হয়।
    ============================================================ */
 /* ============================================================
-   রিপোর্ট → ভাউচার গ্রুপ সামারী
+   রিপোর্ট → গ্রুপ সামারী
    সফটওয়্যারের সব ভাউচার — মডিউল → গ্রুপ (ভাউচারের ধরন) অনুযায়ী; প্রতিটা গ্রুপ সংক্ষেপ (সংখ্যা·পোস্ট·খসড়া·মোট টাকা)
    ও বিস্তারিত (প্রতিটা ভাউচার)। শুধু পড়ে — কিছু বদলায় না।
    ঘরের নামঃ সাধারণ ডকুমেন্টগুলো সফটওয়্যারের নিজের DOC_CONFIGS থেকে; বাকিগুলো সেই ভাউচারের পেজ যে ঘর পড়ে/লেখে সেখান থেকে।
@@ -20194,16 +20194,15 @@ async function renderVoucherGroupSummary(content) {
   const fmt = function (x) { return (Number(x) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
   const DCt = function (v) { const r = Math.round((Number(v) || 0) * 100) / 100; return !r ? '0.00' : fmt(Math.abs(r)) + (r > 0 ? ' ডেঃ' : ' ক্রেঃ'); };
   const DCc = function (v) { const r = Math.round((Number(v) || 0) * 100) / 100; return !r ? '' : r > 0 ? 'vgs-dr' : 'vgs-cr'; };
-  content.innerHTML = `<style>${PAYV_CSS}
+  content.innerHTML = `<style>${PAYV_CSS}${DMY_CSS}${RPT_SIDE_CSS}
       #pageContent:has(.vgs){max-width:none !important;}
-      .vgs .vgs-bar{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;margin:0 0 10px;}
-      .vgs .vgs-bar label{font-size:11.5px;color:var(--text-muted);display:flex;align-items:center;gap:4px;margin:0;}
-      .vgs .vgs-bar select,.vgs .vgs-bar input[type=search]{height:32px;font-size:12.5px;}
-      .vgs .vgs-bar .btn{width:auto;height:32px;padding:0 12px;margin:0;font-size:12.5px;}
-      .vgs .vgs-seg{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;}
-      .vgs .vgs-seg button{border:0;background:var(--surface);padding:0 12px;height:32px;font-size:12.5px;cursor:pointer;font-family:inherit;}
+      .vgs .sr-bar input[type=search]{height:30px;padding:3px 8px;font-size:12px;box-sizing:border-box;width:100%;background:#fff;}
+      .vgs .vgs-seg{display:flex;width:100%;border:1px solid #b9d0de;border-radius:7px;overflow:hidden;background:#fff;}
+      .vgs .vgs-seg button{flex:1;border:0;background:#fff;padding:0 4px;height:30px;font-size:11.5px;cursor:pointer;font-family:inherit;color:#3d5a6c;white-space:nowrap;}
+      .vgs .vgs-seg button + button{border-left:1px solid #d5e3ec;}
       .vgs .vgs-seg button.on{background:#1a2029;color:#f2a33c;font-weight:700;}
-      .vgs .vgs-view{margin-bottom:10px;} .vgs .vgs-view button{height:36px;font-size:13px;}
+      .vgs .vgs-view{flex-direction:column;} .vgs .vgs-view button{height:32px;text-align:left;padding:0 10px;} .vgs .vgs-view button + button{border-left:0;border-top:1px solid #d5e3ec;}
+      .vgs .sr-btns .btn{white-space:nowrap;}
       .vgs .vgs-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:10px;}
       .vgs .vgs-card{border:1px solid var(--border);border-radius:10px;padding:8px 12px;background:var(--surface);} .vgs .vgs-card small{display:block;font-size:11px;color:var(--text-muted);} .vgs .vgs-card b{font-size:16px;}
       .vgs .pvl th,.vgs .pvl td{text-align:center !important;vertical-align:middle;font-size:11px;padding:4px 8px;}
@@ -20217,28 +20216,37 @@ async function renderVoucherGroupSummary(content) {
       .vgs table.vgs-in th,.vgs table.vgs-in td{border-bottom:1px solid var(--border);}
       .vgs .vgs-draft{color:#b45309;font-weight:600;} .vgs .vgs-posted{color:#15803d;font-weight:600;}
       .vgs .vgs-dr{color:#1d4ed8;} .vgs .vgs-cr{color:#b42318;} .vgs td.bal{font-weight:700;}
-      @media (max-width:760px){ .vgs .pvl th,.vgs .pvl td{padding:3px 4px;} .vgs table.vgs-in th,.vgs table.vgs-in td{padding:3px 3px;} .vgs #vgs_Tbl > thead > tr > th:last-child,.vgs #vgs_Tbl > tbody > tr:not(.vgs-det) > td:last-child,.vgs #vgs_Tbl > tfoot > tr > td:last-child{display:none;}   /* মোবাইলেঃ গ্রুপ/নামের সারিতে চাপলেই খোলে — বোতাম বাড়তি, ব্যালান্সের জায়গা থাকে */ .vgs .vgs-bar label{flex:1 1 45%;} .vgs .vgs-bar select,.vgs .vgs-bar input{flex:1;min-width:0;} .vgs .hide-m{display:none;} .vgs tr.vgs-det > td{padding-left:2px !important;} }
+      @media (max-width:760px){ .vgs tr.vgs-mod small{display:none;} .vgs .sr-main.panel{padding:4px;} .vgs .vgs-cards{gap:6px;margin-bottom:6px;} .vgs .vgs-card{padding:5px 8px;} .vgs .vgs-card b{font-size:14px;} .vgs .pvl th,.vgs .pvl td{padding:3px 4px;} .vgs table.vgs-in th,.vgs table.vgs-in td{padding:3px 3px;} .vgs #vgs_Tbl > thead > tr > th:last-child,.vgs #vgs_Tbl > tbody > tr:not(.vgs-det) > td:last-child,.vgs #vgs_Tbl > tfoot > tr > td:last-child{display:none;}   /* মোবাইলেঃ গ্রুপ/নামের সারিতে চাপলেই খোলে — বোতাম বাড়তি, ব্যালান্সের জায়গা থাকে */ .vgs .vgs-bar label{flex:1 1 45%;} .vgs .vgs-bar select,.vgs .vgs-bar input{flex:1;min-width:0;} .vgs .hide-m{display:none;} .vgs tr.vgs-det > td{padding-left:2px !important;} }
     </style>
     <div class="payv vgs">
-      <div class="page-head"><div><h1>${t('ভাউচার গ্রুপ সামারী', 'Voucher Group Summary')}</h1><p>${t('প্রতিটা নাম/বিষয়ের প্রারম্ভিক · ডেবিট · ক্রেডিট · ব্যালান্স (সর্বশেষ অবস্থা), আর সব ভাউচার ধরন অনুযায়ী — ব্যাকআপের জন্য প্রিন্ট/PDF/Excel', 'Opening · debit · credit · balance of every name/subject, and all vouchers by type — print/PDF/Excel for backup')}</p></div></div>
-      <div class="vgs-seg vgs-view"><button type="button" id="vgs_VName" class="on">📒 ${t('নাম অনুযায়ী হিসাব', 'By name (ledger)')}</button><button type="button" id="vgs_VType">🗂️ ${t('ভাউচারের ধরন অনুযায়ী', 'By voucher type')}</button></div>
-      <div class="vgs-bar" id="vgs_Bar">
-        <label>${t('হইতে', 'From')} <input type="date" id="vgs_From" value="${attr(st.from)}"></label>
-        <label>${t('পর্যন্ত', 'To')} <input type="date" id="vgs_To" value="${attr(st.to)}"></label>
-        <label class="vgs-ot">${t('গ্রুপ', 'Group')} <select id="vgs_Grp"><option value="">${t('সব', 'All')}</option>${VGN_GROUPS.map(function (g) { return `<option value="${g[0]}">${escapeHtml(t(g[1], g[2]))}</option>`; }).join('')}</select></label>
-        <label class="vgs-tt" style="display:none;">${t('মডিউল', 'Module')} <select id="vgs_Mod"><option value="">${t('সব', 'All')}</option>${VGS_MODULES.map(function (m) { return `<option value="${m[0]}">${escapeHtml(t(m[1], m[2]))}</option>`; }).join('')}</select></label>
-        <label class="vgs-tt" style="display:none;">${t('অবস্থা', 'Status')} <select id="vgs_St"><option value="">${t('সব', 'All')}</option><option value="posted">${t('পোস্ট করা', 'Posted')}</option><option value="draft">${t('খসড়া', 'Draft')}</option></select></label>
-        <label>${t('খোঁজ', 'Search')} <input type="search" id="vgs_Q" placeholder="${attr(t('নাম বা নং', 'Name or no.'))}" autocomplete="off"></label>
-        <span class="vgs-seg"><button type="button" id="vgs_Cond" class="on">${t('সংক্ষেপ', 'Condensed')}</button><button type="button" id="vgs_Det">${t('বিস্তারিত', 'Detailed')}</button><button type="button" id="vgs_Full" class="vgs-ot">${t('সম্পূর্ণ', 'Full')}</button></span>
-        <button type="button" class="btn btn-outline" id="vgs_Print" data-perm-safe="1">🖨️ ${t('প্রিন্ট', 'Print')}</button>
-        <button type="button" class="btn btn-outline" id="vgs_Drive" data-perm-safe="1" title="${attr(t('ব্যাকআপ Google Drive-এ — সব নাম, প্রতিটা ভাউচার (Google Sheet)', 'Backup to Google Drive — every name and voucher (Google Sheet)'))}">☁️ Google Drive</button>
-        <button type="button" class="btn btn-outline" id="vgs_DriveSet" data-perm-safe="1" title="${attr(t('Google Drive সংযোগ', 'Google Drive connection'))}">⚙️</button>
-        <button type="button" class="btn btn-outline" id="vgs_Refresh" data-perm-safe="1">🔄</button>
+      <div class="sr-head"><h1>${t('গ্রুপ সামারী', 'Group Summary')}</h1></div>
+      <div class="sr-layout">
+       <aside class="sr-side" id="vgsSide">
+        <button type="button" class="sr-tog" id="vgsTog" title="${attr(t('অপশন লুকান/দেখান', 'Hide/show options'))}">‹</button>
+        <div class="sr-side-h" data-lbl="${attr(t('অপশন', 'Options'))}"><span>🔎 ${t('অপশন', 'Options')}</span></div>
+        <div class="sr-bar" id="vgs_Bar">
+          <div class="field"><label>${t('দেখার ধরন', 'View')}</label><div class="vgs-seg vgs-view"><button type="button" id="vgs_VName" class="on">📒 ${t('নাম অনুযায়ী হিসাব', 'By name (ledger)')}</button><button type="button" id="vgs_VType">🗂️ ${t('ভাউচারের ধরন অনুযায়ী', 'By voucher type')}</button></div></div>
+          <div class="field"><label>${t('হইতে', 'From')}</label>${dmyDateField('vgs_From', st.from)}</div>
+          <div class="field"><label>${t('পর্যন্ত', 'To')}</label>${dmyDateField('vgs_To', st.to)}</div>
+          <div class="field vgs-ot"><label>${t('গ্রুপ', 'Group')}</label><select id="vgs_Grp"><option value="">${t('সব', 'All')}</option>${VGN_GROUPS.map(function (g) { return `<option value="${g[0]}">${escapeHtml(t(g[1], g[2]))}</option>`; }).join('')}</select></div>
+          <div class="field vgs-tt" style="display:none;"><label>${t('মডিউল', 'Module')}</label><select id="vgs_Mod"><option value="">${t('সব', 'All')}</option>${VGS_MODULES.map(function (m) { return `<option value="${m[0]}">${escapeHtml(t(m[1], m[2]))}</option>`; }).join('')}</select></div>
+          <div class="field vgs-tt" style="display:none;"><label>${t('অবস্থা', 'Status')}</label><select id="vgs_St"><option value="">${t('সব', 'All')}</option><option value="posted">${t('পোস্ট করা', 'Posted')}</option><option value="draft">${t('খসড়া', 'Draft')}</option></select></div>
+          <div class="field"><label>${t('খোঁজ', 'Search')}</label><input type="search" id="vgs_Q" placeholder="${attr(t('নাম বা নং', 'Name or no.'))}" autocomplete="off"></div>
+          <div class="field"><label>${t('দেখার মাত্রা', 'Detail level')}</label><div class="vgs-seg"><button type="button" id="vgs_Cond" class="on">${t('সংক্ষেপ', 'Condensed')}</button><button type="button" id="vgs_Det">${t('বিস্তারিত', 'Detailed')}</button><button type="button" id="vgs_Full" class="vgs-ot">${t('সম্পূর্ণ', 'Full')}</button></div></div>
+          <div class="sr-btns"><button type="button" class="btn btn-primary" id="vgs_Refresh" data-perm-safe="1">🔄 ${t('দেখাও', 'Show')}</button><button type="button" class="btn btn-outline" id="vgs_Print" data-perm-safe="1">🖨️ ${t('প্রিন্ট', 'Print')}</button></div>
+          <div class="sr-btns"><button type="button" class="btn btn-outline" id="vgs_Drive" data-perm-safe="1" title="${attr(t('ব্যাকআপ Google Drive-এ — সব নাম, প্রতিটা ভাউচার (Google Sheet)', 'Backup to Google Drive — every name and voucher (Google Sheet)'))}">☁️ Google Drive</button><button type="button" class="btn btn-outline" id="vgs_DriveSet" data-perm-safe="1" style="flex:0 0 38px;" title="${attr(t('Google Drive সংযোগ', 'Google Drive connection'))}">⚙️</button></div>
+        </div>
+       </aside>
+       <div class="sr-main panel">
+        <div class="vgs-cards" id="vgs_Cards"></div>
+        <div class="pvl-wrap"><table class="pvl" id="vgs_Tbl"><thead id="vgs_Head"></thead><tbody id="vgs_Body"><tr><td colspan="7">${t('লোড হচ্ছে...', 'Loading...')}</td></tr></tbody><tfoot id="vgs_Foot"></tfoot></table></div>
+        <div class="sr-note">${t('নাম অনুযায়ীঃ প্রতিটা নাম/বিষয়ের প্রারম্ভিক · ডেবিট · ক্রেডিট · ব্যালান্স — শুধু পোস্ট করা ভাউচার। গ্রুপ বা নামে চাপলে খোলে/বন্ধ হয়। ☁️ Google Drive-এ সব নাম আর প্রতিটা ভাউচার যায় (ছাঁকনি যা-ই হোক)।', 'By name: opening · debit · credit · balance of every name — posted vouchers only. Tap a group or name to open. ☁️ Google Drive saves every name and voucher.')}</div>
+       </div>
       </div>
-      <div class="vgs-cards" id="vgs_Cards"></div>
-      <div class="pvl-wrap"><table class="pvl" id="vgs_Tbl"><thead id="vgs_Head"></thead><tbody id="vgs_Body"><tr><td colspan="7">${t('লোড হচ্ছে...', 'Loading...')}</td></tr></tbody><tfoot id="vgs_Foot"></tfoot></table></div>
     </div>`;
   const $ = function (id) { return document.getElementById(id); };
+  wireDmyFields(content);
+  const side = wireReportSide($('vgsSide'), $('vgsTog'), 'vgsSideCollapsed', function () {});
   wireSequentialKeyNav($('vgs_Bar'));
   const PAGE_OF = { Payroll: 'payroll', SalaryIssue: 'salaryIssue', CapitalVoucher: 'ownerCapital', FixedAsset: 'fixedAssets', LoanTxn: 'loanTxn', LoanVoucher: 'loans' };
   const goPage = async function (page, label) {
@@ -20392,13 +20400,13 @@ async function renderVoucherGroupSummary(content) {
   $('vgs_Cond').addEventListener('click', function () { st.mode = 'cond'; st.open = {}; st.openN = {}; render(); });
   $('vgs_Det').addEventListener('click', function () { st.mode = 'det'; st.openN = {}; render(); });
   $('vgs_Full').addEventListener('click', function () { st.mode = 'full'; render(); });
-  $('vgs_From').addEventListener('change', function () { st.from = this.value; render(); });
-  $('vgs_To').addEventListener('change', function () { st.to = this.value; render(); });
+  $('vgs_From').addEventListener('change', function () { const v = dmyToIso(this.value); if (v || !this.value) { st.from = v || ''; render(); } });
+  $('vgs_To').addEventListener('change', function () { const v = dmyToIso(this.value); if (v || !this.value) { st.to = v || ''; render(); } });
   $('vgs_Grp').addEventListener('change', function () { st.grp = this.value; render(); });
   $('vgs_Mod').addEventListener('change', function () { st.mod = this.value; render(); });
   $('vgs_St').addEventListener('change', function () { st.status = this.value; render(); });
   $('vgs_Q').addEventListener('input', function () { st.q = this.value; render(); });
-  $('vgs_Refresh').addEventListener('click', async function () { try { listCache = {}; await load(); } catch (err) { showToast(err.message, 'error'); } });
+  $('vgs_Refresh').addEventListener('click', async function () { try { listCache = {}; await load(); side.collapse(); } catch (err) { showToast(err.message, 'error'); } });   // 🔄 দেখাও = নতুন করে ডেটা আনা (মোবাইলে প্যানেল গুটিয়ে যায়)
   $('vgs_Print').addEventListener('click', function () {
     const sm = render() || {};
     const tbl = $('vgs_Tbl').cloneNode(true);
@@ -20409,7 +20417,7 @@ async function renderVoucherGroupSummary(content) {
     const isName = st.view === 'name';
     const filt = isName ? (st.grp ? t((VGN_GROUPS.find(function (g) { return g[0] === st.grp; }) || [])[1] || '', '') : t('সব গ্রুপ', 'All groups'))
       : ((st.mod ? t((VGS_MODULES.find(function (m) { return m[0] === st.mod; }) || [])[1] || '', '') : t('সব মডিউল', 'All modules')) + ' · ' + (st.status === 'posted' ? t('পোস্ট করা', 'Posted') : st.status === 'draft' ? t('খসড়া', 'Draft') : t('সব অবস্থা', 'All statuses')));
-    printReportA4({ title: (isName ? t('নাম অনুযায়ী হিসাব — গ্রুপ সামারী', 'Ledger by name — group summary') : t('ভাউচার গ্রুপ সামারী', 'Voucher Group Summary')) + modeTxt,
+    printReportA4({ title: (isName ? t('গ্রুপ সামারী — নাম অনুযায়ী হিসাব', 'Group Summary — ledger by name') : t('গ্রুপ সামারী — ভাউচারের ধরন অনুযায়ী', 'Group Summary — by voucher type')) + modeTxt,
       period: (isoToDmy(st.from) || '…') + ' — ' + (isoToDmy(st.to) || '…'), filters: filt + (st.q ? ' · ' + t('খোঁজঃ ', 'Search: ') + st.q : ''),
       summary: isName ? [[t('নাম / বিষয়', 'Names'), String(sm.nN || 0)]] : [[t('মোট ভাউচার', 'Vouchers'), String(sm.tN)], [t('পোস্ট করা', 'Posted'), String(sm.tP)], [t('খসড়া', 'Draft'), String(sm.tD)], [t('গ্রুপ', 'Groups'), String(sm.nG)]],
       html: '<style>table.vgs-in{width:100%;border-collapse:collapse;} tr.vgs-mod td{background:#eef1f5;font-weight:700;} th,td{text-align:center !important;} .vgs-dr{color:#1d4ed8;} .vgs-cr{color:#b42318;}</style>' + tbl.outerHTML });
