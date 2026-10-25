@@ -20121,7 +20121,7 @@ async function vgsLoad() {
    মূলধন ভাউচার, লোন মডিউলের নিজের হিসাব (glStatementRows/glState), এ্যাসেট রেজিস্টার। ব্যালান্স = ডেবিট − ক্রেডিট (ডেঃ/ক্রেঃ)। */
 const VGN_GROUPS = [
   ['cus', 'গ্রাহক', 'Customers', 'ডেঃ = পাবো'], ['sup', 'সাপ্লায়ার', 'Suppliers', 'ক্রেঃ = দেবো'], ['per', 'ধার-দেনার ব্যক্তি', 'Loan persons', 'ডেঃ = পাবো · ক্রেঃ = দেবো'],
-  ['bank', 'ক্যাশ ও ব্যাংক', 'Cash & bank', 'ডেঃ = হাতে/ব্যাংকে আছে'], ['exp', 'খরচের খাত', 'Expense heads', 'ডেঃ = খরচ'], ['inc', 'আয়ের খাত', 'Income heads', 'ক্রেঃ = আয়'],
+  ['bank', 'ক্যাশ ও ব্যাংক', 'Cash & bank', 'ডেঃ = হাতে/ব্যাংকে আছে'], ['exp', 'খরচের খাত', 'Expense heads', 'ডেঃ = খরচ · (P)-তে ক্রেঃ = কষ্টিংয়ে ধরা'], ['inc', 'আয়ের খাত', 'Income heads', 'ক্রেঃ = আয়'],
   ['emp', 'কর্মচারী (বেতন)', 'Employees (salary)', 'ক্রেঃ = বেতন বাকি'], ['cap', 'মালিকের মূলধন', "Owner's capital", 'ক্রেঃ = মূলধন'],
   ['loan', 'লোন', 'Loans', 'ক্রেঃ = দেনা'], ['asset', 'স্থায়ী সম্পদ (ক্রয়মূল্যে)', 'Fixed assets (at cost)', 'ডেঃ = সম্পদ']];
 function vgnRefLabel(m) {
@@ -20159,6 +20159,23 @@ async function vgnLoad() {
   const evH = {}; ev.filter(posted).forEach(function (h) { evH[h.ExpID] = h; });
   evl.forEach(function (l) { const h = evH[l.ExpID]; if (!h) return; put('exp', l.HeadID || l.HeadName, l.HeadName || l.HeadID, { date: d10(h.Date), no: h.ExpID, ref: 'ExpenseVoucher', desc: (l.Description || h.Narration || t('এক্সপেন্স ভাউচার', 'Expense voucher')), dr: n2(l.Amount), cr: 0, sort: 0 }); });
   const ivH = {}; iv.filter(posted).forEach(function (h) { ivH[h.IncID] = h; });
+  // ৩ক) খরচের খাত (P) ও মজুরি (P) — প্রোডাকশন → দৈনিক উৎপাদন ২য় অংশে কষ্টিংয়ে ধরা খরচ/মজুরি (ক্রেঃ), খরচ খাত লেজারের একই নিয়মে
+  //     (P) খাতের এক্সপেন্স ভাউচার লাইন উপরে ডেঃ হয়ে একই নামে বসেছে; মজুরির প্রদান = সেলারী ইস্যু (ডেঃ) → ব্যালান্স = কষ্টিংয়ে ধরা বনাম আসল খরচের পার্থক্য
+  try {
+    const gp = await hrLoadGroups();
+    const [tps, tpc, tpm] = await Promise.all([all('TeamProduction'), all('TeamProduction_Costs'), all('TeamProduction_Members')]);
+    const tpDate = {}; tps.forEach(function (h) { if (h.DPLineID) tpDate[String(h.TeamProdID)] = d10(h.WorkDate); });   // শুধু প্রোডাকশন → দৈনিক উৎপাদনের লাইন
+    const byDay = function (rows) { const m = {}; rows.forEach(function (r) { const d = tpDate[String(r.TeamProdID)]; if (!d) return; m[d] = m[d] || { amt: 0, tp: r.TeamProdID }; m[d].amt += n2(r.Amount); }); return m; };
+    const pName = function (k, nmTxt) { const x = G.exp[k]; if (x) x.name = String(x.name || nmTxt).replace(/\s*\(P\)$/, '') + ' (P)'; };
+    gp.costRoles.forEach(function (r) {
+      const k = 'P:' + r.RoleID, nmTxt = r.RoleName + ' (P)', m = byDay(tpc.filter(function (c) { return c.RoleID === r.RoleID; }));
+      Object.keys(m).forEach(function (d) { if (m[d].amt) put('exp', k, nmTxt, { date: d, no: '', raw: m[d].tp, ref: 'TeamProduction', desc: t('দৈনিক উৎপাদন — কষ্টিংয়ে ধরা', 'Daily production — charged in costing'), dr: 0, cr: m[d].amt, sort: -1 }); });
+      pName(k, nmTxt);
+    });
+    const mw = byDay(tpm.filter(function (x) { return x.RoleID; })), wN = t('মজুরি', 'Wages') + ' (P)';
+    Object.keys(mw).forEach(function (d) { if (mw[d].amt) put('exp', 'WAGE', wN, { date: d, no: '', raw: mw[d].tp, ref: 'TeamProduction', desc: t('দৈনিক উৎপাদন — মজুরি (কষ্টিংয়ে ধরা)', 'Daily production — wages (charged in costing)'), dr: 0, cr: mw[d].amt, sort: -1 }); });
+    if (G.exp.WAGE) iss.filter(live).forEach(function (r) { if (!n2(r.Amount)) return; put('exp', 'WAGE', wN, { date: d10(r.IssueDate), no: r.IssueNo || r.IssueID, raw: r.IssueID, ref: 'SalaryIssue', desc: t('সেলারী ইস্যু (প্রদান)', 'Salary paid') + ' · ' + (r.EmployeeID ? (function () { const e = emp.find(function (x) { return x.EmployeeID === r.EmployeeID; }); return e ? nm(e) || r.EmployeeID : r.EmployeeID; })() : ''), dr: n2(r.Amount), cr: 0, sort: 1 }); });
+  } catch (e) { console.warn('গ্রুপ সামারীঃ উৎপাদনের (P) খরচ/মজুরি পড়া যায়নি', e); }
   ivl.forEach(function (l) { const h = ivH[l.IncID]; if (!h) return; put('inc', l.HeadID || l.HeadName, l.HeadName || l.HeadID, { date: d10(h.Date), no: h.IncID, ref: 'IncomeVoucher', desc: (l.Description || h.Narration || t('রিসিপ্ট ভাউচার', 'Receipt voucher')), dr: 0, cr: n2(l.Amount), sort: 0 }); });
   // ৪) কর্মচারী — সেলারী ভাউচার (নীট বেতন, দেবো) − সেলারী ইস্যু (প্রদান)
   const E = {}; emp.forEach(function (x) { E[x.EmployeeID] = nm(x) || x.EmployeeID; });
@@ -20240,7 +20257,7 @@ async function renderVoucherGroupSummary(content) {
        <div class="sr-main panel">
         <div class="vgs-cards" id="vgs_Cards"></div>
         <div class="pvl-wrap"><table class="pvl" id="vgs_Tbl"><thead id="vgs_Head"></thead><tbody id="vgs_Body"><tr><td colspan="7">${t('লোড হচ্ছে...', 'Loading...')}</td></tr></tbody><tfoot id="vgs_Foot"></tfoot></table></div>
-        <div class="sr-note">${t('নাম অনুযায়ীঃ প্রতিটা নাম/বিষয়ের প্রারম্ভিক · ডেবিট · ক্রেডিট · ব্যালান্স — শুধু পোস্ট করা ভাউচার। গ্রুপ বা নামে চাপলে খোলে/বন্ধ হয়। ☁️ Google Drive-এ সব নাম আর প্রতিটা ভাউচার যায় (ছাঁকনি যা-ই হোক)।', 'By name: opening · debit · credit · balance of every name — posted vouchers only. Tap a group or name to open. ☁️ Google Drive saves every name and voucher.')}</div>
+        <div class="sr-note">${t('নাম অনুযায়ীঃ প্রতিটা নাম/বিষয়ের প্রারম্ভিক · ডেবিট · ক্রেডিট · ব্যালান্স — শুধু পোস্ট করা ভাউচার। খরচের খাতের (P) খাত ও মজুরি (P)-তে ক্রেঃ = দৈনিক উৎপাদনে কষ্টিংয়ে ধরা, ডেঃ = এক্সপেন্স ভাউচার/সেলারী ইস্যুতে আসল খরচ — ব্যালান্স ক্রেঃ হলে কষ্টিংয়ে বেশি ধরা (বা এখনো বাকি), ডেঃ হলে কম ধরা। গ্রুপ বা নামে চাপলে খোলে/বন্ধ হয়। ☁️ Google Drive-এ সব নাম আর প্রতিটা ভাউচার যায় (ছাঁকনি যা-ই হোক)।', 'By name: opening · debit · credit · balance of every name — posted vouchers only. (P) heads & Wages (P): credit = charged in daily-production costing, debit = actual cost (expense voucher / salary issue); a credit balance means over-charged (or still unpaid), debit means under-charged. Tap a group or name to open. ☁️ Google Drive saves every name and voucher.')}</div>
        </div>
       </div>
     </div>`;
