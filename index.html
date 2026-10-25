@@ -2887,12 +2887,22 @@ async function deleteMasterRecord(sheetName, idValue) {
    ============================================================ */
 /** বাংলা নাম মেলানোর চাবি — "ড়", "য়" দুই রকম লেখা (একটা অক্ষর বা অক্ষর + নুক্তা) এক রূপে, ফাঁকা ও অদৃশ্য অক্ষর বাদ */
 function bnKey(x) { return String(x || '').normalize('NFC').replace(/[\s\u200b-\u200d\ufeff]/g, '').toLowerCase(); }
+/** প্রসেসিং ভাউচারের উপজাত লাইন → প্রস্তুত পণ্যের লাইনের মত {ProcessingID, ItemID, RatePerKg, RatePerPc} — দর থাকলেই (অপচয়ের দর ০ হলে বাদ) */
+function byProductRateLines(bp, items) {
+  return (bp || []).map(function (l) {
+    const id = l.ItemID || (findItemByName(items, l.ByProductName) || {}).ItemID;
+    const q = Number(l.Quantity) || 0, rk = Number(l.Rate) || (q > 0 ? (Number(l.Value) || 0) / q : 0), rp = Number(l.RatePerPc) || 0;
+    return (id && (rk || rp)) ? { ProcessingID: l.ProcessingID, ItemID: id, RatePerKg: rk, RatePerPc: rp } : null;
+  }).filter(Boolean);
+}
 function findItemByName(items, name) { const k = bnKey(name); if (!k) return null; return (items || []).find(function (i) { return i.Status !== 'Deleted' && bnKey(i.ItemName) === k; }) || null; }
 async function itemMasterRates(items, units) {
   const safe = async function (q) { try { const r = await q; return (r && !r.error && r.data) || []; } catch (e) { return []; } };
-  const [fg, pv, pil, pih] = await Promise.all([
+  const [fg0, pv, pil, pih, bp0] = await Promise.all([
     safe(supabaseClient.from('ProcessingFG_Lines').select('*')), safe(supabaseClient.from('ProcessingVoucher').select('ProcessingID,Date,Status')),
-    safe(supabaseClient.from('PI_Lines').select('*')), safe(supabaseClient.from('PurchaseInvoice').select('PIID,InvoiceDate,Status'))]);
+    safe(supabaseClient.from('PI_Lines').select('*')), safe(supabaseClient.from('PurchaseInvoice').select('PIID,InvoiceDate,Status')),
+    safe(supabaseClient.from('ProcessingByProduct_Lines').select('*'))]);
+  const fg = fg0.concat(byProductRateLines(bp0, items));   // উপজাতের (ভাঙ্গাড়ী, কাটিং …) দরও প্রসেসিং দর হিসেবে
   const itemMap = {}; items.forEach(function (i) { itemMap[i.ItemID] = i; });
   const pvMap = {}; pv.forEach(function (h) { pvMap[h.ProcessingID] = h; });
   const piMap = {}; pih.forEach(function (h) { piMap[h.PIID] = h; });
@@ -18115,9 +18125,11 @@ async function postDocumentRecord(docType, docId) {
 async function stockOverviewData() {
   const [items, warehouses, units, ledger] = await Promise.all([cachedList('Items'), cachedList('Warehouses'), cachedList('UOM'), api('list', { sheet: 'StockLedger' })]);
   const safe = async function (q) { try { const r = await q; return (r && !r.error && r.data) || []; } catch (e) { return []; } };
-  const [fg, pv, pil, pih] = await Promise.all([
+  const [fg0, pv, pil, pih, bp0] = await Promise.all([
     safe(supabaseClient.from('ProcessingFG_Lines').select('*')), safe(supabaseClient.from('ProcessingVoucher').select('ProcessingID,Date,Status')),
-    safe(supabaseClient.from('PI_Lines').select('*')), safe(supabaseClient.from('PurchaseInvoice').select('PIID,InvoiceDate,Status'))]);
+    safe(supabaseClient.from('PI_Lines').select('*')), safe(supabaseClient.from('PurchaseInvoice').select('PIID,InvoiceDate,Status')),
+    safe(supabaseClient.from('ProcessingByProduct_Lines').select('*'))]);
+  const fg = fg0.concat(byProductRateLines(bp0, items));   // উপজাতের (ভাঙ্গাড়ী, কাটিং …) দরও প্রসেসিং দর হিসেবে
   const itemMap = {}; items.forEach(function (i) { itemMap[i.ItemID] = i; });
   const whMap = {}; warehouses.forEach(function (w) { whMap[w.WarehouseID] = w.WarehouseName; });
   const pvMap = {}; pv.forEach(function (h) { pvMap[h.ProcessingID] = h; });
@@ -20787,7 +20799,7 @@ async function renderPartyBalanceReport(content) {
    ============================================================ */
 async function plLoadData() {
   const safe = async function (tb) { try { return await selectAllRows(tb); } catch (e) { return []; } };
-  const names = ['stock_ledger', 'ProcessingVoucher', 'ProcessingFG_Lines', 'PurchaseInvoice', 'PI_Lines', 'PurchaseReturn', 'PR_Return_Lines',
+  const names = ['stock_ledger', 'ProcessingVoucher', 'ProcessingFG_Lines', 'ProcessingByProduct_Lines', 'PurchaseInvoice', 'PI_Lines', 'PurchaseReturn', 'PR_Return_Lines',
     'SalesInvoice', 'SI_Lines', 'SalesReturn', 'SR_Lines', 'TeamProduction', 'TeamProduction_Members', 'TeamProduction_Costs',
     'Payroll', 'Payroll_Details', 'DailyBonus', 'ExpenseVoucher', 'ExpenseVoucher_Lines', 'IncomeVoucher', 'IncomeVoucher_Lines',
     'PaymentVoucher', 'ReceiptVoucher', 'JournalVoucher', 'JV_Lines', 'ChartOfAccounts', 'FixedAsset', 'AssetSale', 'AssetSale_Lines', 'Loan', 'LoanTxn'];
@@ -20877,6 +20889,13 @@ function plCompute(D, from, to, opt) {
   const pvH = posted(D.ProcessingVoucher, 'ProcessingID');
   const procR = {}, purR = {};
   D.ProcessingFG_Lines.forEach(function (l) { const h = pvH[l.ProcessingID]; if (!h || !l.ItemID) return; (procR[l.ItemID] = procR[l.ItemID] || []).push({ d: d10(h.Date), kg: n(l.RatePerKg), pc: n(l.RatePerPc) }); });
+  // উপজাত (ভাঙ্গাড়ী, কাটিং …) — প্রসেসিং ভাউচারে যে দর দেওয়া (এই মূল্য প্রস্তুত পণ্যের খরচ থেকে বাদ যায়, তাই মজুদেও এই দরে)
+  (D.ProcessingByProduct_Lines || []).forEach(function (l) {
+    const h = pvH[l.ProcessingID]; if (!h) return;
+    const id = l.ItemID || (findItemByName(D.items, l.ByProductName) || {}).ItemID; if (!id) return;
+    const rk = n(l.Rate) || (n(l.Quantity) > 0 ? n(l.Value) / n(l.Quantity) : 0), rp = n(l.RatePerPc);
+    if (rk || rp) (procR[id] = procR[id] || []).push({ d: d10(h.Date), kg: rk, pc: rp });
+  });
   D.PI_Lines.forEach(function (l) {
     const h = piH[l.PIID]; if (!h || !l.ItemID || !(n(l.Quantity) > 0)) return;
     const v = has(l.NetAmount) ? n(l.NetAmount) : has(l.Amount) ? n(l.Amount) : n(l.Quantity) * n(l.Rate);
