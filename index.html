@@ -21098,8 +21098,7 @@ async function renderProfitLossReport(content) {
     return;
   }
   const dNow = new Date(), today = dNow.getFullYear() + '-' + String(dNow.getMonth() + 1).padStart(2, '0') + '-' + String(dNow.getDate()).padStart(2, '0');
-  const fyStart = await getFiscalYearStart(today);
-  const st = { from: fyStart, to: today, dep: true, sel: '' };
+  const st = { from: today, to: today, dep: true, sel: '' };   // হইতে ও পর্যন্ত — দুটোই আজকের তারিখ (দরকারমতো বদলানো যায়)
   let DATA = null, R = null;
   let depPref = true; try { depPref = localStorage.getItem('plDep') !== '0'; } catch (e) {}
   st.dep = depPref;
@@ -21290,6 +21289,13 @@ async function renderProfitLossReport(content) {
   $('plShow').addEventListener('click', async function () { await load(true); side.collapse(); });   // 🔄 = নতুন করে ডেটা আনা
   $('plDep').addEventListener('change', function () { try { localStorage.setItem('plDep', this.checked ? '1' : '0'); } catch (e) {} if (DATA) load(false); });
   ['plFrom', 'plTo'].forEach(function (id) { $(id).addEventListener('change', function () { if (dmyIso(id) && DATA) load(false); }); });
+  // ফোন ঘোরালে (মোবাইল ↔ বড় পর্দা) মজুদ টেবিলের হেডার নতুন করে — কেজি/পিস কলাম দেখানো/লুকানোর সাথে মিল রাখতে
+  let lastMob = isMob();
+  const onPlResize = function () {
+    if (!content.isConnected || !document.getElementById('plStock')) { window.removeEventListener('resize', onPlResize); return; }
+    if (R && isMob() !== lastMob) { lastMob = isMob(); render(); }
+  };
+  window.addEventListener('resize', onPlResize);
   if (!window.__plFitBound) { window.__plFitBound = true; window.addEventListener('resize', function () { const c = document.getElementById('plTable'); if (c) fitReportScroll(c.closest('.sr-main')); }); }
 
   // Enter = পরের ঘর, Escape = আগের ঘর — হইতে → পর্যন্ত → অবচয় → দেখাও → প্রিন্ট
