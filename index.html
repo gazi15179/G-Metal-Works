@@ -21108,15 +21108,18 @@ function plCompute(D, from, to, opt) {
   const lnExpName = { CC: t('সিসি লোনের সুদ ও চার্জ', 'CC loan interest & charges'), NGO: t('এনজিও লোনের সার্ভিস চার্জ ও চার্জ', 'NGO loan service charge & charges'), Hand: t('হ্যান্ড লোনের সুদ ও চার্জ', 'Hand loan interest & charges') };
 
   // ---------- বিবরণী ----------
-  const L = []; let sl = 0, first = true;
-  const sec = function (label) { L.push({ k: 'sec', label: label }); first = true; };
+  // জমা | খরচ | ব্যালান্স — side 'inc' (বিক্রয়, অন্যান্য আয়): eff+ = জমা · side 'cost' (বিক্রিত পণ্যের ব্যয়, খরচ): eff+ = খরচ
+  //   (যেমন কমিশন/ফেরত বিক্রয়ে খরচের ঘরে; সমাপনী মজুদ/ক্রয় ডিসকাউন্ট/ক্রয় ফেরত ব্যয়ের ভেতরে জমার ঘরে) · ব্যালান্স = মোট জমা − মোট খরচ (চলমান)
+  const L = []; let sl = 0, side = 'inc';
+  const sec = function (label, sd) { side = sd; L.push({ k: 'sec', label: label }); };
   const line = function (label, eff, det, dk) {
     if (Math.abs(eff) < 0.005 && !(det && det.always)) return 0;
-    L.push({ k: 'line', sl: ++sl, label: label, eff: eff, pre: first ? '' : (eff < 0 ? '(−) ' : '(+) '), det: det || null, dk: dk || 'v' }); first = false; return eff;
+    const pos = side === 'inc' ? eff : -eff;   // + = জমা, − = খরচ
+    L.push({ k: 'line', sl: ++sl, label: label, eff: eff, cr: pos > 0 ? pos : 0, dr: pos < 0 ? -pos : 0, det: det || null, dk: dk || 'v' }); return eff;
   };
-  const tot = function (label, amt, cls, note) { L.push({ k: cls || 'tot', label: label, amt: amt, note: note || '' }); };
+  const tot = function (label, amt, cls, note) { L.push({ k: cls || 'tot', label: label, amt: amt, side: side, note: note || '' }); };
 
-  sec(t('ক) বিক্রয়', 'A) Sales'));
+  sec(t('ক) বিক্রয়', 'A) Sales'), 'inc');
   line(t('বিক্রয় (পোস্ট করা ভাউচার)', 'Sales (posted vouchers)'), sGross, { title: t('বিক্রয়', 'Sales'), rows: detSales, always: true });
   line(t('বিক্রয় কমিশন', 'Sales commission'), -sComm, { title: t('বিক্রয় কমিশন', 'Sales commission'), rows: detComm });
   line(t('বিক্রয় ডিসকাউন্ট', 'Sales discount'), -sDisc, { title: t('বিক্রয় ডিসকাউন্ট', 'Sales discount'), rows: detSDisc });
@@ -21124,7 +21127,7 @@ function plCompute(D, from, to, opt) {
   const A = sGross - sComm - sDisc - sRet;
   tot(t('নীট বিক্রয় (ক)', 'Net sales (A)'), A);
 
-  sec(t('খ) বিক্রিত পণ্যের ব্যয়', 'B) Cost of goods sold'));
+  sec(t('খ) বিক্রিত পণ্যের ব্যয়', 'B) Cost of goods sold'), 'cost');
   const stockDet = function (which) { return { title: which === 'o' ? t('প্রারম্ভিক মজুদ', 'Opening stock') : t('সমাপনী মজুদ', 'Closing stock'), stock: which, always: true }; };
   line(t('প্রারম্ভিক মজুদ', 'Opening stock') + ' (' + isoToDmy(prev) + ')', openV, stockDet('o'));
   line(t('ক্রয় (পোস্ট করা ভাউচার, নীট মূল্য)', 'Purchases (posted, net)'), pItems, { title: t('ক্রয়', 'Purchases'), rows: detPur });
@@ -21146,7 +21149,7 @@ function plCompute(D, from, to, opt) {
   const G = A - B;
   tot(G < 0 ? t('মোট ক্ষতি (ক − খ)', 'Gross loss (A − B)') : t('মোট লাভ (ক − খ)', 'Gross profit (A − B)'), G, 'grand', A ? ((G / A) * 100).toFixed(2) + '%' : '');
 
-  sec(t('গ) অন্যান্য আয়', 'C) Other income'));
+  sec(t('গ) অন্যান্য আয়', 'C) Other income'), 'inc');
   let C = 0;
   incHeads.forEach(function (h) { C += line(h.name, h.amt, { title: h.name, rows: h.det }); });
   C += line(t('পাওয়া ডিসকাউন্ট (পেমেন্ট ভাউচার)', 'Discount received (payment vouchers)'), discRecv.amt, { title: t('পাওয়া ডিসকাউন্ট', 'Discount received'), rows: discRecv.det });
@@ -21155,7 +21158,7 @@ function plCompute(D, from, to, opt) {
   if (!L.length || L[L.length - 1].k === 'sec') L.push({ k: 'empty', label: t('এই সময়ে কোনো অন্যান্য আয় নেই', 'No other income in this period') });
   tot(t('মোট অন্যান্য আয় (গ)', 'Total other income (C)'), C);
 
-  sec(t('ঘ) পরিচালন ও অন্যান্য খরচ', 'D) Operating & other expenses'));
+  sec(t('ঘ) পরিচালন ও অন্যান্য খরচ', 'D) Operating & other expenses'), 'cost');
   let E = 0;
   expHeads.forEach(function (h) { E += line(h.name, h.amt, { title: h.name, rows: h.det }); });
   E += line(t('দেওয়া ডিসকাউন্ট (কালেকশন ভাউচার)', 'Discount allowed (collection vouchers)'), discGiven.amt, { title: t('দেওয়া ডিসকাউন্ট', 'Discount allowed'), rows: discGiven.det });
@@ -21194,13 +21197,13 @@ async function renderProfitLossReport(content) {
       .pl-tbl tr.pl-final td{background:#1f2937;color:#fff;font-weight:800;font-size:12px;}
       .pl-tbl tr.pl-final.loss td,.pl-tbl tr.pl-grand.loss td{color:#ffb4b4;} .pl-tbl tr.pl-grand.loss td{color:#b91c1c;}
       .pl-tbl tr.pl-empty td{color:var(--text-muted);font-style:italic;}
-      .pl-tbl .neg{color:#b91c1c;} .pl-tbl .pct{font-weight:400;font-size:10px;opacity:.85;margin-left:4px;}
+      .pl-tbl .neg{color:#b91c1c;} .pl-tbl td.pl-cr{color:#15803d;} .pl-tbl td.pl-dr{color:#b45309;} .pl-tbl .pct{font-weight:400;font-size:10px;opacity:.85;margin-left:4px;}
       .pl-cards div b.loss{color:#b91c1c;} .pl-cards div b.gain{color:#15803d;}
       .pl-warn{font-size:11px;color:#92400e;background:#fff7e6;border:1px solid #f5d9a6;border-radius:6px;padding:3px 8px;margin:0 0 6px;}
       .pl-h2{font-size:12.5px;font-weight:700;margin:12px 0 4px;color:var(--text);}
       .pl-st tr.pl-row{cursor:pointer;} .pl-st tr.pl-row:hover td{background:#fff8e6;} .pl-st tr.pl-row.sel td{background:#ffe9b3;}
       .pl-dt td.lb{white-space:normal;}
-      @media (max-width:760px){ .pl-tbl .pl-act,.pl-st .pl-act{display:none;} .pl-tbl td.lb{min-width:120px;} .pl-st .mh{display:none;} }
+      @media (max-width:760px){ .pl-tbl .pl-act,.pl-st .pl-act{display:none;} .pl-tbl td.lb{min-width:0;white-space:normal;word-break:break-word;} .pl-tbl th,.pl-tbl td{padding:1px 3px !important;} .pl-tbl .pct{display:block;margin-left:0;} .pl-st .mh{display:none;} }
     </style>
     <div class="sr-head"><h1 class="i18n" data-bn="লাভ-ক্ষতি হিসাব" data-en="Profit &amp; Loss">${t('লাভ-ক্ষতি হিসাব', 'Profit & Loss')}</h1></div>
     <div class="sr-layout">
@@ -21233,14 +21236,27 @@ async function renderProfitLossReport(content) {
   };
   const q3 = function (x) { return Math.abs(x) < 0.0005 ? '—' : (+x.toFixed(3)).toLocaleString('en-IN', { maximumFractionDigits: 3 }); };
 
+  /** জমা | খরচ | ব্যালান্স — RB = চলমান ব্যালান্স ও মোট জমা/খরচ (statementHtml প্রতিবার শূন্য থেকে শুরু করে) */
+  let RB = { bal: 0, cr: 0, dr: 0 };
   function rowHtml(r, i, forPrint) {
     const act = forPrint ? '' : `<td class="c pl-act">${r.det ? `<button type="button" class="sr-ic" data-open="${i}" title="${attr(t('বিস্তারিত', 'Details'))}">👁️</button>` : ''}</td>`;
-    const nc = forPrint ? 4 : 5;
+    const nc = forPrint ? 5 : 6, noAct = forPrint ? '' : '<td class="pl-act"></td>';
+    const money = function (v, cls) { return Math.abs(v) < 0.005 ? '<td class="n"></td>' : `<td class="n ${cls || ''}">${fmt(v, forPrint)}</td>`; };
+    const balCell = function (b, extra) { return `<td class="n ${b < -0.004 ? 'neg' : ''}"><b>${fmt(b, forPrint)}</b>${extra || ''}</td>`; };
     if (r.k === 'sec') return `<tr class="pl-sec"><td colspan="${nc}">${escapeHtml(r.label)}</td></tr>`;
-    if (r.k === 'empty') return `<tr class="pl-empty"><td></td><td class="lb" colspan="3">${escapeHtml(r.label)}</td>${forPrint ? '' : '<td class="pl-act"></td>'}</tr>`;
-    if (r.k === 'line') return `<tr class="pl-row${!forPrint && st.sel === String(i) ? ' sel' : ''}" data-i="${i}"><td class="c">${r.sl}</td><td class="lb">${escapeHtml(r.pre + r.label)}</td><td class="n ${r.eff < 0 ? 'neg' : ''}">${fmt(Math.abs(r.eff), forPrint)}</td><td></td>${act}</tr>`;
-    const loss = r.amt < -0.004 && (r.k === 'grand' || r.k === 'final');
-    return `<tr class="pl-${r.k}${loss ? ' loss' : ''}"><td></td><td class="lb">${escapeHtml(r.label)}</td><td></td><td class="n">${fmt(r.amt, forPrint)}${r.note ? `<span class="pct">(${escapeHtml(r.note)})</span>` : ''}</td>${forPrint ? '' : '<td class="pl-act"></td>'}</tr>`;
+    if (r.k === 'empty') return `<tr class="pl-empty"><td></td><td class="lb" colspan="4">${escapeHtml(r.label)}</td>${noAct}</tr>`;
+    if (r.k === 'line') {
+      RB.bal += r.cr - r.dr; RB.cr += r.cr; RB.dr += r.dr;
+      return `<tr class="pl-row${!forPrint && st.sel === String(i) ? ' sel' : ''}" data-i="${i}"><td class="c">${r.sl}</td><td class="lb">${escapeHtml(r.label)}</td>${money(r.cr, 'pl-cr')}${money(r.dr, 'pl-dr')}${balCell(RB.bal)}${act}</tr>`;
+    }
+    const pct = r.note ? `<span class="pct">(${escapeHtml(r.note)})</span>` : '';
+    if (r.k === 'tot') {   // অংশের মোট — আয়ের অংশ জমার ঘরে, ব্যয়ের অংশ খরচের ঘরে
+      const inCr = (r.side === 'inc') === (r.amt >= 0);
+      return `<tr class="pl-tot"><td></td><td class="lb">${escapeHtml(r.label)}</td>${inCr ? money(Math.abs(r.amt)) + '<td></td>' : '<td></td>' + money(Math.abs(r.amt))}${balCell(RB.bal)}${noAct}</tr>`;
+    }
+    const loss = r.amt < -0.004;
+    if (r.k === 'final') return `<tr class="pl-final${loss ? ' loss' : ''}"><td></td><td class="lb">${t('মোট জমা / মোট খরচ', 'Total in / out')} → ${escapeHtml(r.label)}</td>${money(RB.cr)}${money(RB.dr)}${balCell(r.amt, pct)}${noAct}</tr>`;
+    return `<tr class="pl-grand${loss ? ' loss' : ''}"><td></td><td class="lb">${escapeHtml(r.label)}</td><td></td><td></td>${balCell(r.amt, pct)}${noAct}</tr>`;
   }
   function stockHtml(forPrint) {
     const cats = R.stockCats; if (!cats.length) return '';
@@ -21259,7 +21275,8 @@ async function renderProfitLossReport(content) {
       <tfoot><tr><td></td><td>${t('সর্বমোট', 'Grand total')}</td><td class="mh">${q3(T.oKg)}</td><td class="mh">${q3(T.oPc)}</td><td>${fmt(T.oV, forPrint)}</td><td class="mh">${q3(T.cKg)}</td><td class="mh">${q3(T.cPc)}</td><td>${fmt(T.cV, forPrint)}</td>${forPrint ? '' : '<td class="pl-act"></td>'}</tr></tfoot></table></div>`;
   }
   function statementHtml(forPrint) {
-    return `<table class="${forPrint ? '' : 'sr-tbl pl-tbl'}" id="${forPrint ? '' : 'plTable'}"><thead><tr><th style="width:34px;">${t('ক্রঃ', 'Sl')}</th><th>${t('বিবরণ', 'Particulars')}</th><th>${t('টাকা', 'Amount')}</th><th>${t('মোট টাকা', 'Total')}</th>${forPrint ? '' : '<th class="pl-act"></th>'}</tr></thead>
+    RB = { bal: 0, cr: 0, dr: 0 };
+    return `<table class="${forPrint ? '' : 'sr-tbl pl-tbl'}" id="${forPrint ? '' : 'plTable'}"><thead><tr><th style="width:34px;">${t('ক্রঃ', 'Sl')}</th><th>${t('বিবরণ', 'Particulars')}</th><th>${t('জমা', 'In')}</th><th>${t('খরচ', 'Out')}</th><th>${t('ব্যালান্স', 'Balance')}</th>${forPrint ? '' : '<th class="pl-act"></th>'}</tr></thead>
       <tbody>${R.L.map(function (r, i) { return rowHtml(r, i, forPrint); }).join('')}</tbody></table>`;
   }
   function render() {
