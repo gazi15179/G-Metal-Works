@@ -6487,6 +6487,7 @@ const OWN_CSS = `
   .own-tbl td.l{text-align:left;} .own-tbl td.r{text-align:right;} .own-tbl tfoot td{position:sticky;bottom:0;background:#eef0f3;font-weight:700;}
   .own-tbl .own-ic{border:1px solid var(--border);background:var(--surface);border-radius:6px;min-width:28px;height:26px;font-size:12px;cursor:pointer;margin:0 1px;} .own-tbl .own-ic:disabled{opacity:.3;cursor:default;}
   .own-tbl tr.draft td{background:#fffbeb;}
+  .own-tbl tr.own-sal td{background:#f3f8ff;}
   @media (max-width:760px){ .own-tbl{font-size:11px;} .own-tbl .own-ic{min-width:34px;height:32px;font-size:14px;} .own-hide-m{display:none;} .own-wrap{max-height:70vh;} }`;
 function ownToday() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
 async function ownList(cfg) { const { data, error } = await supabaseClient.from(cfg.table).select('*'); if (error) throw new Error(/does not exist|schema cache/.test(error.message) ? 'টেবিল নেই — আগে Supabase-এ 34 নম্বর SQL চালান।' : error.message); return (data || []).filter(function (r) { return r.Status !== 'Deleted'; }); }
@@ -6562,6 +6563,15 @@ async function renderOwnerCapitalPage(content) {
   function resetForm() { editId = null; $('cap_FormTitle').textContent = t('নতুন এন্ট্রি', 'New entry'); $('cap_Amount').value = ''; $('cap_Note').value = ''; $('cap_Date').value = ownToday(); $('cap_Type').value = 'In'; $('cap_CancelBtn').style.display = 'none'; }
   async function load() {
     try { rows = await ownList(cfg); } catch (e) { $('cap_List').innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; return; }
+    // মালিকের সেলারী ভাউচার = উত্তোলন (শুধু দেখানো — টাকা ক্যাশ/ব্যাংক থেকে সেলারী ইস্যুতেই বের হয়, এখানে আবার ক্যাশ বইয়ে যায় না)
+    try {
+      const sf = async function (tb) { try { return await selectAllRows(tb); } catch (er) { return []; } };
+      const x = await Promise.all([sf('Payroll'), sf('Payroll_Lines'), sf('Payroll_Details'), api('list', { sheet: 'Employees' }).catch(function () { return []; }), api('list', { sheet: 'EmployeeCategories' }).catch(function () { return []; })]);
+      ownerSalaryDrawingRows(x[0], x[1], x[2], x[3], x[4]).forEach(function (r) {
+        const o = { Date: r.date, Type: 'Out', OwnerName: r.name, BankCashAccID: null, Amount: r.amt, Status: 'Posted', Note: t('সেলারী ভাউচার', 'Salary voucher'), __sal: r.payrollId };
+        o[cfg.idf] = r.no; rows.push(o);
+      });
+    } catch (e) {}
     if (!$('cap_Owner').value) { const last = rows.slice().sort(function (a, b) { return String(b.Date).localeCompare(String(a.Date)); })[0]; if (last && last.OwnerName) $('cap_Owner').value = last.OwnerName; }
     render();
   }
@@ -6577,6 +6587,14 @@ async function renderOwnerCapitalPage(content) {
       const a = Number(r.Amount) || 0, posted = r.Status === 'Posted';
       if (posted) { bal += sign(r) * a; if (r.Type === 'Out') tOut += a; else tIn += a; }
       const ic = function (act, icon, title, dis) { return `<button type="button" class="own-ic" data-ow="${act}" data-id="${attr(r[cfg.idf])}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
+      if (r.__sal) {   // সেলারী ভাউচার থেকে — এখানে এডিট/ডিলিট নয়, সেলারী ভাউচারেই
+        const sv = function (act, icon, title) { return `<button type="button" class="own-ic" data-sv="${act}" data-pid="${attr(r.__sal)}" title="${attr(title)}">${icon}</button>`; };
+        return `<tr class="own-sal"><td>${i + 1}</td><td>${escapeHtml(formatShortDate(r.Date))}</td><td><b>${escapeHtml(r[cfg.idf])}</b></td><td>${t('উত্তোলন (সেলারী ভাউচার)', 'Drawing (salary voucher)')}</td>
+          <td class="l own-hide-m">${escapeHtml(r.OwnerName || '')}</td><td class="own-hide-m">${t('সেলারী ইস্যুতে', 'via salary issue')}</td>
+          <td class="r">—</td><td class="r">${a.toFixed(2)}</td><td class="r"><b>${bal.toFixed(2)}</b></td>
+          <td><span class="badge active">${t('সেলারী ভাউচার', 'Salary voucher')}</span></td>
+          <td style="white-space:nowrap;">${sv('view', '👁️', t('সেলারী ভাউচার দেখুন / প্রিন্ট', 'View salary voucher'))}${sv('edit', '✏️', t('সেলারী ভাউচারে এডিট', 'Edit in salary voucher'))}</td></tr>`;
+      }
       return `<tr class="${posted ? '' : 'draft'}"><td>${i + 1}</td><td>${escapeHtml(formatShortDate(r.Date))}</td><td><b>${escapeHtml(r[cfg.idf])}</b></td><td>${r.Type === 'Out' ? t('উত্তোলন', 'Drawing') : t('আনয়ন', 'In')}</td>
         <td class="l own-hide-m">${escapeHtml(r.OwnerName || '')}</td><td class="own-hide-m">${escapeHtml(accName(r.BankCashAccID))}</td>
         <td class="r">${r.Type !== 'Out' ? a.toFixed(2) : '—'}</td><td class="r">${r.Type === 'Out' ? a.toFixed(2) : '—'}</td><td class="r"><b>${posted ? bal.toFixed(2) : '—'}</b></td>
@@ -6585,7 +6603,8 @@ async function renderOwnerCapitalPage(content) {
     }).join('');
     const total = sorted.filter(function (r) { return r.Status === 'Posted' && String(r.Date) <= to; }).reduce(function (s, r) { return s + sign(r) * (Number(r.Amount) || 0); }, 0);
     const drafts = rows.filter(function (r) { return r.Status !== 'Posted'; }).length;
-    $('cap_Cards').innerHTML = `<div class="own-card"><small>${t('এই সময়ে আনয়ন', 'Brought in (period)')}</small><b>৳${tIn.toFixed(2)}</b></div><div class="own-card"><small>${t('এই সময়ে উত্তোলন', 'Drawn (period)')}</small><b>৳${tOut.toFixed(2)}</b></div>
+    const salOut = shown.filter(function (r) { return r.__sal; }).reduce(function (s2, r) { return s2 + (Number(r.Amount) || 0); }, 0);
+    $('cap_Cards').innerHTML = `<div class="own-card"><small>${t('এই সময়ে আনয়ন', 'Brought in (period)')}</small><b>৳${tIn.toFixed(2)}</b></div><div class="own-card"><small>${t('এই সময়ে উত্তোলন', 'Drawn (period)')}${salOut ? t(' (সেলারী ভাউচার ', ' (salary voucher ') + salOut.toFixed(2) + t(' সহ)', ' incl.)') : ''}</small><b>৳${tOut.toFixed(2)}</b></div>
       <div class="own-card hl"><small>${t('মোট মূলধন (', 'Total capital (')}${escapeHtml(formatShortDate(to))}${t(' পর্যন্ত)', ')')}</small><b>৳${total.toFixed(2)}</b></div>${drafts ? `<div class="own-card"><small>${t('পোস্ট না করা', 'Unposted')}</small><b>${drafts}${t('টা', '')}</b></div>` : ''}`;
     $('cap_List').innerHTML = !shown.length && !opening ? `<div class="empty-state">${t('এই সময়ে কোনো এন্ট্রি নেই।', 'No entries in this period.')}</div>` :
       `<table class="own-tbl"><thead><tr><th>${t('ক্রঃ', 'No.')}</th><th>${t('তারিখ', 'Date')}</th><th>${t('নং', 'Voucher')}</th><th>${t('ধরন', 'Type')}</th><th class="own-hide-m">${t('মালিক', 'Owner')}</th><th class="own-hide-m">${t('ক্যাশ/ব্যাংক', 'Cash/Bank')}</th><th>${t('আনয়ন', 'In')}</th><th>${t('উত্তোলন', 'Out')}</th><th>${t('মূলধন', 'Capital')}</th><th>${t('অবস্থা', 'Status')}</th><th></th></tr></thead>
@@ -6613,6 +6632,8 @@ async function renderOwnerCapitalPage(content) {
   $('cap_CancelBtn').addEventListener('click', resetForm);
   ['cap_From', 'cap_To'].forEach(function (id) { $(id).addEventListener('change', render); });
   $('cap_List').addEventListener('click', async function (e) {
+    const sb = e.target.closest('[data-sv]');
+    if (sb) { window.__svOpen = { id: sb.getAttribute('data-pid'), action: sb.getAttribute('data-sv') === 'view' ? 'view' : 'edit' }; navigateTo('payroll', t('এইচআর ও পে-রোল', 'HR & Payroll'), t('সেলারী ভাউচার', 'Salary Voucher')); return; }
     const b = e.target.closest('[data-ow]'); if (!b || b.disabled || b.__busy) return; b.__busy = true;
     const r = rows.find(function (x) { return x[cfg.idf] === b.getAttribute('data-id'); });
     try {
@@ -20858,11 +20879,45 @@ async function renderPartyBalanceReport(content) {
          + কালেকশন ভাউচারে দেওয়া ডিসকাউন্ট + জার্নালের খরচ খাত + অবচয় (ঐচ্ছিক) + সম্পদ বিক্রিতে লোকসান
    নীট লাভ = ক − খ + গ − ঘ · শুধু পোস্ট করা ভাউচার · সারিতে এক চাপে বাছাই, দুই চাপে বিস্তারিত (ভাউচার তালিকা)
    ============================================================ */
+/* ============================================================
+   বেতনের হিসাব-ধরন — কর্মচারীর ধরন (EmployeeCategories) দেখে:
+   • 'owner'  — মালিক: সেলারী ভাউচারের টাকা ব্যবসার খরচ নয়, "মালিকের উত্তোলন" (লাভ-ক্ষতির বাইরে, মূলধন থেকে বাদ)
+   • 'prod'   — উৎপাদন কর্মী (কারিগর, হেল্পার, ফোরম্যান, শেপ/ফিনিশ, প্রডাকশন ম্যানেজার …) বা ধরন দেওয়া নেই: উৎপাদন খরচ (খ)
+   • 'office' — বাকি সব (ম্যানেজার, ড্রাইভার, হিসাবরক্ষক …): পরিচালন খরচ (ঘ)
+   ============================================================ */
+const PAY_OWNER_RE = /মালিক|owner|প্রোপ্রাইটর|প্রোপাইটর|proprietor/i;
+const PAY_PROD_RE = /কারিগর|কারিগার|karigar|হেল্পার|হেলপার|helper|ফোরম্যান|ফোরমেন|foreman|মিস্ত্রি|মিস্ত্রী|mistri|শেপ|shape|ফিনিশ|finish|ধোলাই|পালিশ|polish|প্রডা|প্রোডা|উৎপাদন|production|worker|শ্রমিক/i;
+function payClassOf(empId, empMap, catNameMap) {
+  const e = empMap[empId]; if (!e) return 'prod';
+  const c = String(catNameMap[e.CategoryID] || '').trim();
+  if (PAY_OWNER_RE.test(c)) return 'owner';
+  if (!c || PAY_PROD_RE.test(c)) return 'prod';
+  return 'office';
+}
+/** মালিকের সেলারী ভাউচার → উত্তোলনের সারি [{date, payrollId, no, empId, name, amt}] — টাকা = ভাউচারের মোট প্রদেয় (NetPay) */
+function ownerSalaryDrawingRows(payroll, lines, details, emps, cats) {
+  const empMap = {}; (emps || []).forEach(function (e) { empMap[e.EmployeeID] = e; });
+  const catNm = {}; (cats || []).forEach(function (c) { catNm[c.CategoryID] = c.CategoryName; });
+  const netBy = {}; (lines || []).forEach(function (l) { if (l.NetPay !== null && l.NetPay !== undefined && l.NetPay !== '') netBy[l.PayrollID] = (netBy[l.PayrollID] || 0) + (Number(l.NetPay) || 0); });
+  const detBy = {};   // NetPay না থাকলে বিস্তারিত থেকে (হাজিরা টিক + মজুরি + অন্যান্য ±)
+  (details || []).forEach(function (x) {
+    const v = x.DetailType === 'SVDay' ? (Number(x.TargetQty) === 1 ? Number(x.Amount) || 0 : 0) : x.DetailType === 'SVRow' ? (Number(x.Amount) || 0) + (Number(x.OverQty) || 0) : 0;
+    detBy[x.PayrollID] = (detBy[x.PayrollID] || 0) + v;
+  });
+  return (payroll || []).filter(function (h) { return h.Status !== 'Deleted' && h.RunType === 'SalaryVoucher' && payClassOf(h.EmployeeID, empMap, catNm) === 'owner'; })
+    .map(function (h) {
+      const amt = netBy[h.PayrollID] !== undefined ? netBy[h.PayrollID] : (detBy[h.PayrollID] || 0);
+      const e = empMap[h.EmployeeID] || {};
+      return { date: String(h.VoucherDate || h.DateTo || '').slice(0, 10), payrollId: h.PayrollID, no: h.VoucherNo || h.PayrollID, empId: h.EmployeeID, name: e.Name || e.FullName || h.EmployeeID || '', amt: amt };
+    }).filter(function (r) { return Math.abs(r.amt) > 0.004; })
+    .sort(function (a, b) { return a.date.localeCompare(b.date); });
+}
+
 async function plLoadData() {
   const safe = async function (tb) { try { return await selectAllRows(tb); } catch (e) { return []; } };
   const names = ['stock_ledger', 'ProcessingVoucher', 'ProcessingFG_Lines', 'ProcessingByProduct_Lines', 'PurchaseInvoice', 'PI_Lines', 'PurchaseReturn', 'PR_Return_Lines',
     'SalesInvoice', 'SI_Lines', 'SalesReturn', 'SR_Lines', 'TeamProduction', 'TeamProduction_Members', 'TeamProduction_Costs',
-    'Payroll', 'Payroll_Details', 'DailyBonus', 'ExpenseVoucher', 'ExpenseVoucher_Lines', 'IncomeVoucher', 'IncomeVoucher_Lines',
+    'Payroll', 'Payroll_Lines', 'Payroll_Details', 'DailyBonus', 'ExpenseVoucher', 'ExpenseVoucher_Lines', 'IncomeVoucher', 'IncomeVoucher_Lines',
     'PaymentVoucher', 'ReceiptVoucher', 'JournalVoucher', 'JV_Lines', 'ChartOfAccounts', 'FixedAsset', 'AssetSale', 'AssetSale_Lines', 'Loan', 'LoanTxn'];
   delete listCache.Items; delete listCache.Customers; delete listCache.Suppliers;
   const res = await Promise.all(names.map(safe));
@@ -20870,6 +20925,8 @@ async function plLoadData() {
   const lst = function (s) { return cachedList(s).catch(function () { return []; }); };
   const more = await Promise.all([lst('Items'), lst('UOM'), lst('Categories'), lst('Employees'), lst('Customers'), lst('Suppliers')]);
   D.items = more[0]; D.units = more[1]; D.cats = more[2]; D.emps = more[3]; D.custs = more[4]; D.sups = more[5];
+  try { D.ecats = await api('list', { sheet: 'EmployeeCategories' }); } catch (e) { D.ecats = []; }
+  if (!Array.isArray(D.ecats)) D.ecats = [];
   try { D.gp = await hrLoadGroups(); } catch (e) { D.gp = { roleMap: {} }; }
   return D;
 }
@@ -21017,29 +21074,42 @@ function plCompute(D, from, to, opt) {
 
   // ---------- খ) মজুরি ও উৎপাদন খরচ (দৈনিক উৎপাদন + সেলারী ভাউচার) ----------
   const tpH = {}; D.TeamProduction.forEach(function (h) { tpH[String(h.TeamProdID)] = { d: d10(h.WorkDate), dp: !!h.DPLineID }; });
+  // কার টাকা কোথায় — মালিক (উত্তোলন, লাভ-ক্ষতির বাইরে) · অফিস (ঘ) · উৎপাদন (খ)
+  const empMapP = {}; (D.emps || []).forEach(function (e) { empMapP[e.EmployeeID] = e; });
+  const ecatNm = {}; (D.ecats || []).forEach(function (c) { ecatNm[c.CategoryID] = c.CategoryName; });
+  const pcls = function (empId) { return payClassOf(empId, empMapP, ecatNm); };
+  const hasOwnerCat = (D.ecats || []).some(function (c) { return c.Status !== 'Deleted' && PAY_OWNER_RE.test(c.CategoryName || ''); });
   let wProd = 0; const wProdBy = {};
   D.TeamProduction_Members.forEach(function (m) {
     const h = tpH[String(m.TeamProdID)]; if (!h || !m.RoleID || !inR(h.d)) return;
     if (!h.dp && !m.BilledIn) return;   // পুরনো পেজের বিল-না-হওয়া রেকর্ড বাদ (খরচ খাত লেজারের নিয়ম)
+    if (pcls(m.EmployeeID) === 'owner') return;   // মালিকের মজুরি — খরচ নয় (সেলারী ভাউচারে উঠলে উত্তোলন)
     wProd += n(m.Amount); wProdBy[h.d] = (wProdBy[h.d] || 0) + n(m.Amount);
   });
   const detWProd = Object.keys(wProdBy).sort().map(function (d) { return { date: d, desc: t('দৈনিক উৎপাদন — মজুরি', 'Daily production — wages'), amt: wProdBy[d] }; });
   const svH = {}; D.Payroll.forEach(function (h) { if (h.Status !== 'Deleted' && h.RunType === 'SalaryVoucher') svH[h.PayrollID] = h; });
-  let wHaj = 0, wOther = 0; const hajBy = {}, othBy = {};
+  let wHaj = 0, wOther = 0, oSal = 0; const hajBy = {}, othBy = {}, offBy = {};
   D.Payroll_Details.forEach(function (x) {
     const h = svH[x.PayrollID]; if (!h) return;
     const d = d10(x.WorkDate); if (!inR(d)) return;
-    const key = x.PayrollID;
-    if (x.DetailType === 'SVDay') { if (Number(x.TargetQty) === 1) { wHaj += n(x.Amount); hajBy[key] = (hajBy[key] || 0) + n(x.Amount); } }
+    const key = x.PayrollID, cl = pcls(h.EmployeeID);
+    if (cl === 'owner') return;   // মালিক — নিচে "মালিকের উত্তোলন"-এ (লাভ-ক্ষতির বাইরে)
+    let v = 0, isHaj = false;
+    if (x.DetailType === 'SVDay') { if (Number(x.TargetQty) === 1) { v = n(x.Amount); isHaj = true; } }
     else if (x.DetailType === 'SVRow') {
       let meta = {}; try { meta = JSON.parse(x.Description || '{}'); } catch (e) {}
-      const v = (meta.k !== 'prod' ? n(x.Amount) : 0) + n(x.OverQty);   // উৎপাদনের মজুরি আগেই উপরে ধরা — এখানে শুধু হাতে লেখা মজুরি ও অন্যান্য (±)
-      wOther += v; othBy[key] = (othBy[key] || 0) + v;
+      v = (meta.k !== 'prod' ? n(x.Amount) : 0) + n(x.OverQty);   // উৎপাদনের মজুরি আগেই উপরে ধরা — এখানে শুধু হাতে লেখা মজুরি ও অন্যান্য (±)
     }
+    if (!v) return;
+    if (cl === 'office') { oSal += v; offBy[key] = (offBy[key] || 0) + v; }
+    else if (isHaj) { wHaj += v; hajBy[key] = (hajBy[key] || 0) + v; }
+    else { wOther += v; othBy[key] = (othBy[key] || 0) + v; }
   });
-  const svDet = function (m) { return Object.keys(m).filter(function (k) { return Math.abs(m[k]) > 0.004; }).map(function (k) { const h = svH[k]; return { date: d10(h.VoucherDate || h.DateTo), id: h.VoucherNo || k, desc: t('সেলারী ভাউচার', 'Salary voucher') + ' · ' + (empName[h.EmployeeID] || h.EmployeeID || ''), amt: m[k] }; }).sort(function (a, b) { return a.date.localeCompare(b.date); }); };
+  const svDet = function (m) { return Object.keys(m).filter(function (k) { return Math.abs(m[k]) > 0.004; }).map(function (k) { const h = svH[k]; return { date: d10(h.VoucherDate || h.DateTo), id: h.VoucherNo || k, sv: k, desc: t('সেলারী ভাউচার', 'Salary voucher') + ' · ' + (empName[h.EmployeeID] || h.EmployeeID || ''), amt: m[k] }; }).sort(function (a, b) { return a.date.localeCompare(b.date); }); };
   let wBonus = 0; const detBonus = [];
-  D.DailyBonus.forEach(function (b) { const d = d10(b.WorkDate); if (b.BilledIn || !inR(d) || b.Status === 'Deleted') return; wBonus += n(b.Amount); detBonus.push({ date: d, desc: t('বোনাস', 'Bonus') + ' · ' + (empName[b.EmployeeID] || b.EmployeeID || '') + (b.Note ? ' — ' + b.Note : ''), amt: n(b.Amount) }); });
+  D.DailyBonus.forEach(function (b) { const d = d10(b.WorkDate); if (b.BilledIn || !inR(d) || b.Status === 'Deleted') return; const cl = pcls(b.EmployeeID); if (cl === 'owner') return;
+    if (cl === 'office') { oSal += n(b.Amount); offBy['__b'] = (offBy['__b'] || 0) + n(b.Amount); return; }
+    wBonus += n(b.Amount); detBonus.push({ date: d, desc: t('বোনাস', 'Bonus') + ' · ' + (empName[b.EmployeeID] || b.EmployeeID || '') + (b.Note ? ' — ' + b.Note : ''), amt: n(b.Amount) }); });
   const costBy = {};
   D.TeamProduction_Costs.forEach(function (c) {
     const h = tpH[String(c.TeamProdID)]; if (!h || !h.dp || !inR(h.d) || !c.RoleID) return;
@@ -21136,7 +21206,7 @@ function plCompute(D, from, to, opt) {
   line(t('ক্রয় ডিসকাউন্ট', 'Purchase discount'), -pDisc, { title: t('ক্রয় ডিসকাউন্ট', 'Purchase discount'), rows: detPDisc });
   line(t('ক্রয় ফেরত', 'Purchase returns'), -pRet, { title: t('ক্রয় ফেরত', 'Purchase returns'), rows: detPRet });
   line(t('উৎপাদন মজুরি (দৈনিক উৎপাদন)', 'Production wages (daily production)'), wProd, { title: t('উৎপাদন মজুরি', 'Production wages'), rows: detWProd });
-  line(t('হাজিরা (সেলারী ভাউচার)', 'Attendance pay (salary voucher)'), wHaj, { title: t('হাজিরা', 'Attendance pay'), rows: svDet(hajBy) });
+  line(t('হাজিরা — উৎপাদন কর্মী (সেলারী ভাউচার)', 'Attendance pay — production staff (salary voucher)'), wHaj, { title: t('হাজিরা', 'Attendance pay'), rows: svDet(hajBy) });
   line(t('অন্যান্য মজুরি ও কম-বেশি (সেলারী ভাউচার)', 'Other wages & adjustments (salary voucher)'), wOther, { title: t('অন্যান্য মজুরি ও কম-বেশি', 'Other wages & adjustments'), rows: svDet(othBy) });
   line(t('বোনাস (সেলারী ভাউচারে ওঠেনি)', 'Bonus (not yet in a salary voucher)'), wBonus, { title: t('বোনাস', 'Bonus'), rows: detBonus });
   Object.keys(costBy).map(function (k) { return costBy[k]; }).sort(function (a, b) { return b.amt - a.amt; }).forEach(function (c) {
@@ -21160,6 +21230,9 @@ function plCompute(D, from, to, opt) {
 
   sec(t('ঘ) পরিচালন ও অন্যান্য খরচ', 'D) Operating & other expenses'), 'cost');
   let E = 0;
+  const offRows = svDet(Object.keys(offBy).filter(function (k) { return k !== '__b'; }).reduce(function (m, k) { m[k] = offBy[k]; return m; }, {}));
+  if (offBy.__b) offRows.push({ desc: t('বোনাস (সেলারী ভাউচারে ওঠেনি)', 'Bonus (not yet in a salary voucher)'), amt: offBy.__b });
+  E += line(t('বেতন ও ভাতা — অফিস ও ব্যবস্থাপনা (সেলারী ভাউচার)', 'Salaries — office & management (salary voucher)'), oSal, { title: t('বেতন ও ভাতা — অফিস ও ব্যবস্থাপনা', 'Salaries — office & management'), rows: offRows });
   expHeads.forEach(function (h) { E += line(h.name, h.amt, { title: h.name, rows: h.det }); });
   E += line(t('দেওয়া ডিসকাউন্ট (কালেকশন ভাউচার)', 'Discount allowed (collection vouchers)'), discGiven.amt, { title: t('দেওয়া ডিসকাউন্ট', 'Discount allowed'), rows: discGiven.det });
   Object.keys(jvExp).forEach(function (k) { E += line(jvExp[k].name, jvExp[k].amt, { title: jvExp[k].name, rows: jvExp[k].det }); });
@@ -21172,7 +21245,14 @@ function plCompute(D, from, to, opt) {
   const NP = G + C - E;
   tot(NP < 0 ? t('নীট ক্ষতি (ক − খ + গ − ঘ)', 'Net loss (A − B + C − D)') : t('নীট লাভ (ক − খ + গ − ঘ)', 'Net profit (A − B + C − D)'), NP, 'final', A ? ((NP / A) * 100).toFixed(2) + '%' : '');
 
-  return { L: L, A: A, B: B, G: G, C: C, E: E, NP: NP, openV: openV, closeV: closeV, stockCats: stockCats, drafts: drafts, negCnt: negCnt, prev: prev };
+  // মালিকের উত্তোলন — লাভ-ক্ষতির অংশ নয়; শুধু স্বচ্ছতার জন্য নিচে আলাদা (মালিকের মূলধন পেজে উত্তোলন হিসেবে বাদ যায়)
+  const own = ownerSalaryDrawingRows(D.Payroll, D.Payroll_Lines, D.Payroll_Details, D.emps, D.ecats).filter(function (r) { return inR(r.date); });
+  const ownAmt = own.reduce(function (s2, r) { return s2 + r.amt; }, 0);
+  L.push({ k: 'memo', label: t('মালিকের উত্তোলন (সেলারী ভাউচার) — লাভ-ক্ষতির বাইরে, মালিকের মূলধন থেকে বাদ', "Owner's drawings (salary voucher) — outside P&L, deducted from capital"), amt: ownAmt,
+    det: { title: t('মালিকের উত্তোলন (সেলারী ভাউচার)', "Owner's drawings (salary voucher)"), rows: own.map(function (r) { return { date: r.date, id: r.no, sv: r.payrollId, desc: t('সেলারী ভাউচার', 'Salary voucher') + ' · ' + r.name, amt: r.amt }; }), always: true } });
+  L.push({ k: 'memo2', label: t('নীট লাভ − মালিকের উত্তোলন = ব্যবসায় রয়ে গেল', 'Net profit − drawings = retained in business'), amt: NP - ownAmt });
+
+  return { L: L, A: A, B: B, G: G, C: C, E: E, NP: NP, ownAmt: ownAmt, hasOwnerCat: hasOwnerCat, openV: openV, closeV: closeV, stockCats: stockCats, drafts: drafts, negCnt: negCnt, prev: prev };
 }
 
 async function renderProfitLossReport(content) {
@@ -21196,6 +21276,7 @@ async function renderProfitLossReport(content) {
       .pl-tbl tr.pl-grand td{background:#e1effa;font-weight:700;color:#0b4a78;}
       .pl-tbl tr.pl-final td{background:#1f2937;color:#fff;font-weight:800;font-size:12px;}
       .pl-tbl tr.pl-final.loss td,.pl-tbl tr.pl-grand.loss td{color:#ffb4b4;} .pl-tbl tr.pl-grand.loss td{color:#b91c1c;}
+      .pl-tbl tr.pl-memo td{background:#fff7e6;color:#92400e;font-style:italic;} .pl-tbl tr.pl-memo2 td{background:#fdf2d8;color:#7c4a03;font-weight:700;}
       .pl-tbl tr.pl-empty td{color:var(--text-muted);font-style:italic;}
       .pl-tbl .neg{color:#b91c1c;} .pl-tbl td.pl-cr{color:#15803d;} .pl-tbl td.pl-dr{color:#b45309;} .pl-tbl .pct{font-weight:400;font-size:10px;opacity:.85;margin-left:4px;}
       .pl-cards div b.loss{color:#b91c1c;} .pl-cards div b.gain{color:#15803d;}
@@ -21255,6 +21336,10 @@ async function renderProfitLossReport(content) {
       return `<tr class="pl-tot"><td></td><td class="lb">${escapeHtml(r.label)}</td>${inCr ? money(Math.abs(r.amt)) + '<td></td>' : '<td></td>' + money(Math.abs(r.amt))}${balCell(RB.bal)}${noAct}</tr>`;
     }
     const loss = r.amt < -0.004;
+    if (r.k === 'memo' || r.k === 'memo2') {   // লাভ-ক্ষতির বাইরে — চলমান ব্যালান্সে যোগ হয় না
+      const isM = r.k === 'memo';
+      return `<tr class="pl-${r.k}${isM ? ' pl-row' : ''}${isM && !forPrint && st.sel === String(i) ? ' sel' : ''}"${isM ? ` data-i="${i}"` : ''}><td></td><td class="lb">${escapeHtml(r.label)}</td><td></td><td>${isM ? fmt(r.amt, forPrint) : ''}</td><td class="n ${r.amt < -0.004 ? 'neg' : ''}">${isM ? '' : `<b>${fmt(r.amt, forPrint)}</b>`}</td>${isM ? act : noAct}</tr>`;
+    }
     if (r.k === 'final') return `<tr class="pl-final${loss ? ' loss' : ''}"><td></td><td class="lb">${t('মোট জমা / মোট খরচ', 'Total in / out')} → ${escapeHtml(r.label)}</td>${money(RB.cr)}${money(RB.dr)}${balCell(r.amt, pct)}${noAct}</tr>`;
     return `<tr class="pl-grand${loss ? ' loss' : ''}"><td></td><td class="lb">${escapeHtml(r.label)}</td><td></td><td></td>${balCell(r.amt, pct)}${noAct}</tr>`;
   }
@@ -21290,6 +21375,7 @@ async function renderProfitLossReport(content) {
     const w = [], dr = R.drafts;
     const dl = [[dr.pi, t('ক্রয়', 'purchase')], [dr.si, t('বিক্রয়', 'sales')], [dr.pv, t('প্রসেসিং', 'processing')], [dr.ev, t('এক্সপেন্স', 'expense')], [dr.iv, t('রিসিপ্ট', 'receipt')]].filter(function (x) { return x[0]; });
     if (dl.length) w.push('⚠️ ' + t('পোস্ট না করা (খসড়া) ভাউচার হিসাবে ধরা হয়নি — ', 'Draft vouchers are not included — ') + dl.map(function (x) { return x[1] + ' ' + x[0] + t('টি', ''); }).join(', '));
+    if (!R.hasOwnerCat) w.push('ℹ️ ' + t('কর্মচারীর ধরনে "মালিক" নেই — মালিকের সেলারী ভাউচার এখন খরচ হিসেবে ধরা হচ্ছে। এইচআর → কর্মচারীর ধরনে "মালিক" যোগ করে মালিককে সেই ধরনে রাখুন।', 'No "Owner" employee type — add it in HR → Employee Types and assign the owner.'));
     if (R.negCnt) w.push('⚠️ ' + R.negCnt + t('টি আইটেমের সমাপনী মজুদ মাইনাস — স্টক ওভারভিউতে যাচাই করুন (লাভ ভুল দেখাতে পারে)।', ' item(s) have negative closing stock — check Stock Overview.'));
     $('plWarn').innerHTML = w.map(function (x) { return `<div class="pl-warn">${escapeHtml(x)}</div>`; }).join('');
     $('plOut').innerHTML = `<div class="sr-scroll">${statementHtml(false)}</div>`;
@@ -21318,6 +21404,8 @@ async function renderProfitLossReport(content) {
     const total = rows.reduce(function (s, x) { return s + (Number(x.amt) || 0); }, 0);
     const body = rows.length ? rows.map(function (x, i) {
       const ok = x.base && VOUCHER_REGISTRY[x.base];
+      if (x.sv) return `<tr class="pl-drow" data-sv="${attr(x.sv)}"><td class="c">${i + 1}</td><td class="c">${escapeHtml(x.date ? isoToDmy(x.date) : '—')}</td><td class="c"><b>${escapeHtml(x.id || '')}</b></td><td class="lb">${escapeHtml(x.desc || '')}</td><td class="n">${fmt(x.amt)}</td>
+        <td class="c" style="white-space:nowrap;"><button type="button" class="sr-ic" data-sva="view" title="${attr(t('দেখুন / প্রিন্ট', 'View'))}">👁️</button><button type="button" class="sr-ic" data-sva="edit" title="${attr(t('এডিট', 'Edit'))}">✏️</button></td></tr>`;
       return `<tr class="pl-drow" data-base="${attr(x.base || '')}" data-id="${attr(x.id || '')}"><td class="c">${i + 1}</td><td class="c">${escapeHtml(x.date ? isoToDmy(x.date) : '—')}</td><td class="c"><b>${escapeHtml(x.id || '')}</b></td><td class="lb">${escapeHtml(x.desc || '')}</td><td class="n">${fmt(x.amt)}</td>
         <td class="c" style="white-space:nowrap;">${ok ? `<button type="button" class="sr-ic" data-va="view" title="${attr(t('দেখুন', 'View'))}">👁️</button><button type="button" class="sr-ic" data-va="edit" title="${attr(t('এডিট', 'Edit'))}">✏️</button><button type="button" class="sr-ic" data-va="del" title="${attr(t('ডিলিট', 'Delete'))}">🗑️</button>` : ''}</td></tr>`;
     }).join('') : `<tr><td colspan="6" class="c">${t('কোনো এন্ট্রি নেই।', 'No entries.')}</td></tr>`;
@@ -21328,6 +21416,11 @@ async function renderProfitLossReport(content) {
     let last = { tr: null, at: 0 };
     tb.addEventListener('click', async function (e) {
       const tr = e.target.closest('tr.pl-drow'); if (!tr) return;
+      const svb = e.target.closest('[data-sva]');
+      if (svb || (tr.getAttribute('data-sv') && last.tr === tr && Date.now() - last.at < 450)) {   // সেলারী ভাউচার — ওই পেজে খোলে
+        window.__svOpen = { id: tr.getAttribute('data-sv'), action: svb && svb.getAttribute('data-sva') === 'edit' ? 'edit' : 'view' };
+        closeModal(); navigateTo('payroll', t('এইচআর ও পে-রোল', 'HR & Payroll'), t('সেলারী ভাউচার', 'Salary Voucher')); return;
+      }
       const base = tr.getAttribute('data-base'), id = tr.getAttribute('data-id');
       const b = e.target.closest('[data-va]');
       const act = b ? b.getAttribute('data-va') : null;
