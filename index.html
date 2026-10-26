@@ -2454,6 +2454,7 @@ const MASTER_CONFIGS = {
     titleBn: 'কর্মচারী তথ্য', titleEn: 'Employee Info', subBn: 'সব কর্মচারীর তথ্য — মজুরি উৎপাদন অনুযায়ী, দরকারে দৈনিক হাজিরা পর্যন্ত মিলানো', subEn: 'All employees — daily wage comes from the monthly or weekly salary',
     columns: [{key:'EmployeeID',label:'আইডি'},{key:'Name',label:'নাম'},{key:'CategoryID',label:'পদ',fkSheet:'EmployeeCategories',fkIdField:'CategoryID',fkLabel:'CategoryName'},{key:'__cost',label:'খরচের ধরন',compute:function(r,fk){return (fk.CategoryID||{})[r.CategoryID] ? (empCatCostClass(fk.CategoryID[r.CategoryID])==='prod'?'প্রত্যক্ষ (প্রোডাকশন)':'পরোক্ষ (পরিচালন)') : '—';}},{key:'Phone',label:'মোবাইল'},{key:'DailyRate',label:'দৈনিক হাজিরা'},{key:'IsActive',label:'অবস্থা'}],
     sortRows: function (fk) { return empComparePost(fk.CategoryID || {}); },
+    extraButton: { bn: '⇄ হিসাব স্থানান্তর', en: '⇄ Move records', run: empTransferOpen },
     fields: [
       {key:'Name', label:'নাম', type:'text', required:true},
       {key:'CategoryID', label:'কর্মচারীর ধরন', type:'select-fk', fkSheet:'EmployeeCategories', fkIdField:'CategoryID', fkLabel:'CategoryName', required:true, manage:true, sortField:'SortOrder'},
@@ -20948,6 +20949,131 @@ async function empCatArrangeDefaults() {
   delete listCache.EmployeeCategories;
   showToast(t('পদ সাজানো হয়েছে ✅', 'Posts arranged ✅'), 'success');
   return true;
+}
+/* ============================================================
+   কর্মচারী → "⇄ হিসাব স্থানান্তর" (শুধু এডমিন)
+   এক কর্মচারীর নামে থাকা হিসাব (সেলারী ভাউচার, হাজিরা, দৈনিক উৎপাদনের মজুরি, বোনাস, সেলারী ইস্যু, ছুটি)
+   আরেক কর্মচারীর নামে সরানো — যেমন পুরনো ম্যানেজারের রেকর্ডের নাম বদলে নতুন জনের নাম দেওয়া হলে
+   পুরনো জনের হিসাবগুলো তার নিজের নামে ফেরত নেওয়া। তারিখ সীমা খালি = সব তারিখ।
+   ============================================================ */
+const EMP_TX_PARTS = [
+  { k: 'sv', bn: 'সেলারী ভাউচার', en: 'Salary vouchers' },
+  { k: 'att', bn: 'হাজিরা', en: 'Attendance' },
+  { k: 'tpm', bn: 'দৈনিক উৎপাদনের মজুরি', en: 'Daily production wages' },
+  { k: 'bon', bn: 'বোনাস (দৈনিক উৎপাদন)', en: 'Bonus' },
+  { k: 'si', bn: 'সেলারী ইস্যু (টাকা প্রদান)', en: 'Salary issues' },
+  { k: 'lv', bn: 'ছুটি', en: 'Leave' }
+];
+/** উৎস কর্মচারীর কোন কোন সারি সরবে — {sv:[Payroll], att:[...], tpm:[...], bon:[...], si:[...], lv:[...], attSkip:[তারিখ]} */
+async function empTransferScan(src, dst, from, to) {
+  const q = async function (tb) { const { data, error } = await supabaseClient.from(tb).select('*').eq('EmployeeID', src); if (error) throw new Error(tb + ': ' + error.message); return data || []; };
+  const d10 = function (x) { return String(x || '').slice(0, 10); };
+  const inR = function (d) { return !!d && (!from || d >= from) && (!to || d <= to); };
+  const [pay, att, tpm, bon, si, lv, dstAtt] = await Promise.all([q('Payroll'), q('Attendance'), q('TeamProduction_Members'), q('DailyBonus'), q('SalaryIssue'), q('LeaveRequests').catch(function () { return []; }),
+    supabaseClient.from('Attendance').select('Date').eq('EmployeeID', dst).then(function (r) { return r.data || []; })]);
+  let tpDate = {};
+  const tpIds = Array.from(new Set(tpm.map(function (m) { return m.TeamProdID; }).filter(Boolean)));
+  for (let i = 0; i < tpIds.length; i += 200) {
+    const { data, error } = await supabaseClient.from('TeamProduction').select('TeamProdID,WorkDate').in('TeamProdID', tpIds.slice(i, i + 200));
+    if (error) throw new Error(error.message);
+    (data || []).forEach(function (h) { tpDate[String(h.TeamProdID)] = d10(h.WorkDate); });
+  }
+  const dstDays = {}; dstAtt.forEach(function (a) { dstDays[d10(a.Date)] = 1; });
+  const attIn = att.filter(function (a) { return inR(d10(a.Date)); });
+  return {
+    sv: pay.filter(function (h) { return h.Status !== 'Deleted' && inR(d10(h.DateTo || h.VoucherDate)); }),
+    att: attIn.filter(function (a) { return !dstDays[d10(a.Date)]; }),
+    attSkip: attIn.filter(function (a) { return dstDays[d10(a.Date)]; }).map(function (a) { return d10(a.Date); }),
+    tpm: tpm.filter(function (m) { return inR(tpDate[String(m.TeamProdID)]); }),
+    bon: bon.filter(function (b) { return inR(d10(b.WorkDate)); }),
+    si: si.filter(function (x) { return inR(d10(x.IssueDate)); }),
+    lv: lv.filter(function (x) { return x.Status !== 'Deleted' && inR(d10(x.FromDate)); })
+  };
+}
+async function empTransferRun(S, src, dst, parts) {
+  const up = async function (tb, col, ids, extraEq) {
+    for (let i = 0; i < ids.length; i += 200) {
+      let qq = supabaseClient.from(tb).update({ EmployeeID: dst }).eq('EmployeeID', src).in(col, ids.slice(i, i + 200));
+      const { error } = await qq; if (error) throw new Error(tb + ': ' + error.message);
+    }
+  };
+  const ids = function (rows, k) { return rows.map(function (r) { return r[k]; }).filter(function (v) { return v !== null && v !== undefined; }); };
+  const done = {};
+  if (parts.sv && S.sv.length) {
+    const pids = ids(S.sv, 'PayrollID');
+    await up('Payroll', 'PayrollID', pids); await up('Payroll_Lines', 'PayrollID', pids); await up('Payroll_Details', 'PayrollID', pids);
+    done.sv = pids.length;
+  }
+  if (parts.att && S.att.length) { await up('Attendance', 'AttendanceID', ids(S.att, 'AttendanceID')); done.att = S.att.length; }
+  if (parts.tpm && S.tpm.length) { await up('TeamProduction_Members', 'MemberID', ids(S.tpm, 'MemberID')); done.tpm = S.tpm.length; }
+  if (parts.bon && S.bon.length) { await up('DailyBonus', 'BonusID', ids(S.bon, 'BonusID')); done.bon = S.bon.length; }
+  if (parts.si && S.si.length) { await up('SalaryIssue', 'IssueID', ids(S.si, 'IssueID')); done.si = S.si.length; }
+  if (parts.lv && S.lv.length) { await up('LeaveRequests', 'LeaveID', ids(S.lv, 'LeaveID')); done.lv = S.lv.length; }
+  return done;
+}
+async function empTransferOpen() {
+  if (!currentUser || currentUser.RoleID !== 'ROLE-ADMIN') { showToast(t('শুধু এডমিন হিসাব স্থানান্তর করতে পারবেন।', 'Only an Admin can move records.'), 'error'); return false; }
+  delete listCache.Employees; delete listCache.EmployeeCategories;
+  const m = await cachedListMultiple(['Employees', 'EmployeeCategories']);
+  const catNm = {}; (m.EmployeeCategories || []).forEach(function (c) { catNm[c.CategoryID] = c.CategoryName; });
+  const emps = (m.Employees || []).filter(function (e) { return e.Status !== 'Deleted'; }).sort(empComparePost(catNm));
+  const opts = `<option value="">${t('— বাছাই করুন —', '— select —')}</option>` + emps.map(function (e) {
+    return `<option value="${attr(e.EmployeeID)}">${escapeHtml((e.Name || e.EmployeeID) + ' · ' + (catNm[e.CategoryID] || '—') + ' · ' + e.EmployeeID + (isTrue(e.IsActive) ? '' : ' (নিষ্ক্রিয়)'))}</option>`;
+  }).join('');
+  let S = null, scanKey = '';
+  openModal({
+    title: t('⇄ কর্মচারীর হিসাব স্থানান্তর', '⇄ Move employee records'),
+    bodyHtml: `<style>.etx-g{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;} .etx-g .field{margin:0;} .etx-g .full{grid-column:1/-1;}
+        .etx-tbl{width:100%;border-collapse:collapse;font-size:11px;margin-top:8px;} .etx-tbl th{font-weight:700;background:#eef1f5;text-align:center;padding:3px;border:1px solid #dde3ea;} .etx-tbl td{text-align:center;padding:2px 4px;border:1px solid #e6eaef;}
+        .etx-tbl td input{width:auto;margin:0;} .etx-note{font-size:11px;color:var(--text-muted);margin:6px 0 0;} .etx-warn{font-size:11px;color:#92400e;background:#fff7e6;border:1px solid #f5d9a6;border-radius:6px;padding:4px 8px;margin-top:6px;}</style>
+      <div class="etx-g" id="etxForm">
+        <div class="field full"><label>${t('যার নামে এখন আছে (উৎস)', 'From employee')}</label><select id="etxSrc">${opts}</select></div>
+        <div class="field full"><label>${t('যার নামে যাবে (গন্তব্য)', 'To employee')}</label><select id="etxDst">${opts}</select></div>
+        <div class="field"><label>${t('তারিখ হইতে (খালি = শুরু থেকে)', 'From date (blank = all)')}</label><input type="date" id="etxFrom"></div>
+        <div class="field"><label>${t('তারিখ পর্যন্ত (খালি = আজ পর্যন্ত সব)', 'To date (blank = all)')}</label><input type="date" id="etxTo"></div>
+      </div>
+      <div id="etxOut"><p class="etx-note">${t('উৎস ও গন্তব্য বাছাই করলে কোন হিসাব কতটা সরবে তা এখানে দেখাবে।', 'Pick both employees to see what will move.')}</p></div>
+      <p class="etx-note">${t('গন্তব্য কর্মচারী তালিকায় না থাকলে আগে "+ নতুন যোগ করুন" দিয়ে তাকে যোগ করুন। এই কাজের জন্য এডমিন পাসওয়ার্ড লাগবে।', 'Add the target employee first if missing. Admin password required.')}</p>`,
+    onSave: async function () {
+      const src = val('etxSrc'), dst = val('etxDst'), from = val('etxFrom'), to = val('etxTo');
+      if (!src || !dst) throw new Error(t('উৎস ও গন্তব্য — দুই কর্মচারীই বাছাই করুন।', 'Select both employees.'));
+      if (src === dst) throw new Error(t('উৎস ও গন্তব্য একই কর্মচারী।', 'Same employee selected twice.'));
+      if (from && to && from > to) throw new Error(t('"তারিখ হইতে" "তারিখ পর্যন্ত"-র পরে হতে পারে না।', 'From date is after To date.'));
+      if (!S || scanKey !== [src, dst, from, to].join('|')) { await scan(); throw new Error(t('হিসাবের সংখ্যা দেখে নিন, তারপর আবার "স্থানান্তর করুন" চাপুন।', 'Review the counts, then press again.')); }
+      const parts = {}; document.querySelectorAll('#etxOut [data-etx]').forEach(function (c) { parts[c.getAttribute('data-etx')] = c.checked; });
+      const total = EMP_TX_PARTS.reduce(function (s2, p) { return s2 + (parts[p.k] ? S[p.k].length : 0); }, 0);
+      if (!total) throw new Error(t('সরানোর মতো কোনো হিসাব বাছাই করা নেই।', 'Nothing selected to move.'));
+      const nm = function (id) { const e = emps.find(function (x) { return x.EmployeeID === id; }); return e ? (e.Name || id) : id; };
+      const pw = prompt(t('নিরাপত্তার জন্য আপনার এডমিন পাসওয়ার্ড দিন:', 'Enter your admin password to confirm:')); if (!pw) throw new Error(t('বাতিল করা হয়েছে।', 'Cancelled.'));
+      const { error: ae } = await supabaseClient.auth.signInWithPassword({ email: currentUser.Email, password: pw });
+      if (ae) throw new Error(t('পাসওয়ার্ড ভুল — স্থানান্তর বাতিল।', 'Incorrect password — cancelled.'));
+      if (!confirm(t('"' + nm(src) + '" এর ' + total + 'টি হিসাব "' + nm(dst) + '" এর নামে সরানো হবে। নিশ্চিত?', 'Move ' + total + ' records?'))) throw new Error(t('বাতিল করা হয়েছে।', 'Cancelled.'));
+      const done = await empTransferRun(S, src, dst, parts);
+      const txt = EMP_TX_PARTS.filter(function (p) { return done[p.k]; }).map(function (p) { return p.bn + ' ' + done[p.k] + 'টি'; }).join(', ');
+      try { await actInsert({ Action: 'এডিট', Details: ('হিসাব স্থানান্তর: ' + nm(src) + ' (' + src + ') → ' + nm(dst) + ' (' + dst + ')' + (from || to ? ' · ' + (isoToDmy(from) || 'শুরু') + ' — ' + (isoToDmy(to) || 'আজ') : '') + ' · ' + txt).slice(0, 500) }); } catch (e) {}
+      listCache = {};
+      showToast(t('স্থানান্তর হয়েছে ✅ — ', 'Moved ✅ — ') + txt, 'success');
+      if (window.__refreshMasterTable) await window.__refreshMasterTable();
+    }
+  });
+  const sb = document.getElementById('modalSaveBtn'); if (sb) sb.textContent = t('⇄ স্থানান্তর করুন', '⇄ Move');
+  const body = document.getElementById('modalBody');
+  async function scan() {
+    const src = val('etxSrc'), dst = val('etxDst'), from = val('etxFrom'), to = val('etxTo'), out = document.getElementById('etxOut');
+    S = null; scanKey = '';
+    if (!src || !dst || src === dst) { out.innerHTML = `<p class="etx-note">${src && src === dst ? t('উৎস ও গন্তব্য আলাদা কর্মচারী হতে হবে।', 'Pick two different employees.') : t('উৎস ও গন্তব্য বাছাই করুন।', 'Pick both employees.')}</p>`; return; }
+    out.innerHTML = `<p class="etx-note">${t('গোনা হচ্ছে...', 'Counting...')}</p>`;
+    try { S = await empTransferScan(src, dst, from, to); scanKey = [src, dst, from, to].join('|'); }
+    catch (e) { out.innerHTML = `<div class="etx-warn">${escapeHtml(e.message)}</div>`; return; }
+    const svRows = S.sv.slice().sort(function (a, b) { return String(a.DateTo || '').localeCompare(String(b.DateTo || '')); }).map(function (h) { return (h.VoucherNo || h.PayrollID) + ' (' + isoToDmy(h.DateFrom) + ' — ' + isoToDmy(h.DateTo) + ')'; });
+    out.innerHTML = `<table class="etx-tbl"><thead><tr><th>${t('সরাবেন?', 'Move?')}</th><th>${t('হিসাব', 'Records')}</th><th>${t('সংখ্যা', 'Count')}</th></tr></thead><tbody>
+      ${EMP_TX_PARTS.map(function (p) { const c = S[p.k].length; return `<tr><td><input type="checkbox" data-etx="${p.k}" ${c ? 'checked' : 'disabled'}></td><td>${t(p.bn, p.en)}</td><td><b>${c}</b></td></tr>`; }).join('')}</tbody></table>
+      ${svRows.length ? `<p class="etx-note">${t('সেলারী ভাউচারঃ ', 'Salary vouchers: ')}${escapeHtml(svRows.join(', '))}</p>` : ''}
+      ${S.attSkip.length ? `<div class="etx-warn">⚠️ ${t('এই তারিখগুলোতে গন্তব্য কর্মচারীর নিজের হাজিরা আছে — এগুলোর হাজিরা সরবে না: ', 'Target already has attendance on: ')}${escapeHtml(S.attSkip.map(isoToDmy).join(', '))}</div>` : ''}`;
+  }
+  ['etxSrc', 'etxDst', 'etxFrom', 'etxTo'].forEach(function (id) { const el = document.getElementById(id); if (el) el.addEventListener('change', scan); });
+  wireSequentialKeyNav(document.getElementById('etxForm'));
+  return false;
 }
 function payClassOf(empId, empMap, catNameMap) {
   const e = empMap[empId]; if (!e) return 'prod';
