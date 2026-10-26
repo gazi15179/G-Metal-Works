@@ -8944,10 +8944,126 @@ async function hrQueryRange(table, dateCol, from, to) {
 /* ============================================================
    হাজিরা — দৈনিক (P/A/L বাটন) ও মাসিক খাতা (ছক)
    ============================================================ */
+/* ============================================================
+   অটো সেলারী ভাউচার — মালিক ও ম্যানেজারের হাজিরা থেকে (২৬-০৯-২০২৬ থেকে)
+   • হাজিরায় P/A/L দিলে ওই সপ্তাহের (শনি–বৃহঃ; শুক্রবার P থাকলে শুক্র পর্যন্ত) সেলারী ভাউচার নিজে তৈরি/হালনাগাদ হয়
+   • প্রতিটা P দিন = কর্মচারীর দৈনিক হাজিরা; A ও L = ০ (টাকা নেই)
+   • অটো ভাউচার চেনা যায় VoucherType = 'Attendance' দিয়ে; হাতে বানানো ভাউচার ('Both') থাকলে ওই সপ্তাহে কিছু করা হয় না (ডবল হবে না)
+   • অটো ভাউচারে হাতে যোগ করা "অন্যান্য"/মজুরির সারি থাকে — শুধু দিনের হাজিরা নতুন করে বসে
+   • সপ্তাহে একটাও P না থাকলে (আর হাতের সারি না থাকলে) অটো ভাউচার মুছে যায়
+   ============================================================ */
+const SV_AUTO_START = '2026-09-26';
+const SV_AUTO_TYPE = 'Attendance';
+function svAutoEligible(emp, catMap) { if (!emp) return false; const r = empCatRank((catMap || {})[emp.CategoryID]); return r === 1 || r === 2; }   // মালিক, ম্যানেজার
+async function svAutoNextNo() {
+  const { data, error } = await supabaseClient.from('Payroll').select('VoucherNo').like('VoucherNo', 'SV-%');
+  if (error) throw new Error(error.message);
+  const n = (data || []).reduce(function (m, h) { const x = /^SV-(\d+)$/.exec(h.VoucherNo || ''); return x ? Math.max(m, Number(x[1])) : m; }, 0) + 1;
+  return 'SV-' + String(n).padStart(4, '0');
+}
+/** এক কর্মচারীর এক সপ্তাহ — ফলঃ 'created' | 'updated' | 'deleted' | 'manual' | 'none' */
+async function svAutoSyncWeek(emp, weekFrom, divisor) {
+  if (weekFrom < SV_AUTO_START) return 'none';
+  const empId = emp.EmployeeID, to = hrAddDays(weekFrom, 5), fri = hrAddDays(weekFrom, 6);
+  const [ar, pr] = await Promise.all([
+    supabaseClient.from('Attendance').select('*').eq('EmployeeID', empId).gte('Date', weekFrom).lte('Date', fri),
+    supabaseClient.from('Payroll').select('*').eq('EmployeeID', empId).eq('RunType', 'SalaryVoucher').lte('DateFrom', fri).gte('DateTo', weekFrom)
+  ]);
+  if (ar.error) throw new Error(ar.error.message); if (pr.error) throw new Error(pr.error.message);
+  const vs = (pr.data || []).filter(function (h) { return h.Status !== 'Deleted'; });
+  if (vs.some(function (h) { return h.VoucherType !== SV_AUTO_TYPE; })) return 'manual';   // হাতে বানানো ভাউচার আছে — ছোঁয়া হবে না
+  const auto = vs[0] || null;
+  const att = {}; (ar.data || []).forEach(function (a) { if (a.Status === 'Deleted') return; const c = HR_ATT_CODE[a.Status]; if (c) att[String(a.Date).slice(0, 10)] = c; });
+  const dTo = att[fri] === 'P' ? fri : to;
+  const days = hrDatesBetween(weekFrom, dTo);
+  const pDays = days.filter(function (d) { return att[d] === 'P'; });
+  let oldDet = [];
+  if (auto) { const { data, error } = await supabaseClient.from('Payroll_Details').select('*').eq('PayrollID', auto.PayrollID); if (error) throw new Error(error.message); oldDet = data || []; }
+  const rows = oldDet.filter(function (x) { return x.DetailType === 'SVRow'; });
+  if (!pDays.length && !rows.length) {
+    if (!auto) return 'none';
+    await supabaseClient.from('Payroll_Details').delete().eq('PayrollID', auto.PayrollID);
+    await supabaseClient.from('Payroll_Lines').delete().eq('PayrollID', auto.PayrollID);
+    const { error } = await supabaseClient.from('Payroll').delete().eq('PayrollID', auto.PayrollID); if (error) throw new Error(error.message);
+    return 'deleted';
+  }
+  const wage = Math.round(hrDailyWage(emp, divisor) * 100) / 100;
+  const prevHaj = {}; oldDet.forEach(function (x) { if (x.DetailType === 'SVDay' && Number(x.TargetQty) === 1 && Number(x.Amount) > 0) prevHaj[String(x.WorkDate).slice(0, 10)] = Number(x.Amount); });
+  const dayRows = days.map(function (d) { const P = att[d] === 'P'; return { DetailType: 'SVDay', WorkDate: d, Description: att[d] || '', TargetQty: P ? 1 : 0, Amount: P ? (prevHaj[d] || wage) : 0 }; });
+  const haj = dayRows.reduce(function (x, r) { return x + (r.TargetQty === 1 ? r.Amount : 0); }, 0);
+  const rWage = rows.reduce(function (x, r) { return x + (Number(r.Amount) || 0); }, 0);
+  const plus = rows.reduce(function (x, r) { const v = Number(r.OverQty) || 0; return x + (v > 0 ? v : 0); }, 0), minus = rows.reduce(function (x, r) { const v = Number(r.OverQty) || 0; return x + (v < 0 ? -v : 0); }, 0);
+  const total = Math.round((haj + rWage + plus - minus) * 100) / 100;
+  const hdr = { RunType: 'SalaryVoucher', VoucherType: SV_AUTO_TYPE, EmployeeID: empId, DateFrom: weekFrom, DateTo: dTo, TotalNetPay: total, Status: 'Active', Month: HR_MONTHS_BN[hrDate(dTo).getMonth()], Year: String(hrDate(dTo).getFullYear()) };
+  let pid, res;
+  if (auto) {
+    pid = auto.PayrollID;
+    const { error } = await supabaseClient.from('Payroll').update(hdr).eq('PayrollID', pid); if (error) throw new Error(error.message);
+    await supabaseClient.from('Payroll_Details').delete().eq('PayrollID', pid).eq('DetailType', 'SVDay');
+    await supabaseClient.from('Payroll_Lines').delete().eq('PayrollID', pid);
+    res = 'updated';
+  } else {
+    hdr.VoucherNo = await svAutoNextNo(); hdr.VoucherDate = dTo;
+    const { data, error } = await supabaseClient.from('Payroll').insert(hdr).select(); if (error) throw new Error(error.message);
+    pid = data[0].PayrollID; res = 'created';
+  }
+  const cnt = function (c) { return days.filter(function (d) { return att[d] === c; }).length; };
+  const r1 = await supabaseClient.from('Payroll_Lines').insert({ PayrollID: pid, EmployeeID: empId, CategoryID: emp.CategoryID || null, SalaryType: 'Both', DailyWage: wage,
+    PresentDays: pDays.length, AbsentDays: cnt('A'), LeaveDays: cnt('L'), ProductionAmount: rWage, AttendancePay: haj, Bonus: plus, Allowance: plus, Deduction: minus, NetPay: total, CalculatedPay: total, BasicSalary: rWage, DaysWorked: pDays.length, RatePerUnit: wage });
+  if (r1.error) throw new Error(r1.error.message);
+  const det = dayRows.map(function (r) { return Object.assign({ PayrollID: pid, EmployeeID: empId }, r); });
+  const { error: de } = await supabaseClient.from('Payroll_Details').insert(det); if (de) throw new Error(de.message);
+  return res;
+}
+let __svAutoQ = {}, __svAutoTimer = null, __svAutoBusy = Promise.resolve();
+/** হাজিরা বদলালে ডাকা হয় — কিছুক্ষণ অপেক্ষা করে (একসাথে অনেকগুলো P দিলে) সপ্তাহ ধরে একবারে হালনাগাদ */
+function svAutoQueue(empId, date) {
+  if (!empId || !date || date < SV_AUTO_START) return;
+  __svAutoQ[empId + '|' + hrWeekOf(date).from] = 1;
+  clearTimeout(__svAutoTimer); __svAutoTimer = setTimeout(svAutoFlush, 900);
+}
+function svAutoFlush() {
+  const keys = Object.keys(__svAutoQ); __svAutoQ = {};
+  if (!keys.length) return __svAutoBusy;
+  __svAutoBusy = __svAutoBusy.then(async function () {
+    const m = await cachedListMultiple(['Employees', 'EmployeeCategories']);
+    const catMap = {}; (m.EmployeeCategories || []).forEach(function (c) { catMap[c.CategoryID] = c.CategoryName; });
+    const empMap = {}; (m.Employees || []).forEach(function (e) { empMap[e.EmployeeID] = e; });
+    const divisor = await hrDivisor();
+    const done = [];
+    for (const k of keys) {
+      const p = k.split('|'), e = empMap[p[0]]; if (!svAutoEligible(e, catMap)) continue;
+      try { const r = await svAutoSyncWeek(e, p[1], divisor); if (r === 'created' || r === 'updated' || r === 'deleted') done.push((e.Name || e.EmployeeID) + ' ' + isoToDmy(p[1])); }
+      catch (err) { showToast(t('অটো সেলারী ভাউচার হয়নি — ', 'Auto salary voucher failed — ') + (e.Name || '') + ': ' + err.message, 'error'); }
+    }
+    if (done.length) showToast(t('সেলারী ভাউচার হালনাগাদ ✅ — ', 'Salary voucher updated ✅ — ') + done.join(', '), 'success');
+    return done.length;
+  }).catch(function () { return 0; });
+  return __svAutoBusy;
+}
+let __svAutoBackfillDone = false;
+/** ২৬-০৯-২০২৬ থেকে আজ পর্যন্ত মালিক/ম্যানেজারের সব সপ্তাহ মিলিয়ে নেওয়া (সেশনে একবার) — ফেরত দেয় কয়টা বদলালো */
+async function svAutoBackfill(force) {
+  if (__svAutoBackfillDone && !force) return 0;
+  __svAutoBackfillDone = true;
+  const today = hrToday(); if (today < SV_AUTO_START) return 0;
+  const m = await cachedListMultiple(['Employees', 'EmployeeCategories']);
+  const catMap = {}; (m.EmployeeCategories || []).forEach(function (c) { catMap[c.CategoryID] = c.CategoryName; });
+  const emps = (m.Employees || []).filter(function (e) { return e.Status !== 'Deleted' && svAutoEligible(e, catMap); });
+  if (!emps.length) return 0;
+  const { data, error } = await supabaseClient.from('Attendance').select('EmployeeID,Date').in('EmployeeID', emps.map(function (e) { return e.EmployeeID; })).gte('Date', SV_AUTO_START).lte('Date', today);
+  if (error) return 0;
+  const { data: au } = await supabaseClient.from('Payroll').select('EmployeeID,DateFrom').eq('VoucherType', SV_AUTO_TYPE).gte('DateTo', SV_AUTO_START);
+  (data || []).forEach(function (a) { __svAutoQ[a.EmployeeID + '|' + hrWeekOf(String(a.Date).slice(0, 10)).from] = 1; });
+  (au || []).forEach(function (h) { if (h.EmployeeID && h.DateFrom) __svAutoQ[h.EmployeeID + '|' + String(h.DateFrom).slice(0, 10)] = 1; });   // হাজিরা মুছে গেলে অটো ভাউচারও মিলাতে
+  return await svAutoFlush();
+}
+
 async function renderAttendancePage(content) {
   const base = await hrLoadBase();
   const divisor = await hrDivisor();
   const st = { mode: 'daily', date: hrToday(), month: hrToday().slice(0, 7), cat: '', q: '', recs: {} };
+  svAutoBackfill().catch(function () {});   // মালিক/ম্যানেজারের হাজিরা → অটো সেলারী ভাউচার (২৬-০৯-২০২৬ থেকে, সেশনে একবার)
 
   content.innerHTML = `
     <style>
@@ -9009,6 +9125,10 @@ async function renderAttendancePage(content) {
     rows.forEach(function (r) { if (r.Status === 'Deleted') return; const k = key(r.EmployeeID, String(r.Date).slice(0, 10)); if (!st.recs[k]) st.recs[k] = r; });
   }
   async function setStatus(empId, date, code) {
+    await setStatus0(empId, date, code);
+    if (svAutoEligible(base.empMap[empId], base.catMap)) svAutoQueue(empId, date);   // মালিক/ম্যানেজার → অটো সেলারী ভাউচার
+  }
+  async function setStatus0(empId, date, code) {
     const k = key(empId, date), rec = st.recs[k];
     if (!code) {
       if (rec) { const { error } = await supabaseClient.from('Attendance').delete().eq('AttendanceID', rec.AttendanceID); if (error) throw new Error(error.message); delete st.recs[k]; }
@@ -9780,7 +9900,7 @@ async function renderPayrollPage(content) {
   const activeHead = function (h) { return h.Status !== 'Deleted' && (h.IsActive === undefined || h.IsActive === null || isTrue(h.IsActive)); };
   let heads = allHeads.filter(activeHead);
   const w0 = hrWeekOf(hrToday());
-  const st = { id: null, no: '', vdate: hrToday(), from: w0.from, to: hrAddDays(w0.from, 5), emp: '', days: [], dirty: false };
+  const st = { id: null, no: '', vtype: 'Both', vdate: hrToday(), from: w0.from, to: hrAddDays(w0.from, 5), emp: '', days: [], dirty: false };
 
   content.innerHTML = `
     <style>
@@ -9991,7 +10111,7 @@ async function renderPayrollPage(content) {
 
   // ---------- কর্মচারীর সপ্তাহের ডেটা ----------
   async function loadFresh() {
-    st.id = null; st.no = ''; st.days = [];
+    st.id = null; st.no = ''; st.vtype = 'Both'; st.days = [];
     if (!st.emp) { renderBody(); return; }
     // একই কর্মচারীর মিলে যাওয়া ভাউচার আগে থাকলে সেটাই খোলা
     const ex = (await api('list', { sheet: 'Payroll' })).filter(function (h) { return h.Status !== 'Deleted' && h.RunType === 'SalaryVoucher' && h.EmployeeID === st.emp && !(String(h.DateTo).slice(0, 10) < st.from || String(h.DateFrom).slice(0, 10) > st.to); });
@@ -10048,7 +10168,7 @@ async function renderPayrollPage(content) {
     st.dirty = false; renderBody();
   }
   async function openSaved(h) {
-    st.id = h.PayrollID; st.no = h.VoucherNo || h.PayrollID; st.emp = h.EmployeeID;
+    st.id = h.PayrollID; st.no = h.VoucherNo || h.PayrollID; st.emp = h.EmployeeID; st.vtype = h.VoucherType || 'Both';
     st.vdate = String(h.VoucherDate || h.DateTo || hrToday()).slice(0, 10); st.from = String(h.DateFrom).slice(0, 10); st.to = String(h.DateTo).slice(0, 10);
     document.getElementById('svDate').value = st.vdate; document.getElementById('svFrom').value = st.from; document.getElementById('svTo').value = st.to;
     const e = base.empMap[st.emp] || {}; document.getElementById('svEmp').value = e.Name || st.emp; showEmpInfo();
@@ -10086,7 +10206,7 @@ async function renderPayrollPage(content) {
       if ((Number(r.oth) || 0) && !r.head) throw new Error(dd(d.date) + t(' — অন্যান্য টাকার খাত বাছাই করুন।',' — pick a head for the other amount.'));
     }
     const tt = totals(), e = base.empMap[st.emp] || {};
-    const hdr = { RunType: 'SalaryVoucher', VoucherType: 'Both', EmployeeID: st.emp, VoucherDate: st.vdate, DateFrom: st.from, DateTo: st.to, TotalNetPay: tt.total, Status: 'Active', Month: HR_MONTHS_BN[hrDate(st.to).getMonth()], Year: String(hrDate(st.to).getFullYear()) };
+    const hdr = { RunType: 'SalaryVoucher', VoucherType: st.id && st.vtype === SV_AUTO_TYPE ? SV_AUTO_TYPE : 'Both', EmployeeID: st.emp, VoucherDate: st.vdate, DateFrom: st.from, DateTo: st.to, TotalNetPay: tt.total, Status: 'Active', Month: HR_MONTHS_BN[hrDate(st.to).getMonth()], Year: String(hrDate(st.to).getFullYear()) };
     let pid = st.id;
     if (pid) {
       await supabaseClient.from('TeamProduction_Members').update({ BilledIn: null }).eq('BilledIn', pid);
@@ -10197,7 +10317,7 @@ async function renderPayrollPage(content) {
       .sort(function (a, b) { return String(b.VoucherNo || '').localeCompare(String(a.VoucherNo || '')); }).slice(0, 30);
     el.innerHTML = list.length ? list.map(function (h) {
       const e = base.empMap[h.EmployeeID] || {};
-      return `<div class="sv-li"><div><b>${escapeHtml(h.VoucherNo || h.PayrollID)}</b> · ${escapeHtml(e.Name || h.EmployeeID || '')}
+      return `<div class="sv-li"><div><b>${escapeHtml(h.VoucherNo || h.PayrollID)}</b> · ${escapeHtml(e.Name || h.EmployeeID || '')}${h.VoucherType === SV_AUTO_TYPE ? ` <span class="sv-att P" title="${attr(t('হাজিরা থেকে নিজে তৈরি', 'Created from attendance'))}">${t('অটো', 'Auto')}</span>` : ''}
           <div class="meta">${escapeHtml(formatShortDate(h.VoucherDate || h.DateTo))} · ${escapeHtml(payrollPeriodLabel(h))} · <b>${hrMoney(h.TotalNetPay)}</b></div></div>
         <div class="ic"><button data-lv="${attr(h.PayrollID)}" aria-label="${t('ভিউ','View')}" title="${t('ভিউ / প্রিন্ট','View / print')}">👁</button><button data-le="${attr(h.PayrollID)}" aria-label="${t('এডিট','Edit')}" title="${t('এডিট','Edit')}">✏️</button><button data-ld="${attr(h.PayrollID)}" aria-label="${t('ডিলিট','Delete')}" title="${t('ডিলিট','Delete')}">🗑</button></div></div>`;
     }).join('') : `<div class="sv-muted">${t('এখনো কোনো সেলারী ভাউচার নেই।','No salary vouchers yet.')}</div>`;
@@ -10353,6 +10473,7 @@ async function renderPayrollPage(content) {
   });
 
   renderBody(); await renderList();
+  svAutoBackfill().then(function (n) { if (n) renderList(); }).catch(function () {});   // মালিক/ম্যানেজারের হাজিরা → অটো ভাউচার (২৬-০৯-২০২৬ থেকে)
   // রিপোর্ট বা অন্য পেজ থেকে পাঠানো নির্দেশ — {id, action: view|edit|delete|pdf} অথবা {emp}
   const req = window.__svOpen; window.__svOpen = null;
   if (req) {
