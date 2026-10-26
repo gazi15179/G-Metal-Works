@@ -10845,8 +10845,31 @@ async function renderHrReportsPage(content, opts) {
   { const fy = await getFiscalYearStart(today); st.from = fy; st.pFrom = fy; }   // "হইতে" ডিফল্টঃ অর্থবছরের শুরু
 
   content.innerHTML = `
-    <style>
-      .rp{padding:12px !important;max-width:1150px;}
+    <style>${RPT_SIDE_CSS}
+      .rp{padding:6px 8px !important;max-width:none;}
+      .rp-side .rp-tabs{flex-direction:column;gap:4px;margin:0 0 8px;}
+      .rp-side .rp-tab{height:30px;padding:0 8px;font-size:12px;border-radius:8px;text-align:left;width:100%;}
+      .rp-side .rp-bar{display:grid;grid-template-columns:1fr;gap:4px;margin:0;}
+      .rp-side .rp-bar .field{grid-column:1 / -1;} .rp-side .rp-bar label{display:block;font-size:11px;font-weight:600;color:#3d5a6c;margin-bottom:2px;}
+      .rp-side input,.rp-side select{height:30px !important;padding:3px 8px !important;font-size:12px !important;background:#fff;}
+      .rp-side .rp-bar .btn{height:30px;width:100%;font-size:12px;padding:0 8px;}
+      .rp-side .rp-quick{margin:6px 0 0;gap:4px;} .rp-side .rp-quick button{font-size:11px;padding:2px 8px;background:#fff;}
+      .rp-side .rp-quick select{width:100% !important;}
+      .rp-side .rp-back{display:block;margin:6px 0 0;font-size:12px;}
+      .rp-side .sr-side-h small{font-weight:600;color:#3d5a6c;opacity:.85;margin-left:4px;} .rp-side:not(.collapsed) .sr-side-h small{display:none;}
+      .rp-main .rp-cards{gap:4px;margin-bottom:6px;} .rp-main .rp-cards div{padding:3px 6px;font-size:10.5px;border-radius:6px;} .rp-main .rp-cards b{font-size:13px;margin-top:0;}
+      .rp-main .rp-wrap{overflow:auto;max-height:calc(100vh - 170px);-webkit-overflow-scrolling:touch;}
+      .rp-main .rp-tbl{font-size:11px;} .rp-main .rp-tbl th{font-size:11px;padding:3px 5px;background:#eef1f5;z-index:2;} .rp-main .rp-tbl td{padding:2px 5px;line-height:1.25;}
+      .rp-main .rp-ic button{width:24px;height:22px;font-size:11px;border-radius:5px;}
+      @media (max-width:760px){
+        .rp-side:not(.collapsed) .sr-bar{display:block;}
+        .rp-side .rp-tabs{flex-direction:row;} .rp-side .rp-tab{flex:1;padding:0 4px;font-size:11px;text-align:center;}
+        .rp-side .rp-bar{grid-template-columns:1fr 1fr;gap:4px 8px;}
+        .rp-side .rp-bar .field.half{grid-column:auto;}
+        .rp-side .sr-side-h small{display:inline;}
+        .rp-main .rp-cards{grid-template-columns:repeat(4,minmax(0,1fr));} .rp-main .rp-cards div{padding:2px 3px;font-size:9.5px;} .rp-main .rp-cards b{font-size:11.5px;}
+        .rp-main .rp-tbl{min-width:0;}
+      }
       .rp-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 0 10px;} .rp-head h1{font-size:18px;margin:0;}
       .rp-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;}
       .rp-tab{height:38px;padding:0 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);font-family:inherit;font-weight:600;font-size:13.5px;cursor:pointer;color:var(--text);}
@@ -10875,16 +10898,26 @@ async function renderHrReportsPage(content, opts) {
       .rp-tbl tr.vk-Payroll td{background:#f1f9e8;} .rp-tbl tr.vk-Issue td{background:#eaf5fd;}
       @media (max-width:760px){ .rp-bar{grid-template-columns:repeat(2,minmax(0,1fr));} .rp-bar .btn{grid-column:1 / -1;} .rp-cards{grid-template-columns:repeat(2,minmax(0,1fr));} }
     </style>
-    <div class="panel rp">
-      <div class="rp-head"><h1>${OPT.ledgerOnly ? t('সেলারী লেজার','Salary Ledger') : t('বেতন ও উৎপাদন রিপোর্ট','Salary & Production Reports')}</h1>${OPT.ledgerOnly ? `<div style="font-size:12px;color:var(--text-muted);">${t('তারিখ অনুযায়ী — সব কর্মচারীর সারাংশ, অথবা একজনের বিস্তারিত খতিয়ান','By date — all employees summary, or one employee in detail')}</div>` : ''}</div>
+      <div class="rp-head sr-head"><h1>${OPT.ledgerOnly ? t('সেলারী লেজার','Salary Ledger') : t('বেতন ও উৎপাদন রিপোর্ট','Salary & Production Reports')}</h1>${OPT.ledgerOnly ? `<div style="font-size:12px;color:var(--text-muted);">${t('তারিখ অনুযায়ী — সব কর্মচারীর সারাংশ, অথবা একজনের বিস্তারিত খতিয়ান','By date — all employees summary, or one employee in detail')}</div>` : ''}</div>
+    <div class="sr-layout">
+     <aside class="sr-side rp-side" id="rpSide">
+      <button type="button" class="sr-tog" id="rpTog" title="${attr(t('ফিল্টার লুকান/দেখান', 'Hide/show filters'))}">‹</button>
+      <div class="sr-side-h" data-lbl="${attr(t('ফিল্টার', 'Filters'))}"><span>🔎 ${t('ফিল্টার', 'Filters')}<small id="rpSideSum"></small></span></div>
+      <div class="sr-bar">
       <div class="rp-tabs" ${OPT.ledgerOnly ? 'style="display:none;"' : ''}>
         <button class="rp-tab on" data-tab="ledger">📒 ${t('কর্মচারীর বেতন খতিয়ান','Employee salary ledger')}</button>
         <button class="rp-tab" data-tab="month">📅 ${t('মাসিক মজুরি খরচ','Monthly wage cost')}</button>
         <button class="rp-tab" data-tab="prod">🏭 ${t('উৎপাদন ও মজুরি খরচ','Production & wage cost')}</button>
       </div>
       <div id="rpBar"></div>
+      </div>
+     </aside>
+     <div class="sr-main panel rp rp-main">
       <div id="rpOut"></div>
+     </div>
     </div>`;
+  const rpSide = wireReportSide(document.getElementById('rpSide'), document.getElementById('rpTog'), 'rpSideCollapsed', function () {});
+  if (window.matchMedia('(max-width:760px)').matches) rpSide.collapse();   // মোবাইলে শুরুতে গুটানো — নিচে বেশি লাইন দেখা যায়
 
   // ---------- ডেটা ----------
   async function loadMoney() {
@@ -10916,7 +10949,7 @@ async function renderHrReportsPage(content, opts) {
     }).join('');
     const e = base.empMap[st.emp] || {};
     st.print = { title: t('কর্মচারীর বেতন খতিয়ান','Employee salary ledger'), sub: empName(st.emp) + (base.catMap[e.CategoryID] ? ' · ' + base.catMap[e.CategoryID] : '') + ' · ' + formatShortDate(st.from) + ' — ' + formatShortDate(st.to) };
-    out.innerHTML = `${OPT.ledgerOnly || true ? `<button type="button" class="rp-back" id="rpBackAll">← ${t('সব কর্মচারী','All employees')}</button>` : ''}
+    out.innerHTML = `
       <div class="rp-cards"><div>${t('শুরুর বকেয়া','Opening due')}<b>${balTxt(open)}</b></div><div>${t('পাওনা হয়েছে','Earned')}<b>${hrMoney(te)}</b></div><div>${t('দেওয়া হয়েছে','Paid')}<b>${hrMoney(tp)}</b></div><div>${t('শেষ বকেয়া','Closing due')}<b>${balTxt(bal)}</b></div></div>
       <div class="rp-wrap" id="rpPrintArea"><table class="rp-tbl"><thead><tr><th>${t('তারিখ','Date')}</th><th>${t('ধরন','Type')}</th><th>${t('নম্বর','No.')}</th><th>${t('বিবরণ','Details')}</th><th>${t('পাওনা','Earned')}</th><th>${t('পরিশোধ','Paid')}</th><th>${t('বকেয়া','Balance')}</th><th class="rp-ic-h"></th></tr></thead>
         <tbody><tr class="open"><td class="l" colspan="6">${t('শুরুর বকেয়া (','Opening balance (')}${escapeHtml(formatShortDate(st.from))} ${t('এর আগে)','before)')}</td><td>${balTxt(open)}</td><td></td></tr>
@@ -11128,27 +11161,46 @@ async function renderHrReportsPage(content, opts) {
   }
 
   // ---------- ফিল্টার ----------
+  /** কর্মচারী ড্রপডাউন — "সব কর্মচারী" + পদের সিরিয়ালে (মালিক, ম্যানেজার … ড্রাইভার, অন্যান্য) পদ অনুযায়ী ভাগ করে */
+  function empSelectOptions() {
+    const list = base.emps.slice();
+    if (st.emp && !list.some(function (e) { return e.EmployeeID === st.emp; }) && base.empMap[st.emp]) list.push(base.empMap[st.emp]);   // নিষ্ক্রিয় কর্মচারী বাছাই করা থাকলে
+    const groups = [], byCat = {};
+    list.forEach(function (e) { const c = base.catMap[e.CategoryID] || t('ধরন নেই', 'No type'); if (!byCat[c]) { byCat[c] = []; groups.push(c); } byCat[c].push(e); });
+    return `<option value="">${t('— সব কর্মচারী —', '— All employees —')}</option>` + groups.map(function (g) {
+      return `<optgroup label="${attr(g)}">${byCat[g].map(function (e) { return `<option value="${attr(e.EmployeeID)}" ${e.EmployeeID === st.emp ? 'selected' : ''}>${escapeHtml(e.Name || e.EmployeeID)}</option>`; }).join('')}</optgroup>`;
+    }).join('');
+  }
   function renderBar() {
     const bar = document.getElementById('rpBar');
     const printBtn = `<button class="btn btn-outline" id="rpPrint">🖨️ ${t('প্রিন্ট','Print')}</button>`;
     if (st.tab === 'ledger') {
-      bar.innerHTML = `<div class="rp-bar"><div class="field" style="grid-column:span 2;position:relative;"><label>${t('কর্মচারী (খালি = সব কর্মচারী)','Employee (empty = all)')}</label><input id="rpEmp" placeholder="${t('সব কর্মচারী — একজনের জন্য নাম লিখে বাছাই করুন','All employees — type a name for one')}" value="${attr(st.emp ? empName(st.emp) : '')}">${st.emp ? `<button type="button" class="rp-empx" id="rpEmpX" title="${attr(t('সব কর্মচারী','All employees'))}">✕</button>` : ''}</div>
-        <div class="field"><label>${t('তারিখ হইতে','From')}</label><input type="date" id="rpFrom" value="${st.from}"></div><div class="field"><label>${t('তারিখ পর্যন্ত','To')}</label><input type="date" id="rpTo" value="${st.to}"></div>${printBtn}</div>
+      bar.innerHTML = `<div class="rp-bar"><div class="field" style="position:relative;"><label>${t('কর্মচারী (খালি = সব কর্মচারী)','Employee (empty = all)')}</label><select id="rpEmp">${empSelectOptions()}</select></div>
+        <div class="field half"><label>${t('তারিখ হইতে','From')}</label><input type="date" id="rpFrom" value="${st.from}"></div><div class="field half"><label>${t('তারিখ পর্যন্ত','To')}</label><input type="date" id="rpTo" value="${st.to}"></div><div class="field">${printBtn}</div></div>
         <div class="rp-quick">${st.emp ? '' : `<select id="rpCat" style="width:auto !important;min-width:130px;height:26px;font-size:11.5px;border:1px solid var(--border);border-radius:14px;padding:0 8px;background:var(--surface);color:inherit;"><option value="">${t('সব ক্যাটাগরি','All categories')}</option>${Object.keys(base.catMap || {}).map(function (k) { return `<option value="${attr(k)}" ${k === st.cat ? 'selected' : ''}>${escapeHtml(base.catMap[k])}</option>`; }).join('')}</select>`}
-          <button type="button" data-qr="week">${t('এই সপ্তাহ','This week')}</button><button type="button" data-qr="month">${t('এই মাস','This month')}</button><button type="button" data-qr="last">${t('গত মাস','Last month')}</button><button type="button" data-qr="fy">${t('এই অর্থবছর','This fiscal year')}</button><button type="button" data-qr="all">${t('শুরু থেকে','From the start')}</button></div>`;
-      hrNameSuggest(document.getElementById('rpEmp'), { list: function () { return hrEmpSuggestList(base, base.emps); }, onPick: function (it) { st.emp = it.id; document.getElementById('rpEmp').value = it.name; run(); } });
+          <button type="button" data-qr="week">${t('এই সপ্তাহ','This week')}</button><button type="button" data-qr="month">${t('এই মাস','This month')}</button><button type="button" data-qr="last">${t('গত মাস','Last month')}</button><button type="button" data-qr="fy">${t('এই অর্থবছর','This fiscal year')}</button><button type="button" data-qr="all">${t('শুরু থেকে','From the start')}</button></div>
+        ${st.emp ? `<button type="button" class="rp-back" id="rpBackAll">← ${t('সব কর্মচারী','All employees')}</button>` : ''}`;
     } else if (st.tab === 'month') {
-      bar.innerHTML = `<div class="rp-bar"><div class="field"><label>${t('মাস','Month')}</label><input type="month" id="rpMonth" value="${st.month}"></div><div></div><div></div><div></div>${printBtn}</div>`;
+      bar.innerHTML = `<div class="rp-bar"><div class="field half"><label>${t('মাস','Month')}</label><input type="month" id="rpMonth" value="${st.month}"></div><div class="field half"><label>&nbsp;</label>${printBtn}</div></div>`;
     } else {
       bar.innerHTML = `<div class="rp-bar">
-        <div class="field"><label>${t('তারিখ হইতে','From')}</label><input type="date" id="rpPFrom" value="${st.pFrom}"></div>
-        <div class="field"><label>${t('তারিখ পর্যন্ত','To')}</label><input type="date" id="rpPTo" value="${st.pTo}"></div>
-        <div class="field"><label>${t('গ্রুপ','Group')}</label><select id="rpPGroup"><option value="">${t('সব','All')}</option>${gp.groups.map(function (g) { return `<option value="${attr(g.GroupID)}" ${g.GroupID === st.pGroup ? 'selected' : ''}>${escapeHtml(g.GroupName)}</option>`; }).join('')}</select></div>
-        <div class="field"><label>${t('দেখাও','Show by')}</label><select id="rpPBy"><option value="item" ${st.pBy === 'item' ? 'selected' : ''}>${t('আইটেম অনুযায়ী','By item')}</option><option value="emp" ${st.pBy === 'emp' ? 'selected' : ''}>${t('কর্মচারী অনুযায়ী','By employee')}</option></select></div>
-        ${printBtn}</div>`;
+        <div class="field half"><label>${t('তারিখ হইতে','From')}</label><input type="date" id="rpPFrom" value="${st.pFrom}"></div>
+        <div class="field half"><label>${t('তারিখ পর্যন্ত','To')}</label><input type="date" id="rpPTo" value="${st.pTo}"></div>
+        <div class="field half"><label>${t('গ্রুপ','Group')}</label><select id="rpPGroup"><option value="">${t('সব','All')}</option>${gp.groups.map(function (g) { return `<option value="${attr(g.GroupID)}" ${g.GroupID === st.pGroup ? 'selected' : ''}>${escapeHtml(g.GroupName)}</option>`; }).join('')}</select></div>
+        <div class="field half"><label>${t('দেখাও','Show by')}</label><select id="rpPBy"><option value="item" ${st.pBy === 'item' ? 'selected' : ''}>${t('আইটেম অনুযায়ী','By item')}</option><option value="emp" ${st.pBy === 'emp' ? 'selected' : ''}>${t('কর্মচারী অনুযায়ী','By employee')}</option></select></div>
+        <div class="field">${printBtn}</div></div>`;
     }
+    sideSummary();
+  }
+  /** গুটানো অবস্থায় প্যানেলের মাথায় এক লাইনে কী দেখানো হচ্ছে */
+  function sideSummary() {
+    const el = document.getElementById('rpSideSum'); if (!el) return;
+    const tabName = st.tab === 'ledger' ? t('বেতন খতিয়ান', 'Salary ledger') : st.tab === 'month' ? t('মাসিক মজুরি', 'Monthly wage') : t('উৎপাদন ও মজুরি', 'Production & wage');
+    const range = st.tab === 'ledger' ? isoToDmy(st.from) + ' — ' + isoToDmy(st.to) : st.tab === 'month' ? st.month.slice(5, 7) + '-' + st.month.slice(0, 4) : isoToDmy(st.pFrom) + ' — ' + isoToDmy(st.pTo);
+    el.textContent = ' · ' + tabName + (st.tab === 'ledger' && st.emp ? ' · ' + empName(st.emp) : '') + ' · ' + range;
   }
   async function run() {
+    sideSummary();
     const out = document.getElementById('rpOut'); out.innerHTML = `<div class="rp-hint">${t('লোড হচ্ছে…','Loading…')}</div>`;
     try { if (st.tab === 'ledger') await runLedger(); else if (st.tab === 'month') await runMonth(); else await runProd(); }
     catch (err) { out.innerHTML = `<div class="rp-hint">${escapeHtml(err.message)}</div>`; }
@@ -11197,10 +11249,10 @@ async function renderHrReportsPage(content, opts) {
     else if (k === 'last') { const lm = new Date(d0.getFullYear(), d0.getMonth() - 1, 1), r = hrMonthRange(iso(lm).slice(0, 7)); st.from = r.from; st.to = r.to; }
     else if (k === 'fy') { st.from = await getFiscalYearStart(td); st.to = td; }
     else if (k === 'all') { st.from = '2000-01-01'; st.to = td; }
-    renderBar(); run();
+    renderBar(); run(); rpSide.collapse();   // মোবাইলে গুটিয়ে যায় — টেবিলের জন্য জায়গা
   });
-  document.getElementById('rpBar').addEventListener('change', function (ev) { if (ev.target.id === 'rpCat') { st.cat = ev.target.value; run(); } });
-  document.getElementById('rpOut').addEventListener('click', function (ev) { if (ev.target.closest('#rpBackAll')) { st.emp = ''; renderBar(); run(); } });
+  document.getElementById('rpBar').addEventListener('change', function (ev) { if (ev.target.id === 'rpCat') { st.cat = ev.target.value; run(); } else if (ev.target.id === 'rpEmp') { st.emp = ev.target.value; renderBar(); run(); if (st.emp) rpSide.collapse(); } });
+  document.getElementById('rpBar').addEventListener('click', function (ev) { if (ev.target.closest('#rpBackAll')) { st.emp = ''; renderBar(); run(); } });
   document.getElementById('rpOut').addEventListener('click', async function (ev) {
     const b = ev.target.closest('[data-ra]'); if (!b || b.disabled) return;
     try { await rowAction(b.dataset.ra, b.dataset.rk, b.dataset.rid); } catch (err) { showToast(err.message, 'error'); }
