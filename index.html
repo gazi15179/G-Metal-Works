@@ -516,11 +516,11 @@ const MODULES = [
     {key:'workRoles', bn:'দরের কলাম', en:'Rate Columns'},{key:'sizeRates', bn:'সাইজ অনুযায়ী মজুরি দর', en:'Size Wage Rates'},{key:'attendance', bn:'হাজিরা', en:'Attendance'},
     {key:'leave', bn:'ছুটি ব্যবস্থাপনা', en:'Leave Management'},
     {key:'payroll', bn:'সেলারী ভাউচার', en:'Salary Voucher'},{key:'salaryIssue', bn:'সেলারী ইস্যু', en:'Salary Issue'},
-      {key:'salaryLedger', bn:'সেলারী লেজার', en:'Salary Ledger'},{key:'payHeads', bn:'অন্যান্য খাত (বেতন)', en:'Pay Heads'},{key:'hrReports', bn:'বেতন ও উৎপাদন রিপোর্ট', en:'Salary & Production Reports'},
+      {key:'payHeads', bn:'অন্যান্য খাত (বেতন)', en:'Pay Heads'},
   ]},
   {key:'reports', bn:'রিপোর্ট', en:'Reports', sub:[
     {key:'invReport', bn:'ইনভেন্টরি প্রতিবেদন', en:'Inventory Reports'},{key:'salesReport', bn:'ক্রয় ও বিক্রয় প্রতিবেদন', en:'Purchase & Sales Reports'},
-    {key:'prodReport', bn:'উৎপাদন প্রতিবেদন', en:'Production Reports'},
+    {key:'prodReport', bn:'উৎপাদন প্রতিবেদন', en:'Production Reports'},{key:'hrReports', bn:'বেতন ও উৎপাদন রিপোর্ট', en:'Salary & Production Reports'},
     {key:'finReport', bn:'আর্থিক প্রতিবেদন', en:'Financial Reports'},{key:'plReport', bn:'লাভ-ক্ষতি হিসাব', en:'Profit & Loss'},{key:'partyBalance', bn:'পার্টি ব্যালান্স', en:'Party Balance'},{key:'vgSummary', bn:'গ্রুপ সামারী', en:'Group Summary'},
   ]},
   {key:'settings', bn:'সেটিংস', en:'Settings', sub:[
@@ -1734,7 +1734,7 @@ async function navigateTo(pageKey, moduleLabel, pageLabel) {
     else if (pageKey === 'payroll') await renderPayrollPage(content);
     else if (pageKey === 'payslip') await renderPayrollPage(content);
     else if (pageKey === 'salaryIssue') await renderSalaryIssuePage(content);
-    else if (pageKey === 'salaryLedger') await renderHrReportsPage(content, { ledgerOnly: true });   // সেলারী লেজার — তারিখ অনুযায়ী
+    else if (pageKey === 'salaryLedger') await renderHrReportsPage(content);   // পুরনো "সেলারী লেজার" (মেনু থেকে বাদ) — এখন রিপোর্ট → বেতন ও উৎপাদন রিপোর্ট
     else if (pageKey === 'hrReports') await renderHrReportsPage(content);
     else if (pageKey === 'dailyProduction') await renderProdDailyPage(content);   // পুরনো "দৈনিক উৎপাদন ও দল" বাদ — এখন প্রোডাকশন → দৈনিক উৎপাদনের ২য় অংশ
     else if (pageKey === 'sizeRates') await renderSizeRatesPage(content);
