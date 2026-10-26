@@ -5156,7 +5156,7 @@ async function hvHeadToSalaryIssue(head, onDone) {
     }).sort(function (a, b) { return a.date.localeCompare(b.date) || String(a.h.ExpID).localeCompare(String(b.h.ExpID)); });
   const catNm = {}; (ec || []).forEach(function (c) { catNm[c.CategoryID] = c.CategoryName; });
   const emps = (em || []).filter(function (e) { return e.Status !== 'Deleted'; }).sort(empComparePost(catNm));
-  let issueMax = ((ir && ir.data) || []).reduce(function (m, x) { const r = /^SAL-(\d+)$/.exec(x.IssueNo || ''); return r ? Math.max(m, Number(r[1])) : m; }, 0);
+  let issueMax = ((ir && ir.data) || []).reduce(function (m, x) { return Math.max(m, siBaseNum(x.IssueNo)); }, 0);   // সব ধরনের সব নম্বরের পরে (নতুন ভাউচারের সাথে মিলবে না)
   const ok = lines.filter(function (x) { return !x.why; });
   openModal({
     title: '⇄ ' + head.name + t(' → কর্মচারীর সেলারী ইস্যু', ' → employee salary issue'),
@@ -10615,360 +10615,590 @@ async function renderPayrollPage(content) {
 const SI_KINDS = { pay: { pre: 'SAL-', bn: 'বেতন প্রদান', en: 'Salary payment' }, loan: { pre: 'LON-', bn: 'লোন প্রদান', en: 'Loan given' }, ret: { pre: 'LRT-', bn: 'লোন ফেরত (নগদ গ্রহণ)', en: 'Loan repaid (cash in)' } };
 function siKind(x) { const no = String((x && x.IssueNo) || ''); return no.indexOf('LON-') === 0 ? 'loan' : no.indexOf('LRT-') === 0 ? 'ret' : 'pay'; }
 function siKindLabel(x) { const k = SI_KINDS[siKind(x)]; return t(k.bn, k.en); }
+/* সেলারী ইস্যু ভাউচার — এক তারিখে এক ভাউচার নম্বরে অনেক কর্মচারীর লাইন (সিরিয়ালী প্রদান)
+   • নম্বরঃ ভাউচার SAL-0007 → লাইনের IssueNo = ধরনের শুরু + নম্বর + /ক্রঃ (SAL-0007/1, LON-0007/2, LRT-0007/3)
+     — ডেটাবেসে নতুন ঘর লাগে না; ভাউচারের নম্বর সব ধরনে একই সিরিজে (পুরনো এক-লাইনের ইস্যু যেমন আছে তেমনই — প্রতিটা আলাদা ভাউচার)
+   • প্রতিটা লাইন = একটা SalaryIssue সারি + ক্যাশ/ব্যাংক বইয়ে একটা এন্ট্রি (RefID = লাইনের IssueNo)
+   • বাম পাশে গুটানো যায় এমন প্যানেলঃ সব কর্মচারীর বকেয়া / লোন-অগ্রিম (এক চাপে লাইনে বাছাই) + তালিকার তারিখ
+   • এডিটঃ এডমিন পাসওয়ার্ড → পুরনো লাইন ও ক্যাশ বইয়ের এন্ট্রি মুছে নতুন করে (একই ভাউচার নম্বরে) */
+function siVoucherKey(x) { const m = /^[A-Z]{3}-(\d+)\/\d+$/.exec(String((x && x.IssueNo) || '')); return m ? 'V' + Number(m[1]) : 'S:' + ((x && (x.IssueNo || x.IssueID)) || ''); }
+function siBaseNum(no) { const m = /^[A-Z]{3}-(\d+)(?:\/\d+)?$/.exec(String(no || '')); return m ? Number(m[1]) : 0; }
+function siVoucherNo(rows) { const x = rows[0] || {}; const m = /^[A-Z]{3}-(\d+)\/\d+$/.exec(String(x.IssueNo || '')); return m ? 'SAL-' + m[1] : (x.IssueNo || String(x.IssueID || '')); }
 async function renderSalaryIssuePage(content) {
   const base = await hrLoadBase();
   const accounts = (await cachedList('BankCashAccounts')).filter(function (a) { return a.Status !== 'Deleted'; });
-  const st = { kind: 'pay', date: hrToday(), emp: '', acc: (accounts.find(function (a) { return a.Type === 'Cash'; }) || accounts[0] || {}).BankAccID || '', amount: '', note: '', ledger: {},
-    otpMode: false, otp: { id: null, sentTo: '', code: '', verified: false, verifiedAt: null, busy: false } };
-  function resetOtp() { st.otp = { id: null, sentTo: '', code: '', verified: false, verifiedAt: null, busy: false }; }
+  const cashId = (accounts.find(function (a) { return a.Type === 'Cash'; }) || accounts[0] || {}).BankAccID || '';
+  const accName = {}; accounts.forEach(function (a) { accName[a.BankAccID] = a.AccountName; });
+  const empAll = Object.keys(base.empMap).map(function (k) { return base.empMap[k]; });
+  const empName = function (id) { return (base.empMap[id] || {}).Name || id || ''; };
+  const today = hrToday();
+  let fyStart = today.slice(0, 8) + '01'; try { fyStart = await getFiscalYearStart(today); } catch (e) {}
+  const newV = function () { return { key: null, no: '', date: hrToday(), acc: cashId, note: '', lines: [], orig: null }; };
+  const newE = function () { return { emp: '', kind: 'pay', amount: '', note: '', idx: -1 }; };
+  const st = { all: [], ledger: {}, vouchers: [], v: newV(), e: newE(), dirty: false, sel: null,
+    side: { cat: '', q: '', show: 'due' }, list: { from: fyStart, to: today },
+    otpMode: false, otp: { id: null, sentTo: '', code: '', verified: false, verifiedAt: null, busy: false, amount: 0 } };
+  function resetOtp() { st.otp = { id: null, sentTo: '', code: '', verified: false, verifiedAt: null, busy: false, amount: 0 }; }
 
   content.innerHTML = `
-    <style>
-      .si{padding:12px !important;max-width:1000px;}
-      .si-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 0 10px;} .si-head h1{font-size:18px;margin:0;} .si-head span{font-size:11.5px;color:var(--text-muted);}
-      .si .field{margin:0;min-width:0;} .si .field label{font-size:11.5px;margin-bottom:3px;}
-      .si input,.si select{height:38px;padding:4px 8px;font-size:14px;width:100%;min-width:0;box-sizing:border-box;}
-      .si-g2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;margin-bottom:8px;}
-      .si-box{border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin:8px 0;}
-      .si-sum{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:8px 0;}
-      .si-sum div{background:var(--bg);border-radius:10px;padding:8px;text-align:center;font-size:11.5px;color:var(--text-muted);} .si-sum b{display:block;font-size:17px;color:var(--text);margin-top:2px;}
-      .si-sum .due b{color:#b45309;} .si-sum .after b{color:#166534;}
-      .si-vt{width:100%;border-collapse:collapse;font-size:12.5px;} .si-vt th{font-size:11px;color:var(--text-muted);text-align:center;padding:5px;border-bottom:1px solid var(--border);} .si-vt td{padding:5px;border-bottom:1px solid var(--border);text-align:right;} .si-vt td.l{text-align:left;}
-      .si-acts{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:10px;} .si-acts .btn{width:auto;height:40px;padding:0 16px;margin:0;}
-      .si-sec{font-size:12px;font-weight:700;color:var(--text-muted);margin:16px 0 6px;}
-      .si-li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px 4px;border-bottom:1px solid var(--border);font-size:13px;}
-      .si-li .meta{font-size:11.5px;color:var(--text-muted);} .si-li .ic{display:flex;gap:6px;align-items:center;}
-      .si-li .ic button{height:34px;min-width:34px;border:1px solid var(--border);border-radius:8px;background:var(--surface);cursor:pointer;font-size:13px;padding:0 8px;font-family:inherit;}
-      .si-due{color:#b45309;font-weight:700;}
-      .si-kind{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-bottom:8px;}
-      .si-kind label{display:flex;align-items:center;justify-content:center;gap:5px;height:36px;border:1px solid var(--border);border-radius:8px;margin:0;cursor:pointer;font-size:12.5px;text-align:center;line-height:1.1;padding:0 4px;}
-      .si-kind label.on{font-weight:700;} .si-kind label.on.pay{border-color:#16a34a;background:#f0fdf4;} .si-kind label.on.loan{border-color:#d97706;background:#fff7e6;} .si-kind label.on.ret{border-color:#2563eb;background:#eff6ff;}
-      .si-kind input{width:15px !important;height:15px !important;margin:0;} .si-kind label.dis{opacity:.45;cursor:not-allowed;}
-      .si-tag{font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:4px;} .si-tag.loan{background:#fff1d6;color:#92400e;} .si-tag.ret{background:#dbeafe;color:#1e40af;}
-      .si-otp{border:1px dashed var(--border);border-radius:12px;padding:10px 12px;margin-top:10px;}
-      .si-otp-h{font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:6px;}
-      .si-rad{display:flex;gap:8px;flex-wrap:wrap;}
-      .si-rad label{display:flex;align-items:center;gap:6px;height:38px;padding:0 12px;border:1px solid var(--border);border-radius:8px;margin:0;cursor:pointer;font-size:13.5px;}
-      .si-rad label.on{border-color:#16a34a;background:#f0fdf4;font-weight:600;} .si-rad input{width:16px !important;height:16px !important;margin:0;}
-      .si-otp-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;font-size:13.5px;}
-      .si-otp-row input{max-width:180px;letter-spacing:4px;font-size:18px !important;text-align:center;}
-      .si-otp-row .btn{width:auto;height:38px;padding:0 14px;margin:0;}
-      .si-otp-msg{font-size:12.5px;margin-top:6px;color:var(--text-muted);} .si-otp-msg.ok{color:#166534;font-weight:700;} .si-otp-msg.err{color:#b45309;} .si-adv{color:#1d4ed8;font-weight:700;}
-      @media (max-width:700px){ .si-g2{grid-template-columns:minmax(0,1fr);} .si-sum{grid-template-columns:minmax(0,1fr);} .si-acts .btn{flex:1;} }
+    <style>${RPT_SIDE_CSS}
+      .siv{padding:6px 8px !important;}
+      .siv-h{display:flex;align-items:center;gap:6px;margin:0 0 6px;} .siv-h h2{font-size:15px;margin:0;font-weight:700;}
+      .siv-h .nav{width:26px;height:26px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;padding:0;font-size:13px;line-height:1;}
+      .siv-h .st{font-size:11px;color:var(--text-muted);margin-left:auto;} .siv-h .st b{color:#b45309;}
+      .siv .field{margin:0;min-width:0;} .siv .field label{font-size:11px;font-weight:600;margin-bottom:2px;color:#3d5a6c;}
+      .siv input,.siv select{height:30px;padding:2px 7px;font-size:12.5px;width:100%;min-width:0;box-sizing:border-box;}
+      .siv-g4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px 8px;margin-bottom:6px;}
+      .siv-g2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px 8px;}
+      .siv-entry{border:1px solid #c9dce8;background:#f6fafc;border-radius:10px;padding:6px 8px;margin-bottom:6px;}
+      .siv-kind{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin:0 0 5px;}
+      .siv-kind label{display:flex;align-items:center;justify-content:center;gap:4px;height:28px;border:1px solid var(--border);border-radius:7px;margin:0;cursor:pointer;font-size:11.5px !important;color:var(--text) !important;background:#fff;text-align:center;line-height:1.05;}
+      .siv-kind input{width:14px !important;height:14px !important;margin:0;}
+      .siv-kind label.on{font-weight:700;} .siv-kind label.on.pay{border-color:#16a34a;background:#f0fdf4;} .siv-kind label.on.loan{border-color:#d97706;background:#fff7e6;} .siv-kind label.on.ret{border-color:#2563eb;background:#eff6ff;}
+      .siv-bal{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin:5px 0;}
+      .siv-bal div{border:1px solid var(--border);border-radius:6px;background:#fff;padding:2px 6px;font-size:10.5px;color:var(--text-muted);text-align:center;} .siv-bal b{display:block;font-size:12.5px;color:var(--text);}
+      .siv-bal b.due{color:#b45309;} .siv-bal b.adv{color:#1d4ed8;}
+      .siv-add{display:flex;gap:6px;align-items:end;}
+      .siv-add .btn{height:30px;width:auto;padding:0 12px;margin:0;font-size:12px;white-space:nowrap;}
+      .siv-hint{font-size:10.5px;color:var(--text-muted);margin-top:3px;}
+      .siv-otp{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11.5px;margin-top:5px;}
+      .siv-otp label{display:flex;align-items:center;gap:4px;margin:0;font-size:11.5px !important;cursor:pointer;} .siv-otp label input{width:14px !important;height:14px !important;margin:0;}
+      .siv-otp .btn{height:28px;width:auto;padding:0 10px;margin:0;font-size:11.5px;} .siv-otp input.code{width:110px;letter-spacing:3px;text-align:center;}
+      .siv-otp .ok{color:#166534;font-weight:700;} .siv-otp .err{color:#b45309;}
+      table.siv-tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:11px;}
+      .siv-tbl th{font-size:11px;font-weight:700;text-align:center;background:#eef1f5;border:1px solid #d5dae1;border-width:0 1px 1px 0;padding:3px 5px;white-space:nowrap;position:sticky;top:0;z-index:1;}
+      .siv-tbl td{font-size:11px;text-align:center;border:1px solid #e3e6ea;border-width:0 1px 1px 0;padding:1px 5px;line-height:1.3;white-space:nowrap;}
+      .siv-tbl td.nm{white-space:normal;text-align:left;} .siv-tbl td.n{font-variant-numeric:tabular-nums;text-align:right;}
+      .siv-tbl tr.k-pay td{background:#f1f9e8;} .siv-tbl tr.k-loan td{background:#fff7e6;} .siv-tbl tr.k-ret td{background:#eff6ff;} .siv-tbl tr.k-mix td{background:#f6f3ff;}
+      .siv-tbl tr.sel td{background:#ffe9b3 !important;} .siv-tbl tbody tr{cursor:pointer;}
+      .siv-tbl tfoot td{background:#e9edf3;font-weight:700;}
+      .siv-tbl .ic{border:1px solid var(--border);background:var(--surface);border-radius:5px;min-width:22px;height:19px;font-size:10px;cursor:pointer;padding:0 3px;margin:0 1px;line-height:1;}
+      .siv-wrap{overflow:auto;border:1px solid var(--border);border-radius:8px;}
+      .siv-acts{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap;margin:6px 0;} .siv-acts .btn{height:32px;width:auto;padding:0 14px;margin:0;font-size:12.5px;}
+      .siv-sec{font-size:12px;font-weight:700;color:#3d5a6c;margin:10px 0 4px;}
+      .siv-due{color:#b45309;font-weight:700;} .siv-adv{color:#1d4ed8;font-weight:700;}
+      .siv-edit{background:#fff6dc;border:1px solid #e3b75c;border-radius:6px;padding:3px 8px;font-size:11.5px;margin-bottom:6px;}
+      .siv-tag{font-size:10px;font-weight:700;padding:0 5px;border-radius:5px;} .siv-tag .sh{display:none;} .siv-tag.pay{background:#dcfce7;color:#166534;} .siv-tag.loan{background:#fff1d6;color:#92400e;} .siv-tag.ret{background:#dbeafe;color:#1e40af;}
+      /* বাম প্যানেল — কর্মচারীর ব্যালান্স */
+      .siv-side .sr-bar{gap:4px;}
+      .siv-side input,.siv-side select{height:28px !important;padding:2px 7px !important;font-size:12px !important;background:#fff;width:100%;box-sizing:border-box;}
+      .siv-side .sv-show{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:3px;}
+      .siv-side .sv-show button{height:24px;border:1px solid #c9dce8;background:#fff;border-radius:6px;font-size:10.5px;cursor:pointer;padding:0 2px;font-family:inherit;color:inherit;}
+      .siv-side .sv-show button.on{background:#4c8fae;color:#fff;border-color:#3b7896;font-weight:700;}
+      .siv-emps{max-height:calc(100vh - 330px);min-height:160px;overflow:auto;border:1px solid #c9dce8;border-radius:8px;background:#fff;}
+      .siv-emps .gh{font-size:10.5px;font-weight:700;color:#2f6f8f;background:#eaf3f8;padding:1px 6px;position:sticky;top:0;}
+      .siv-emps .er{display:flex;justify-content:space-between;gap:6px;padding:2px 6px;font-size:11.5px;border-bottom:1px solid #eef1f5;cursor:pointer;}
+      .siv-emps .er:hover{background:#fff8e6;} .siv-emps .er.in{background:#f0fdf4;} .siv-emps .er small{color:var(--text-muted);font-size:10px;}
+      .siv-emps .er .v{white-space:nowrap;font-weight:700;}
+      .siv-tot{font-size:11px;margin-top:4px;line-height:1.5;}
+      .siv-side .sr-side-h small{font-weight:600;color:#3d5a6c;opacity:.85;margin-left:4px;} .siv-side:not(.collapsed) .sr-side-h small{display:none;}
+      @media (max-width:760px){
+        .siv-side:not(.collapsed) .sr-bar{display:block;}
+        .siv-g4{grid-template-columns:repeat(2,minmax(0,1fr));}
+        .siv-emps{max-height:260px;}
+        .siv-tbl .mh{display:none;} .siv-tag .lg{display:none;} .siv-tag .sh{display:inline;}
+        .siv-tbl th,.siv-tbl td{padding:1px 3px;} .siv-tbl .ic{min-width:20px;margin:0;}
+        .siv-acts .btn{flex:1;padding:0 6px;}
+      }
     </style>
-    <div class="panel si">
-      <div class="si-head"><h1>${t('সেলারী ইস্যু','Salary Issue')}</h1><span>${t('সেলারী ভাউচারের পাওনা টাকা কর্মচারীকে দেওয়া — ক্যাশ/ব্যাংক বইতে খরচ হিসেবে উঠে যায়','Pay salary vouchers — posted to the cash/bank book')}</span></div>
-      <div class="si-g2">
-        <div class="field"><label>${t('ইস্যু তারিখঃ','Issue date:')}</label><input type="date" id="siDate" value="${st.date}"></div>
-        <div class="field"><label>${t('ইস্যু নম্বরঃ','Issue no:')}</label><input id="siNo" readonly value="${t('সেভের পর বসবে','assigned on save')}" style="background:var(--bg);"></div>
+    <div class="sr-head"><h1>${t('সেলারী ইস্যু', 'Salary Issue')}</h1></div>
+    <div class="sr-layout">
+     <aside class="sr-side siv-side" id="sivSide">
+      <button type="button" class="sr-tog" id="sivTog" title="${attr(t('প্যানেল লুকান/দেখান', 'Hide/show panel'))}">‹</button>
+      <div class="sr-side-h" data-lbl="${attr(t('ব্যালান্স', 'Balances'))}"><span>👥 ${t('কর্মচারীর ব্যালান্স', 'Employee balances')}<small id="sivSideSum"></small></span></div>
+      <div class="sr-bar">
+        <div class="sv-show" id="sivShow"><button type="button" data-show="due" class="on">${t('বকেয়া', 'Due')}</button><button type="button" data-show="adv">${t('লোন/অগ্রিম', 'Loan/adv')}</button><button type="button" data-show="all">${t('সবাই', 'All')}</button></div>
+        <div class="siv-g2" style="margin-top:4px;">
+          <div class="field"><select id="sivCat"><option value="">${t('সব পদ', 'All posts')}</option>${base.cats.map(function (c) { return `<option value="${attr(c.CategoryID)}">${escapeHtml(c.CategoryName)}</option>`; }).join('')}</select></div>
+          <div class="field"><input id="sivQ" placeholder="${attr(t('নাম খুঁজুন…', 'Search…'))}" autocomplete="off"></div>
+        </div>
+        <div class="siv-emps" id="sivEmps" style="margin-top:4px;"></div>
+        <div class="siv-tot" id="sivTot"></div>
+        <div class="siv-sec" style="margin-top:8px;">${t('ভাউচার তালিকার তারিখ', 'Voucher list dates')}</div>
+        <div class="siv-g2">
+          <div class="field"><label>${t('হইতে', 'From')}</label><input type="date" id="sivLFrom" value="${st.list.from}"></div>
+          <div class="field"><label>${t('পর্যন্ত', 'To')}</label><input type="date" id="sivLTo" value="${st.list.to}"></div>
+        </div>
       </div>
-      <div class="field" style="margin-bottom:8px;"><label>${t('কর্মচারী নামঃ','Employee:')}</label><input id="siEmp" placeholder="${t('নাম লিখুন — তালিকা থেকে বাছাই করুন','Type a name — pick from the list')}"></div>
-      <div id="siBody"></div>
-      <div class="si-sec">${t('বকেয়া তালিকা (যাদের পাওনা বাকি)','Dues list')}</div><div id="siDues"></div>
-      <div class="si-sec">${t('সাম্প্রতিক সেলারী ইস্যু','Recent salary issues')}</div><div id="siList"></div>
+     </aside>
+     <div class="sr-main panel siv" id="sivMain">
+      <div class="siv-h"><button type="button" class="nav" id="sivPrev" title="${attr(t('আগের ভাউচার', 'Previous voucher'))}">◀</button><h2 id="sivTitle">${t('সেলারী ইস্যু ভাউচার', 'Salary issue voucher')}</h2><button type="button" class="nav" id="sivNext" title="${attr(t('পরের ভাউচার', 'Next voucher'))}">▶</button><span class="st" id="sivState"></span></div>
+      <div id="sivEditBar"></div>
+      <div id="sivForm">
+        <div class="siv-g4">
+          <div class="field"><label>${t('তারিখ', 'Date')}</label><input type="date" id="sivDate" value="${st.v.date}"></div>
+          <div class="field"><label>${t('ভাউচার নম্বর', 'Voucher no')}</label><input id="sivNo" readonly tabindex="-1" style="background:var(--bg);font-weight:700;"></div>
+          <div class="field"><label>${t('ক্যাশ/ব্যাংক', 'Cash/Bank')}</label><select id="sivAcc">${accounts.map(function (a) { return `<option value="${attr(a.BankAccID)}">${escapeHtml(a.AccountName)}</option>`; }).join('')}</select></div>
+          <div class="field"><label>${t('ভাউচারের নোট', 'Voucher note')}</label><input id="sivVNote" autocomplete="off" placeholder="${attr(t('যেমনঃ সাপ্তাহিক বেতন', 'e.g. weekly wages'))}"></div>
+        </div>
+        <div class="siv-entry" id="sivEntry"></div>
+      </div>
+      <div class="siv-wrap"><table class="siv-tbl" id="sivLines"></table></div>
+      <div class="siv-acts" id="sivActs"></div>
+      <div class="siv-sec">${t('সেলারী ইস্যু ভাউচার তালিকা', 'Salary issue vouchers')} <span style="font-weight:400;color:var(--text-muted);font-size:10.5px;">${t('— এক চাপে বাছাই, দুই চাপে এডিট', '— tap to select, double-tap to edit')}</span></div>
+      <div class="siv-wrap" id="sivListWrap" style="max-height:60vh;"><table class="siv-tbl" id="sivList"></table></div>
+     </div>
     </div>`;
+  const $ = function (id) { return document.getElementById(id); };
+  const isMob = function () { return window.matchMedia('(max-width:760px)').matches; };
+  const side = wireReportSide($('sivSide'), $('sivTog'), 'sivSideCollapsed', function () {});
+  if (isMob()) side.collapse();
+  $('sivAcc').value = st.v.acc;
 
-  // ---------- হিসাব ----------
-  async function loadLedger() {
+  // ---------- ডেটা ----------
+  async function loadAll() {
     const [heads, issues] = await Promise.all([api('list', { sheet: 'Payroll' }), api('list', { sheet: 'SalaryIssue' }).catch(function () { return []; })]);
     const L = {};
-    const row = function (id) { return L[id] = L[id] || { vouchers: [], issues: [], earned: 0, paid: 0 }; };
-    heads.filter(function (h) { return h.Status !== 'Deleted' && h.RunType === 'SalaryVoucher' && h.EmployeeID; }).forEach(function (h) { const r = row(h.EmployeeID); r.vouchers.push(h); r.earned += Number(h.TotalNetPay) || 0; });
-    issues.filter(function (x) { return x.Status !== 'Deleted'; }).forEach(function (x) { const r = row(x.EmployeeID); r.issues.push(x); r.paid += Number(x.Amount) || 0; });
-    Object.keys(L).forEach(function (k) {
-      L[k].due = Math.round((L[k].earned - L[k].paid) * 100) / 100;
-      L[k].vouchers.sort(function (a, b) { return String(a.DateFrom).localeCompare(String(b.DateFrom)); });
-      L[k].issues.sort(function (a, b) { return String(b.IssueDate).localeCompare(String(a.IssueDate)) || (Number(b.IssueID) || 0) - (Number(a.IssueID) || 0); });
-    });
+    const row = function (id) { return L[id] = L[id] || { earned: 0, paid: 0, due: 0 }; };
+    heads.filter(function (h) { return h.Status !== 'Deleted' && h.RunType === 'SalaryVoucher' && h.EmployeeID; }).forEach(function (h) { row(h.EmployeeID).earned += Number(h.TotalNetPay) || 0; });
+    st.everNos = issues.map(function (x) { return x.IssueNo; });   // মুছে ফেলা নম্বরও — নতুন নম্বর এর পরে
+    st.all = issues.filter(function (x) { return x.Status !== 'Deleted'; });
+    st.all.forEach(function (x) { row(x.EmployeeID).paid += Number(x.Amount) || 0; });
+    Object.keys(L).forEach(function (k) { L[k].due = Math.round((L[k].earned - L[k].paid) * 100) / 100; });
     st.ledger = L;
-    st.allIssues = issues.filter(function (x) { return x.Status !== 'Deleted'; }).sort(function (a, b) { return (Number(b.IssueID) || 0) - (Number(a.IssueID) || 0); });
+    const G = {};
+    st.all.forEach(function (x) { const k = siVoucherKey(x); (G[k] = G[k] || []).push(x); });
+    st.vouchers = Object.keys(G).map(function (k) {
+      const rows = G[k].sort(function (a, b) { return lineNo(a) - lineNo(b); });
+      return { key: k, rows: rows, no: siVoucherNo(rows), date: String(rows[0].IssueDate || '').slice(0, 10), total: rows.reduce(function (s, x) { return s + (Number(x.Amount) || 0); }, 0), num: siBaseNum(rows[0].IssueNo), id0: Number(rows[0].IssueID) || 0 };
+    }).sort(function (a, b) { return a.date.localeCompare(b.date) || a.num - b.num || a.id0 - b.id0; });
   }
-  /** কোন ভাউচারের কত বাকি — পুরনো ভাউচার আগে শোধ ধরা হয় (FIFO) */
-  function voucherDues(L) {
-    let left = L.paid;
-    return L.vouchers.map(function (v) { const amt = Number(v.TotalNetPay) || 0, used = Math.min(amt, Math.max(0, left)); left -= used; return { v: v, amt: amt, paid: used, due: amt - used }; });
+  function lineNo(x) { const m = /\/(\d+)$/.exec(String(x.IssueNo || '')); return m ? Number(m[1]) : 0; }
+  /** এই ভাউচারের আগের ব্যালান্স (এডিটে এই ভাউচারের পুরনো লাইনগুলো ফেরত ধরা) */
+  function baseDue(emp) {
+    const L = st.ledger[emp] || { due: 0 };
+    const back = (st.v.orig ? st.v.orig.rows : []).filter(function (x) { return x.EmployeeID === emp; }).reduce(function (s, x) { return s + (Number(x.Amount) || 0); }, 0);
+    return Math.round((L.due + back) * 100) / 100;
+  }
+  const sgn = function (k) { return k === 'ret' ? -1 : 1; };
+  /** লাইন i-এর আগে কর্মচারীর ব্যালান্স (এই ভাউচারের আগের লাইনগুলো বাদ দিয়ে) — skip = যে লাইন এডিট হচ্ছে */
+  function dueBeforeLine(emp, uptoIdx, skip) {
+    let d = baseDue(emp);
+    st.v.lines.forEach(function (l, i) { if (i < uptoIdx && i !== skip && l.emp === emp) d -= sgn(l.kind) * l.amt; });
+    return Math.round(d * 100) / 100;
+  }
+  function entryDue() { const e = st.e; if (!e.emp) return 0; return dueBeforeLine(e.emp, e.idx >= 0 ? e.idx : st.v.lines.length, e.idx); }
+  function balTxt(d) { return Math.abs(d) < 0.005 ? '0.00' : d > 0 ? `<span class="siv-due">${hrMoney(d)}</span>` : `<span class="siv-adv">${t('লোন/অগ্রিম ', 'Loan/adv ')}${hrMoney(-d)}</span>`; }
+  function defaultAmount() { const d = entryDue(); return st.e.kind === 'pay' ? (d > 0 ? d : '') : st.e.kind === 'ret' ? (d < 0 ? -d : '') : ''; }
+
+  // ---------- বাম প্যানেল ----------
+  function renderSide() {
+    const q = st.side.q.trim().toLowerCase(), inV = {};
+    st.v.lines.forEach(function (l) { inV[l.emp] = 1; });
+    const ids = {}; empAll.forEach(function (e) { if (e.Status !== 'Deleted') ids[e.EmployeeID] = 1; }); Object.keys(st.ledger).forEach(function (k) { ids[k] = 1; });
+    const list = Object.keys(ids).map(function (id) { return base.empMap[id] || { EmployeeID: id, Name: id }; })
+      .filter(function (e) {
+        const d = (st.ledger[e.EmployeeID] || { due: 0 }).due;
+        if (st.side.show === 'due' && !(d > 0.005)) return false;
+        if (st.side.show === 'adv' && !(d < -0.005)) return false;
+        if (st.side.show === 'all' && !(Math.abs(d) > 0.005) && !(isTrue(e.IsActive) && e.Status !== 'Deleted')) return false;
+        if (st.side.cat && e.CategoryID !== st.side.cat) return false;
+        if (q && String(e.Name || '').toLowerCase().indexOf(q) === -1) return false;
+        return true;
+      }).sort(empComparePost(base.catMap));
+    let html = '', lastCat = null, tDue = 0, tAdv = 0;
+    list.forEach(function (e) {
+      const d = (st.ledger[e.EmployeeID] || { due: 0 }).due;
+      if (d > 0) tDue += d; else tAdv -= d;
+      const c = base.catMap[e.CategoryID] || t('ধরন নেই', 'No type');
+      if (c !== lastCat) { html += `<div class="gh">${escapeHtml(c)}</div>`; lastCat = c; }
+      html += `<div class="er ${inV[e.EmployeeID] ? 'in' : ''}" data-emp="${attr(e.EmployeeID)}" title="${attr(t('লাইনে বাছাই করুন', 'Pick for a line'))}"><span>${inV[e.EmployeeID] ? '✓ ' : ''}${escapeHtml(e.Name || e.EmployeeID)}</span><span class="v">${balTxt(d)}</span></div>`;
+    });
+    $('sivEmps').innerHTML = html || `<div style="padding:8px;font-size:11.5px;color:var(--text-muted);">${t('কেউ নেই।', 'No one.')}</div>`;
+    let allDue = 0, allAdv = 0; Object.keys(st.ledger).forEach(function (k) { const d = st.ledger[k].due; if (d > 0) allDue += d; else allAdv -= d; });
+    $('sivTot').innerHTML = `${t('মোট বকেয়াঃ ', 'Total due: ')}<span class="siv-due">${hrMoney(allDue)}</span><br>${t('মোট লোন/অগ্রিম (আদায়যোগ্য)ঃ ', 'Total loan/advance (receivable): ')}<span class="siv-adv">${hrMoney(allAdv)}</span>`;
+    $('sivSideSum').textContent = ' · ' + t('বকেয়া ', 'Due ') + hrMoney(allDue) + ' · ' + t('লোন ', 'Loan ') + hrMoney(allAdv);
   }
 
-  // ---------- আঁকা ----------
-  function renderBody() {
-    const body = document.getElementById('siBody');
-    if (!st.emp) { body.innerHTML = `<div style="color:var(--text-muted);font-size:13px;padding:6px 0;">${t('কর্মচারী বাছাই করুন, অথবা নিচের বকেয়া তালিকা থেকে "ইস্যু" চাপুন।','Pick an employee, or press "Issue" in the dues list below.')}</div>`; return; }
-    const L = st.ledger[st.emp] || { vouchers: [], issues: [], earned: 0, paid: 0, due: 0 };
-    const editAdd = editAddFor(st.emp), due = L.due + editAdd;   // এডিটে এই ইস্যুর আগের টাকা বকেয়ায় ফেরত ধরা
-    const amt = Number(st.amount) || 0, after = due - kindSign() * amt;
-    const rows = voucherDues(L).filter(function (x) { return x.due > 0.005; });
-    const kindRadio = '<div class="si-kind">' + ['pay', 'loan', 'ret'].map(function (k) { const lock = !!st.editIssue && k !== st.kind; return `<label class="${k} ${st.kind === k ? 'on' : ''} ${lock ? 'dis' : ''}"><input type="radio" name="siKind" value="${k}" ${st.kind === k ? 'checked' : ''} ${lock ? 'disabled' : ''}> ${t(SI_KINDS[k].bn, SI_KINDS[k].en)}</label>`; }).join('') + '</div>';
-    body.innerHTML = `${kindRadio}
-      <div class="si-sum">
-        <div>${t('মোট পাওনা (সব ভাউচার)','Total earned')}<b>${hrMoney(L.earned)}</b></div>
-        <div>${t('আগে দেওয়া হয়েছে','Already paid')}<b>${hrMoney(L.paid - editAdd)}</b></div>
-        <div class="due">${due >= 0 ? t('বর্তমান বকেয়া','Current due') : t('লোন/অগ্রিম দেওয়া আছে','Loan/advance given')}<b>${hrMoney(Math.abs(due))}</b></div>
-      </div>
-      ${rows.length && st.kind === 'pay' ? `<div class="si-box"><table class="si-vt"><thead><tr><th>${t('ভাউচার','Voucher')}</th><th>${t('সময়কাল','Period')}</th><th>${t('ভাউচারের টাকা','Amount')}</th><th>${t('দেওয়া','Paid')}</th><th>${t('বাকি','Due')}</th></tr></thead><tbody>
-        ${rows.map(function (x) { return `<tr><td class="l">${escapeHtml(x.v.VoucherNo || x.v.PayrollID)}</td><td class="l">${escapeHtml(payrollPeriodLabel(x.v))}</td><td>${hrMoney(x.amt)}</td><td>${hrMoney(x.paid)}</td><td><b>${hrMoney(x.due)}</b></td></tr>`; }).join('')}
-      </tbody></table></div>` : ''}
-      <div class="si-g2">
-        <div class="field"><label>${st.kind === 'ret' ? t('যেখানে টাকা জমা হলো (ক্যাশ/ব্যাংক)','Received into (cash/bank)') : t('পরিশোধের মাধ্যম (ক্যাশ/ব্যাংক)','Paid from (cash/bank)')}</label><select id="siAcc">${accounts.map(function (a) { return `<option value="${attr(a.BankAccID)}" ${a.BankAccID === st.acc ? 'selected' : ''}>${escapeHtml(a.AccountName)}${a.Type ? ' (' + (a.Type === 'Cash' ? t('ক্যাশ','Cash') : t('ব্যাংক','Bank')) + ')' : ''}</option>`; }).join('')}</select></div>
-        <div class="field"><label>${t('টাকার পরিমাণ','Amount')}</label><input type="number" step="any" min="0" inputmode="decimal" id="siAmt" value="${attr(st.amount)}"></div>
-      </div>
-      <div class="field"><label>${t('নোট (ঐচ্ছিক)','Note (optional)')}</label><input id="siNote" value="${attr(st.note)}" placeholder="${st.kind === 'loan' ? t('যেমনঃ চিকিৎসার জন্য লোন — প্রতি সপ্তাহে ৫০০ করে কাটা হবে','e.g. medical loan — 500 per week') : st.kind === 'ret' ? t('যেমনঃ লোনের টাকা নগদে ফেরত','e.g. loan repaid in cash') : t('যেমনঃ সাপ্তাহিক বেতন, আংশিক পরিশোধ','e.g. weekly salary, partial payment')}"></div>
-      ${st.kind === 'pay' && due > 0.005 ? `<div style="font-size:11.5px;color:var(--text-muted);margin-top:4px;">💡 ${t('লোনের কিস্তি কাটতে চাইলে বকেয়ার চেয়ে কম দিন — যতটুকু কম দেবেন ততটুকু লোন/অগ্রিম থেকে কাটা হবে।','To deduct a loan installment, pay less than the due — the difference reduces the loan/advance.')}</div>` : ''}
-      <div class="si-sum" style="grid-template-columns:repeat(2,minmax(0,1fr));">
-        <div>${st.kind === 'ret' ? t('এখন ফেরত নেওয়া হচ্ছে','Receiving now') : t('এখন দেওয়া হচ্ছে','Paying now')}<b id="siNow">${hrMoney(amt)}</b></div>
-        <div class="after">${t('ইস্যুর পর ','After issue: ')}<span id="siAfterL">${after >= 0 ? t('বকেয়া','due') : t('লোন/অগ্রিম','loan/advance')}</span><b id="siAfter">${hrMoney(Math.abs(after))}</b></div>
-      </div>
-      <div class="si-otp">
-        <div class="si-otp-h">${t('OTP যাচাই','OTP verification')}</div>
-        <div class="si-rad">
-          <label class="${st.otpMode ? '' : 'on'}"><input type="radio" name="siOtpMode" value="0" ${st.otpMode ? '' : 'checked'}> ${t('OTP ছাড়া','Without OTP')}</label>
-          <label class="${st.otpMode ? 'on' : ''}"><input type="radio" name="siOtpMode" value="1" ${st.otpMode ? 'checked' : ''}> ${t('OTP সহ','With OTP')}</label>
-        </div>
-        ${st.otpMode ? otpBox() : ''}
-      </div>
-      ${st.editIssue ? `<div style="background:#fff6dc;border:1px solid #e3b75c;border-radius:8px;padding:6px 10px;font-size:12px;margin-top:8px;">✏️ ${t('এডিট হচ্ছেঃ ', 'Editing: ')}<b>${escapeHtml(st.editIssue.IssueNo)}</b> — ${t('বদলে "আপডেট" চাপুন; আগের ক্যাশ/ব্যাংকের এন্ট্রি নতুন টাকায় বদলে যাবে', 'change and press Update; the cash/bank entry is replaced')}</div>` : ''}
-      <div class="si-acts">${st.editIssue ? `<button class="btn btn-outline" id="siEditCancel" style="width:auto;">${t('এডিট বাতিল', 'Cancel edit')}</button> ` : ''}<button class="btn btn-primary" id="siSave" ${st.otpMode && !st.otp.verified ? 'disabled title="' + t('আগে OTP যাচাই করুন','Verify the OTP first') + '"' : ''}>💾 ${st.editIssue ? t('আপডেট', 'Update') : t('ইস্যু ও সেভ','Issue & save')}</button></div>`;
+  // ---------- এন্ট্রি (একটা লাইন) ----------
+  function empOptions(sel) {
+    const list = empAll.filter(function (e) { return (e.Status !== 'Deleted' && isTrue(e.IsActive)) || e.EmployeeID === sel || Math.abs((st.ledger[e.EmployeeID] || { due: 0 }).due) > 0.005; }).sort(empComparePost(base.catMap));
+    let html = `<option value="">${t('— কর্মচারী বাছাই —', '— select employee —')}</option>`, last = null;
+    list.forEach(function (e) {
+      const c = base.catMap[e.CategoryID] || t('ধরন নেই', 'No type');
+      if (c !== last) { html += (last !== null ? '</optgroup>' : '') + `<optgroup label="${attr(c)}">`; last = c; }
+      html += `<option value="${attr(e.EmployeeID)}" ${e.EmployeeID === sel ? 'selected' : ''}>${escapeHtml(e.Name || e.EmployeeID)}</option>`;
+    });
+    return html + (last !== null ? '</optgroup>' : '');
   }
-  function kindSign() { return st.kind === 'ret' ? -1 : 1; }   // লোন ফেরতে টাকা ঢোকে — বকেয়া/অগ্রিমে উল্টো দিকে
-  function empPhone() { return String((base.empMap[st.emp] || {}).Phone || '').trim(); }
+  function empPhone() { return String((base.empMap[st.e.emp] || {}).Phone || '').trim(); }
   function maskPhone(p) { p = String(p || ''); return p.length > 5 ? p.slice(0, 3) + '****' + p.slice(-3) : p; }
-  function otpBox() {
+  function renderEntry() {
+    const e = st.e, d = entryDue(), amt = Number(e.amount) || 0, after = d - sgn(e.kind) * amt;
+    const kinds = ['pay', 'loan', 'ret'].map(function (k) { return `<label class="${k} ${e.kind === k ? 'on' : ''}"><input type="radio" name="sivKind" value="${k}" ${e.kind === k ? 'checked' : ''}> ${t(SI_KINDS[k].bn, SI_KINDS[k].en)}</label>`; }).join('');
     const ph = empPhone();
-    if (!ph) return `<div class="si-otp-msg err">⚠ ${t('এই কর্মচারীর মোবাইল নম্বর নেই — কর্মচারী তথ্যে নম্বর দিন, অথবা "OTP ছাড়া" বাছাই করুন।','No mobile number for this employee — add it in Employee Info, or choose "Without OTP".')}</div>`;
-    if (st.otp.verified) return `<div class="si-otp-msg ok">✔ ${t('OTP যাচাই হয়েছে','OTP verified')} — ${escapeHtml(maskPhone(st.otp.sentTo))}</div>`;
-    return `<div class="si-otp-row">
-        <span>${t('মোবাইলঃ ','Mobile: ')}<b>${escapeHtml(ph)}</b></span>
-        <button type="button" class="btn btn-outline" id="siOtpSend" ${st.otp.busy ? 'disabled' : ''}>📩 ${st.otp.id ? t('আবার পাঠান','Resend') : t('OTP পাঠান','Send OTP')}</button>
+    const otp = !st.otpMode ? '' : !e.emp ? '' : !ph ? `<span class="err">⚠ ${t('এই কর্মচারীর মোবাইল নম্বর নেই — কর্মচারী তথ্যে দিন, অথবা "OTP ছাড়া"।', 'No mobile number — add it or choose "Without OTP".')}</span>`
+      : st.otp.verified ? `<span class="ok">✔ ${t('OTP যাচাই হয়েছে', 'OTP verified')} — ${escapeHtml(maskPhone(st.otp.sentTo))}</span>`
+      : `<span>${escapeHtml(ph)}</span><button type="button" class="btn btn-outline" id="sivOtpSend" ${st.otp.busy ? 'disabled' : ''}>📩 ${st.otp.id ? t('আবার পাঠান', 'Resend') : t('OTP পাঠান', 'Send OTP')}</button>${st.otp.id ? `<input class="code" id="sivOtpCode" inputmode="numeric" maxlength="6" placeholder="OTP" value="${attr(st.otp.code)}" autocomplete="one-time-code"><button type="button" class="btn btn-primary" id="sivOtpVerify" ${st.otp.busy ? 'disabled' : ''}>✔ ${t('যাচাই', 'Verify')}</button>` : ''}`;
+    $('sivEntry').innerHTML = `
+      <div class="siv-kind">${kinds}</div>
+      <div class="siv-g2">
+        <div class="field"><label>${t('কর্মচারী', 'Employee')}</label><select id="sivEmp">${empOptions(e.emp)}</select></div>
+        <div class="field"><label>${e.kind === 'ret' ? t('ফেরত নেওয়া টাকা', 'Amount received') : t('টাকা', 'Amount')}</label><input type="number" step="any" min="0" inputmode="decimal" id="sivAmt" value="${attr(e.amount)}"></div>
       </div>
-      ${st.otp.id ? `<div class="si-otp-row"><input id="siOtpCode" inputmode="numeric" maxlength="6" placeholder="${t('৬ অঙ্কের OTP','6-digit OTP')}" value="${attr(st.otp.code)}" autocomplete="one-time-code">
-        <button type="button" class="btn btn-primary" id="siOtpVerify" ${st.otp.busy ? 'disabled' : ''}>✔ ${t('যাচাই','Verify')}</button></div>
-        <div class="si-otp-msg">${t('কর্মচারীর মোবাইলে কোড পাঠানো হয়েছে — ৫ মিনিটের মধ্যে বসান।','Code sent — enter it within 5 minutes.')}</div>` : ''}`;
+      <div class="siv-bal">
+        <div>${t('আগের ব্যালান্স', 'Before')}<b class="${d > 0.005 ? 'due' : d < -0.005 ? 'adv' : ''}" id="sivBefore">${e.emp ? (d >= 0 ? hrMoney(d) : t('লোন ', 'Loan ') + hrMoney(-d)) : '—'}</b></div>
+        <div>${e.kind === 'ret' ? t('ফেরত', 'Received') : t('দেওয়া', 'Paying')}<b id="sivNow">${hrMoney(amt)}</b></div>
+        <div>${t('পরে', 'After')}<b class="${after > 0.005 ? 'due' : after < -0.005 ? 'adv' : ''}" id="sivAfter">${e.emp ? (after >= 0 ? hrMoney(after) : t('লোন ', 'Loan ') + hrMoney(-after)) : '—'}</b></div>
+      </div>
+      <div class="siv-add">
+        <div class="field" style="flex:1;"><label>${t('লাইনের নোট (ঐচ্ছিক)', 'Line note (optional)')}</label><input id="sivLNote" autocomplete="off" value="${attr(e.note)}" placeholder="${attr(e.kind === 'loan' ? t('যেমনঃ চিকিৎসার লোন', 'e.g. medical loan') : e.kind === 'ret' ? t('যেমনঃ লোন নগদে ফেরত', 'e.g. repaid in cash') : t('যেমনঃ আংশিক পরিশোধ', 'e.g. partial'))}"></div>
+        ${e.idx >= 0 ? `<button type="button" class="btn btn-outline" id="sivLCancel">✕</button>` : ''}
+        <button type="button" class="btn btn-primary" id="sivAddLine">${e.idx >= 0 ? '✔ ' + t('লাইন ঠিক', 'Update line') : '＋ ' + t('লাইন যোগ', 'Add line')}</button>
+      </div>
+      ${e.kind === 'pay' && d > 0.005 ? `<div class="siv-hint">💡 ${t('লোনের কিস্তি কাটতে বকেয়ার চেয়ে কম দিন — যতটুকু কম দেবেন ততটুকু লোন/অগ্রিম থেকে কাটা যাবে।', 'Pay less than the due to deduct a loan installment.')}</div>` : ''}
+      <div class="siv-otp"><b style="color:#3d5a6c;">OTP:</b>
+        <label><input type="radio" name="sivOtpMode" value="0" ${st.otpMode ? '' : 'checked'}> ${t('ছাড়া', 'Without')}</label>
+        <label><input type="radio" name="sivOtpMode" value="1" ${st.otpMode ? 'checked' : ''}> ${t('সহ', 'With')}</label>${otp}</div>`;
   }
+  function updEntryNums() {
+    const e = st.e, d = entryDue(), amt = Number(e.amount) || 0, after = d - sgn(e.kind) * amt;
+    const set = function (id, v, cls) { const el = $(id); if (el) { el.textContent = v; if (cls !== undefined) el.className = cls; } };
+    set('sivNow', hrMoney(amt));
+    set('sivAfter', e.emp ? (after >= 0 ? hrMoney(after) : t('লোন ', 'Loan ') + hrMoney(-after)) : '—', after > 0.005 ? 'due' : after < -0.005 ? 'adv' : '');
+  }
+
+  // ---------- লাইনের টেবিল (লাইভ প্রিভিউ) ----------
+  function renderLines() {
+    const L = st.v.lines;
+    let tot = 0, tPay = 0, tRet = 0;
+    const body = L.map(function (l, i) {
+      const before = dueBeforeLine(l.emp, i), after = before - sgn(l.kind) * l.amt;
+      tot += sgn(l.kind) * l.amt; if (l.kind === 'ret') tRet += l.amt; else tPay += l.amt;
+      return `<tr class="k-${l.kind} ${st.e.idx === i ? 'sel' : ''}" data-li="${i}"><td>${i + 1}</td><td class="nm">${escapeHtml(empName(l.emp))}${l.note ? `<br><small style="color:var(--text-muted);">${escapeHtml(l.note)}</small>` : ''}${l.otp ? ' <small style="color:#166534;">✔OTP</small>' : ''}</td>
+        <td><span class="siv-tag ${l.kind}"><span class="lg">${escapeHtml(t(SI_KINDS[l.kind].bn, SI_KINDS[l.kind].en))}</span><span class="sh">${escapeHtml(l.kind === 'pay' ? t('বেতন', 'Pay') : l.kind === 'loan' ? t('লোন', 'Loan') : t('ফেরত', 'Repay'))}</span></span></td><td class="n mh">${balTxt(before)}</td><td class="n"><b>${hrMoney(l.amt)}</b></td><td class="n">${balTxt(after)}</td>
+        <td style="white-space:nowrap;"><button type="button" class="ic" data-le="${i}" title="${attr(t('এডিট', 'Edit'))}">✏️</button><button type="button" class="ic" data-ld="${i}" title="${attr(t('বাদ', 'Remove'))}">🗑</button></td></tr>`;
+    }).join('');
+    $('sivLines').innerHTML = `<thead><tr><th>${t('ক্রঃ', 'No.')}</th><th>${t('কর্মচারী', 'Employee')}</th><th>${t('ধরন', 'Type')}</th><th class="mh">${t('আগের ব্যালান্স', 'Before')}</th><th>${t('টাকা', 'Amount')}</th><th>${t('পরের ব্যালান্স', 'After')}</th><th></th></tr></thead>
+      <tbody>${body || `<tr><td colspan="7" style="color:var(--text-muted);padding:8px;">${t('উপরে কর্মচারী বাছাই করে টাকা লিখুন, "লাইন যোগ" চাপুন (বা Enter) — একই ভাউচারে যত জন খুশি।', 'Pick an employee, enter the amount and press "Add line" — as many as you like in one voucher.')}</td></tr>`}</tbody>
+      ${L.length ? `<tfoot><tr><td colspan="3">${t('মোট', 'Total')} (${L.length}${t(' লাইন', ' lines')})</td><td class="mh"></td><td class="n">${hrMoney(tPay)}${tRet ? `<br><small>${t('ফেরত −', 'In −')}${hrMoney(tRet)}</small>` : ''}</td><td class="n" colspan="2">${t('নীট ', 'Net ')}${tot < 0 ? '−' : ''}${hrMoney(Math.abs(tot))}</td></tr></tfoot>` : ''}`;
+    renderState();
+  }
+  function renderState() {
+    $('sivNo').value = st.v.no || t('সেভের পর বসবে', 'assigned on save');
+    $('sivTitle').textContent = st.v.no ? t('সেলারী ইস্যু ভাউচার ', 'Salary issue voucher ') + st.v.no : t('নতুন সেলারী ইস্যু ভাউচার', 'New salary issue voucher');
+    $('sivState').innerHTML = st.dirty ? `<b>● ${t('সেভ হয়নি', 'unsaved')}</b>` : '';
+    $('sivEditBar').innerHTML = st.v.orig ? `<div class="siv-edit">✏️ ${t('এডিট হচ্ছেঃ ', 'Editing: ')}<b>${escapeHtml(st.v.no)}</b> — ${t('লাইন বদলে "সেভ" চাপুন; আগের লাইন ও ক্যাশ/ব্যাংকের এন্ট্রি নতুন করে বসবে।', 'change lines and press Save.')}</div>` : '';
+    $('sivActs').innerHTML = `${st.v.orig ? `<button class="btn btn-outline" id="sivNew">＋ ${t('নতুন ভাউচার', 'New voucher')}</button><button class="btn btn-outline" id="sivDel" style="color:var(--danger);">🗑 ${t('ডিলিট', 'Delete')}</button><button class="btn btn-outline" id="sivView">👁 ${t('প্রিন্ট', 'Print')}</button>` : (st.v.lines.length ? `<button class="btn btn-outline" id="sivCancel">${t('বাতিল', 'Cancel')}</button>` : '')}
+      <button class="btn btn-primary" id="sivSave" ${st.v.lines.length || st.v.orig ? '' : 'disabled'}>💾 ${st.v.orig ? t('আপডেট', 'Update') : t('সেভ', 'Save')}</button>`;
+  }
+
+  // ---------- ভাউচার তালিকা ----------
+  function renderList() {
+    const from = st.list.from || '0000', to = st.list.to || '9999';
+    const vs = st.vouchers.filter(function (v) { return v.date >= from && v.date <= to; }).slice().reverse();
+    const body = vs.map(function (v, i) {
+      const kinds = {}; v.rows.forEach(function (x) { kinds[siKind(x)] = 1; }); const ks = Object.keys(kinds), kc = ks.length === 1 ? ks[0] : 'mix';
+      const names = v.rows.map(function (x) { return empName(x.EmployeeID); });
+      const nm = names.length > 2 ? names.slice(0, 2).join(', ') + ' +' + (names.length - 2) : names.join(', ');
+      return `<tr class="k-${kc} ${st.sel === v.key ? 'sel' : ''}" data-vk="${attr(v.key)}"><td class="mh">${vs.length - i}</td><td>${escapeHtml(isoToDmy(v.date))}</td><td><b>${escapeHtml(v.no)}</b></td><td class="nm">${escapeHtml(nm)}</td>
+        <td class="mh">${ks.map(function (k) { return `<span class="siv-tag ${k}">${escapeHtml(t(SI_KINDS[k].bn, SI_KINDS[k].en))}</span>`; }).join(' ')}</td><td class="mh">${escapeHtml(accName[v.rows[0].BankCashAccID] || '')}</td><td class="n"><b>${v.total < 0 ? '−' : ''}${hrMoney(Math.abs(v.total))}</b></td>
+        <td style="white-space:nowrap;"><button type="button" class="ic" data-va="view" title="${attr(t('প্রিন্ট', 'Print'))}">👁</button><button type="button" class="ic" data-va="edit" title="${attr(t('এডিট (এডমিন)', 'Edit (admin)'))}">✏️</button><button type="button" class="ic" data-va="del" title="${attr(t('ডিলিট', 'Delete'))}">🗑</button><button type="button" class="ic" data-va="pdf" title="${attr(t('সেভ / PDF', 'Save / PDF'))}">💾</button></td></tr>`;
+    }).join('');
+    const sum = vs.reduce(function (s, v) { return s + v.total; }, 0);
+    $('sivList').innerHTML = `<thead><tr><th class="mh">${t('ক্রঃ', 'No.')}</th><th>${t('তারিখ', 'Date')}</th><th>${t('ভাউচার', 'Voucher')}</th><th>${t('কর্মচারী', 'Employees')}</th><th class="mh">${t('ধরন', 'Type')}</th><th class="mh">${t('ক্যাশ/ব্যাংক', 'Cash/Bank')}</th><th>${t('মোট', 'Total')}</th><th></th></tr></thead>
+      <tbody>${body || `<tr><td colspan="8" style="color:var(--text-muted);padding:8px;">${t('এই সময়ে কোনো সেলারী ইস্যু নেই।', 'No salary issues in this period.')}</td></tr>`}</tbody>
+      ${vs.length ? `<tfoot><tr><td class="mh"></td><td colspan="3">${t('মোট', 'Total')} (${vs.length}${t('টি ভাউচার', ' vouchers')})</td><td class="mh"></td><td class="mh"></td><td class="n">${sum < 0 ? '−' : ''}${hrMoney(Math.abs(sum))}</td><td></td></tr></tfoot>` : ''}`;
+  }
+  function renderAll() { renderSide(); renderEntry(); renderLines(); renderList(); }
+
+  // ---------- লাইন যোগ / এডিট ----------
+  function pickEmp(id, kind) {
+    st.e.emp = id || ''; if (kind) st.e.kind = kind;
+    resetOtp();
+    if (st.e.idx < 0) { st.e.amount = defaultAmount(); st.e.note = ''; }
+    renderEntry(); renderSide();
+    const a = $('sivAmt'); if (a && st.e.emp) { a.focus(); try { a.select(); } catch (x) {} }
+  }
+  function addLine() {
+    const e = st.e, amt = Math.round((Number(e.amount) || 0) * 100) / 100;
+    if (!e.emp) { showToast(t('কর্মচারী বাছাই করুন।', 'Select an employee.'), 'error'); $('sivEmp').focus(); return; }
+    if (!(amt > 0)) { showToast(t('টাকার পরিমাণ লিখুন।', 'Enter the amount.'), 'error'); $('sivAmt').focus(); return; }
+    const d = entryDue();
+    if (e.kind === 'pay' && amt > d + 0.005 && !confirm(t('বকেয়ার (' + hrMoney(Math.max(d, 0)) + ') চেয়ে বেশি দিচ্ছেন — বাড়তি অংশ লোন/অগ্রিম হিসেবে থাকবে। চালিয়ে যাবেন?', 'Paying more than due — the extra becomes a loan/advance. Continue?'))) return;
+    if (e.kind === 'ret' && amt > -d + 0.005 && !confirm(t('লোন/অগ্রিম বাকি ' + hrMoney(Math.max(0, -d)) + ' — এর চেয়ে বেশি ফেরত নিলে বাড়তিটা কর্মচারীর পাওনা (বকেয়া) হিসেবে থাকবে। চালিয়ে যাবেন?', 'Receiving more than the loan — the extra becomes a due. Continue?'))) return;
+    if (st.otpMode && !st.otp.verified) { showToast(t('আগে OTP যাচাই করুন, অথবা "OTP ছাড়া" বাছাই করুন।', 'Verify the OTP first, or choose "Without OTP".'), 'error'); return; }
+    if (st.otpMode && Math.abs((Number(st.otp.amount) || 0) - amt) > 0.005) { showToast(t('OTP পাঠানোর পর টাকার অঙ্ক বদলেছে — আবার OTP পাঠান।', 'Amount changed after sending the OTP — send again.'), 'error'); resetOtp(); renderEntry(); return; }
+    const line = { emp: e.emp, kind: e.kind, amt: amt, note: (e.note || '').trim(), otp: st.otpMode ? { phone: st.otp.sentTo, at: st.otp.verifiedAt, ref: st.otp.id } : (e.idx >= 0 ? st.v.lines[e.idx].otp : null) };
+    if (e.idx >= 0) st.v.lines[e.idx] = line; else st.v.lines.push(line);
+    st.dirty = true;
+    const keepKind = e.kind;
+    st.e = newE(); st.e.kind = keepKind; resetOtp();
+    renderEntry(); renderLines(); renderSide();
+    const s = $('sivEmp'); if (s) s.focus();
+  }
+  function editLine(i) {
+    const l = st.v.lines[i]; if (!l) return;
+    st.e = { emp: l.emp, kind: l.kind, amount: l.amt, note: l.note, idx: i }; resetOtp();
+    renderEntry(); renderLines();
+    const a = $('sivAmt'); if (a) { a.focus(); try { a.select(); } catch (x) {} }
+    $('sivMain').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // ---------- ভাউচার খোলা / নতুন ----------
+  function confirmDiscard() { return !st.dirty || confirm(t('সেভ না করা পরিবর্তন আছে — হারিয়ে যাবে। চালিয়ে যাবেন?', 'Unsaved changes will be lost. Continue?')); }
+  function startNew() {
+    st.v = newV(); st.e = newE(); st.dirty = false; resetOtp();
+    $('sivDate').value = st.v.date; $('sivDate').dispatchEvent(new Event('input', { bubbles: true }));
+    $('sivAcc').value = st.v.acc; $('sivVNote').value = '';
+    renderAll();
+  }
+  async function openVoucher(key, askAdmin) {
+    const v = st.vouchers.find(function (x) { return x.key === key; }); if (!v) return;
+    if (askAdmin && !(await voucherAskAdmin(t('সেলারী ইস্যু এডিট করতে এডমিন পাসওয়ার্ড দিন:', 'Admin password to edit a salary issue:')))) return;
+    const r0 = v.rows[0];
+    st.v = { key: v.key, no: v.no, date: v.date, acc: r0.BankCashAccID || cashId, note: '', orig: v, lines: v.rows.map(function (x) {
+      return { emp: x.EmployeeID, kind: siKind(x), amt: Math.abs(Number(x.Amount) || 0), note: x.Note || '', otp: x.OtpVerified ? { phone: x.OtpPhone, at: x.OtpAt, ref: x.OtpRef } : null };
+    }) };
+    // সব লাইনে একই নোট থাকলে সেটাই ভাউচারের নোট
+    const notes = st.v.lines.map(function (l) { return l.note; });
+    if (notes.length && notes.every(function (n) { return n && n === notes[0]; })) { st.v.note = notes[0]; st.v.lines.forEach(function (l) { l.note = ''; }); }
+    st.e = newE(); st.dirty = false; st.sel = v.key; resetOtp();
+    $('sivDate').value = st.v.date; $('sivDate').dispatchEvent(new Event('input', { bubbles: true }));
+    $('sivAcc').value = st.v.acc; $('sivVNote').value = st.v.note;
+    renderAll();
+    $('sivMain').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // ---------- সেভ ----------
+  async function save() {
+    const V = st.v;
+    if (!V.lines.length) { if (V.orig) return delVoucher(V.orig, true); throw new Error(t('অন্তত একটা লাইন যোগ করুন।', 'Add at least one line.')); }
+    if (!V.acc) throw new Error(t('ক্যাশ/ব্যাংক অ্যাকাউন্ট বাছাই করুন (হিসাব → ব্যাংক ও ক্যাশ অ্যাকাউন্ট)।', 'Select a cash/bank account.'));
+    if (!V.date) throw new Error(t('তারিখ দিন।', 'Enter the date.'));
+    if (st.e.emp && (Number(st.e.amount) || 0) > 0 && confirm(t('এন্ট্রির ঘরে একটা লাইন যোগ করা হয়নি — আগে যোগ করবেন?', 'An entry is not added yet — add it first?'))) { addLine(); if (st.e.emp) return; }
+    // নম্বরঃ পুরনো নতুন-ধাঁচের ভাউচার হলে একই নম্বর, নাহলে নতুন (সব ধরনের সব নম্বরের পরে)
+    let num = V.orig && /^V/.test(V.orig.key) ? V.orig.num : 0;
+    if (!num) {
+      const { data } = await supabaseClient.from('SalaryIssue').select('IssueNo');
+      num = (data || []).concat((st.everNos || []).map(function (n) { return { IssueNo: n }; })).reduce(function (m, x) { return Math.max(m, siBaseNum(x.IssueNo)); }, 0) + 1;
+    }
+    const pad = String(num).padStart(4, '0'), accs = {};
+    accs[V.acc] = 1;
+    // এডিটঃ পুরনো লাইন ও ক্যাশ/ব্যাংকের এন্ট্রি মুছে নতুন করে
+    if (V.orig) {
+      for (const x of V.orig.rows) {
+        await supabaseClient.from('BankCashBook').delete().eq('RefModule', 'SalaryIssue').eq('RefID', x.IssueNo);
+        if (x.BankCashAccID) accs[x.BankCashAccID] = 1;
+        const { error } = await supabaseClient.from('SalaryIssue').delete().eq('IssueID', x.IssueID); if (error) throw new Error(error.message);
+      }
+    }
+    const done = [];
+    try {
+      for (let i = 0; i < V.lines.length; i++) {
+        const l = V.lines[i], no = SI_KINDS[l.kind].pre + pad + '/' + (i + 1), before = dueBeforeLine(l.emp, i);
+        const row = { IssueNo: no, IssueDate: V.date, EmployeeID: l.emp, BankCashAccID: V.acc, Amount: sgn(l.kind) * l.amt, Note: (l.note || V.note || '').slice(0, 250), DueBefore: before, Status: 'Active' };
+        if (l.otp) { row.OtpVerified = true; row.OtpPhone = l.otp.phone; row.OtpAt = l.otp.at; row.OtpRef = l.otp.ref; }
+        const { data, error } = await supabaseClient.from('SalaryIssue').insert(row).select();
+        if (error) throw new Error(error.message);
+        done.push(data && data[0] ? data[0] : row);
+        await postBankCashBookEntry(V.acc, V.date, 'SalaryIssue', no, l.kind === 'ret' ? l.amt : 0, l.kind === 'ret' ? 0 : l.amt);   // বেতন/লোনঃ টাকা বের (ক্রেঃ) · লোন ফেরতঃ ঢোকে (ডেঃ)
+      }
+    } catch (err) {   // মাঝপথে ভুল — যা বসেছে তা ফিরিয়ে নেওয়া (এডিটে পুরনোগুলো আর ফেরানো যায় না — নতুন করে সেভ করুন)
+      for (const x of done) { try { await supabaseClient.from('BankCashBook').delete().eq('RefModule', 'SalaryIssue').eq('RefID', x.IssueNo); await supabaseClient.from('SalaryIssue').delete().eq('IssueNo', x.IssueNo); } catch (e2) {} }
+      for (const a of Object.keys(accs)) { try { await rebalanceBankCashBook(a); } catch (e3) {} }
+      throw err;
+    }
+    for (const a of Object.keys(accs)) { try { await rebalanceBankCashBook(a); } catch (e) {} }
+    listCache = {};
+    return { no: 'SAL-' + pad, key: 'V' + num, rows: done };
+  }
+  async function delVoucher(v, fromEdit) {
+    if (!permCan('salaryIssue', 3)) { showToast(t('ডিলিটের অনুমতি আপনার নেই।', 'No delete permission.'), 'error'); return; }
+    if (!confirm(t(v.no + ' (' + v.rows.length + 'টি লাইন) ডিলিট করবেন? ক্যাশ/ব্যাংক বইতে টাকা ফেরত এন্ট্রি হবে।', 'Delete ' + v.no + '? A reversal will be posted to the cash/bank book.'))) return;
+    const accs = {};
+    for (const x of v.rows) {
+      const xa = Number(x.Amount) || 0;
+      await postBankCashBookEntry(x.BankCashAccID, hrToday(), 'SalaryIssue-Reversal', x.IssueNo, Math.max(xa, 0), Math.max(-xa, 0));
+      const { error } = await supabaseClient.from('SalaryIssue').update({ Status: 'Deleted' }).eq('IssueID', x.IssueID);
+      if (error) throw new Error(error.message);
+      if (x.BankCashAccID) accs[x.BankCashAccID] = 1;
+    }
+    listCache = {}; showToast(t('ডিলিট হয়েছে ✅', 'Deleted ✅'), 'success');
+    await loadAll();
+    if (fromEdit || (st.v.orig && st.v.orig.key === v.key)) { st.dirty = false; startNew(); } else renderAll();
+  }
+
+  // ---------- প্রিন্ট (A5) ----------
+  async function printVoucher(v) {
+    const win = window.open('', '_blank');
+    if (!win) { showToast(t('পপ-আপ ব্লক হয়েছে — এই সাইটের জন্য পপ-আপ অনুমতি দিন।', 'Pop-up blocked — allow pop-ups for this site.'), 'error'); return; }
+    let co = {}; try { co = await api('getSingleton', { sheet: 'CompanyProfile' }); } catch (e) {}
+    const rows = v.rows, one = rows.length === 1, x0 = rows[0], kinds = {}; rows.forEach(function (x) { kinds[siKind(x)] = 1; });
+    const ks = Object.keys(kinds), title = ks.length === 1 && ks[0] !== 'pay' ? SI_KINDS[ks[0]].bn : 'সেলারী ইস্যু (বেতন পরিশোধ)';
+    const acc = accName[x0.BankCashAccID] || '';
+    const dueTxt = function (d) { return d >= 0 ? hrMoney(d) : 'লোন ' + hrMoney(-d); };
+    let tot = 0;
+    const trs = rows.map(function (x, i) {
+      const a = Number(x.Amount) || 0, before = Number(x.DueBefore) || 0, after = before - a, e = base.empMap[x.EmployeeID] || {}; tot += a;
+      return `<tr><td>${i + 1}</td><td style="text-align:left;">${escapeHtml(e.Name || x.EmployeeID)}${x.Note ? `<div style="font-size:9px;color:#555;">${escapeHtml(x.Note)}</div>` : ''}${x.OtpVerified ? '<div style="font-size:9px;color:#166534;">✔ OTP</div>' : ''}</td><td>${escapeHtml(SI_KINDS[siKind(x)].bn)}</td><td class="r">${dueTxt(before)}</td><td class="r"><b>${hrMoney(Math.abs(a))}</b></td><td class="r">${dueTxt(after)}</td>${one ? '' : '<td></td>'}</tr>`;
+    }).join('');
+    const e0 = base.empMap[x0.EmployeeID] || {};
+    win.document.write(`<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${escapeHtml(title)} — ${escapeHtml(v.no)}</title>
+      <link href="https://fonts.googleapis.com/css2?family=Anek+Bangla:wght@400;500;600;700&display=swap" rel="stylesheet">
+      <style>${VOUCHER_TABLE_CSS} .items-table td,.items-table th{font-size:10.5px;padding:4px 5px;} .items-table .r{text-align:right;} .items-table td{text-align:center;}</style>
+      <style>@page{size:A5 portrait;margin:8mm;}</style></head><body>
+      <div class="toolbar"><button class="primary" onclick="window.print()">🖨️ প্রিন্ট</button></div>
+      <div class="v-co"><div class="v-logo">${co.LogoURL ? `<img src="${attr(co.LogoURL)}" alt="">` : '<span>লোগো</span>'}</div>
+        <div class="v-co-info"><div class="v-co-name">${escapeHtml(co.CompanyNameBn || 'জি মেটাল ওয়ার্কস')}</div><div class="v-co-addr">${escapeHtml(co.AddressBn || '')}</div>${co.Phone ? `<div class="v-co-mob">মোবাইলঃ <span class="en">${escapeHtml(co.Phone)}</span></div>` : ''}<div class="v-type">${escapeHtml(title)}</div></div>
+        <div class="v-meta"><div class="v-print">প্রিন্টঃ <span class="en">${escapeHtml(formatPrintDate())}</span></div><div class="v-meta-row"><span>ভাউচার নংঃ</span><b class="en">${escapeHtml(v.no)}</b></div><div class="v-meta-row"><span>তারিখঃ</span><b class="en">${escapeHtml(formatShortDate(v.date))}</b></div></div></div>
+      ${one ? `<div class="v-party"><div class="v-party-name"><span class="lbl">কর্মচারীঃ</span> ${escapeHtml(e0.Name || x0.EmployeeID)}</div><div class="v-party-sub"><span>${escapeHtml(base.catMap[e0.CategoryID] || '')}</span>${e0.Phone ? `<span>মোবাইলঃ ${escapeHtml(e0.Phone)}</span>` : ''}</div></div>` : ''}
+      <table class="items-table"><thead><tr><th>ক্রঃ</th><th>কর্মচারী</th><th>ধরন</th><th>আগের ব্যালান্স</th><th>টাকা</th><th>পরের ব্যালান্স</th>${one ? '' : '<th>স্বাক্ষর</th>'}</tr></thead><tbody>${trs}
+        <tr class="grand-all"><td colspan="4" style="text-align:right;">মোট (${escapeHtml(acc)})</td><td class="r">${tot < 0 ? '−' : ''}${hrMoney(Math.abs(tot))}</td><td></td>${one ? '' : '<td></td>'}</tr></tbody></table>
+      <div style="font-size:9.5px;color:#555;margin-top:4px;">আগের/পরের ব্যালান্সঃ সংখ্যা = বকেয়া (কর্মচারী পাবে) · "লোন" = লোন/অগ্রিম (কর্মচারীর কাছে পাওনা)</div>
+      ${one && x0.OtpVerified ? `<div style="margin-top:10px;border:1.5px solid #16a34a;border-radius:6px;padding:5px 8px;font-size:10.5px;color:#166534;">✔ OTP যাচাই হয়েছে — গ্রহীতার মোবাইল <span class="en">${escapeHtml(x0.OtpPhone || '')}</span></div>` : ''}
+      <div class="sign-row" style="margin-top:36px;">${one ? `<div>গ্রহীতার স্বাঃ<div style="font-size:9.5px;font-weight:400;margin-top:3px;">মোবাইলঃ <span class="en">${escapeHtml(e0.Phone || '..................')}</span></div></div>` : ''}<div>প্রদানকারীর স্বাঃ</div><div>অনুমোদনকারীর স্বাঃ</div></div>
+      <script>window.addEventListener("load",function(){setTimeout(function(){window.print();},400);});<\/script></body></html>`);
+    win.document.close();
+  }
+
+  // ---------- OTP ----------
   async function otpCall(body) {
-    if (!supabaseClient.functions) throw new Error(t('OTP সার্ভিস পাওয়া যায়নি।','OTP service unavailable.'));
+    if (!supabaseClient.functions) throw new Error(t('OTP সার্ভিস পাওয়া যায়নি।', 'OTP service unavailable.'));
     const { data, error } = await supabaseClient.functions.invoke('salary-otp', { body: body });
     if (error) {
       let msg = error.message || '';
       try { const ctx = error.context && await error.context.json(); if (ctx && ctx.error) msg = ctx.error; } catch (e) {}
-      if (/not found|404|Failed to send a request/i.test(msg)) msg = t('OTP সার্ভিস (salary-otp) এখনো Supabase-এ বসানো হয়নি।','The salary-otp function is not deployed yet.');
+      if (/not found|404|Failed to send a request/i.test(msg)) msg = t('OTP সার্ভিস (salary-otp) এখনো Supabase-এ বসানো হয়নি।', 'The salary-otp function is not deployed yet.');
       throw new Error(msg);
     }
     if (data && data.error) throw new Error(data.error);
     return data || {};
   }
-  function renderDues() {
-    const el = document.getElementById('siDues');
-    const list = Object.keys(st.ledger).map(function (id) { return { id: id, L: st.ledger[id] }; }).filter(function (x) { return Math.abs(x.L.due) > 0.005; })
-      .sort(function (a, b) { return b.L.due - a.L.due; });
-    const tot = list.reduce(function (s, x) { return s + Math.max(0, x.L.due); }, 0), adv = list.reduce(function (s, x) { return s + Math.max(0, -x.L.due); }, 0);
-    el.innerHTML = list.length ? list.map(function (x) {
-      const e = base.empMap[x.id] || {};
-      return `<div class="si-li"><div><b>${escapeHtml(e.Name || x.id)}</b> <span class="meta">${escapeHtml(base.catMap[e.CategoryID] || '')}</span>
-          <div class="meta">${x.L.due >= 0 ? `${t('বকেয়া','Due')} <span class="si-due">${hrMoney(x.L.due)}</span>` : `${t('লোন/অগ্রিম দেওয়া আছে','Loan/advance')} <span class="si-adv">${hrMoney(-x.L.due)}</span>`}</div></div>
-        <div class="ic">${x.L.due > 0 ? `<button data-pay="${attr(x.id)}">💵 ${t('ইস্যু','Issue')}</button>` : `<button data-ret="${attr(x.id)}" title="${attr(t('লোনের টাকা নগদে ফেরত নিন', 'Receive loan repayment in cash'))}">↩ ${t('লোন ফেরত','Repay')}</button>`}</div></div>`;
-    }).join('') + `<div style="text-align:right;font-size:13px;margin-top:6px;">${t('মোট বকেয়াঃ ','Total due: ')}<b>${hrMoney(tot)}</b>${adv > 0.005 ? ` · ${t('মোট লোন/অগ্রিম (আদায়যোগ্য)ঃ ','Total loan/advance (receivable): ')}<b class="si-adv">${hrMoney(adv)}</b>` : ''}</div>`
-      : `<div style="color:var(--text-muted);font-size:13px;">${t('কারো কোনো বকেয়া নেই।','No dues.')}</div>`;
-  }
-  function renderList() {
-    const el = document.getElementById('siList');
-    const list = (st.allIssues || []).slice(0, 30);
-    const accName = {}; accounts.forEach(function (a) { accName[a.BankAccID] = a.AccountName; });
-    el.innerHTML = list.length ? list.map(function (x) {
-      const e = base.empMap[x.EmployeeID] || {};
-      const kd = siKind(x);
-      return `<div class="si-li"><div><b>${escapeHtml(x.IssueNo || x.IssueID)}</b> · ${escapeHtml(e.Name || x.EmployeeID)}${kd !== 'pay' ? `<span class="si-tag ${kd}">${escapeHtml(siKindLabel(x))}</span>` : ''}
-          <div class="meta">${escapeHtml(formatShortDate(x.IssueDate))} · ${escapeHtml(accName[x.BankCashAccID] || '')} · <b>${hrMoney(Math.abs(Number(x.Amount) || 0))}</b>${x.OtpVerified ? ' · <span style="color:#166534;">✔ OTP</span>' : ''}${x.Note ? ' · ' + escapeHtml(x.Note) : ''}</div></div>
-        <div class="ic"><button data-view="${attr(x.IssueID)}" title="${t('প্রিন্ট','Print')}" aria-label="${t('প্রিন্ট','Print')}">👁</button><button data-edit="${attr(x.IssueID)}" title="${t('এডিট (এডমিন)','Edit (admin)')}" aria-label="${t('এডিট','Edit')}">✏️</button><button data-del="${attr(x.IssueID)}" title="${t('ডিলিট','Delete')}" aria-label="${t('ডিলিট','Delete')}">🗑</button></div></div>`;
-    }).join('') : `<div style="color:var(--text-muted);font-size:13px;">${t('এখনো কোনো সেলারী ইস্যু নেই।','No salary issues yet.')}</div>`;
-  }
-  async function reloadAll() { await loadLedger(); renderBody(); renderDues(); renderList(); }
-
-  function pickEmp(id) {
-    st.editIssue = null;   // অন্য কর্মচারী বাছাই = এডিট বাতিল
-    st.emp = id; resetOtp(); const e = base.empMap[id] || {};
-    document.getElementById('siEmp').value = e.Name || id;
-    const L = st.ledger[id]; st.amount = st.kind === 'pay' ? (L && L.due > 0 ? L.due : '') : st.kind === 'ret' ? (L && L.due < 0 ? -L.due : '') : ''; st.note = '';
-    renderBody(); window.scrollTo({ top: 0, behavior: 'smooth' });
-  }
-
-  // ---------- সেভ / ডিলিট / প্রিন্ট ----------
-  async function nextNo() {
-    const pre = SI_KINDS[st.kind].pre, re = new RegExp('^' + pre + '(\\d+)$');
-    const { data } = await supabaseClient.from('SalaryIssue').select('IssueNo').like('IssueNo', pre + '%');   // মুছে ফেলা নম্বরও ধরে (একই নম্বর আবার নয়)
-    const n = (data || (st.allIssues || [])).reduce(function (m, x) { const r = re.exec(x.IssueNo || ''); return r ? Math.max(m, Number(r[1])) : m; }, 0) + 1;
-    return pre + String(n).padStart(4, '0');
-  }
-  async function save() {
-    const amt = Number(st.amount) || 0;
-    if (!st.emp) throw new Error(t('কর্মচারী বাছাই করুন।','Select an employee.'));
-    if (!(amt > 0)) throw new Error(t('টাকার পরিমাণ লিখুন।','Enter the amount.'));
-    if (!st.acc) throw new Error(t('ক্যাশ/ব্যাংক অ্যাকাউন্ট বাছাই করুন (হিসাব → ব্যাংক ও ক্যাশ অ্যাকাউন্ট)।','Select a cash/bank account.'));
-    const L0 = st.ledger[st.emp] || { due: 0 }, L = { due: L0.due + editAddFor(st.emp) };
-    if (st.kind === 'ret' && amt > -L.due + 0.005 && !confirm(t('লোন/অগ্রিম বাকি ' + hrMoney(Math.max(0, -L.due)) + ' — এর চেয়ে বেশি ফেরত নিলে বাড়তিটা কর্মচারীর পাওনা (বকেয়া) হিসেবে থাকবে। চালিয়ে যাবেন?', 'Receiving more than the loan balance — the extra becomes a due to the employee. Continue?'))) return null;
-    if (st.kind === 'pay' && amt > L.due + 0.005 && !confirm(t('বকেয়ার (' + hrMoney(L.due) + ') চেয়ে বেশি দিচ্ছেন — বাড়তি অংশ অগ্রিম হিসেবে থাকবে। চালিয়ে যাবেন?','Paying more than due — the extra becomes an advance. Continue?'))) return null;
-    const ed = st.editIssue, no = ed ? ed.IssueNo : await nextNo();
-    if (st.otpMode && !st.otp.verified) throw new Error(t('আগে OTP যাচাই করুন, অথবা "OTP ছাড়া" বাছাই করুন।','Verify the OTP first, or choose "Without OTP".'));
-    if (st.otpMode && Math.abs((Number(st.otp.amount) || 0) - amt) > 0.005) throw new Error(t('OTP পাঠানোর পর টাকার অঙ্ক বদলেছে — আবার OTP পাঠান।','Amount changed after sending the OTP — send it again.'));
-    const sAmt = kindSign() * amt, dr = st.kind === 'ret' ? amt : 0, cr = st.kind === 'ret' ? 0 : amt;   // লোন ফেরতঃ ঋণাত্মক টাকা, ক্যাশ/ব্যাংকে ডেঃ
-    const row = { IssueNo: no, IssueDate: st.date, EmployeeID: st.emp, BankCashAccID: st.acc, Amount: sAmt, Note: st.note || '', DueBefore: L.due, Status: 'Active' };
-    if (st.otpMode) { row.OtpVerified = true; row.OtpPhone = st.otp.sentTo; row.OtpAt = st.otp.verifiedAt; row.OtpRef = st.otp.id; }
-    if (ed) {   // এডিটঃ একই ইস্যু নম্বর; আগের ক্যাশ/ব্যাংক বইয়ের এন্ট্রি মুছে নতুন টাকায়
-      const upd = Object.assign({}, row); delete upd.Status;
-      const { data: ud, error: ue } = await supabaseClient.from('SalaryIssue').update(upd).eq('IssueID', ed.IssueID).select();
-      if (ue) throw new Error(ue.message);
-      await supabaseClient.from('BankCashBook').delete().eq('RefModule', 'SalaryIssue').eq('RefID', ed.IssueNo);
-      if (ed.BankCashAccID && ed.BankCashAccID !== st.acc) { try { await rebalanceBankCashBook(ed.BankCashAccID); } catch (e) {} }
-      await postBankCashBookEntry(st.acc, st.date, 'SalaryIssue', no, dr, cr);
-      try { await rebalanceBankCashBook(st.acc); } catch (e) {}
-      st.editIssue = null; listCache = {};
-      return (ud && ud[0]) || Object.assign({}, ed, row);
-    }
-    const { data, error } = await supabaseClient.from('SalaryIssue').insert(row).select();
-    if (error) throw new Error(error.message);
-    try { await postBankCashBookEntry(st.acc, st.date, 'SalaryIssue', no, dr, cr); } // বেতন/লোনঃ টাকা বের (ক্রেঃ) · লোন ফেরতঃ টাকা ঢোকে (ডেঃ)
-    catch (err) { await supabaseClient.from('SalaryIssue').delete().eq('IssueID', data[0].IssueID); throw err; }
-    listCache = {};
-    return data[0];
-  }
-  function editAddFor(emp) { return (st.editIssue && st.editIssue.EmployeeID === emp) ? (Number(st.editIssue.Amount) || 0) : 0; }
-  /** ইস্যু এডিট — এডমিন পাসওয়ার্ড; ফর্মে আগের সব তথ্য আসে, "আপডেট"-এ একই নম্বরে বদলায় */
-  async function editIssue(id) {
-    const x = (st.allIssues || []).find(function (y) { return String(y.IssueID) === String(id); }); if (!x) return;
-    if (!(await voucherAskAdmin(t('সেলারী ইস্যু এডিট করতে এডমিন পাসওয়ার্ড দিন:', 'Admin password to edit a salary issue:')))) return;
-    pickEmp(x.EmployeeID);
-    st.kind = siKind(x); st.editIssue = x; st.amount = Math.abs(Number(x.Amount) || 0) || ''; st.note = x.Note || ''; st.acc = x.BankCashAccID || st.acc; st.date = String(x.IssueDate || st.date).slice(0, 10);
-    const di = document.getElementById('siDate'); di.value = st.date; di.dispatchEvent(new Event('input', { bubbles: true }));
-    document.getElementById('siNo').value = x.IssueNo;
-    renderBody();
-    showToast(t('এডিট হচ্ছেঃ ', 'Editing: ') + x.IssueNo, 'success');
-  }
-  async function del(id) {
-    const x = (st.allIssues || []).find(function (y) { return String(y.IssueID) === String(id); }); if (!x) return;
-    if (!confirm(t(x.IssueNo + ' ডিলিট করবেন? ক্যাশ/ব্যাংক বইতে টাকা ফেরত এন্ট্রি হবে।','Delete ' + x.IssueNo + '? A reversal will be posted to the cash/bank book.'))) return;
-    const xa = Number(x.Amount) || 0;
-    await postBankCashBookEntry(x.BankCashAccID, hrToday(), 'SalaryIssue-Reversal', x.IssueNo, Math.max(xa, 0), Math.max(-xa, 0));   // লোন ফেরত বাতিল = টাকা আবার বের
-    const { error } = await supabaseClient.from('SalaryIssue').update({ Status: 'Deleted' }).eq('IssueID', x.IssueID);
-    if (error) throw new Error(error.message);
-    listCache = {}; showToast(t('ডিলিট হয়েছে ✅','Deleted ✅'), 'success');
-    await reloadAll();
-  }
-  async function printIssue(x) {
-    const win = window.open('', '_blank');
-    if (!win) { showToast(t('পপ-আপ ব্লক হয়েছে — এই সাইটের জন্য পপ-আপ অনুমতি দিন।','Pop-up blocked — allow pop-ups for this site.'), 'error'); return; }
-    let co = {}; try { co = await api('getSingleton', { sheet: 'CompanyProfile' }); } catch (e) {}
-    const e = base.empMap[x.EmployeeID] || {}, acc = accounts.find(function (a) { return a.BankAccID === x.BankCashAccID; }) || {};
-    const before = Number(x.DueBefore) || 0, after = before - (Number(x.Amount) || 0), kd = siKind(x), xAbs = Math.abs(Number(x.Amount) || 0);
-    const dueTxt = function (v) { return v >= 0 ? 'বকেয়া' : 'লোন/অগ্রিম'; };
-    win.document.write(`<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${kd === 'pay' ? 'সেলারী ইস্যু' : SI_KINDS[kd].bn} — ${escapeHtml(x.IssueNo)}</title>
-      <link href="https://fonts.googleapis.com/css2?family=Anek+Bangla:wght@400;500;600;700&display=swap" rel="stylesheet">
-      <style>${VOUCHER_TABLE_CSS} .items-table td,.items-table th{font-size:11px;padding:5px 6px;} .items-table .r{text-align:right;} .big{font-size:15px;font-weight:700;}</style>
-      <style>@page{size:A5 portrait;margin:8mm;}</style></head><body>
-      <div class="toolbar"><button class="primary" onclick="window.print()">🖨️ প্রিন্ট</button></div>
-      <div class="v-co"><div class="v-logo">${co.LogoURL ? `<img src="${attr(co.LogoURL)}" alt="">` : '<span>লোগো</span>'}</div>
-        <div class="v-co-info"><div class="v-co-name">${escapeHtml(co.CompanyNameBn || 'জি মেটাল ওয়ার্কস')}</div><div class="v-co-addr">${escapeHtml(co.AddressBn || '')}</div>${co.Phone ? `<div class="v-co-mob">মোবাইলঃ <span class="en">${escapeHtml(co.Phone)}</span></div>` : ''}<div class="v-type">সেলারী ইস্যু (বেতন পরিশোধ)</div></div>
-        <div class="v-meta"><div class="v-print">প্রিন্টঃ <span class="en">${escapeHtml(formatPrintDate())}</span></div><div class="v-meta-row"><span>ইস্যু নংঃ</span><b class="en">${escapeHtml(x.IssueNo)}</b></div><div class="v-meta-row"><span>তারিখঃ</span><b class="en">${escapeHtml(formatShortDate(x.IssueDate))}</b></div></div></div>
-      <div class="v-party"><div class="v-party-name"><span class="lbl">কর্মচারীঃ</span> ${escapeHtml(e.Name || x.EmployeeID)}</div><div class="v-party-sub"><span>${escapeHtml(base.catMap[e.CategoryID] || '')}</span>${e.Phone ? `<span>মোবাইলঃ ${escapeHtml(e.Phone)}</span>` : ''}</div></div>
-      <table class="items-table"><tbody>
-        <tr><td>আগের ${dueTxt(before)}</td><td class="r">${hrMoney(Math.abs(before))}</td></tr>
-        <tr><td><b>${kd === 'pay' ? 'এখন পরিশোধ' : kd === 'loan' ? 'লোন প্রদান' : 'লোন ফেরত (নগদ গ্রহণ)'}</b> (${escapeHtml(acc.AccountName || '')})</td><td class="r big">${hrMoney(xAbs)}</td></tr>
-        <tr class="grand-all"><td>${after >= 0 ? 'অবশিষ্ট বকেয়া' : 'লোন/অগ্রিম বাকি'}</td><td class="r">${hrMoney(Math.abs(after))}</td></tr>
-        ${x.Note ? `<tr><td colspan="2">নোটঃ ${escapeHtml(x.Note)}</td></tr>` : ''}
-      </tbody></table>
-      ${x.OtpVerified ? `<div style="margin-top:14px;border:1.5px solid #16a34a;border-radius:6px;padding:5px 8px;font-size:10.5px;color:#166534;">✔ OTP যাচাই হয়েছে — গ্রহীতার মোবাইল <span class="en">${escapeHtml(x.OtpPhone || '')}</span>, <span class="en">${escapeHtml(x.OtpAt ? new Date(x.OtpAt).toLocaleString('en-GB') : '')}</span></div>` : ''}
-      <div class="sign-row" style="margin-top:${x.OtpVerified ? 26 : 40}px;"><div>গ্রহীতার স্বাঃ<div style="font-size:9.5px;font-weight:400;margin-top:3px;">মোবাইলঃ <span class="en">${escapeHtml(e.Phone || '..................')}</span></div></div><div>প্রদানকারীর স্বাঃ</div><div>অনুমোদনকারীর স্বাঃ</div></div>
-      <script>window.addEventListener("load",function(){setTimeout(function(){window.print();},400);});<\/script></body></html>`);
-    win.document.close();
-  }
 
   // ---------- ইভেন্ট ----------
-  document.getElementById('siDate').addEventListener('change', function () { st.date = this.value; });
-  hrNameSuggest(document.getElementById('siEmp'), { list: function () { return hrEmpSuggestList(base, base.emps); }, onPick: function (it) { pickEmp(it.id); } });
-  const body = document.getElementById('siBody');
-  body.addEventListener('input', function (ev) {
+  $('sivDate').addEventListener('change', function () { st.v.date = this.value; st.dirty = true; renderState(); });
+  $('sivAcc').addEventListener('change', function () { st.v.acc = this.value; st.dirty = true; renderState(); });
+  $('sivVNote').addEventListener('input', function () { st.v.note = this.value; st.dirty = true; });
+  const entry = $('sivEntry');
+  entry.addEventListener('change', function (ev) {
     const el = ev.target;
-    if (el.id === 'siAmt') {
-      st.amount = el.value;
-      if (st.otpMode && st.otp.id && Math.abs((Number(st.otp.amount) || 0) - (Number(el.value) || 0)) > 0.005) { resetOtp(); setTimeout(renderBody, 0); }
-      const L = st.ledger[st.emp] || { due: 0 }, after = L.due + editAddFor(st.emp) - kindSign() * (Number(el.value) || 0);
-      document.getElementById('siNow').textContent = hrMoney(Number(el.value) || 0);
-      document.getElementById('siAfter').textContent = hrMoney(Math.abs(after));
-      document.getElementById('siAfterL').textContent = after >= 0 ? t('বকেয়া','due') : t('লোন/অগ্রিম','loan/advance');
-    } else if (el.id === 'siNote') st.note = el.value;
+    if (el.id === 'sivEmp') pickEmp(el.value);
+    else if (el.name === 'sivKind') { st.e.kind = el.value; resetOtp(); if (st.e.idx < 0) st.e.amount = defaultAmount(); renderEntry(); const a = $('sivAmt'); if (a) a.focus(); }
+    else if (el.name === 'sivOtpMode') { st.otpMode = el.value === '1'; resetOtp(); renderEntry(); }
   });
-  body.addEventListener('change', function (ev) {
-    if (ev.target.id === 'siAcc') st.acc = ev.target.value;
-    if (ev.target.name === 'siOtpMode') { st.otpMode = ev.target.value === '1'; resetOtp(); renderBody(); }
-    if (ev.target.name === 'siKind') {   // ধরন বদলালে টাকার ঘর নতুন করে (বেতনে বকেয়া, লোন ফেরতে বাকি লোন)
-      st.kind = ev.target.value; resetOtp();
-      const L = st.ledger[st.emp] || { due: 0 };
-      st.amount = st.kind === 'pay' ? (L.due > 0 ? L.due : '') : st.kind === 'ret' ? (L.due < 0 ? -L.due : '') : '';
-      renderBody(); const a = document.getElementById('siAmt'); if (a) a.focus();
-    }
+  entry.addEventListener('input', function (ev) {
+    const el = ev.target;
+    if (el.id === 'sivAmt') {
+      st.e.amount = el.value;
+      if (st.otpMode && st.otp.id && Math.abs((Number(st.otp.amount) || 0) - (Number(el.value) || 0)) > 0.005) { resetOtp(); setTimeout(renderEntry, 0); }
+      updEntryNums();
+    } else if (el.id === 'sivLNote') st.e.note = el.value;
   });
-  body.addEventListener('click', async function (ev) {
-    const send = ev.target.closest('#siOtpSend'), ver = ev.target.closest('#siOtpVerify');
+  entry.addEventListener('click', async function (ev) {
+    if (ev.target.closest('#sivAddLine')) { addLine(); return; }
+    if (ev.target.closest('#sivLCancel')) { const k = st.e.kind; st.e = newE(); st.e.kind = k; renderEntry(); renderLines(); return; }
+    const send = ev.target.closest('#sivOtpSend'), ver = ev.target.closest('#sivOtpVerify');
     if (!send && !ver) return;
-    const amt = Number(st.amount) || 0;
-    // ঘর নতুন করে আঁকার আগেই লেখা কোডটা নিয়ে রাখা
-    if (ver) st.otp.code = String((document.getElementById('siOtpCode') || {}).value || '');
+    const amt = Number(st.e.amount) || 0;
+    if (ver) st.otp.code = String(($('sivOtpCode') || {}).value || '');
     try {
-      st.otp.busy = true; renderBody();
+      st.otp.busy = true; renderEntry();
       if (send) {
-        if (!(amt > 0)) throw new Error(t('আগে টাকার পরিমাণ লিখুন।','Enter the amount first.'));
-        const e = base.empMap[st.emp] || {};
-        const r = await otpCall({ action: 'send', employeeId: st.emp, phone: empPhone(), name: e.Name || '', amount: amt });
+        if (!(amt > 0)) throw new Error(t('আগে টাকার পরিমাণ লিখুন।', 'Enter the amount first.'));
+        const e = base.empMap[st.e.emp] || {};
+        const r = await otpCall({ action: 'send', employeeId: st.e.emp, phone: empPhone(), name: e.Name || '', amount: amt });
         st.otp.id = r.otpId; st.otp.sentTo = empPhone(); st.otp.amount = amt; st.otp.code = '';
-        showToast(t('OTP পাঠানো হয়েছে ✅','OTP sent ✅'), 'success');
+        showToast(t('OTP পাঠানো হয়েছে ✅', 'OTP sent ✅'), 'success');
       } else {
         const code = String(st.otp.code || '').replace(/[০-৯]/g, function (d) { return '০১২৩৪৫৬৭৮৯'.indexOf(d); }).trim();
         st.otp.code = code;
-        if (!/^\d{6}$/.test(code)) throw new Error(t('৬ অঙ্কের OTP লিখুন।','Enter the 6-digit OTP.'));
+        if (!/^\d{6}$/.test(code)) throw new Error(t('৬ অঙ্কের OTP লিখুন।', 'Enter the 6-digit OTP.'));
         const r = await otpCall({ action: 'verify', otpId: st.otp.id, code: code });
         st.otp.verified = true; st.otp.verifiedAt = r.verifiedAt || new Date().toISOString();
-        showToast(t('OTP যাচাই হয়েছে ✅ — এখন ইস্যু করতে পারেন','OTP verified ✅'), 'success');
+        showToast(t('OTP যাচাই হয়েছে ✅ — এখন লাইন যোগ করুন', 'OTP verified ✅'), 'success');
       }
     } catch (err) { showToast(err.message, 'error'); }
-    st.otp.busy = false; renderBody();
-    const ci = document.getElementById('siOtpCode'); if (ci && !st.otp.verified) ci.focus();
+    st.otp.busy = false; renderEntry();
+    const ci = $('sivOtpCode'); if (ci && !st.otp.verified) ci.focus();
   });
-  body.addEventListener('click', async function (ev) {
-    if (ev.target.closest('#siEditCancel')) { st.editIssue = null; st.kind = 'pay'; st.emp = ''; document.getElementById('siEmp').value = ''; st.amount = ''; document.getElementById('siNo').value = ''; renderBody(); return; }
-    const b = ev.target.closest('#siSave'); if (!b) return;
-    b.disabled = true;
+  // টাকা বা লাইনের নোটে Enter = লাইন যোগ (সাধারণ Enter/Escape নেভিগেশনের আগে ধরা)
+  const enterAdd = function (e) {
+    if (!document.body.contains(entry)) { document.removeEventListener('keydown', enterAdd, true); return; }
+    if (e.key !== 'Enter') return;
+    const id = document.activeElement && document.activeElement.id;
+    if (id === 'sivLNote' || (id === 'sivAmt' && e.ctrlKey)) { e.preventDefault(); e.stopImmediatePropagation(); addLine(); }
+  };
+  document.addEventListener('keydown', enterAdd, true);
+  wireSequentialKeyNav($('sivForm'));
+
+  $('sivLines').addEventListener('click', function (ev) {
+    const le = ev.target.closest('[data-le]'), ld = ev.target.closest('[data-ld]');
+    if (le) { editLine(Number(le.getAttribute('data-le'))); return; }
+    if (ld) { const i = Number(ld.getAttribute('data-ld')); if (!confirm(t('লাইনটা বাদ দেবেন?', 'Remove this line?'))) return; st.v.lines.splice(i, 1); if (st.e.idx === i) st.e = newE(); else if (st.e.idx > i) st.e.idx--; st.dirty = true; renderEntry(); renderLines(); renderSide(); }
+  });
+  $('sivLines').addEventListener('dblclick', function (ev) { const tr = ev.target.closest('tr[data-li]'); if (tr && !ev.target.closest('button')) editLine(Number(tr.getAttribute('data-li'))); });
+
+  $('sivActs').addEventListener('click', async function (ev) {
+    const b = ev.target.closest('button'); if (!b || b.disabled) return;
     try {
-      const x = await save();
-      if (x) {
-        showToast(siKindLabel(x) + t(' — সেভ হয়েছে ✅ ',' — saved ✅ ') + x.IssueNo, 'success');
-        document.getElementById('siNo').value = x.IssueNo;
-        await reloadAll();
-        if (confirm(t('রসিদ প্রিন্ট করবেন?','Print the receipt?'))) await printIssue(x);
-        st.emp = ''; st.kind = 'pay'; document.getElementById('siEmp').value = ''; st.amount = ''; renderBody();
+      if (b.id === 'sivNew' || b.id === 'sivCancel') { if (confirmDiscard()) startNew(); return; }
+      if (b.id === 'sivDel') { await delVoucher(st.v.orig); return; }
+      if (b.id === 'sivView') { if (st.dirty) showToast(t('সেভ না করা পরিবর্তন প্রিন্টে আসবে না।', 'Unsaved changes are not printed.'), 'error'); await printVoucher(st.v.orig); return; }
+      if (b.id === 'sivSave') {
+        b.disabled = true;
+        const r = await save();
+        if (r && r.key) {
+          st.dirty = false;
+          showToast(t('সেভ হয়েছে ✅ ', 'Saved ✅ ') + r.no, 'success');
+          await loadAll();
+          const v = st.vouchers.find(function (x) { return x.key === r.key; });
+          if (v && confirm(t('রসিদ প্রিন্ট করবেন?', 'Print the receipt?'))) await printVoucher(v);
+          startNew();
+        }
       }
-    } catch (err) { showToast(err.message, 'error'); }
-    b.disabled = false;
-  });
-  document.getElementById('siDues').addEventListener('click', function (ev) {
-    const b = ev.target.closest('[data-pay]'); if (b) { st.kind = 'pay'; pickEmp(b.dataset.pay); return; }
-    const r = ev.target.closest('[data-ret]'); if (r) { st.kind = 'ret'; pickEmp(r.dataset.ret); }
-  });
-  document.getElementById('siList').addEventListener('click', async function (ev) {
-    const b = ev.target.closest('button'); if (!b) return;
-    try {
-      if (b.dataset.view) { const x = st.allIssues.find(function (y) { return String(y.IssueID) === b.dataset.view; }); if (x) await printIssue(x); }
-      else if (b.dataset.edit) await editIssue(b.dataset.edit);
-      else if (b.dataset.del) await del(b.dataset.del);
-    } catch (err) { showToast(err.message, 'error'); }
+    } catch (err) { showToast(err.message, 'error'); renderState(); }
   });
 
-  if (!accounts.length) showToast(t('আগে হিসাব → ব্যাংক ও ক্যাশ অ্যাকাউন্টে অন্তত একটা ক্যাশ অ্যাকাউন্ট যোগ করুন।','Add a cash account first in Accounts → Bank & Cash.'), 'error');
-  await reloadAll();
-  if (window.__siPick) { const id = window.__siPick; window.__siPick = null; pickEmp(id); }
+  $('sivList').addEventListener('click', async function (ev) {
+    const tr = ev.target.closest('tr[data-vk]'); if (!tr) return;
+    const key = tr.getAttribute('data-vk'), v = st.vouchers.find(function (x) { return x.key === key; }); if (!v) return;
+    const b = ev.target.closest('[data-va]');
+    st.sel = key; content.querySelectorAll('#sivList tr[data-vk]').forEach(function (r) { r.classList.toggle('sel', r === tr); });
+    if (!b) return;
+    try {
+      const a = b.getAttribute('data-va');
+      if (a === 'view' || a === 'pdf') await printVoucher(v);
+      else if (a === 'edit') { if (confirmDiscard()) await openVoucher(key, true); }
+      else if (a === 'del') await delVoucher(v);
+    } catch (err) { showToast(err.message, 'error'); }
+  });
+  $('sivList').addEventListener('dblclick', async function (ev) {
+    const tr = ev.target.closest('tr[data-vk]'); if (!tr || ev.target.closest('button')) return;
+    if (confirmDiscard()) await openVoucher(tr.getAttribute('data-vk'), true);
+  });
+  const navTo = async function (dir) {
+    if (!st.vouchers.length || !confirmDiscard()) return;
+    const i = st.v.orig ? st.vouchers.findIndex(function (x) { return x.key === st.v.orig.key; }) : st.vouchers.length;
+    const j = i + dir; if (j < 0 || j >= st.vouchers.length) { showToast(dir < 0 ? t('এর আগে কোনো ভাউচার নেই।', 'No earlier voucher.') : t('এর পরে কোনো ভাউচার নেই।', 'No later voucher.'), 'error'); return; }
+    await openVoucher(st.vouchers[j].key, true);
+  };
+  $('sivPrev').addEventListener('click', function () { navTo(-1); });
+  $('sivNext').addEventListener('click', function () { navTo(1); });
+
+  $('sivShow').addEventListener('click', function (ev) { const b = ev.target.closest('[data-show]'); if (!b) return; st.side.show = b.getAttribute('data-show'); $('sivShow').querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); }); renderSide(); });
+  $('sivCat').addEventListener('change', function () { st.side.cat = this.value; renderSide(); });
+  $('sivQ').addEventListener('input', function () { st.side.q = this.value; renderSide(); });
+  $('sivEmps').addEventListener('click', function (ev) {
+    const r = ev.target.closest('[data-emp]'); if (!r) return;
+    const id = r.getAttribute('data-emp'), d = (st.ledger[id] || { due: 0 }).due;
+    st.e.idx = -1; pickEmp(id, st.side.show === 'adv' || d < -0.005 ? 'ret' : 'pay');
+    if (isMob()) { side.collapse(); $('sivMain').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+  });
+  ['sivLFrom', 'sivLTo'].forEach(function (id) { $(id).addEventListener('change', function () { st.list[id === 'sivLFrom' ? 'from' : 'to'] = this.value; renderList(); }); });
+
+  if (!accounts.length) showToast(t('আগে হিসাব → ব্যাংক ও ক্যাশ অ্যাকাউন্টে অন্তত একটা ক্যাশ অ্যাকাউন্ট যোগ করুন।', 'Add a cash account first (Accounts → Bank & Cash Accounts).'), 'error');
+  await loadAll();
+  renderAll();
+  if (window.__siPick) { const id = window.__siPick; window.__siPick = null; pickEmp(id, 'pay'); }
   const req = window.__siOpen; window.__siOpen = null;
   if (req) {
     try {
-      const x = (st.allIssues || []).find(function (y) { return String(y.IssueID) === String(req.id); });
-      if (x && (req.action === 'view' || req.action === 'pdf')) await printIssue(x);
-      else if (x && req.action === 'delete') { if (permCan('salaryIssue', 3)) await del(x.IssueID); else showToast(t('ডিলিটের অনুমতি আপনার নেই।','No delete permission.'), 'error'); }
-      else if (x && req.action === 'edit') await editIssue(x.IssueID);
+      const x = st.all.find(function (y) { return String(y.IssueID) === String(req.id); });
+      const v = x && st.vouchers.find(function (vv) { return vv.key === siVoucherKey(x); });
+      if (v && (req.action === 'view' || req.action === 'pdf')) await printVoucher(v);
+      else if (v && req.action === 'delete') await delVoucher(v);
+      else if (v && req.action === 'edit') await openVoucher(v.key, true);
     } catch (err) { showToast(err.message, 'error'); }
   }
 }
