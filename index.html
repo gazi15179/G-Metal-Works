@@ -2452,7 +2452,8 @@ const MASTER_CONFIGS = {
     sheet: 'Employees', idField: 'EmployeeID', idPrefix: 'EMP',
     photo: { key: 'Photo', bucket: 'employee-docs', beside: 3, label: 'কর্মচারীর ছবি' },
     titleBn: 'কর্মচারী তথ্য', titleEn: 'Employee Info', subBn: 'সব কর্মচারীর তথ্য — মজুরি উৎপাদন অনুযায়ী, দরকারে দৈনিক হাজিরা পর্যন্ত মিলানো', subEn: 'All employees — daily wage comes from the monthly or weekly salary',
-    columns: [{key:'EmployeeID',label:'আইডি'},{key:'Name',label:'নাম'},{key:'CategoryID',label:'ধরন',fkSheet:'EmployeeCategories',fkIdField:'CategoryID',fkLabel:'CategoryName'},{key:'Phone',label:'মোবাইল'},{key:'DailyRate',label:'দৈনিক হাজিরা'},{key:'IsActive',label:'অবস্থা'}],
+    columns: [{key:'EmployeeID',label:'আইডি'},{key:'Name',label:'নাম'},{key:'CategoryID',label:'পদ',fkSheet:'EmployeeCategories',fkIdField:'CategoryID',fkLabel:'CategoryName'},{key:'__cost',label:'খরচের ধরন',compute:function(r,fk){return (fk.CategoryID||{})[r.CategoryID] ? (empCatCostClass(fk.CategoryID[r.CategoryID])==='prod'?'প্রত্যক্ষ (প্রোডাকশন)':'পরোক্ষ (পরিচালন)') : '—';}},{key:'Phone',label:'মোবাইল'},{key:'DailyRate',label:'দৈনিক হাজিরা'},{key:'IsActive',label:'অবস্থা'}],
+    sortRows: function (fk) { return empComparePost(fk.CategoryID || {}); },
     fields: [
       {key:'Name', label:'নাম', type:'text', required:true},
       {key:'CategoryID', label:'কর্মচারীর ধরন', type:'select-fk', fkSheet:'EmployeeCategories', fkIdField:'CategoryID', fkLabel:'CategoryName', required:true, manage:true, sortField:'SortOrder'},
@@ -2477,8 +2478,10 @@ const MASTER_CONFIGS = {
 
   empCategories: {
     sheet: 'EmployeeCategories', idField: 'CategoryID', idPrefix: 'ECAT',
-    titleBn: 'কর্মচারীর ধরন', titleEn: 'Employee Types', subBn: 'ম্যানেজার, ফোরম্যান, কারিগর, হেল্পার, ড্রাইভার — যোগ, এডিট ও ডিলিট করুন', subEn: 'Manager, Foreman, Karigar, Helper, Driver — add, edit, delete',
-    columns: [{key:'CategoryID',label:'আইডি'},{key:'CategoryName',label:'ধরনের নাম'},{key:'SortOrder',label:'ক্রম'},{key:'IsActive',label:'অবস্থা'}],
+    titleBn: 'কর্মচারীর ধরন (পদ)', titleEn: 'Employee Types (Posts)', subBn: 'সিরিয়ালঃ মালিক, ম্যানেজার, প্রডাকশন ম্যানেজার, সেলস ম্যানেজার, ফোরম্যান, কারীগর, হেলপার, ড্রাইভার ও অন্যান্য — মালিক, ম্যানেজার, ড্রাইভার (ও অন্যান্য) = পরোক্ষ ব্যয় (পরিচালন ব্যয়); প্রডাকশন ম্যানেজার, সেলস ম্যানেজার, ফোরম্যান, কারীগর, হেলপার = প্রত্যক্ষ ব্যয় (প্রোডাকশন ব্যয়)। মালিক/ম্যানেজারের নেওয়া টাকা মূলধন থেকে নয়, লাভ থেকে বাদ যায়।', subEn: 'Order: Owner, Manager, Production Manager, Sales Manager, Foreman, Karigar, Helper, Driver, Others — Owner/Manager/Driver = indirect (operating) cost; others = direct (production) cost',
+    columns: [{key:'CategoryID',label:'আইডি'},{key:'CategoryName',label:'পদের নাম'},{key:'__cost',label:'খরচের ধরন',compute:function(r){return empCatCostLabel(r.CategoryName);}},{key:'SortOrder',label:'ক্রম'},{key:'IsActive',label:'অবস্থা'}],
+    sortRows: function () { return empCatCompare; },
+    extraButton: { bn: '⇅ পদ সাজান', en: '⇅ Arrange posts', run: empCatArrangeDefaults },
     fields: [
       {key:'CategoryName', label:'ধরনের নাম', type:'text', required:true},
       {key:'SortOrder', label:'ক্রম', type:'number'},
@@ -2551,13 +2554,14 @@ async function renderMasterCrudPage(content, config) {
         <h1 class="i18n" data-bn="${attr(config.titleBn)}" data-en="${attr(config.titleEn||config.titleBn)}">${t(config.titleBn, config.titleEn||config.titleBn)}</h1>
         <p class="i18n" data-bn="${attr(config.subBn)}" data-en="${attr(config.subEn||config.subBn)}">${t(config.subBn, config.subEn||config.subBn)}</p>
       </div>
-      <button class="btn btn-primary i18n" style="width:auto;" id="masterAddBtn" data-bn="+ নতুন যোগ করুন" data-en="+ Add New">${t('+ নতুন যোগ করুন','+ Add New')}</button></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">${config.extraButton ? `<button class="btn btn-outline" style="width:auto;" id="masterExtraBtn">${t(config.extraButton.bn, config.extraButton.en)}</button>` : ''}<button class="btn btn-primary i18n" style="width:auto;" id="masterAddBtn" data-bn="+ নতুন যোগ করুন" data-en="+ Add New">${t('+ নতুন যোগ করুন','+ Add New')}</button></div></div>
     <div class="panel"><div id="masterTableWrap"></div></div>`;
 
   function renderTable(list) {
     const wrap = document.getElementById('masterTableWrap');
     if (!wrap) return; // ব্যবহারকারী এই ফাঁকে অন্য পেজ/ট্যাবে চলে গেলে এই এলিমেন্ট আর DOM-এ থাকবে না
     const active = list.filter(function (r) { return r.Status !== 'Deleted'; });
+    if (config.sortRows) active.sort(config.sortRows(fkMaps));
     if (active.length === 0) {
       wrap.innerHTML = `<div class="empty-state i18n" data-bn="এখনো কোনো তথ্য যোগ করা হয়নি।" data-en="No records added yet.">${t('এখনো কোনো তথ্য যোগ করা হয়নি।','No records added yet.')}</div>`;
       return;
@@ -2567,7 +2571,8 @@ async function renderMasterCrudPage(content, config) {
     const bodyRows = active.map(function (r) {
       const cells = config.columns.map(function (c) {
         let v = r[c.key];
-        if (c.key === 'IsActive') v = isTrue(v) ? `<span class="badge active i18n" data-bn="সক্রিয়" data-en="Active">${t('সক্রিয়','Active')}</span>` : `<span class="badge inactive i18n" data-bn="নিষ্ক্রিয়" data-en="Inactive">${t('নিষ্ক্রিয়','Inactive')}</span>`;
+        if (c.compute) v = escapeHtml(c.compute(r, fkMaps));
+        else if (c.key === 'IsActive') v = isTrue(v) ? `<span class="badge active i18n" data-bn="সক্রিয়" data-en="Active">${t('সক্রিয়','Active')}</span>` : `<span class="badge inactive i18n" data-bn="নিষ্ক্রিয়" data-en="Inactive">${t('নিষ্ক্রিয়','Inactive')}</span>`;
         else if (c.key === 'OpeningBalance' || c.key === 'CreditLimit') v = formatAmountDrCr(v);
         else if (c.labels) v = escapeHtml(c.labels[v] || v || '');
         else if (fkMaps[c.key]) v = escapeHtml(v ? (fkMaps[c.key][v] || v) : '—');
@@ -2588,6 +2593,12 @@ async function renderMasterCrudPage(content, config) {
 
   renderTable(records);
   document.getElementById('masterAddBtn').addEventListener('click', function () { openMasterModal(config.sheet, null); });
+  if (config.extraButton) document.getElementById('masterExtraBtn').addEventListener('click', async function () {
+    const b = this; b.disabled = true;
+    try { const ok = await config.extraButton.run(); if (ok !== false) await window.__refreshMasterTable(); }
+    catch (e) { showToast(e.message || String(e), 'error'); }
+    finally { b.disabled = false; }
+  });
 
   // বর্তমান config-টা গ্লোবাল রেফারেন্সে রাখা হচ্ছে যাতে row বাটনের ইনলাইন onclick থেকে পাওয়া যায়
   window.__activeMasterConfig = config;
@@ -2617,7 +2628,7 @@ async function openMasterModal(sheetName, record) {
       return `<div class="field"><label>${f.label}</label><select id="${inputId}"><option value="">— বাছাই করুন —</option>${opts}</select></div>`;
     }
     if (f.type === 'select-fk') {
-      const list = (fkLists[f.key] || []).slice().sort(f.sortField ? hrBySortOrder(f.fkLabel) : function () { return 0; }).filter(function (r) {
+      const list = (fkLists[f.key] || []).slice().sort(f.fkSheet === 'EmployeeCategories' ? empCatCompare : f.sortField ? hrBySortOrder(f.fkLabel) : function () { return 0; }).filter(function (r) {
         if (r.Status === 'Deleted') return false;
         // self-referencing FK (যেমন Category-র ParentCategoryID) হলে নিজেকে নিজের প্যারেন্ট বানানো যাবে না
         if (isEdit && f.fkSheet === config.sheet && r[config.idField] === record[config.idField]) return false;
@@ -6563,15 +6574,7 @@ async function renderOwnerCapitalPage(content) {
   function resetForm() { editId = null; $('cap_FormTitle').textContent = t('নতুন এন্ট্রি', 'New entry'); $('cap_Amount').value = ''; $('cap_Note').value = ''; $('cap_Date').value = ownToday(); $('cap_Type').value = 'In'; $('cap_CancelBtn').style.display = 'none'; }
   async function load() {
     try { rows = await ownList(cfg); } catch (e) { $('cap_List').innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; return; }
-    // মালিকের সেলারী ভাউচার = উত্তোলন (শুধু দেখানো — টাকা ক্যাশ/ব্যাংক থেকে সেলারী ইস্যুতেই বের হয়, এখানে আবার ক্যাশ বইয়ে যায় না)
-    try {
-      const sf = async function (tb) { try { return await selectAllRows(tb); } catch (er) { return []; } };
-      const x = await Promise.all([sf('Payroll'), sf('Payroll_Lines'), sf('Payroll_Details'), api('list', { sheet: 'Employees' }).catch(function () { return []; }), api('list', { sheet: 'EmployeeCategories' }).catch(function () { return []; })]);
-      ownerSalaryDrawingRows(x[0], x[1], x[2], x[3], x[4]).forEach(function (r) {
-        const o = { Date: r.date, Type: 'Out', OwnerName: r.name, BankCashAccID: null, Amount: r.amt, Status: 'Posted', Note: t('সেলারী ভাউচার', 'Salary voucher'), __sal: r.payrollId };
-        o[cfg.idf] = r.no; rows.push(o);
-      });
-    } catch (e) {}
+    // মালিকের সেলারী ভাউচার এখানে উত্তোলন হিসেবে আর আসে না — ওটা পরিচালন ব্যয় (লাভ থেকে বাদ), মূলধন থেকে নয়
     if (!$('cap_Owner').value) { const last = rows.slice().sort(function (a, b) { return String(b.Date).localeCompare(String(a.Date)); })[0]; if (last && last.OwnerName) $('cap_Owner').value = last.OwnerName; }
     render();
   }
@@ -8922,9 +8925,10 @@ async function hrDivisor() {
 async function hrLoadBase() {
   const m = await cachedListMultiple(['Employees', 'EmployeeCategories', 'Items']);
   const cats = (m.EmployeeCategories || []).filter(function (c) { return c.Status !== 'Deleted' && (c.IsActive === undefined || c.IsActive === null || isTrue(c.IsActive)); })
-    .sort(hrBySortOrder('CategoryName'));
+    .sort(empCatCompare);
+  const catNmAll = {}; (m.EmployeeCategories || []).forEach(function (c) { catNmAll[c.CategoryID] = c.CategoryName; });
   const emps = (m.Employees || []).filter(function (e) { return e.Status !== 'Deleted' && isTrue(e.IsActive); })
-    .sort(function (a, b) { return String(a.Name || '').localeCompare(String(b.Name || '')); });
+    .sort(empComparePost(catNmAll));   // পদের সিরিয়ালে — মালিক, ম্যানেজার, প্রডাকশন ম্যানেজার … ড্রাইভার, অন্যান্য
   const items = (m.Items || []).filter(function (i) { return i.Status !== 'Deleted'; });
   const catMap = {}; cats.forEach(function (c) { catMap[c.CategoryID] = c.CategoryName; });
   const itemMap = {}; (m.Items || []).forEach(function (i) { itemMap[i.ItemID] = i.ItemName; });
@@ -20880,21 +20884,76 @@ async function renderPartyBalanceReport(content) {
    নীট লাভ = ক − খ + গ − ঘ · শুধু পোস্ট করা ভাউচার · সারিতে এক চাপে বাছাই, দুই চাপে বিস্তারিত (ভাউচার তালিকা)
    ============================================================ */
 /* ============================================================
-   বেতনের হিসাব-ধরন — কর্মচারীর ধরন (EmployeeCategories) দেখে:
-   • 'owner'  — মালিক: সেলারী ভাউচারের টাকা ব্যবসার খরচ নয়, "মালিকের উত্তোলন" (লাভ-ক্ষতির বাইরে, মূলধন থেকে বাদ)
-   • 'prod'   — উৎপাদন কর্মী (কারিগর, হেল্পার, ফোরম্যান, শেপ/ফিনিশ, প্রডাকশন ম্যানেজার …) বা ধরন দেওয়া নেই: উৎপাদন খরচ (খ)
-   • 'office' — বাকি সব (ম্যানেজার, ড্রাইভার, হিসাবরক্ষক …): পরিচালন খরচ (ঘ)
+   কর্মচারীর পদ — সিরিয়াল ও খরচের ধরন (EmployeeCategories-এর নাম দেখে)
+   সিরিয়ালঃ ১ মালিক · ২ ম্যানেজার · ৩ প্রডাকশন ম্যানেজার · ৪ সেলস ম্যানেজার · ৫ ফোরম্যান · ৬ কারীগর · ৭ হেলপার · ৮ ড্রাইভার · ৯ অন্যান্য
+   • 'office' — পরোক্ষ ব্যয় (পরিচালন ব্যয়, লাভ-ক্ষতির ঘ): মালিক, ম্যানেজার, ড্রাইভার ও অন্যান্য পদ
+   • 'prod'   — প্রত্যক্ষ ব্যয় (উৎপাদন ব্যয়, লাভ-ক্ষতির খ): প্রডাকশন ম্যানেজার, সেলস ম্যানেজার, ফোরম্যান, কারীগর, হেলপার (ধরন না দেওয়া থাকলেও)
+   মালিক/ম্যানেজার টাকা নিলে মূলধন থেকে বাদ যায় না — খরচ হিসেবে লাভ থেকে বাদ যায়।
    ============================================================ */
 const PAY_OWNER_RE = /মালিক|owner|প্রোপ্রাইটর|প্রোপাইটর|proprietor/i;
-const PAY_PROD_RE = /কারিগর|কারিগার|karigar|হেল্পার|হেলপার|helper|ফোরম্যান|ফোরমেন|foreman|মিস্ত্রি|মিস্ত্রী|mistri|শেপ|shape|ফিনিশ|finish|ধোলাই|পালিশ|polish|প্রডা|প্রোডা|উৎপাদন|production|worker|শ্রমিক/i;
+const EMP_MGR_RE = /ম.{0,3}নেজার|manager|ম্যানেজার/i;
+const EMP_POSTS = [   // [সিরিয়াল, ডিফল্ট নাম, চেনার নিয়ম, খরচের ধরন]
+  [1, 'মালিক', function (c) { return PAY_OWNER_RE.test(c); }, 'office'],
+  [3, 'প্রডাকশন ম্যানেজার', function (c) { return EMP_MGR_RE.test(c) && /প্রডা|প্রোডা|প্রোডা|উৎপাদন|production/i.test(c); }, 'prod'],
+  [4, 'সেলস ম্যানেজার', function (c) { return EMP_MGR_RE.test(c) && /সেলস|সেল্স|সেলস|বিক্রয়|sales/i.test(c); }, 'prod'],
+  [2, 'ম্যানেজার', function (c) { return EMP_MGR_RE.test(c); }, 'office'],
+  [5, 'ফোরম্যান', function (c) { return /ফোরম্যান|ফোরমেন|ফোরম্যান|foreman/i.test(c); }, 'prod'],
+  [6, 'কারীগর', function (c) { return /কারিগর|কারীগর|কারিগার|কারীগার|karigar|মিস্ত্রি|মিস্ত্রী|mistri|শেপ|shape|ফিনিশ|finish|ধোলাই|পালিশ|polish/i.test(c); }, 'prod'],
+  [7, 'হেলপার', function (c) { return /হেল্পার|হেলপার|helper/i.test(c); }, 'prod'],
+  [8, 'ড্রাইভার', function (c) { return /ড্রাইভার|ড্রাইভার|driver/i.test(c); }, 'office']
+];
+const PAY_PROD_RE = /worker|শ্রমিক|উৎপাদন|production/i;   // উপরের তালিকায় না মিললে — উৎপাদন কর্মী
+function empPostOf(catName) {
+  const c = String(catName || '').trim(); if (!c) return null;
+  for (let i = 0; i < EMP_POSTS.length; i++) if (EMP_POSTS[i][2](c)) return EMP_POSTS[i];
+  return null;
+}
+/** কর্মচারীর পদের সিরিয়াল — ১ মালিক … ৮ ড্রাইভার, বাকি সব ৯ (অন্যান্য) */
+function empCatRank(catName) { const p = empPostOf(catName); return p ? p[0] : 9; }
+/** 'prod' = প্রত্যক্ষ ব্যয় (উৎপাদন ব্যয়) · 'office' = পরোক্ষ ব্যয় (পরিচালন ব্যয়) */
+function empCatCostClass(catName) {
+  const c = String(catName || '').trim(); if (!c) return 'prod';
+  const p = empPostOf(c); if (p) return p[3];
+  return PAY_PROD_RE.test(c) ? 'prod' : 'office';
+}
+function empCatCostLabel(catName) { return empCatCostClass(catName) === 'prod' ? t('প্রত্যক্ষ ব্যয় (প্রোডাকশন ব্যয়)', 'Direct (production) cost') : t('পরোক্ষ ব্যয় (পরিচালন ব্যয়)', 'Indirect (operating) cost'); }
+/** কর্মচারীর ধরন সাজানো — পদের সিরিয়াল, তারপর "ক্রম", তারপর নাম */
+function empCatCompare(a, b) {
+  const so = function (x) { return (x.SortOrder === null || x.SortOrder === undefined || x.SortOrder === '') ? 9999 : Number(x.SortOrder); };
+  return empCatRank(a.CategoryName) - empCatRank(b.CategoryName) || so(a) - so(b) || String(a.CategoryName || '').localeCompare(String(b.CategoryName || ''), 'bn');
+}
+/** কর্মচারী সাজানো — পদের সিরিয়াল (catMap: CategoryID → নাম), তারপর নাম */
+function empComparePost(catMap) {
+  return function (a, b) {
+    return empCatRank((catMap || {})[a.CategoryID]) - empCatRank((catMap || {})[b.CategoryID]) || String(a.Name || '').localeCompare(String(b.Name || ''), 'bn');
+  };
+}
+/** "⇅ পদ সাজান" — না থাকা পদগুলো যোগ করে, আর সব পদের "ক্রম" সিরিয়াল অনুযায়ী (১ মালিক … ৯ অন্যান্য) বসায় */
+async function empCatArrangeDefaults() {
+  const DEF = ['মালিক', 'ম্যানেজার', 'প্রডাকশন ম্যানেজার', 'সেলস ম্যানেজার', 'ফোরম্যান', 'কারীগর', 'হেলপার', 'ড্রাইভার', 'অন্যান্য'];
+  const cats = ((await api('list', { sheet: 'EmployeeCategories' })) || []).filter(function (c) { return c.Status !== 'Deleted'; });
+  const missing = DEF.filter(function (nm, i) {
+    if (i === 8) return !cats.some(function (c) { return /অন্যান্য|others?/i.test(c.CategoryName || ''); });
+    return !cats.some(function (c) { return empCatRank(c.CategoryName) === i + 1; });
+  });
+  if (!confirm(t('পদগুলো সিরিয়ালে সাজানো হবে (মালিক, ম্যানেজার, প্রডাকশন ম্যানেজার, সেলস ম্যানেজার, ফোরম্যান, কারীগর, হেলপার, ড্রাইভার, অন্যান্য)।', 'Posts will be arranged in order.') +
+    (missing.length ? '\n' + t('নতুন যোগ হবেঃ ', 'Will add: ') + missing.join(', ') : '') + '\n' + t('চালিয়ে যাবেন?', 'Continue?'))) return false;
+  for (let i = 0; i < missing.length; i++) {
+    await api('create', { sheet: 'EmployeeCategories', idField: 'CategoryID', idPrefix: 'ECAT', requiredFields: ['CategoryName'], data: { CategoryName: missing[i], SortOrder: DEF.indexOf(missing[i]) + 1, IsActive: 'TRUE' } });
+  }
+  for (let i = 0; i < cats.length; i++) {
+    const r = empCatRank(cats[i].CategoryName);
+    if (Number(cats[i].SortOrder) !== r) await api('update', { sheet: 'EmployeeCategories', idField: 'CategoryID', idValue: cats[i].CategoryID, data: { SortOrder: r } });
+  }
+  delete listCache.EmployeeCategories;
+  showToast(t('পদ সাজানো হয়েছে ✅', 'Posts arranged ✅'), 'success');
+  return true;
+}
 function payClassOf(empId, empMap, catNameMap) {
   const e = empMap[empId]; if (!e) return 'prod';
-  const c = String(catNameMap[e.CategoryID] || '').trim();
-  if (PAY_OWNER_RE.test(c)) return 'owner';
-  if (!c || PAY_PROD_RE.test(c)) return 'prod';
-  return 'office';
+  return empCatCostClass(catNameMap[e.CategoryID]);
 }
-/** মালিকের সেলারী ভাউচার → উত্তোলনের সারি [{date, payrollId, no, empId, name, amt}] — টাকা = ভাউচারের মোট প্রদেয় (NetPay) */
+/** (আর ব্যবহার হয় না — মালিকের টাকা এখন পরিচালন ব্যয়, মূলধন থেকে বাদ নয়) মালিকের সেলারী ভাউচার → উত্তোলনের সারি [{date, payrollId, no, empId, name, amt}] — টাকা = ভাউচারের মোট প্রদেয় (NetPay) */
 function ownerSalaryDrawingRows(payroll, lines, details, emps, cats) {
   const empMap = {}; (emps || []).forEach(function (e) { empMap[e.EmployeeID] = e; });
   const catNm = {}; (cats || []).forEach(function (c) { catNm[c.CategoryID] = c.CategoryName; });
@@ -21074,16 +21133,14 @@ function plCompute(D, from, to, opt) {
 
   // ---------- খ) মজুরি ও উৎপাদন খরচ (দৈনিক উৎপাদন + সেলারী ভাউচার) ----------
   const tpH = {}; D.TeamProduction.forEach(function (h) { tpH[String(h.TeamProdID)] = { d: d10(h.WorkDate), dp: !!h.DPLineID }; });
-  // কার টাকা কোথায় — মালিক (উত্তোলন, লাভ-ক্ষতির বাইরে) · অফিস (ঘ) · উৎপাদন (খ)
+  // কার টাকা কোথায় — পরোক্ষ/পরিচালন ব্যয় (ঘ): মালিক, ম্যানেজার, ড্রাইভার… · প্রত্যক্ষ/উৎপাদন ব্যয় (খ): প্রডাকশন ম্যানেজার, সেলস ম্যানেজার, ফোরম্যান, কারীগর, হেলপার
   const empMapP = {}; (D.emps || []).forEach(function (e) { empMapP[e.EmployeeID] = e; });
   const ecatNm = {}; (D.ecats || []).forEach(function (c) { ecatNm[c.CategoryID] = c.CategoryName; });
   const pcls = function (empId) { return payClassOf(empId, empMapP, ecatNm); };
-  const hasOwnerCat = (D.ecats || []).some(function (c) { return c.Status !== 'Deleted' && PAY_OWNER_RE.test(c.CategoryName || ''); });
   let wProd = 0; const wProdBy = {};
   D.TeamProduction_Members.forEach(function (m) {
     const h = tpH[String(m.TeamProdID)]; if (!h || !m.RoleID || !inR(h.d)) return;
     if (!h.dp && !m.BilledIn) return;   // পুরনো পেজের বিল-না-হওয়া রেকর্ড বাদ (খরচ খাত লেজারের নিয়ম)
-    if (pcls(m.EmployeeID) === 'owner') return;   // মালিকের মজুরি — খরচ নয় (সেলারী ভাউচারে উঠলে উত্তোলন)
     wProd += n(m.Amount); wProdBy[h.d] = (wProdBy[h.d] || 0) + n(m.Amount);
   });
   const detWProd = Object.keys(wProdBy).sort().map(function (d) { return { date: d, desc: t('দৈনিক উৎপাদন — মজুরি', 'Daily production — wages'), amt: wProdBy[d] }; });
@@ -21093,7 +21150,6 @@ function plCompute(D, from, to, opt) {
     const h = svH[x.PayrollID]; if (!h) return;
     const d = d10(x.WorkDate); if (!inR(d)) return;
     const key = x.PayrollID, cl = pcls(h.EmployeeID);
-    if (cl === 'owner') return;   // মালিক — নিচে "মালিকের উত্তোলন"-এ (লাভ-ক্ষতির বাইরে)
     let v = 0, isHaj = false;
     if (x.DetailType === 'SVDay') { if (Number(x.TargetQty) === 1) { v = n(x.Amount); isHaj = true; } }
     else if (x.DetailType === 'SVRow') {
@@ -21107,7 +21163,7 @@ function plCompute(D, from, to, opt) {
   });
   const svDet = function (m) { return Object.keys(m).filter(function (k) { return Math.abs(m[k]) > 0.004; }).map(function (k) { const h = svH[k]; return { date: d10(h.VoucherDate || h.DateTo), id: h.VoucherNo || k, sv: k, desc: t('সেলারী ভাউচার', 'Salary voucher') + ' · ' + (empName[h.EmployeeID] || h.EmployeeID || ''), amt: m[k] }; }).sort(function (a, b) { return a.date.localeCompare(b.date); }); };
   let wBonus = 0; const detBonus = [];
-  D.DailyBonus.forEach(function (b) { const d = d10(b.WorkDate); if (b.BilledIn || !inR(d) || b.Status === 'Deleted') return; const cl = pcls(b.EmployeeID); if (cl === 'owner') return;
+  D.DailyBonus.forEach(function (b) { const d = d10(b.WorkDate); if (b.BilledIn || !inR(d) || b.Status === 'Deleted') return; const cl = pcls(b.EmployeeID);
     if (cl === 'office') { oSal += n(b.Amount); offBy['__b'] = (offBy['__b'] || 0) + n(b.Amount); return; }
     wBonus += n(b.Amount); detBonus.push({ date: d, desc: t('বোনাস', 'Bonus') + ' · ' + (empName[b.EmployeeID] || b.EmployeeID || '') + (b.Note ? ' — ' + b.Note : ''), amt: n(b.Amount) }); });
   const costBy = {};
@@ -21197,7 +21253,7 @@ function plCompute(D, from, to, opt) {
   const A = sGross - sComm - sDisc - sRet;
   tot(t('নীট বিক্রয় (ক)', 'Net sales (A)'), A);
 
-  sec(t('খ) বিক্রিত পণ্যের ব্যয়', 'B) Cost of goods sold'), 'cost');
+  sec(t('খ) বিক্রিত পণ্যের ব্যয় (প্রত্যক্ষ ব্যয় / প্রোডাকশন ব্যয় সহ)', 'B) Cost of goods sold (incl. direct / production cost)'), 'cost');
   const stockDet = function (which) { return { title: which === 'o' ? t('প্রারম্ভিক মজুদ', 'Opening stock') : t('সমাপনী মজুদ', 'Closing stock'), stock: which, always: true }; };
   line(t('প্রারম্ভিক মজুদ', 'Opening stock') + ' (' + isoToDmy(prev) + ')', openV, stockDet('o'));
   line(t('ক্রয় (পোস্ট করা ভাউচার, নীট মূল্য)', 'Purchases (posted, net)'), pItems, { title: t('ক্রয়', 'Purchases'), rows: detPur });
@@ -21206,7 +21262,7 @@ function plCompute(D, from, to, opt) {
   line(t('ক্রয় ডিসকাউন্ট', 'Purchase discount'), -pDisc, { title: t('ক্রয় ডিসকাউন্ট', 'Purchase discount'), rows: detPDisc });
   line(t('ক্রয় ফেরত', 'Purchase returns'), -pRet, { title: t('ক্রয় ফেরত', 'Purchase returns'), rows: detPRet });
   line(t('উৎপাদন মজুরি (দৈনিক উৎপাদন)', 'Production wages (daily production)'), wProd, { title: t('উৎপাদন মজুরি', 'Production wages'), rows: detWProd });
-  line(t('হাজিরা — উৎপাদন কর্মী (সেলারী ভাউচার)', 'Attendance pay — production staff (salary voucher)'), wHaj, { title: t('হাজিরা', 'Attendance pay'), rows: svDet(hajBy) });
+  line(t('প্রত্যক্ষ ব্যয় — হাজিরা: প্রডাকশন ম্যানেজার, সেলস ম্যানেজার, ফোরম্যান, কারীগর, হেলপার (সেলারী ভাউচার)', 'Direct cost — attendance pay: production/sales manager, foreman, karigar, helper (salary voucher)'), wHaj, { title: t('হাজিরা', 'Attendance pay'), rows: svDet(hajBy) });
   line(t('অন্যান্য মজুরি ও কম-বেশি (সেলারী ভাউচার)', 'Other wages & adjustments (salary voucher)'), wOther, { title: t('অন্যান্য মজুরি ও কম-বেশি', 'Other wages & adjustments'), rows: svDet(othBy) });
   line(t('বোনাস (সেলারী ভাউচারে ওঠেনি)', 'Bonus (not yet in a salary voucher)'), wBonus, { title: t('বোনাস', 'Bonus'), rows: detBonus });
   Object.keys(costBy).map(function (k) { return costBy[k]; }).sort(function (a, b) { return b.amt - a.amt; }).forEach(function (c) {
@@ -21228,11 +21284,11 @@ function plCompute(D, from, to, opt) {
   if (!L.length || L[L.length - 1].k === 'sec') L.push({ k: 'empty', label: t('এই সময়ে কোনো অন্যান্য আয় নেই', 'No other income in this period') });
   tot(t('মোট অন্যান্য আয় (গ)', 'Total other income (C)'), C);
 
-  sec(t('ঘ) পরিচালন ও অন্যান্য খরচ', 'D) Operating & other expenses'), 'cost');
+  sec(t('ঘ) পরোক্ষ ব্যয় (পরিচালন ব্যয়) ও অন্যান্য খরচ', 'D) Indirect (operating) & other expenses'), 'cost');
   let E = 0;
   const offRows = svDet(Object.keys(offBy).filter(function (k) { return k !== '__b'; }).reduce(function (m, k) { m[k] = offBy[k]; return m; }, {}));
   if (offBy.__b) offRows.push({ desc: t('বোনাস (সেলারী ভাউচারে ওঠেনি)', 'Bonus (not yet in a salary voucher)'), amt: offBy.__b });
-  E += line(t('বেতন ও ভাতা — অফিস ও ব্যবস্থাপনা (সেলারী ভাউচার)', 'Salaries — office & management (salary voucher)'), oSal, { title: t('বেতন ও ভাতা — অফিস ও ব্যবস্থাপনা', 'Salaries — office & management'), rows: offRows });
+  E += line(t('পরিচালন ব্যয় — বেতন ও ভাতা: মালিক, ম্যানেজার, ড্রাইভার ও অন্যান্য (সেলারী ভাউচার)', 'Operating cost — salaries: owner, manager, driver & others (salary voucher)'), oSal, { title: t('পরিচালন ব্যয় — বেতন ও ভাতা (মালিক, ম্যানেজার, ড্রাইভার…)', 'Operating cost — salaries'), rows: offRows });
   expHeads.forEach(function (h) { E += line(h.name, h.amt, { title: h.name, rows: h.det }); });
   E += line(t('দেওয়া ডিসকাউন্ট (কালেকশন ভাউচার)', 'Discount allowed (collection vouchers)'), discGiven.amt, { title: t('দেওয়া ডিসকাউন্ট', 'Discount allowed'), rows: discGiven.det });
   Object.keys(jvExp).forEach(function (k) { E += line(jvExp[k].name, jvExp[k].amt, { title: jvExp[k].name, rows: jvExp[k].det }); });
@@ -21245,14 +21301,9 @@ function plCompute(D, from, to, opt) {
   const NP = G + C - E;
   tot(NP < 0 ? t('নীট ক্ষতি (ক − খ + গ − ঘ)', 'Net loss (A − B + C − D)') : t('নীট লাভ (ক − খ + গ − ঘ)', 'Net profit (A − B + C − D)'), NP, 'final', A ? ((NP / A) * 100).toFixed(2) + '%' : '');
 
-  // মালিকের উত্তোলন — লাভ-ক্ষতির অংশ নয়; শুধু স্বচ্ছতার জন্য নিচে আলাদা (মালিকের মূলধন পেজে উত্তোলন হিসেবে বাদ যায়)
-  const own = ownerSalaryDrawingRows(D.Payroll, D.Payroll_Lines, D.Payroll_Details, D.emps, D.ecats).filter(function (r) { return inR(r.date); });
-  const ownAmt = own.reduce(function (s2, r) { return s2 + r.amt; }, 0);
-  L.push({ k: 'memo', label: t('মালিকের উত্তোলন (সেলারী ভাউচার) — লাভ-ক্ষতির বাইরে, মালিকের মূলধন থেকে বাদ', "Owner's drawings (salary voucher) — outside P&L, deducted from capital"), amt: ownAmt,
-    det: { title: t('মালিকের উত্তোলন (সেলারী ভাউচার)', "Owner's drawings (salary voucher)"), rows: own.map(function (r) { return { date: r.date, id: r.no, sv: r.payrollId, desc: t('সেলারী ভাউচার', 'Salary voucher') + ' · ' + r.name, amt: r.amt }; }), always: true } });
-  L.push({ k: 'memo2', label: t('নীট লাভ − মালিকের উত্তোলন = ব্যবসায় রয়ে গেল', 'Net profit − drawings = retained in business'), amt: NP - ownAmt });
+  // মালিক/ম্যানেজারের সেলারী ভাউচার এখন পরিচালন ব্যয় (ঘ)-এ — মালিকের মূলধন থেকে বাদ যায় না
 
-  return { L: L, A: A, B: B, G: G, C: C, E: E, NP: NP, ownAmt: ownAmt, hasOwnerCat: hasOwnerCat, openV: openV, closeV: closeV, stockCats: stockCats, drafts: drafts, negCnt: negCnt, prev: prev };
+  return { L: L, A: A, B: B, G: G, C: C, E: E, NP: NP, ownAmt: 0, hasOwnerCat: true, openV: openV, closeV: closeV, stockCats: stockCats, drafts: drafts, negCnt: negCnt, prev: prev };
 }
 
 async function renderProfitLossReport(content) {
@@ -21375,7 +21426,6 @@ async function renderProfitLossReport(content) {
     const w = [], dr = R.drafts;
     const dl = [[dr.pi, t('ক্রয়', 'purchase')], [dr.si, t('বিক্রয়', 'sales')], [dr.pv, t('প্রসেসিং', 'processing')], [dr.ev, t('এক্সপেন্স', 'expense')], [dr.iv, t('রিসিপ্ট', 'receipt')]].filter(function (x) { return x[0]; });
     if (dl.length) w.push('⚠️ ' + t('পোস্ট না করা (খসড়া) ভাউচার হিসাবে ধরা হয়নি — ', 'Draft vouchers are not included — ') + dl.map(function (x) { return x[1] + ' ' + x[0] + t('টি', ''); }).join(', '));
-    if (!R.hasOwnerCat) w.push('ℹ️ ' + t('কর্মচারীর ধরনে "মালিক" নেই — মালিকের সেলারী ভাউচার এখন খরচ হিসেবে ধরা হচ্ছে। এইচআর → কর্মচারীর ধরনে "মালিক" যোগ করে মালিককে সেই ধরনে রাখুন।', 'No "Owner" employee type — add it in HR → Employee Types and assign the owner.'));
     if (R.negCnt) w.push('⚠️ ' + R.negCnt + t('টি আইটেমের সমাপনী মজুদ মাইনাস — স্টক ওভারভিউতে যাচাই করুন (লাভ ভুল দেখাতে পারে)।', ' item(s) have negative closing stock — check Stock Overview.'));
     $('plWarn').innerHTML = w.map(function (x) { return `<div class="pl-warn">${escapeHtml(x)}</div>`; }).join('');
     $('plOut').innerHTML = `<div class="sr-scroll">${statementHtml(false)}</div>`;
