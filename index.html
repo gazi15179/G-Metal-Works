@@ -5132,6 +5132,110 @@ async function hvAddExpenseHead(name) {
   return { id: 'EXPH-' + Date.now().toString(36).toUpperCase(), name: name, src: 'set' };   // টেবিলে লেখা গেল না — সেটিং-এ রাখা হবে
 }
 
+/* ============================================================
+   এক্সপেন্স খাত → কর্মচারীর সেলারী ইস্যু (খাত এডিট/ডিলিট পপ-আপে ⇄ বোতাম, শুধু এডমিন)
+   যেমন "সংসার(O)" খাতের খরচগুলো জিন্নাতুল আরার "প্রদান" (সেলারী ইস্যু) হিসেবে নেওয়াঃ
+   • প্রতিটা বাছাই করা লাইন = একটা সেলারী ইস্যু (একই তারিখ, একই নগদ/ব্যাংক, একই টাকা) — বেতন খতিয়ানে "পরিশোধ"
+   • এক্সপেন্স ভাউচার থেকে লাইনটা বাদ — ভাউচারে আর লাইন না থাকলে ভাউচারটাই মুছে যায়, থাকলে কম টাকায় আবার পোস্ট
+   • নগদ/ব্যাংকের মোট টাকা বদলায় না (খরচের বদলে বেতন প্রদান) — শুধু খাত বদলায়
+   • খসড়া ও "বাকি (পার্টি)" ভাউচারের লাইন সরানো হয় না (তালিকায় কারণসহ দেখায়)
+   ============================================================ */
+async function hvHeadToSalaryIssue(head, onDone) {
+  if (!currentUser || currentUser.RoleID !== 'ROLE-ADMIN') { showToast(t('শুধু এডমিন খাতের খরচ সরাতে পারবেন।', 'Only an Admin can move these.'), 'error'); return; }
+  const d10 = function (x) { return String(x || '').slice(0, 10); };
+  const [hr, lr, ir, em, ec, ac] = await Promise.all([supabaseClient.from('ExpenseVoucher').select('*'), supabaseClient.from('ExpenseVoucher_Lines').select('*'), supabaseClient.from('SalaryIssue').select('IssueNo'),
+    api('list', { sheet: 'Employees' }), api('list', { sheet: 'EmployeeCategories' }), api('list', { sheet: 'BankCashAccounts' }).catch(function () { return []; })]);
+  if (hr.error) { showToast(hr.error.message, 'error'); return; }
+  const H = {}; (hr.data || []).forEach(function (h) { if (h.Status !== 'Deleted') H[h.ExpID] = h; });
+  const accNm = {}; (ac || []).forEach(function (a) { accNm[a.BankAccID] = a.AccountName; });
+  const lines = (lr.data || []).filter(function (l) { return H[l.ExpID] && ((head.id && l.HeadID === head.id) || (!l.HeadID && l.HeadName === head.name) || (l.HeadName === head.name && !head.id)); })
+    .map(function (l) {
+      const h = H[l.ExpID]; let why = '';
+      if (h.Status !== 'Posted') why = t('খসড়া', 'Draft'); else if (h.PayMethod === 'Credit') why = t('বাকি (পার্টি)', 'Credit'); else if (!h.BankCashAccID) why = t('নগদ/ব্যাংক নেই', 'No cash/bank');
+      return { l: l, h: h, date: d10(h.Date), amt: Number(l.Amount) || 0, why: why };
+    }).sort(function (a, b) { return a.date.localeCompare(b.date) || String(a.h.ExpID).localeCompare(String(b.h.ExpID)); });
+  const catNm = {}; (ec || []).forEach(function (c) { catNm[c.CategoryID] = c.CategoryName; });
+  const emps = (em || []).filter(function (e) { return e.Status !== 'Deleted'; }).sort(empComparePost(catNm));
+  let issueMax = ((ir && ir.data) || []).reduce(function (m, x) { const r = /^SAL-(\d+)$/.exec(x.IssueNo || ''); return r ? Math.max(m, Number(r[1])) : m; }, 0);
+  const ok = lines.filter(function (x) { return !x.why; });
+  openModal({
+    title: '⇄ ' + head.name + t(' → কর্মচারীর সেলারী ইস্যু', ' → employee salary issue'),
+    wide: true,
+    bodyHtml: `<style>.hx-tbl{width:100%;border-collapse:collapse;font-size:11px;} .hx-tbl th{font-weight:700;background:#eef1f5;text-align:center;padding:3px;border:1px solid #dde3ea;position:sticky;top:0;} .hx-tbl td{text-align:center;padding:1px 4px;border:1px solid #e6eaef;}
+        .hx-tbl td.r{text-align:right;} .hx-tbl tr.off td{color:var(--text-muted);} .hx-tbl input{width:auto;margin:0;} .hx-wrap{max-height:45vh;overflow:auto;margin-top:8px;}
+        .hx-note{font-size:11px;color:var(--text-muted);margin:6px 0 0;} .hx-sum{font-size:12px;font-weight:700;margin-top:6px;}</style>
+      <div class="field"><label>${t('কোন কর্মচারীর "প্রদান" (সেলারী ইস্যু) হিসেবে যাবে', 'Employee to receive these as salary payments')}</label>
+        <select id="hxEmp"><option value="">${t('— বাছাই করুন —', '— select —')}</option>${emps.map(function (e) { return `<option value="${attr(e.EmployeeID)}">${escapeHtml((e.Name || e.EmployeeID) + ' · ' + (catNm[e.CategoryID] || '—'))}</option>`; }).join('')}</select></div>
+      ${lines.length ? `<div class="hx-wrap"><table class="hx-tbl"><thead><tr><th><input type="checkbox" id="hxAll" ${ok.length ? 'checked' : 'disabled'}></th><th>${t('তারিখ', 'Date')}</th><th>${t('ভাউচার', 'Voucher')}</th><th>${t('বিবরন', 'Details')}</th><th>${t('নগদ/ব্যাংক', 'Cash/Bank')}</th><th>${t('টাকা', 'Amount')}</th></tr></thead><tbody>
+        ${lines.map(function (x, i) { return `<tr class="${x.why ? 'off' : ''}"><td>${x.why ? escapeHtml(x.why) : `<input type="checkbox" data-hx="${i}" checked>`}</td><td>${escapeHtml(isoToDmy(x.date))}</td><td>${escapeHtml(x.h.ExpID)}</td><td>${escapeHtml(x.l.Description || x.h.Narration || '')}</td><td>${escapeHtml(accNm[x.h.BankCashAccID] || '')}</td><td class="r">${x.amt.toFixed(2)}</td></tr>`; }).join('')}
+        </tbody></table></div><div class="hx-sum" id="hxSum"></div>` : `<p class="hx-note">${t('এই খাতে কোনো খরচের লাইন নেই।', 'No expense lines under this head.')}</p>`}
+      <label style="display:flex;gap:6px;align-items:center;font-size:12px;margin-top:8px;"><input type="checkbox" id="hxDelHead" checked style="width:auto;margin:0;"> ${t('শেষে খাত "', 'Afterwards delete head "') + escapeHtml(head.name) + t('" মুছে দিন', '"')}</label>
+      <p class="hx-note">${t('প্রতিটা লাইন একটা সেলারী ইস্যু হবে (একই তারিখ, একই নগদ/ব্যাংক, একই টাকা) আর এক্সপেন্স ভাউচার থেকে বাদ যাবে — নগদ/ব্যাংকের ব্যালান্স বদলাবে না। এডমিন পাসওয়ার্ড লাগবে।', 'Each line becomes a salary issue and is removed from its expense voucher; cash/bank balance stays the same.')}</p>`,
+    onSave: async function () {
+      const emp = val('hxEmp');
+      const pick = []; document.querySelectorAll('[data-hx]').forEach(function (c) { if (c.checked) pick.push(lines[Number(c.getAttribute('data-hx'))]); });
+      const delHead = document.getElementById('hxDelHead').checked;
+      if (pick.length && !emp) throw new Error(t('কর্মচারী বাছাই করুন।', 'Select an employee.'));
+      if (!pick.length && !delHead) throw new Error(t('কোনো লাইন বাছাই করা নেই।', 'Nothing selected.'));
+      const sum = pick.reduce(function (s2, x) { return s2 + x.amt; }, 0), en = (emps.find(function (e) { return e.EmployeeID === emp; }) || {}).Name || emp;
+      if (pick.length) {
+        const pw = prompt(t('নিরাপত্তার জন্য আপনার এডমিন পাসওয়ার্ড দিন:', 'Enter your admin password to confirm:')); if (!pw) throw new Error(t('বাতিল করা হয়েছে।', 'Cancelled.'));
+        const { error: ae } = await supabaseClient.auth.signInWithPassword({ email: currentUser.Email, password: pw });
+        if (ae) throw new Error(t('পাসওয়ার্ড ভুল — বাতিল।', 'Incorrect password — cancelled.'));
+        if (!confirm(t('"' + head.name + '" খাতের ' + pick.length + 'টি লাইন (৳' + sum.toFixed(2) + ') "' + en + '" এর সেলারী ইস্যুতে যাবে। নিশ্চিত?', 'Move ' + pick.length + ' lines?'))) throw new Error(t('বাতিল করা হয়েছে।', 'Cancelled.'));
+      } else if (!confirm(t('খাত "' + head.name + '" মুছবেন?', 'Delete head?'))) throw new Error(t('বাতিল করা হয়েছে।', 'Cancelled.'));
+      const byV = {}; pick.forEach(function (x) { (byV[x.h.ExpID] = byV[x.h.ExpID] || []).push(x); });
+      const accs = {}; let made = 0;
+      for (const vid of Object.keys(byV)) {
+        const h = H[vid], picked = byV[vid], pickedSet = new Set(picked.map(function (x) { return x.l; }));
+        const all = (lr.data || []).filter(function (l) { return l.ExpID === vid; }), rest = all.filter(function (l) { return !pickedSet.has(l); });
+        // ১) এক্সপেন্স ভাউচারঃ পোস্ট উল্টে, লাইন বাদ দিয়ে আবার পোস্ট (লাইন না থাকলে ভাউচার মুছে)
+        await reversePostedDocumentStock('ExpenseVoucher', vid);
+        const { error: e1 } = await supabaseClient.from('ExpenseVoucher').update({ Status: 'Draft' }).eq('ExpID', vid); if (e1) throw new Error(e1.message);
+        const { error: e2 } = await supabaseClient.from('ExpenseVoucher_Lines').delete().eq('ExpID', vid); if (e2) throw new Error(e2.message);
+        if (rest.length) {
+          const keep = rest.map(function (l) { const o = { ExpID: vid, HeadID: l.HeadID, HeadName: l.HeadName, Description: l.Description, Amount: l.Amount }; if (l.Qty !== undefined) { o.Qty = l.Qty; o.Rate = l.Rate; } return o; });
+          const { error: e3 } = await supabaseClient.from('ExpenseVoucher_Lines').insert(keep); if (e3) throw new Error(e3.message);
+          const tot = Math.round(rest.reduce(function (s2, l) { return s2 + (Number(l.Amount) || 0); }, 0) * 100) / 100;
+          await supabaseClient.from('ExpenseVoucher').update({ Total: tot }).eq('ExpID', vid);
+          await api('postDocument', { docType: 'ExpenseVoucher', docId: vid });
+        } else {
+          const { error: e4 } = await supabaseClient.from('ExpenseVoucher').delete().eq('ExpID', vid); if (e4) throw new Error(e4.message);
+        }
+        // ২) প্রতিটা লাইন = একটা সেলারী ইস্যু (একই তারিখ, একই নগদ/ব্যাংক)
+        for (const x of picked) {
+          issueMax++; const no = 'SAL-' + String(issueMax).padStart(4, '0');
+          const row = { IssueNo: no, IssueDate: x.date, EmployeeID: emp, BankCashAccID: h.BankCashAccID, Amount: x.amt, Note: (head.name + ' · ' + vid + (x.l.Description ? ' — ' + x.l.Description : '')).slice(0, 250), Status: 'Active' };
+          const { error: e5 } = await supabaseClient.from('SalaryIssue').insert(row); if (e5) throw new Error(e5.message);
+          await postBankCashBookEntry(h.BankCashAccID, x.date, 'SalaryIssue', no, 0, x.amt);
+          accs[h.BankCashAccID] = 1; made++;
+        }
+      }
+      for (const a of Object.keys(accs)) { try { await rebalanceBankCashBook(a); } catch (e) {} }
+      let headDel = false;
+      if (delHead) {
+        const leftover = lines.some(function (x) { return pick.indexOf(x) === -1; });
+        if (!leftover || confirm(t('এই খাতে এখনো কিছু লাইন রয়ে গেছে (খসড়া/বাকি/বাছাই না করা) — তবুও খাতটা মুছবেন? (পুরনো ভাউচারে নাম থেকে যাবে)', 'Some lines remain under this head — delete it anyway?'))) {
+          if (head.src === 'tbl') await api('delete', { sheet: 'ExpenseCategories', idField: 'ExpCatID', idValue: head.id });
+          else if (head.src === 'set') { const list = (await hvSettingHeads('ExpenseHeads') || []).filter(function (h) { return h.id !== head.id; }); await api('saveSystemSetting', { key: 'ExpenseHeads', value: JSON.stringify(list) }); }
+          headDel = true;
+        }
+      }
+      listCache = {};
+      try { await actInsert({ Action: 'এডিট', Details: ('খাত স্থানান্তর: ' + head.name + ' → সেলারী ইস্যু (' + en + ') · ' + made + 'টি লাইন · ৳' + sum.toFixed(2) + (headDel ? ' · খাত মুছে ফেলা হয়েছে' : '')).slice(0, 500) }); } catch (e) {}
+      showToast((made ? made + t('টি লাইন সেলারী ইস্যুতে গেছে ✅ ', ' lines moved ✅ ') : '') + (headDel ? t('খাত মুছে ফেলা হয়েছে', 'Head deleted') : ''), 'success');
+      if (onDone) await onDone(headDel);
+    }
+  });
+  const sb = document.getElementById('modalSaveBtn'); if (sb) sb.textContent = t('⇄ সরান', '⇄ Move');
+  const sumEl = document.getElementById('hxSum');
+  const upd = function () { if (!sumEl) return; let n = 0, a = 0; document.querySelectorAll('[data-hx]').forEach(function (c) { if (c.checked) { n++; a += lines[Number(c.getAttribute('data-hx'))].amt; } }); sumEl.textContent = t('বাছাইঃ ', 'Selected: ') + n + t('টি লাইন · মোট ৳', ' lines · total ৳') + a.toFixed(2); };
+  const all = document.getElementById('hxAll'); if (all) all.addEventListener('change', function () { document.querySelectorAll('[data-hx]').forEach(function (c) { c.checked = all.checked; }); upd(); });
+  document.querySelectorAll('[data-hx]').forEach(function (c) { c.addEventListener('change', upd); });
+  upd();
+  wireSequentialKeyNav(document.getElementById('modalBody'));
+}
+
 /** A5 প্রিন্ট — ক্রয়/বিক্রয়/পেমেন্ট ভাউচারের মত (প্রতিষ্ঠান · মেথড/নোট · খাতের টেবিল · স্বাক্ষর) */
 async function hvPrint(K, rec, lines, ctx) {
   const w = window.open('', '_blank');
@@ -5441,7 +5545,7 @@ async function renderHeadVoucherPage(content, kind) {
       ov.innerHTML = `<div style="background:var(--surface);border-radius:12px;max-width:400px;width:100%;padding:18px;max-height:90vh;overflow-y:auto;">
         <h3 style="margin:0 0 10px;font-size:15px;">⚙ ${t(K.headBn, K.headEn)}</h3>
         ${heads.some(function (h) { return h.src === 'prod'; }) ? `<p style="font-size:11.5px;color:var(--text-muted);margin:0 0 8px;">${t('(P) খাতগুলো দৈনিক উৎপাদন পেজ থেকে নিজে আসে — নাম বদলাতে এইচআর → দরের কলাম।', '(P) heads come from the daily production page — rename them in HR → Rate Columns.')}</p>` : ''}
-        <div style="display:flex;flex-direction:column;gap:6px;">${heads.map(function (h, i) { if (h.src === 'prod') return ''; return `<div style="display:flex;gap:6px;align-items:center;"><input data-hn="${i}" value="${attr(h.name)}" style="flex:1;height:32px;"><button type="button" class="btn" data-hs="${i}" style="width:auto;padding:4px 10px;" data-perm-safe="1">💾</button><button type="button" class="btn" data-hd="${i}" style="width:auto;padding:4px 10px;">🗑️</button></div>`; }).join('')}</div>
+        <div style="display:flex;flex-direction:column;gap:6px;">${heads.map(function (h, i) { if (h.src === 'prod') return ''; return `<div style="display:flex;gap:6px;align-items:center;"><input data-hn="${i}" value="${attr(h.name)}" style="flex:1;height:32px;"><button type="button" class="btn" data-hs="${i}" style="width:auto;padding:4px 10px;" data-perm-safe="1">💾</button><button type="button" class="btn" data-hd="${i}" style="width:auto;padding:4px 10px;">🗑️</button>${K.P === 'expv' ? `<button type="button" class="btn" data-hx="${i}" style="width:auto;padding:4px 8px;" title="${attr(t('এই খাতের খরচ কর্মচারীর সেলারী ইস্যুতে (প্রদান) সরান', 'Move this head\'s expenses to an employee\'s salary issue'))}">⇄</button>` : ''}</div>`; }).join('')}</div>
         <div style="display:flex;gap:6px;margin-top:10px;"><input id="${P}_NewHead" placeholder="${attr(t('নতুন খাতের নাম', 'New head name'))}" style="flex:1;height:32px;"><button type="button" class="btn btn-primary" id="${P}_NewHeadBtn" style="width:auto;padding:4px 12px;">＋ ${t('যোগ', 'Add')}</button></div>
         <div id="${P}_HeadMsg" style="margin-top:8px;font-size:12px;min-height:16px;"></div>
         <div style="margin-top:6px;text-align:right;"><button type="button" class="btn" id="${P}_HeadClose" style="width:auto;" data-perm-safe="1">${t('বন্ধ করুন', 'Close')}</button></div></div>`;
@@ -5478,6 +5582,15 @@ async function renderHeadVoucherPage(content, kind) {
           if (heads[i].src === 'tbl') await api('update', { sheet: 'ExpenseCategories', idField: 'ExpCatID', idValue: heads[i].id, data: { ExpCatName: name } });
           heads[i].name = name; if (heads[i].src === 'set') await hvSaveSettingHeads(K, heads);
           draw(); refreshSelects(); msg(t('খাতের নাম সেভ হয়েছে ✅', 'Head renamed ✅'), true); return;
+        }
+        if (b.hasAttribute('data-hx')) {   // এই খাতের খরচ → কর্মচারীর সেলারী ইস্যু
+          const h = heads[Number(b.getAttribute('data-hx'))]; ov.remove(); refreshSelects();
+          await hvHeadToSalaryIssue(h, async function (deleted) {
+            if (deleted) { const k = heads.indexOf(h); if (k !== -1) heads.splice(k, 1); }
+            refreshSelects();
+            try { await loadRows(); renderList(); } catch (e) {}
+          });
+          return;
         }
         if (b.hasAttribute('data-hd')) {
           const i = Number(b.getAttribute('data-hd'));
