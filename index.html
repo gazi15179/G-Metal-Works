@@ -1655,7 +1655,7 @@ function buildSidebar() {
   MODULES.map(function (m) { return Object.assign({}, m, { sub: (m.sub || []).filter(function (s) { return s.key === 'dashboard' || permLevel(s.key) > 0; }) }); })
     .filter(function (m) { return m.sub.length; }).forEach(function (m, i) {
     const li = document.createElement('div');
-    li.className = 'nav-item' + (i === 0 ? ' open active' : '');
+    li.className = 'nav-item' + (i === 0 ? ' active' : '');   // শুরুতে কোনো মেনু খোলা নয় — চাপলে খোলে (কোর শুধু চিহ্নিত, কারণ ড্যাশবোর্ড চালু)
     li.innerHTML = `
       <div class="nav-link">
         <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[m.key]}</svg></span>
