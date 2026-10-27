@@ -15623,20 +15623,22 @@ function voucherPartySumUpdate(P, kind) {
   const partyId = partyEl ? partyEl.value : '';
   const isCash = partyId === (S ? 'CUS-CASH' : 'SUP-CASH');
   const jer = (partyId && !isCash) ? (Number(window['__' + P + 'PartyBalance']) || 0) : 0;
-  let paid;
-  if (isCash) paid = grand;   // নগদ পার্টি — পুরো টাকা নগদে, বকেয়া থাকে না (প্রিন্টের নিয়মের মতই)
+  let paid, paidCash = 0, paidBank = 0;
+  if (isCash) { paid = grand; paidCash = grand; }   // নগদ পার্টি — পুরো টাকা নগদে, বকেয়া থাকে না (প্রিন্টের নিয়মের মতই)
   else {
     // টাইপ করার সময়ই হিসাব — চোখের সামনের ঘর + অন্য ধরনের (লুকানো) ঘর
     const typeEl = document.getElementById(P + (S ? '_RecTypeSelect' : '_PayTypeSelect'));
     const isCashType = !typeEl || typeEl.value === 'Cash';
     const cashH = S ? '_CashReceivedAmount' : '_CashPaidAmount', bankH = S ? '_BankReceivedAmount' : '_BankPaidAmount';
     const shown = v(S ? '_RecAmount' : '_PayAmount');
-    paid = isCashType ? (shown + v(bankH)) : (v(cashH) + shown);
+    paidCash = isCashType ? shown : v(cashH);
+    paidBank = isCashType ? v(bankH) : shown;
+    paid = paidCash + paidBank;
   }
   const vch = S ? grand : -grand;          // বিক্রয় = ডেঃ, ক্রয় = ক্রেঃ
   const cash = S ? -paid : paid;           // গ্রহণ = ক্রেঃ, প্রদান = ডেঃ
   const bal = jer + vch + cash;
-  window['__' + P + 'PsCalc'] = { jer: jer, grand: grand, paid: paid, bal: bal };   // লাইভ প্রিভিউ পেনেলের জন্য
+  window['__' + P + 'PsCalc'] = { jer: jer, grand: grand, paid: paid, paidCash: paidCash, paidBank: paidBank, bal: bal };   // লাইভ প্রিভিউ পেনেলের জন্য
   const natural = S ? 1 : -1;              // শূন্য হলে স্বাভাবিক দিক (হালকা করে)
   const put = function (key, amt, zeroSign) {
     const r = Math.round(amt * 100) / 100;
@@ -15940,13 +15942,30 @@ function voucherAmountEnterWire(P) {
     e.preventDefault(); e.stopImmediatePropagation();   // সাধারণ "পরের ঘরে যাও" এখানে নয়
     chk.checked = true;
     chk.dispatchEvent(new Event('change', { bubbles: true }));
-    if (!chk.checked && !amt.value) {   // লাইন যোগ/হালনাগাদ হয়েছে — ঘর খালি
-      const next = [P + '_ItemID', P + '_QtyPcs', P + '_QtyKg'].map(function (id) { return document.getElementById(id); })
-        .find(function (el) { return el && !el.disabled && el.offsetParent !== null; });
-      if (next) next.focus();
+    if (!chk.checked && !amt.value) {   // লাইন যোগ/হালনাগাদ হয়েছে — ঘর খালি → নগদ/ব্যাংক গ্রহণের ঘরে (না থাকলে আইটেমে)
+      const pay = document.getElementById(payId);
+      if (pay && !pay.disabled && pay.offsetParent !== null) { pay.focus(); try { pay.select(); } catch (x) {} }
+      else focusItem();
     }
   };
   window.addEventListener('keydown', h, true);   // window-এ আগে ধরা — সাধারণ Enter-নিয়মের (document) আগেই
+  // নগদ/ব্যাংক গ্রহণের (ক্রয়ে প্রদানের) ঘরে Enter → আবার আইটেমে (ঘর ছাড়লেই টাকা বসে; ব্যাংক হলে ব্যাংক বাছাইয়ের ঘর খোলে)
+  const payId = P + (P === 'sv3' ? '_RecAmount' : '_PayAmount');
+  const focusItem = function () {
+    const next = [P + '_ItemID', P + '_QtyPcs', P + '_QtyKg'].map(function (id) { return document.getElementById(id); })
+      .find(function (el) { return el && !el.disabled && el.offsetParent !== null; });
+    if (next) next.focus();
+  };
+  const hp = function (e) {
+    const pay = document.getElementById(payId);
+    if (!pay || !nodeAlive(pay)) { if (!nodeAlive(amt)) window.removeEventListener('keydown', hp, true); return; }
+    if (!document.body.contains(pay)) return;   // অন্য ট্যাবে সরিয়ে রাখা
+    if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return;
+    if (document.activeElement !== pay) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    focusItem();
+  };
+  window.addEventListener('keydown', hp, true);
 }
 
 /** ক্রয়/বিক্রয় ভাউচার — মসৃণ কাজঃ
@@ -17290,7 +17309,8 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
       body += lineRow(t('নিট মোটঃ', 'Net total:'), pv3Fmt(netTotal, 2) || '0', saleProfit - retProfit - disc, 'grand');
       if (vat) { body += lineRow(t('ভ্যাটঃ (+)', 'VAT (+):'), pv3Fmt(vat, 2)); body += lineRow(t('সর্বমোটঃ', 'Grand total:'), pv3Fmt(netTotal + vat, 2), undefined, 'grand'); }
       if (c.jer && set.jer !== false) body += lineRow(t('পার্টি জেরঃ', 'Party opening:'), drcr(c.jer));
-      if (c.paid && set.vcash !== false) body += lineRow(t('নগদ/ব্যাংক প্রদানঃ', 'Paid:'), pv3Fmt(c.paid, 2));
+      if (c.paidCash && set.vcash !== false) body += lineRow(t('নগদ প্রদানঃ', 'Cash paid:'), pv3Fmt(c.paidCash, 2));   // নগদে দিলে নগদ প্রদান
+      if (c.paidBank && set.vcash !== false) body += lineRow(t('ব্যাংকে প্রদানঃ', 'Bank paid:'), pv3Fmt(c.paidBank, 2));   // ব্যাংকে দিলে ব্যাংকে প্রদান
       if (set.vbal !== false) body += lineRow(t('ভাউচার ব্যালান্সঃ', 'Voucher balance:'), drcr(c.bal || 0), undefined, 'grand');
     }
     box.innerHTML = `<table class="svp" data-rowsel="1">${colg}<thead>${tabs}
@@ -18538,7 +18558,8 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
       body += lineRow(t('নিট মোটঃ', 'Net total:'), sv3Fmt(netTotal, 2) || '0', saleProfit - retProfit - disc, 'grand');
       if (vat) { body += lineRow(t('ভ্যাটঃ (+)', 'VAT (+):'), sv3Fmt(vat, 2)); body += lineRow(t('সর্বমোটঃ', 'Grand total:'), sv3Fmt(netTotal + vat, 2), undefined, 'grand'); }
       if (c.jer && set.jer !== false) body += lineRow(t('পার্টি জেরঃ', 'Party opening:'), drcr(c.jer));
-      if (c.paid && set.vcash !== false) body += lineRow(t('নগদ/ব্যাংক গ্রহণঃ (−)', 'Received (−):'), sv3Fmt(c.paid, 2));
+      if (c.paidCash && set.vcash !== false) body += lineRow(t('নগদ গ্রহণঃ (−)', 'Cash received (−):'), sv3Fmt(c.paidCash, 2));   // নগদে জমা হলে নগদ গ্রহণ
+      if (c.paidBank && set.vcash !== false) body += lineRow(t('ব্যাংকে গ্রহণঃ (−)', 'Bank received (−):'), sv3Fmt(c.paidBank, 2));   // ব্যাংকে জমা হলে ব্যাংকে গ্রহণ
       if (set.vbal !== false) body += lineRow(t('ভাউচার ব্যালান্সঃ', 'Voucher balance:'), drcr(c.bal || 0), undefined, 'grand');
     }
     box.innerHTML = `<table class="svp" data-rowsel="1">${colg}<thead>${tabs}
@@ -23920,6 +23941,57 @@ document.getElementById('overlayMobile').addEventListener('click', closeMobile);
   }
   tick();
   setInterval(tick, 1000);
+})();
+
+/* ===== ড্রপডাউনে নাম বাংলা বর্ণক্রমে (অ আ ই … ক খ গ …) — খুঁজতে সুবিধা =====
+   পার্টি, আইটেম, কর্মচারী, জোন, গ্রুপ, ক্যাটাগরি, হিসাব ইত্যাদি নামের তালিকা (select ও datalist) নিজে থেকে সাজায়।
+   সংখ্যা স্বাভাবিক ক্রমে (কলস-২ → কলস-১০)। "—" / "সব …" / নগদ পার্টির মতো ঘর উপরেই থাকে, বাছাই করা নাম বদলায় না।
+   ধরন/অবস্থা/পদ্ধতির মতো ছোট নির্দিষ্ট তালিকা (নগদ গ্রহণ/ব্যাংকে গ্রহণ ইত্যাদি) আগের ক্রমেই থাকে। */
+(function installBnNameSort() {
+  if (window.__bnSortOn || typeof MutationObserver === 'undefined') return; window.__bnSortOn = true;
+  let coll; try { coll = new Intl.Collator('bn', { numeric: true, sensitivity: 'base' }); } catch (e) { coll = { compare: function (a, b) { return a.localeCompare(b); } }; }
+  const SKIP_ID = /(Type|Status|Method|Kind|Lang|Role|IsActive|StFilter|ShowF|Mod$|_St$|Inst|Unit|UOM|BOM|Preset|Month|Year|Period|Sort|Order|Page|Basis|Mode)/i;
+  const isTop = function (o) {
+    const v = o.value, tx = String(o.textContent || '').trim();
+    return !v || v === 'CUS-CASH' || v === 'SUP-CASH' || /^(—|-|–|সব |All )/.test(tx);
+  };
+  const key = function (o) { return String(o.textContent || o.value || '').trim(); };
+  function sortEl(el) {
+    if (!el || el.__bnSorting || !el.id) return;
+    if (el.tagName === 'SELECT' && SKIP_ID.test(el.id)) return;
+    if (el.querySelector('optgroup')) return;
+    const opts = Array.prototype.filter.call(el.children, function (c) { return c.tagName === 'OPTION'; });
+    const head = opts.filter(isTop), body = opts.filter(function (o) { return !isTop(o); });
+    if (body.length < 4) return;   // ছোট তালিকা — যেমন আছে
+    const sorted = body.slice().sort(function (a, b) { return coll.compare(key(a), key(b)); });
+    const want = head.concat(sorted);
+    if (want.every(function (o, i) { return opts[i] === o; })) return;   // আগেই সাজানো
+    el.__bnSorting = true;
+    const keep = el.tagName === 'SELECT' ? el.value : null;
+    want.forEach(function (o) { el.appendChild(o); });
+    if (keep !== null) el.value = keep;   // বাছাই করা নাম যেমন ছিল
+    el.__bnSorting = false;
+  }
+  const scan = function (root) {
+    if (!root || root.nodeType !== 1) return;
+    if (root.matches('select, datalist')) sortEl(root);
+    root.querySelectorAll('select[id], datalist[id]').forEach(sortEl);
+  };
+  new MutationObserver(function (muts) {
+    const seen = new Set();
+    muts.forEach(function (m) {
+      const t = m.target;
+      if (t && (t.tagName === 'SELECT' || t.tagName === 'DATALIST')) seen.add(t);
+      m.addedNodes.forEach(function (n) {
+        if (n.nodeType !== 1) return;
+        if (n.tagName === 'OPTION' && n.parentNode) seen.add(n.parentNode);
+        else if (n.matches('select, datalist')) seen.add(n);
+        else if (n.querySelector('select, datalist')) n.querySelectorAll('select[id], datalist[id]').forEach(function (x) { seen.add(x); });
+      });
+    });
+    seen.forEach(sortEl);
+  }).observe(document.documentElement, { childList: true, subtree: true });
+  if (document.body) scan(document.body);
 })();
 </script>
 </body>
