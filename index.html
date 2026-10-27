@@ -8663,62 +8663,113 @@ async function renderGmwLoanReport(content) {
   if (sel) { const h = $('glr_Out').querySelector('h4'); if (h) h.scrollIntoView({ behavior: 'smooth' }); }
 }
 
+/* ============================================================
+   ব্যাংক ও নগদ বই — রিপোর্ট পেজের নকশায়
+   • বাম পাশে গুটানো যায় এমন সাইড বার প্যানেল (অ্যাকাউন্ট, হইতে, পর্যন্ত, দেখাও/প্রিন্ট, অ্যাকাউন্টওয়ারি ব্যালান্স)
+   • টেবিলের ওপরে সবসময় দেখা যায়ঃ 🏦 ব্যাংকে | 💵 নগদ | মোট টাকা ("পর্যন্ত" তারিখের শেষ জের, সব অ্যাকাউন্ট মিলিয়ে)
+   • টেবিলের হেডার ফ্রিজ — স্ক্রল করলেও উপরে আটকে থাকে
+   ============================================================ */
 async function renderBankCashBook(content) {
   const fy = await getFiscalYearStart();
   const d0 = new Date(), today = d0.getFullYear() + '-' + String(d0.getMonth() + 1).padStart(2, '0') + '-' + String(d0.getDate()).padStart(2, '0');
   content.innerHTML = `
-    <style>
-      .bb-bar{display:flex;gap:8px;align-items:end;flex-wrap:wrap;}
-      .bb-bar .field{margin:0;} .bb-bar label{font-size:11px;font-weight:600;display:block;} .bb-bar select{height:34px;min-width:200px;}
-      .bb-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin-bottom:10px;}
-      .bb-card{border:1px solid var(--border);border-radius:10px;padding:8px 10px;background:var(--surface);cursor:pointer;} .bb-card small{display:block;font-size:11px;color:var(--text-muted);} .bb-card b{font-size:15px;}
-      .bb-card.neg b{color:#c0392b;} .bb-card.tot{background:#fff6e0;border-color:#e3b75c;cursor:default;}
-      .bb-warn{background:#fdf0ef;border:1px solid #e8a29b;color:#8a1f12;border-radius:8px;padding:9px 12px;font-size:12.5px;margin-bottom:10px;line-height:1.5;}
-      .bb-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
-      .bb-tbl{width:100%;border-collapse:collapse;min-width:720px;} .bb-tbl th,.bb-tbl td{border-bottom:.5px solid #e1e4e8;padding:3px 6px;white-space:nowrap;}
-      .bb-tbl th{background:#f3f4f6;} .bb-tbl td.r{text-align:right;} .bb-tbl td.l{text-align:left;} .bb-tbl td.c{text-align:center;}
-      .bb-tbl tr.acc td{background:#1a2029 !important;color:#f2a33c;font-weight:700 !important;} .bb-tbl tr.op td{background:#fafafa;font-style:italic;color:#555;}
-      .bb-tbl tr.cl td{background:#eef0f3;font-weight:700 !important;border-bottom:1.5px solid #9aa2ad;} .bb-tbl td.neg{color:#c0392b;font-weight:700;}
-      .bb-tbl .bb-ic{border:1px solid #d9dde3;background:#fff;border-radius:5px;padding:1px 5px;font-size:11px;cursor:pointer;margin:0 1px;} .bb-tbl .bb-ic:disabled{opacity:.3;cursor:default;}
+    <style>${DMY_CSS}${RPT_SIDE_CSS}
+      .bb-sum{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-bottom:6px;}
+      .bb-sum div{border:1px solid var(--border);border-radius:8px;padding:4px 10px;background:var(--surface);display:flex;justify-content:space-between;align-items:baseline;gap:6px;white-space:nowrap;min-width:0;}
+      .bb-sum small{font-size:11px;font-weight:600;color:var(--text-muted);}
+      .bb-sum b{font-size:14px;color:var(--text);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;}
+      .bb-sum .bank{background:#eaf3fd;border-color:#b9d4ef;} .bb-sum .cash{background:#eef8f0;border-color:#bfe0c5;} .bb-sum .tot{background:#fff6e0;border-color:#e3b75c;}
+      .bb-sum b.neg{color:#c0392b;}
+      .bb-sum-note{font-size:10px;color:var(--text-muted);margin:-3px 0 5px;}
+      .bb-accs{margin-top:10px;border-top:1px dashed #b9cfdd;padding-top:6px;}
+      .bb-accs h4{font-size:11px;font-weight:700;color:#2f6f8f;margin:0 0 4px;}
+      .bb-acc{display:flex;justify-content:space-between;gap:6px;align-items:baseline;width:100%;border:1px solid #c9dce8;background:#fff;border-radius:7px;padding:3px 8px;margin:0 0 3px;font-size:11.5px;cursor:pointer;font-family:inherit;color:var(--text);text-align:left;}
+      .bb-acc span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .bb-acc b{font-variant-numeric:tabular-nums;white-space:nowrap;}
+      .bb-acc.on{background:#1f2937;color:#ffd27a;border-color:#1f2937;} .bb-acc b.neg{color:#c0392b;} .bb-acc.on b.neg{color:#ffb4b4;}
+      .bb-warn{background:#fdf0ef;border:1px solid #e8a29b;color:#8a1f12;border-radius:8px;padding:7px 10px;font-size:12px;margin-bottom:6px;line-height:1.5;}
+      .sr-tbl.bb-tbl tr.acc td{background:#1a2029 !important;color:#f2a33c;font-weight:700 !important;text-align:left !important;padding:2px 8px !important;box-shadow:none !important;}
+      .sr-tbl.bb-tbl tr.op td{background:#fafafa;font-style:italic;color:#555;}
+      .sr-tbl.bb-tbl tr.cl td{background:#eef0f3;font-weight:700 !important;border-bottom:1.5px solid #9aa2ad !important;}
+      .sr-tbl.bb-tbl tr.nil td{color:#888;font-style:italic;}
+      .sr-tbl.bb-tbl td.neg,.sr-tbl.bb-tbl td.neg b{color:#c0392b;}
+      .sr-tbl.bb-tbl td.dt{white-space:nowrap;} .sr-tbl.bb-tbl td.nm{min-width:150px;}
+      .sr-tbl.bb-tbl .bb-md{display:none;color:var(--text-muted);font-size:10px;font-weight:400;}
+      .sr-tbl.bb-tbl td.act{white-space:nowrap;}
+      .sr-tbl.bb-tbl td.bb-mb{display:none;}
+      @media (max-width:760px){
+        .bb-sum{gap:3px;} .bb-sum div{flex-direction:column;align-items:center;gap:0;padding:2px 4px;} .bb-sum small{font-size:10px;} .bb-sum b{font-size:12px;}
+        .sr-tbl.bb-tbl .bb-dcol,.sr-tbl.bb-tbl td.bb-dk{display:none;} .sr-tbl.bb-tbl td.bb-mb{display:table-cell;} .sr-tbl.bb-tbl .bb-md{display:block;line-height:1.1;font-size:9.5px;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:0 auto;}
+        .sr-tbl.bb-tbl .bb-act{display:none;}   /* মোবাইলে অ্যাকশন কলাম লুকানো — দুই চাপেই ভাউচার খোলে, টেবিল পর্দায় ধরে */
+        .sr-tbl.bb-tbl th{white-space:normal !important;}
+      }
     </style>
-    <div class="page-head"><div><h1>${t('ব্যাংক ও নগদ বই', 'Bank & Cash Book')}</h1><p>${t('প্রতিটা ব্যাংক/নগদ অ্যাকাউন্টের লেনদেন — তারিখ অনুযায়ী, প্রারম্ভিক জের সহ চলমান ব্যালান্স', 'Each account’s transactions by date, with opening and running balance')}</p></div>
-      <div class="bb-bar">
-        <div class="field"><label>${t('অ্যাকাউন্ট', 'Account')}</label><select id="bb_Acc"><option value="">${t('সব অ্যাকাউন্ট', 'All accounts')}</option></select></div>
-        <div class="field"><label>${t('তারিখ হইতে', 'From')}</label><input type="date" id="bb_From" value="${fy}"></div>
-        <div class="field"><label>${t('তারিখ পর্যন্ত', 'To')}</label><input type="date" id="bb_To" value="${today}"></div>
-        <button type="button" class="btn btn-primary" id="bb_Apply" style="width:auto;">${t('প্রয়োগ করুন', 'Apply')}</button>
-      </div></div>
-    <div id="bb_Warn"></div><div class="bb-cards" id="bb_Cards"></div>
-    <div class="panel"><div class="bb-wrap" id="bb_Wrap"><div class="empty-state">${t('লোড হচ্ছে...', 'Loading...')}</div></div></div>`;
+    <div class="sr-head"><h1 class="i18n" data-bn="ব্যাংক ও নগদ বই" data-en="Bank &amp; Cash Book">${t('ব্যাংক ও নগদ বই', 'Bank & Cash Book')}</h1></div>
+    <div class="sr-layout">
+     <aside class="sr-side" id="bbSide">
+      <button type="button" class="sr-tog" id="bbTog" title="${attr(t('প্যানেল লুকান/দেখান', 'Hide/show panel'))}">‹</button>
+      <div class="sr-side-h" data-lbl="${attr(t('ফিল্টার', 'Filters'))}"><span>🔎 ${t('ফিল্টার', 'Filters')}</span></div>
+      <div class="sr-bar" id="bbBar">
+        <div class="field" style="grid-column:1 / -1;"><label>${t('অ্যাকাউন্ট', 'Account')}</label><select id="bb_Acc"><option value="">${t('সব অ্যাকাউন্ট', 'All accounts')}</option></select></div>
+        <div class="field"><label>${t('তারিখ হইতে', 'From')}</label>${dmyDateField('bb_From', fy)}</div>
+        <div class="field"><label>${t('তারিখ পর্যন্ত', 'To')}</label>${dmyDateField('bb_To', today)}</div>
+        <div class="sr-btns" style="grid-column:1 / -1;"><button type="button" class="btn btn-primary" id="bb_Apply">🔄 ${t('দেখাও', 'Show')}</button><button type="button" class="btn btn-outline" id="bb_Print">🖨️ ${t('প্রিন্ট', 'Print')}</button></div>
+        <div class="bb-accs" id="bb_Accs" style="grid-column:1 / -1;"></div>
+      </div>
+     </aside>
+     <div class="sr-main panel">
+      <div id="bb_Warn"></div>
+      <div class="bb-sum" id="bb_Sum">
+        <div class="bank"><small>🏦 ${t('ব্যাংকে', 'In bank')}</small><b>—</b></div>
+        <div class="cash"><small>💵 ${t('নগদ', 'Cash')}</small><b>—</b></div>
+        <div class="tot"><small>∑ ${t('মোট টাকা', 'Total')}</small><b>—</b></div>
+      </div>
+      <div class="bb-sum-note" id="bb_SumNote"></div>
+      <div id="bb_Wrap"><div class="sr-hint">${t('লোড হচ্ছে…', 'Loading…')}</div></div>
+      <div class="sr-note">${t('এক চাপে সারি বাছাই, দুই চাপে ভাউচার খোলে। জমা (ডেবিট) = টাকা ঢুকেছে, খরচ (ক্রেডিট) = টাকা বের হয়েছে।', 'Tap once to select, twice to open the voucher. In (Dr) = money in, Out (Cr) = money out.')}</div>
+     </div>
+    </div>`;
+  wireDmyFields(content);
   const $ = function (id) { return document.getElementById(id); };
-  let accounts = [], book = [];
+  const isMob = function () { return window.matchMedia('(max-width:760px)').matches; };
+  const fit = function () { fitReportScroll(content); };
+  const side = wireReportSide($('bbSide'), $('bbTog'), 'bbSideCollapsed', fit);
+  let accounts = [], allAccounts = [], book = [], lastPrint = null;
   const n = function (x) { return Number(x) || 0; };
-  const money = function (v) { v = n(v); return (v < 0 ? '−' : '') + Math.abs(v).toFixed(2); };
+  const fmt = function (v, forPrint) {   // মোবাইলের পর্দায় পূর্ণ টাকায় .00 বাদ — টেবিল পর্দায় ধরে; প্রিন্টে সবসময় দুই দশমিক
+    v = Math.abs(n(v)); const d = (!forPrint && isMob() && Math.abs(v - Math.round(v)) < 0.005) ? 0 : 2;
+    return v.toLocaleString('en-IN', { minimumFractionDigits: d, maximumFractionDigits: d });
+  };
+  const money = function (v, pr) { v = n(v); return (v < -0.005 ? '−' : '') + fmt(v, pr); };
+  const amt = function (v, pr) { return n(v) ? fmt(v, pr) : '—'; };
+  const d10 = function (d) { return String(d || '').slice(0, 10); };
+  const isCash = function (a) { return a && a.Type === 'Cash'; };
+  const range = function () { return { from: dmyIso('bb_From') || '0000-00-00', to: dmyIso('bb_To') || '9999-12-31' }; };
 
   async function load() {
     listCache = {};
-    [accounts, book] = await Promise.all([api('list', { sheet: 'BankCashAccounts' }), api('list', { sheet: 'BankCashBook' })]);
-    accounts = accounts.filter(function (a) { return a.Status !== 'Deleted'; });
+    [allAccounts, book] = await Promise.all([api('list', { sheet: 'BankCashAccounts' }), api('list', { sheet: 'BankCashBook' })]);
+    if (!$('bb_Wrap')) return;   // এই ফাঁকে অন্য পেজে চলে গেলে
+    accounts = allAccounts.filter(function (a) { return a.Status !== 'Deleted'; });
     const sel = $('bb_Acc'), cur = sel.value;
-    sel.innerHTML = `<option value="">${t('সব অ্যাকাউন্ট', 'All accounts')}</option>` + accounts.map(function (a) { return `<option value="${attr(a.BankAccID)}">${escapeHtml(a.AccountName)}${a.Type === 'Cash' ? ' (' + t('নগদ', 'cash') + ')' : ''}</option>`; }).join('');
-    sel.value = cur;
+    sel.innerHTML = `<option value="">${t('সব অ্যাকাউন্ট', 'All accounts')}</option>` + accounts.map(function (a) { return `<option value="${attr(a.BankAccID)}">${escapeHtml(a.AccountName)}${isCash(a) ? ' (' + t('নগদ', 'cash') + ')' : ''}</option>`; }).join('');
+    sel.value = cur; if (sel.value !== cur) sel.value = '';
     await checkMisplaced();
     render();
   }
   async function checkMisplaced() {
     const res = await findMisplacedCashRows(book);
-    const box = $('bb_Warn');
+    const box = $('bb_Warn'); if (!box) return;
     if (!res.rows.length) { box.innerHTML = ''; return; }
-    const accName = function (id) { const a = accounts.find(function (x) { return x.BankAccID === id; }); return a ? a.AccountName : id; };
+    const accName = function (id) { const a = allAccounts.find(function (x) { return x.BankAccID === id; }); return a ? a.AccountName : id; };
     const sum = res.rows.reduce(function (s, x) { return s + n(x.r.Debit) - n(x.r.Credit); }, 0);
     box.innerHTML = `<div class="bb-warn">⚠️ <b>${res.rows.length}${t('টা নগদ লেনদেন ভুল অ্যাকাউন্টে পড়েছে', ' cash entries are in the wrong account')}</b> — ${t('নগদ বিক্রয়/গ্রহণ/প্রদান যাওয়ার কথা', 'cash sales/receipts/payments should go to')} <b>${escapeHtml(accName(res.cashId))}</b>${t('-এ, কিন্তু পড়েছে', ', but went to')} <b>${escapeHtml(accName('BC-CASH'))}</b>${t('-এ (নিট ', ' (net ')}৳${money(sum)}). ${t('কারণঃ সফটওয়্যারে নগদ অ্যাকাউন্টের আইডি "BC-CASH" ধরে রাখা ছিল, আর সেই অ্যাকাউন্টের নাম বদলে ব্যাংক করা হয়েছে। নতুন লেনদেন এখন ঠিক জায়গায় যাবে।', 'Cause: the cash account id was fixed as BC-CASH, which was renamed to a bank. New entries now go to the right place.')}
-      ${currentUser && currentUser.RoleID === 'ROLE-ADMIN' ? `<div style="margin-top:7px;"><button type="button" class="btn btn-outline" id="bb_Fix" style="width:auto;">🔧 ${t('দেখে ঠিক করুন', 'Review & fix')}</button></div>` : `<div style="margin-top:5px;">${t('এডমিন এটা ঠিক করতে পারবেন।', 'An admin can fix this.')}</div>`}</div>`;
+      ${currentUser && currentUser.RoleID === 'ROLE-ADMIN' ? `<div style="margin-top:6px;"><button type="button" class="btn btn-outline" id="bb_Fix" style="width:auto;height:28px;font-size:12px;">🔧 ${t('দেখে ঠিক করুন', 'Review & fix')}</button></div>` : `<div style="margin-top:4px;">${t('এডমিন এটা ঠিক করতে পারবেন।', 'An admin can fix this.')}</div>`}</div>`;
     const fb = $('bb_Fix'); if (fb) fb.addEventListener('click', function () { openFix(res, accName); });
   }
   function openFix(res, accName) {
     const body = `<div style="font-size:12px;margin-bottom:6px;">${t('টিক দেওয়া এন্ট্রিগুলো', 'Ticked entries move from')} <b>${escapeHtml(accName('BC-CASH'))}</b> ${t('থেকে', 'to')} <b>${escapeHtml(accName(res.cashId))}</b>${t('-এ সরবে; দুই অ্যাকাউন্টের ব্যালান্স নতুন করে হিসাব হবে। পার্টি লেজার বা স্টকে কিছু বদলাবে না। "?" চিহ্নের গুলো নিজে দেখে টিক দিন।', '; both balances are recalculated. Party ledger and stock are not touched. Check the "?" ones yourself.')}</div>
       <div style="overflow-x:auto;"><table class="data-table"><thead><tr><th><input type="checkbox" id="bbf_All" checked></th><th>${t('তারিখ', 'Date')}</th><th>${t('ভাউচার', 'Voucher')}</th><th>${t('ধরন', 'Type')}</th><th>${t('জমা', 'In')}</th><th>${t('খরচ', 'Out')}</th><th>${t('কেন', 'Why')}</th></tr></thead><tbody>
-      ${res.rows.map(function (x, i) { return `<tr><td class="c"><input type="checkbox" data-bbf="${i}" ${x.doubt ? '' : 'checked'}></td><td>${escapeHtml(formatShortDate(x.r.Date))}</td><td><b>${escapeHtml(x.r.RefID)}</b></td><td>${escapeHtml(bookRefLabel(x.r.RefModule))}</td><td class="r">${n(x.r.Debit) ? n(x.r.Debit).toFixed(2) : '—'}</td><td class="r">${n(x.r.Credit) ? n(x.r.Credit).toFixed(2) : '—'}</td><td>${x.doubt ? '❓ ' : ''}${escapeHtml(x.why)}</td></tr>`; }).join('')}
+      ${res.rows.map(function (x, i) { return `<tr><td class="c"><input type="checkbox" data-bbf="${i}" ${x.doubt ? '' : 'checked'}></td><td>${escapeHtml(formatShortDate(d10(x.r.Date)))}</td><td><b>${escapeHtml(x.r.RefID)}</b></td><td>${escapeHtml(bookRefLabel(x.r.RefModule))}</td><td class="r">${amt(x.r.Debit)}</td><td class="r">${amt(x.r.Credit)}</td><td>${x.doubt ? '❓ ' : ''}${escapeHtml(x.why)}</td></tr>`; }).join('')}
       </tbody></table></div>`;
     openModal({ title: t('নগদের ভুল এন্ট্রি ঠিক করা', 'Fix misplaced cash entries'), bodyHtml: body, wide: true, onSave: async function () {
       const pick = Array.prototype.slice.call(document.querySelectorAll('[data-bbf]:checked')).map(function (c) { return res.rows[Number(c.getAttribute('data-bbf'))].r; });
@@ -8732,45 +8783,109 @@ async function renderBankCashBook(content) {
     all.addEventListener('change', function () { document.querySelectorAll('[data-bbf]').forEach(function (c) { c.checked = all.checked; }); });
   }
 
-  function render() {
-    const from = $('bb_From').value || '0000-00-00', to = $('bb_To').value || '9999-12-31', only = $('bb_Acc').value;
-    const list = accounts.filter(function (a) { return !only || a.BankAccID === only; });
-    // বইয়ে আছে কিন্তু অ্যাকাউন্ট তালিকায় নেই (মুছে ফেলা) — সেগুলোও দেখানো
+  /** একটা অ্যাকাউন্টের হিসাব — প্রারম্ভিক জের (from-এর আগের সব), সময়ের লেনদেন, শেষ জের (to পর্যন্ত) */
+  function accountCalc(a, from, to) {
+    const rows = book.filter(function (r) { return r.BankCashAccID === a.BankAccID; })
+      .sort(function (x, y) { return d10(x.Date).localeCompare(d10(y.Date)) || (n(x.id) - n(y.id)); });
+    let bal = n(a.OpeningBalance);
+    rows.forEach(function (r) { if (d10(r.Date) < from) bal += n(r.Debit) - n(r.Credit); });
+    const opening = bal; let tIn = 0, tOut = 0;
+    const shown = rows.filter(function (r) { const d = d10(r.Date); return d >= from && d <= to; }).map(function (r) {
+      bal += n(r.Debit) - n(r.Credit); tIn += n(r.Debit); tOut += n(r.Credit);
+      return { r: r, bal: bal };
+    });
+    return { opening: opening, shown: shown, tIn: tIn, tOut: tOut, closing: bal };
+  }
+  /** বইয়ে আছে কিন্তু সক্রিয় তালিকায় নেই (মুছে ফেলা অ্যাকাউন্ট) — সেগুলোও হিসাবে */
+  function fullAccountList() {
+    const list = accounts.slice();
     Array.from(new Set(book.map(function (r) { return r.BankCashAccID; }))).forEach(function (id) {
-      if (!accounts.some(function (a) { return a.BankAccID === id; }) && (!only || only === id)) list.push({ BankAccID: id, AccountName: id + t(' (মুছে ফেলা অ্যাকাউন্ট)', ' (deleted account)'), OpeningBalance: 0 });
+      if (!id || list.some(function (a) { return a.BankAccID === id; })) return;
+      const old = allAccounts.find(function (a) { return a.BankAccID === id; });
+      list.push({ BankAccID: id, AccountName: (old ? old.AccountName : id) + t(' (মুছে ফেলা অ্যাকাউন্ট)', ' (deleted account)'), OpeningBalance: old ? old.OpeningBalance : 0, Type: old ? old.Type : '' });
     });
-    let grand = 0, html = '', cards = '';
-    const ic = function (act, icon, title, base, id, dis) { return `<button type="button" class="bb-ic" data-bb="${act}" data-base="${attr(base)}" data-id="${attr(id)}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
-    list.forEach(function (a) {
-      const rows = book.filter(function (r) { return r.BankCashAccID === a.BankAccID; })
-        .sort(function (x, y) { return String(x.Date || '').localeCompare(String(y.Date || '')) || (n(x.id) - n(y.id)); });
-      let bal = n(a.OpeningBalance);
-      rows.forEach(function (r) { if (String(r.Date || '').slice(0, 10) < from) bal += n(r.Debit) - n(r.Credit); });
-      const opening = bal; let tIn = 0, tOut = 0;
-      const shown = rows.filter(function (r) { const d = String(r.Date || '').slice(0, 10); return d >= from && d <= to; });
-      const body = shown.map(function (r) {
-        bal += n(r.Debit) - n(r.Credit); tIn += n(r.Debit); tOut += n(r.Credit);
-        const base = voucherBaseTypeSafe(r.RefModule), reg = VOUCHER_REGISTRY[base], ok = reg && reg.kind !== 'legacy';
-        return `<tr class="${vkClass(r.RefModule)}"><td class="c">${escapeHtml(formatShortDate(r.Date))}</td><td class="l">${escapeHtml(bookRefLabel(r.RefModule))}</td><td class="c"><b>${escapeHtml(r.RefID || '')}</b></td>
-          <td class="r">${n(r.Debit) ? n(r.Debit).toFixed(2) : '—'}</td><td class="r">${n(r.Credit) ? n(r.Credit).toFixed(2) : '—'}</td><td class="r ${bal < -0.005 ? 'neg' : ''}"><b>${money(bal)}</b></td>
-          <td class="c" style="white-space:nowrap;">${ic('view', '👁️', t('দেখুন', 'View'), base, r.RefID, !ok)}${ic('edit', '✏️', t('এডিট', 'Edit'), base, r.RefID, !ok)}${ic('del', '🗑️', t('ডিলিট', 'Delete'), base, r.RefID, !reg)}</td></tr>`;
-      }).join('');
-      if (!only && !shown.length && Math.abs(opening) < 0.005) return;   // সব অ্যাকাউন্ট দেখালে ফাঁকা অ্যাকাউন্ট বাদ
-      grand += bal;
-      cards += `<div class="bb-card ${bal < -0.005 ? 'neg' : ''}" data-acc="${attr(a.BankAccID)}"><small>${a.Type === 'Cash' ? '💵' : '🏦'} ${escapeHtml(a.AccountName)}</small><b>৳${money(bal)}</b></div>`;
-      html += `<tr class="acc"><td colspan="7" class="l">${a.Type === 'Cash' ? '💵' : '🏦'} ${escapeHtml(a.AccountName)}</td></tr>
-        <tr class="op"><td class="c">${escapeHtml(formatShortDate(from === '0000-00-00' ? '' : from))}</td><td class="l" colspan="4">${t('প্রারম্ভিক জের (ওপেনিং ব্যালান্স + আগের লেনদেন)', 'Opening balance')}</td><td class="r ${opening < -0.005 ? 'neg' : ''}"><b>${money(opening)}</b></td><td></td></tr>
-        ${body || `<tr><td colspan="7" class="l" style="color:#888;">${t('এই সময়ে কোনো লেনদেন নেই।', 'No transactions in this period.')}</td></tr>`}
-        <tr class="cl"><td class="l" colspan="3">${t('মোট / শেষ জের', 'Total / closing')} (${shown.length}${t('টা', '')})</td><td class="r">${tIn.toFixed(2)}</td><td class="r">${tOut.toFixed(2)}</td><td class="r ${bal < -0.005 ? 'neg' : ''}">${money(bal)}</td><td></td></tr>`;
-    });
-    $('bb_Cards').innerHTML = cards + (only ? '' : `<div class="bb-card tot"><small>${t('সব অ্যাকাউন্টের মোট', 'All accounts')}</small><b>৳${money(grand)}</b></div>`);
-    $('bb_Wrap').innerHTML = html ? `<table class="bb-tbl"><thead><tr><th>${t('তারিখ', 'Date')}</th><th>${t('বিবরণ', 'Details')}</th><th>${t('ভাউচার', 'Voucher')}</th><th>${t('জমা (ডেবিট)', 'In (Dr)')}</th><th>${t('খরচ (ক্রেডিট)', 'Out (Cr)')}</th><th>${t('ব্যালান্স', 'Balance')}</th><th></th></tr></thead><tbody>${html}</tbody></table>`
-      : `<div class="empty-state">${t('কোনো লেনদেন নেই।', 'No transactions.')}</div>`;
+    return list;
   }
 
-  $('bb_Apply').addEventListener('click', render);
+  function render() {
+    if (!$('bb_Wrap')) return;
+    const R = range(), from = R.from, to = R.to, only = $('bb_Acc').value;
+    if (from > to) { showToast(t('"হইতে" তারিখ "পর্যন্ত" তারিখের পরে হতে পারে না।', '"From" cannot be after "To".'), 'error'); return; }
+    const full = fullAccountList();
+
+    // ---- টেবিলের ওপরের সারাংশঃ ব্যাংকে | নগদ | মোট — সব অ্যাকাউন্ট, "পর্যন্ত" তারিখের শেষ জের ----
+    let bankTot = 0, cashTot = 0, accBtns = '';
+    full.forEach(function (a) {
+      const c = accountCalc(a, from, to);
+      if (isCash(a)) cashTot += c.closing; else bankTot += c.closing;
+      if (Math.abs(c.closing) < 0.005 && !c.shown.length && accounts.indexOf(a) === -1) return;
+      accBtns += `<button type="button" class="bb-acc ${only === a.BankAccID ? 'on' : ''}" data-acc="${attr(a.BankAccID)}"><span>${isCash(a) ? '💵' : '🏦'} ${escapeHtml(a.AccountName)}</span><b class="${c.closing < -0.005 ? 'neg' : ''}">${money(c.closing)}</b></button>`;
+    });
+    const sumCells = $('bb_Sum').querySelectorAll('b');
+    [bankTot, cashTot, bankTot + cashTot].forEach(function (v, i) { sumCells[i].textContent = '৳' + money(v); sumCells[i].classList.toggle('neg', v < -0.005); });
+    $('bb_SumNote').textContent = t('সব অ্যাকাউন্ট মিলিয়ে — ', 'All accounts — as of ') + (to === '9999-12-31' ? t('আজ পর্যন্ত', 'today') : formatShortDate(to) + t(' তারিখের শেষ জের', ''));
+    $('bb_Accs').innerHTML = `<h4>${t('অ্যাকাউন্টের ব্যালান্স', 'Account balances')}</h4><button type="button" class="bb-acc ${only ? '' : 'on'}" data-acc=""><span>∑ ${t('সব অ্যাকাউন্ট', 'All accounts')}</span><b class="${bankTot + cashTot < -0.005 ? 'neg' : ''}">${money(bankTot + cashTot)}</b></button>${accBtns}`;
+
+    // ---- মূল টেবিল ----
+    const list = full.filter(function (a) { return !only || a.BankAccID === only; });
+    const ic = function (act, icon, title, base, id, dis) { return `<button type="button" class="sr-ic" data-bb="${act}" data-base="${attr(base)}" data-id="${attr(id)}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
+    // মোবাইলে "বিবরণ" কলাম লুকানো থাকে — তাই জোড়া-ঘরের সারিতে ডেস্কটপ ও মোবাইলের জন্য আলাদা colspan-এর ঘর
+    const span = function (desk, mob, inner) { return `<td class="bb-dk" colspan="${desk}">${inner}</td><td class="bb-mb" colspan="${mob}">${inner}</td>`; };
+    let html = ''; const printParts = [];
+    list.forEach(function (a) {
+      const c = accountCalc(a, from, to);
+      if (!only && !c.shown.length && Math.abs(c.opening) < 0.005) return;   // সব অ্যাকাউন্ট দেখালে ফাঁকা অ্যাকাউন্ট বাদ
+      const body = c.shown.map(function (x) {
+        const r = x.r, base = voucherBaseTypeSafe(r.RefModule), reg = VOUCHER_REGISTRY[base], ok = reg && reg.kind !== 'legacy', lbl = bookRefLabel(r.RefModule);
+        return `<tr class="${vkClass(r.RefModule)}"><td class="dt">${escapeHtml(formatShortDate(d10(r.Date)))}</td><td class="nm bb-dcol">${escapeHtml(lbl)}</td><td><b>${escapeHtml(r.RefID || '')}</b><small class="bb-md">${escapeHtml(lbl)}</small></td>
+          <td class="n">${amt(r.Debit)}</td><td class="n">${amt(r.Credit)}</td><td class="n ${x.bal < -0.005 ? 'neg' : ''}"><b>${money(x.bal)}</b></td>
+          <td class="act bb-act">${ic('view', '👁️', t('দেখুন', 'View'), base, r.RefID, !ok)}${ic('edit', '✏️', t('এডিট (এডমিন — আগে আনপোস্ট হবে)', 'Edit (admin — unposts first)'), base, r.RefID, !ok)}${ic('del', '🗑️', t('ডিলিট (এডমিন)', 'Delete (admin)'), base, r.RefID, !reg)}${ic('post', '💾', t('পোস্ট/সেভ হয়ে গেছে', 'Already posted/saved'), base, r.RefID, true)}</td></tr>`;
+      }).join('');
+      const icon = isCash(a) ? '💵' : '🏦';
+      html += `<tr class="acc">${span(7, 5, icon + ' ' + escapeHtml(a.AccountName))}</tr>
+        <tr class="op"><td class="dt">${escapeHtml(formatShortDate(from === '0000-00-00' ? '' : from))}</td>${span(4, 3, t('প্রারম্ভিক জের (ওপেনিং ব্যালান্স + আগের লেনদেন)', 'Opening balance (opening + earlier entries)'))}<td class="n ${c.opening < -0.005 ? 'neg' : ''}"><b>${money(c.opening)}</b></td><td class="bb-act"></td></tr>
+        ${body || `<tr class="nil">${span(7, 5, t('এই সময়ে কোনো লেনদেন নেই।', 'No transactions in this period.'))}</tr>`}
+        <tr class="cl">${span(3, 2, t('মোট / শেষ জের', 'Total / closing') + ' (' + c.shown.length + t('টা', '') + ')')}<td class="n">${fmt(c.tIn)}</td><td class="n">${fmt(c.tOut)}</td><td class="n ${c.closing < -0.005 ? 'neg' : ''}">${money(c.closing)}</td><td class="bb-act"></td></tr>`;
+      printParts.push({ a: a, c: c });
+    });
+    lastPrint = { from: from, to: to, only: only, parts: printParts, bank: bankTot, cash: cashTot };
+    $('bb_Wrap').innerHTML = html
+      ? `<div class="sr-scroll"><table class="sr-tbl bb-tbl"><thead><tr><th>${t('তারিখ', 'Date')}</th><th class="bb-dcol">${t('বিবরণ', 'Details')}</th><th>${t('ভাউচার', 'Voucher')}</th><th>${t('জমা (ডেবিট)', 'In (Dr)')}</th><th>${t('খরচ (ক্রেডিট)', 'Out (Cr)')}</th><th>${t('ব্যালান্স', 'Balance')}</th><th class="bb-act">${t('অ্যাকশন', 'Action')}</th></tr></thead><tbody>${html}</tbody></table></div>`
+      : `<div class="sr-hint">${t('এই সময়ে কোনো লেনদেন নেই।', 'No transactions in this period.')}</div>`;
+    fit();
+  }
+
+  function printBook() {
+    const P = lastPrint;
+    if (!P || !P.parts.length) { showToast(t('প্রিন্ট করার মতো তথ্য নেই।', 'Nothing to print.'), 'error'); return; }
+    const rows = P.parts.map(function (p) {
+      const body = p.c.shown.map(function (x) {
+        return `<tr><td class="c">${escapeHtml(formatShortDate(d10(x.r.Date)))}</td><td>${escapeHtml(bookRefLabel(x.r.RefModule))}</td><td class="c">${escapeHtml(x.r.RefID || '')}</td><td class="n">${amt(x.r.Debit, 1)}</td><td class="n">${amt(x.r.Credit, 1)}</td><td class="n">${money(x.bal, 1)}</td></tr>`;
+      }).join('');
+      return `<tr><td colspan="6" style="background:#1f2937;color:#ffd27a;font-weight:700;">${isCash(p.a) ? 'নগদ' : 'ব্যাংক'} — ${escapeHtml(p.a.AccountName)}</td></tr>
+        <tr><td class="c">${escapeHtml(formatShortDate(P.from === '0000-00-00' ? '' : P.from))}</td><td colspan="4"><i>প্রারম্ভিক জের</i></td><td class="n"><b>${money(p.c.opening, 1)}</b></td></tr>
+        ${body || '<tr><td colspan="6" class="c"><i>এই সময়ে কোনো লেনদেন নেই।</i></td></tr>'}
+        <tr><td colspan="3"><b>মোট / শেষ জের (${p.c.shown.length}টা)</b></td><td class="n"><b>${fmt(p.c.tIn, 1)}</b></td><td class="n"><b>${fmt(p.c.tOut, 1)}</b></td><td class="n"><b>${money(p.c.closing, 1)}</b></td></tr>`;
+    }).join('');
+    const sel = $('bb_Acc'), accTxt = P.only ? sel.options[sel.selectedIndex].text : 'সব অ্যাকাউন্ট';
+    printReportA4({ title: 'ব্যাংক ও নগদ বই', period: (P.from === '0000-00-00' ? '' : formatShortDate(P.from) + ' হইতে ') + (P.to === '9999-12-31' ? 'আজ' : formatShortDate(P.to)) + ' পর্যন্ত', filters: accTxt,
+      summary: [['ব্যাংকে', '৳' + money(P.bank, 1)], ['নগদ', '৳' + money(P.cash, 1)], ['মোট টাকা', '৳' + money(P.bank + P.cash, 1)]],
+      html: `<table class="ctr"><thead><tr><th>তারিখ</th><th>বিবরণ</th><th>ভাউচার</th><th>জমা (ডেবিট)</th><th>খরচ (ক্রেডিট)</th><th>ব্যালান্স</th></tr></thead><tbody>${rows}</tbody></table>` });
+  }
+
+  // ---- ঘটনা ----
+  $('bb_Apply').addEventListener('click', async function () {
+    const b = this; if (b.__busy) return; b.__busy = true; b.disabled = true;
+    try { await load(); if (isMob()) side.collapse(); } catch (err) { showToast(err.message, 'error'); }
+    finally { b.__busy = false; b.disabled = false; }
+  });
+  $('bb_Print').addEventListener('click', printBook);
   $('bb_Acc').addEventListener('change', render);
-  $('bb_Cards').addEventListener('click', function (e) { const c = e.target.closest('[data-acc]'); if (c) { $('bb_Acc').value = c.getAttribute('data-acc'); render(); } });
+  ['bb_From', 'bb_To'].forEach(function (id) { $(id).addEventListener('change', function () { if (dmyIso(id)) render(); }); });
+  $('bb_Accs').addEventListener('click', function (e) {
+    const c = e.target.closest('[data-acc]'); if (!c) return;
+    $('bb_Acc').value = c.getAttribute('data-acc'); render(); if (isMob()) side.collapse();
+  });
   $('bb_Wrap').addEventListener('click', async function (e) {
     const b = e.target.closest('[data-bb]'); if (!b || b.disabled || b.__busy) return; b.__busy = true;
     const act = b.getAttribute('data-bb'), base = b.getAttribute('data-base'), id = b.getAttribute('data-id');
@@ -8781,7 +8896,9 @@ async function renderBankCashBook(content) {
     } catch (err) { showToast(err.message, 'error'); }
     finally { b.__busy = false; }
   });
+  if (!window.__bbFitBound) { window.__bbFitBound = true; window.addEventListener('resize', function () { const w = document.getElementById('bb_Wrap'); if (w) fitReportScroll(w.closest('.sr-main')); }); }
   await load();
+  if (isMob()) side.collapse();   // মোবাইলে প্যানেল গুটানো অবস্থায় শুরু — ওপরের ব্যাংক/নগদ/মোট আর টেবিলের জায়গা বেশি
 }
 
 /** ট্রায়াল ব্যালেন্স — বর্তমানে শুধু পোস্ট করা Journal Voucher-এর হিসাব দেখায় */
