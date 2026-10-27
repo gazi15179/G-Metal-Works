@@ -20284,14 +20284,25 @@ async function renderPartyLedger(content, partyTypeFilter) {
       return `<tr class="${vkClass(baseType)}"><td>${escapeHtml(formatShortDate(r.Date))}</td><td>${escapeHtml(typeLabel)}</td><td class="l">${escapeHtml(t(info.desc[0], info.desc[1]))} — <b>${escapeHtml(r.RefID)}</b>${r.__note ? ` <small style="color:var(--text-muted);">(${escapeHtml(r.__note)})</small>` : ''}</td>
         <td>${debit.toFixed(2)}</td><td>${credit.toFixed(2)}</td><td><b>${formatAmountDrCr(runningBalance, true)}</b></td><td style="white-space:nowrap;">${icons}</td></tr>`;
     }).join('');
+    // মোট Debit / মোট Credit / সর্বশেষ ব্যালেন্স — ঠিক Debit | Credit | ব্যালেন্স কলামের হেডারের উপরে (স্ক্রল করলেও আটকে থাকে)
+    const totRow = `<tr class="plx-tot"><th colspan="3" class="plx-tl">${t('মোট / সর্বশেষ', 'Total / Closing')}</th>
+      <th><span class="lb">${t('মোট Debit', 'Total Debit')}</span><b>${totalDebit.toFixed(2)}</b></th>
+      <th><span class="lb">${t('মোট Credit', 'Total Credit')}</span><b>${totalCredit.toFixed(2)}</b></th>
+      <th><span class="lb">${t('সর্বশেষ ব্যালেন্স', 'Closing Balance')}</span><b>${formatAmountDrCr(runningBalance, true)}</b></th><th></th></tr>`;
     wrap.innerHTML = `
+      <style>
+        .plx-tw thead tr.plx-tot th{background:#fff4dc;border-bottom:1px solid #e3c98f;padding:2px 6px;line-height:1.2;text-transform:none;letter-spacing:0;}
+        .plx-tw thead tr.plx-tot th .lb{display:block;font-size:10px;font-weight:600;color:var(--text-muted);}
+        .plx-tw thead tr.plx-tot th b{font-size:11.5px;}
+        .plx-tw thead tr.plx-tot th.plx-tl{text-align:right !important;font-size:11px;color:var(--text-muted);}
+      </style>
       <div class="plx-head">
         <div class="pn">${escapeHtml(party.name)}<small>${escapeHtml([party.zone, party.phone, party.code].filter(Boolean).join(' · '))}</small></div>
-        <div><span class="lb">${t('মোট Debit','Total Debit')}:</span> <b>${totalDebit.toFixed(2)}</b></div>
-        <div><span class="lb">${t('মোট Credit','Total Credit')}:</span> <b>${totalCredit.toFixed(2)}</b></div>
-        <div><span class="lb">${t('সর্বশেষ ব্যালেন্স','Closing Balance')}:</span> <b>${formatAmountDrCr(runningBalance, true)}</b></div>
       </div>
-      <div class="plx-tw"><table class="data-table"><thead><tr>${headCells}</tr></thead><tbody>${bodyRows}</tbody></table></div>`;
+      <div class="plx-tw"><table class="data-table"><thead>${totRow}<tr class="plx-hd">${headCells}</tr></thead><tbody>${bodyRows}</tbody></table></div>`;
+    // দুই সারির হেডারই আটকে থাকে — নিচের সারি উপরের সারির ঠিক নিচে
+    const totTr = wrap.querySelector('tr.plx-tot');
+    if (totTr) { const h = totTr.getBoundingClientRect().height || 30; wrap.querySelectorAll('tr.plx-hd th').forEach(function (th) { th.style.top = h + 'px'; }); }
   }
 
   document.getElementById('plWrap').addEventListener('click', async function (ev) {
