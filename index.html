@@ -659,6 +659,19 @@ window.addEventListener('pagehide', function () { if (__actQ.length) actFlush();
 let rolesCache = [];
 let openTabs = [];      // [{key, moduleLabel, pageLabel}, ...] — উপরে যেই পেজগুলো ট্যাব হিসেবে খোলা আছে
 let activeTabKey = null;
+/* ===== খোলা ট্যাবের পেজ ধরে রাখা — অন্য পেজে গেলে আগের পেজ মুছে যায় না =====
+   প্রতিটা ট্যাবের পেজ নিজের একটা "pane"-এ থাকে। অন্য ট্যাবে গেলে আগেরটা DOM থেকে সরিয়ে মেমরিতে
+   রাখা হয় (লেখা ঘর, তালিকা, খোলা ভাউচার — সব যেমন ছিল); ফিরে এলে সেটাই আবার বসে, নতুন করে লোড হয় না।
+   সরিয়ে রাখা পেজের ঘরের id ডকুমেন্টে থাকে না — তাই দুই পেজের একই id-তে গোলমাল হয় না।
+   নতুন করে লোড হয় শুধুঃ 🔄 রিফ্রেশ বোতামে, ট্যাব বন্ধ করে আবার খুললে, বা অন্য পেজ থেকে নির্দিষ্ট ভাউচার খুলতে পাঠালে। */
+const PAGE_PANES = {};   // pageKey → { el, scroll }
+/** el এখনো কোনো খোলা পেজের অংশ কিনা (দেখানো বা সরিয়ে রাখা) — পেজের নিজের listener বন্ধ করার আগে এটা দেখা */
+function nodeAlive(el) {
+  if (!el) return false;
+  if (document.body.contains(el)) return true;
+  return Object.keys(PAGE_PANES).some(function (k) { return PAGE_PANES[k].el.contains(el); });
+}
+function dropPagePanes() { Object.keys(PAGE_PANES).forEach(function (k) { delete PAGE_PANES[k]; }); }
 /** Supabase একবারে সর্বোচ্চ ১০০০ সারি দেয় — তাই ১০০০ করে পাতায় পাতায় সব সারি আনা হয়,
  *  যাতে আইটেম/দর/হাজিরা বেড়ে গেলেও কোনো সারি বাদ না পড়ে */
 async function selectAllRows(table) {
@@ -1593,6 +1606,8 @@ document.getElementById('logoutBtn').addEventListener('click', async function ()
 });
 
 async function bootApp() {
+  openTabs = []; activeTabKey = null; dropPagePanes();   // নতুন লগইন — আগের ইউজারের খোলা পেজ থাকবে না
+  document.getElementById('pageContent').innerHTML = '';
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('app').classList.add('ready');
   document.getElementById('acctName').textContent = currentUser.FullName || currentUser.Email;
@@ -1662,7 +1677,7 @@ function buildSidebar() {
         a.classList.add('active');
         document.querySelectorAll('.nav-item').forEach(function(el){ el.classList.remove('active'); });
         li.classList.add('active');
-        navigateTo(a.dataset.page, a.dataset[currentLang === 'bn' ? 'mbn' : 'men'], getLangText(a));
+        navigateTo(a.dataset.page, a.dataset[currentLang === 'bn' ? 'mbn' : 'men'], getLangText(a), { keep: true });   // খোলা থাকলে আগের অবস্থায়
         if (window.innerWidth <= 1023) closeMobile();
       });
     });
@@ -1674,7 +1689,7 @@ function getLangText(el){ return el.getAttribute('data-' + currentLang) || el.te
 /* ============================================================
    ৭) রাউটার — কোন পেজ দেখাবে
    ============================================================ */
-async function navigateTo(pageKey, moduleLabel, pageLabel) {
+async function navigateTo(pageKey, moduleLabel, pageLabel, opts) {
   if (pageKey !== 'dashboard' && permLevel(pageKey) === 0) { showToast(t('এই পেজ দেখার অনুমতি আপনার নেই।','You do not have access to this page.'), 'error'); return; }
   document.body.dataset.perm = String(permLevel(pageKey));
   document.getElementById('crumbTitle').textContent = pageLabel;
@@ -1691,7 +1706,34 @@ async function navigateTo(pageKey, moduleLabel, pageLabel) {
   activeTabKey = pageKey;
   renderTabBar();
 
-  const content = document.getElementById('pageContent');
+  const host = document.getElementById('pageContent');
+  // এখন যে পেজ দেখা যাচ্ছে সেটা মুছে না ফেলে সরিয়ে রাখা (স্ক্রলের জায়গাসহ)
+  Array.prototype.slice.call(host.children).forEach(function (ch) {
+    const k = ch.dataset ? ch.dataset.page : null;
+    if (k && PAGE_PANES[k] && PAGE_PANES[k].el === ch) {
+      PAGE_PANES[k].scroll = window.scrollY || 0;
+      // ভিতরের স্ক্রল-ঘর (তালিকা/টেবিল) কোথায় ছিল — DOM থেকে সরালে ব্রাউজার শূন্য করে দেয়, তাই মনে রাখা
+      PAGE_PANES[k].inner = Array.prototype.filter.call(ch.querySelectorAll('*'), function (el) { return el.scrollTop > 0 || el.scrollLeft > 0; })
+        .map(function (el) { return [el, el.scrollTop, el.scrollLeft]; });
+    }
+    host.removeChild(ch);
+  });
+  const kept = PAGE_PANES[pageKey];
+  if (kept && opts && opts.keep) {   // ট্যাব/মেনু থেকে ফেরা — আগের অবস্থাতেই
+    host.appendChild(kept.el);
+    kept.el.querySelectorAll('[data-bn]').forEach(function (el) { const tx = el.getAttribute('data-' + currentLang); if (tx !== null) el.textContent = tx; });   // এর মধ্যে ভাষা বদলালে
+    window.scrollTo(0, kept.scroll || 0);
+    (kept.inner || []).forEach(function (x) { x[0].scrollTop = x[1]; x[0].scrollLeft = x[2]; });
+    setTimeout(function () {
+      window.dispatchEvent(new Event('resize'));   // ফ্রিজ করা পেজের উচ্চতা আবার মাপা
+      (kept.inner || []).forEach(function (x) { x[0].scrollTop = x[1]; x[0].scrollLeft = x[2]; });
+    }, 0);
+    return;
+  }
+  const content = document.createElement('div');
+  content.className = 'page-pane'; content.dataset.page = pageKey;
+  host.appendChild(content);
+  PAGE_PANES[pageKey] = { el: content, scroll: 0 };
   if (READY_PAGES.indexOf(pageKey) === -1) {
     content.innerHTML = `
       <div class="empty-state" style="padding:100px 20px;">
@@ -1802,7 +1844,8 @@ function renderTabBar() {
 function switchTab(pageKey) {
   const tb = openTabs.find(function (t2) { return t2.key === pageKey; });
   if (!tb) return;
-  navigateTo(tb.key, tb.moduleLabel, tb.pageLabel);
+  if (pageKey === activeTabKey) return;   // একই ট্যাবে আবার চাপ — কিছু বদলাবে না
+  navigateTo(tb.key, tb.moduleLabel, tb.pageLabel, { keep: true });   // আগের অবস্থাতেই ফেরা
 }
 
 /** ট্যাব বন্ধ করা — সক্রিয় ট্যাব বন্ধ হলে পাশের একটাতে (বা Dashboard-এ) চলে যাবে */
@@ -1811,6 +1854,9 @@ function closeTab(evt, pageKey) {
   const idx = openTabs.findIndex(function (tb) { return tb.key === pageKey; });
   if (idx === -1) return;
   openTabs.splice(idx, 1);
+  const gone = PAGE_PANES[pageKey];   // বন্ধ ট্যাবের পেজ মেমরি থেকেও বাদ — আবার খুললে নতুন করে
+  delete PAGE_PANES[pageKey];
+  if (gone && gone.el.parentNode && activeTabKey !== pageKey) gone.el.parentNode.removeChild(gone.el);
 
   if (activeTabKey === pageKey) {
     if (openTabs.length > 0) {
@@ -1828,11 +1874,11 @@ function closeTab(evt, pageKey) {
    ৮) পেজ: DASHBOARD (লাইভ KPI)
    ============================================================ */
 /** মেনুর যেকোনো পেজ তার key দিয়ে খোলা (মডিউল ও পেজের নাম MODULES থেকে) */
-function goPage(key) {
+function goPage(key, _label, opts) {   // opts.keep — খোলা থাকলে আগের অবস্থাতেই
   for (const m of MODULES) {
     const sub = (m.sub || []).find(function (s) { return s.key === key; });
-    if (sub) return navigateTo(key, t(m.bn, m.en), t(sub.bn, sub.en));
-    if (m.key === key) return navigateTo(key, t(m.bn, m.en), t(m.bn, m.en));
+    if (sub) return navigateTo(key, t(m.bn, m.en), t(sub.bn, sub.en), opts);
+    if (m.key === key) return navigateTo(key, t(m.bn, m.en), t(m.bn, m.en), opts);
   }
 }
 
@@ -1989,7 +2035,7 @@ async function renderDashboard(content) {
   content.querySelector('.db').addEventListener('click', function (ev) {
     const pay = ev.target.closest('[data-pay]');
     if (pay) { window.__siPick = pay.dataset.pay; goPage('salaryIssue'); return; }
-    const g = ev.target.closest('[data-go]'); if (g) goPage(g.dataset.go);
+    const g = ev.target.closest('[data-go]'); if (g) goPage(g.dataset.go, null, { keep: true });   // ড্যাশবোর্ডের শর্টকাট — খোলা পেজের কাজ মুছবে না
   });
   document.getElementById('dbRefresh').addEventListener('click', function () { listCache = {}; renderDashboard(content); });
 }
@@ -4562,7 +4608,7 @@ async function renderPartyVoucherPage(content, kind) {
   /* ---- পাতার উচ্চতা — ভিতরে স্ক্রল, তাই উপরের অংশ ফ্রিজ থাকে (মোবাইলেও) ---- */
   const root = $('_Root');
   const sizeRoot = function () {
-    if (!document.body.contains(root)) { window.removeEventListener('resize', onResize); return; }
+    if (!nodeAlive(root)) { window.removeEventListener('resize', onResize); return; } if (!document.body.contains(root)) return;   // অন্য ট্যাবে সরিয়ে রাখা — কিছু করবে না
     const tb = document.querySelector('.topbar'), bar = document.getElementById('tabBar');
     const fixedTop = (tb ? tb.offsetHeight : 0) + (bar ? bar.offsetHeight : 0);
     root.style.height = Math.max(320, window.innerHeight - Math.max(root.getBoundingClientRect().top, fixedTop) - 6) + 'px';
@@ -4740,7 +4786,7 @@ async function renderPartyVoucherPage(content, kind) {
     next.onclick = function () { go(target(1)); };
   };
   const navKeys = function (e) {
-    if (!document.body.contains(root)) { document.removeEventListener('keydown', navKeys); return; }
+    if (!nodeAlive(root)) { document.removeEventListener('keydown', navKeys); return; } if (!document.body.contains(root)) return;   // অন্য ট্যাবে সরিয়ে রাখা — কিছু করবে না
     if (!e.altKey || e.ctrlKey || e.metaKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
     if (document.getElementById('modalOverlay') && document.getElementById('modalOverlay').classList.contains('show')) return;
     const b = $(e.key === 'ArrowLeft' ? '_NavPrev' : '_NavNext');
@@ -5438,7 +5484,7 @@ async function renderHeadVoucherPage(content, kind) {
   /* ---- পাতার উচ্চতা (ভিতরে স্ক্রল — উপরের অংশ ফ্রিজ) ---- */
   const root = $('_Root');
   const sizeRoot = function () {
-    if (!document.body.contains(root)) { window.removeEventListener('resize', onResize); return; }
+    if (!nodeAlive(root)) { window.removeEventListener('resize', onResize); return; } if (!document.body.contains(root)) return;   // অন্য ট্যাবে সরিয়ে রাখা — কিছু করবে না
     const tb = document.querySelector('.topbar'), bar = document.getElementById('tabBar');
     const fixedTop = (tb ? tb.offsetHeight : 0) + (bar ? bar.offsetHeight : 0);
     root.style.height = Math.max(320, window.innerHeight - Math.max(root.getBoundingClientRect().top, fixedTop) - 6) + 'px';
@@ -5791,7 +5837,7 @@ async function renderHeadVoucherPage(content, kind) {
     next.onclick = function () { go(target(1)); };
   };
   const navKeys = function (e) {
-    if (!document.body.contains(root)) { document.removeEventListener('keydown', navKeys); return; }
+    if (!nodeAlive(root)) { document.removeEventListener('keydown', navKeys); return; } if (!document.body.contains(root)) return;   // অন্য ট্যাবে সরিয়ে রাখা — কিছু করবে না
     if (!e.altKey || e.ctrlKey || e.metaKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
     if (document.getElementById('modalOverlay') && document.getElementById('modalOverlay').classList.contains('show')) return;
     const b = $(e.key === 'ArrowLeft' ? '_NavPrev' : '_NavNext'); if (!b || b.disabled) return;
@@ -6348,7 +6394,7 @@ async function renderContraVoucherPage(content) {
 
   const root = $('_Root');
   const sizeRoot = function () {
-    if (!document.body.contains(root)) { window.removeEventListener('resize', onResize); return; }
+    if (!nodeAlive(root)) { window.removeEventListener('resize', onResize); return; } if (!document.body.contains(root)) return;   // অন্য ট্যাবে সরিয়ে রাখা — কিছু করবে না
     const tb = document.querySelector('.topbar'), bar = document.getElementById('tabBar');
     const fixedTop = (tb ? tb.offsetHeight : 0) + (bar ? bar.offsetHeight : 0);
     root.style.height = Math.max(320, window.innerHeight - Math.max(root.getBoundingClientRect().top, fixedTop) - 6) + 'px';
@@ -6444,7 +6490,7 @@ async function renderContraVoucherPage(content) {
     next.onclick = function () { go(target(1)); };
   };
   const navKeys = function (e) {
-    if (!document.body.contains(root)) { document.removeEventListener('keydown', navKeys); return; }
+    if (!nodeAlive(root)) { document.removeEventListener('keydown', navKeys); return; } if (!document.body.contains(root)) return;   // অন্য ট্যাবে সরিয়ে রাখা — কিছু করবে না
     if (!e.altKey || e.ctrlKey || e.metaKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
     if (document.getElementById('modalOverlay') && document.getElementById('modalOverlay').classList.contains('show')) return;
     const b = $(e.key === 'ArrowLeft' ? '_NavPrev' : '_NavNext'); if (!b || b.disabled) return;
@@ -11231,7 +11277,7 @@ async function renderSalaryIssuePage(content) {
   });
   // টাকা বা লাইনের নোটে Enter = লাইন যোগ (সাধারণ Enter/Escape নেভিগেশনের আগে ধরা)
   const enterAdd = function (e) {
-    if (!document.body.contains(entry)) { document.removeEventListener('keydown', enterAdd, true); return; }
+    if (!nodeAlive(entry)) { document.removeEventListener('keydown', enterAdd, true); return; } if (!document.body.contains(entry)) return;   // অন্য ট্যাবে সরিয়ে রাখা — কিছু করবে না
     if (e.key !== 'Enter') return;
     const id = document.activeElement && document.activeElement.id;
     if (id === 'sivLNote' || (id === 'sivAmt' && e.ctrlKey)) { e.preventDefault(); e.stopImmediatePropagation(); addLine(); }
@@ -15097,7 +15143,7 @@ function wireSequentialKeyNav(container) {
   }
   function handler(e) {
     if (e.key !== 'Enter' && e.key !== 'Escape') return;
-    if (!document.body.contains(container)) { document.removeEventListener('keydown', handler, true); return; }
+    if (!nodeAlive(container)) { document.removeEventListener('keydown', handler, true); return; } if (!document.body.contains(container)) return;   // অন্য ট্যাবে সরিয়ে রাখা — কিছু করবে না
     if (!container.contains(document.activeElement)) return;
     if (document.activeElement.tagName === 'TEXTAREA' && e.key === 'Enter') return; // টেক্সট-এরিয়াতে Enter মানে নতুন লাইন
     const fields = focusable();
@@ -15817,7 +15863,7 @@ function voucherItemPickerWire(P) {
     q.focus();
   };
   const h = function (e) {
-    if (!document.body.contains(sel)) { window.removeEventListener('keydown', h, true); close(); return; }
+    if (!nodeAlive(sel)) { window.removeEventListener('keydown', h, true); close(); return; } if (!document.body.contains(sel)) return;   // অন্য ট্যাবে সরিয়ে রাখা — কিছু করবে না
     if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return;
     if (document.activeElement !== sel || sel.disabled) return;
     e.preventDefault(); e.stopImmediatePropagation();   // সাধারণ "পরের ঘরে যাও" এখানে নয় — আগে তালিকা
@@ -15833,7 +15879,7 @@ function voucherAmountEnterWire(P) {
   const chk = document.getElementById(P + (P === 'sv3' ? '_ConfirmSaleCheck' : '_ConfirmPurchaseCheck'));
   if (!amt || !chk) return;
   const h = function (e) {
-    if (!document.body.contains(amt)) { window.removeEventListener('keydown', h, true); return; }
+    if (!nodeAlive(amt)) { window.removeEventListener('keydown', h, true); return; } if (!document.body.contains(amt)) return;   // অন্য ট্যাবে সরিয়ে রাখা — কিছু করবে না
     if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return;
     if (document.activeElement !== amt || amt.disabled || chk.disabled) return;
     e.preventDefault(); e.stopImmediatePropagation();   // সাধারণ "পরের ঘরে যাও" এখানে নয়
@@ -19827,32 +19873,88 @@ async function renderPartyLedger(content, partyTypeFilter) {
     return list.map(function (p) { return `<option data-key="${attr(p.key)}" value="${escapeHtml(p.name)}${p.zone ? ' — ' + escapeHtml(p.zone) : ''}"></option>`; }).join('');
   }
 
+  const plTitleBn = partyTypeFilter === 'Customer' ? 'গ্রাহক লেজার' : 'পার্টি লেজার', plTitleEn = partyTypeFilter === 'Customer' ? 'Customer Ledger' : 'Party Ledger';
+  /* ===== সাইডবার পেনেল (রিপোর্ট পেজগুলোর মত — ‹ দিয়ে গুটানো যায়)ঃ বামে জোন + খোঁজা + পার্টির তালিকা (সবসময় খোলা), ডানে লেজার।
+     পুরো পেজ স্ক্রিনের উচ্চতায় — উপরের শিরোনাম, পার্টির সারাংশ ও টেবিলের হেডার ফ্রিজ; শুধু তালিকা/সারি স্ক্রল।
+     মোবাইলেঃ প্যানেল উপরে (▴▾), পার্টি বাছলেই গুটিয়ে যায়। ===== */
   content.innerHTML = `
-    <div class="page-head"><div>
-        <h1 class="i18n" data-bn="${partyTypeFilter==='Customer'?'গ্রাহক লেজার':'পার্টি লেজার'}" data-en="${partyTypeFilter==='Customer'?'Customer Ledger':'Party Ledger'}">${t(partyTypeFilter==='Customer'?'গ্রাহক লেজার':'পার্টি লেজার', partyTypeFilter==='Customer'?'Customer Ledger':'Party Ledger')}</h1>
-        <p class="i18n" data-bn="একটা পার্টি বাছাই করে তার সব (ক্রয়+বিক্রয়) হিসাব এক জায়গায় দেখুন" data-en="Select a party to see all its (purchase+sales) entries in one place">${t('একটা পার্টি বাছাই করে তার সব (ক্রয়+বিক্রয়) হিসাব এক জায়গায় দেখুন','Select a party to see all its (purchase+sales) entries in one place')}</p>
+    <style>${RPT_SIDE_CSS}
+      .plx{display:flex;flex-direction:column;min-height:360px;}
+      .plx .sr-head{flex:0 0 auto;align-items:center;}
+      .plx .sr-head .plx-sub{font-size:11px;color:var(--text-muted);flex:1;min-width:0;}
+      .plx-body.sr-layout{flex:1 1 auto;min-height:0;align-items:stretch;}
+      #plSide.sr-side{display:flex;flex-direction:column;flex:0 0 270px;width:270px;min-height:0;}
+      #plSide.sr-side.collapsed{flex-basis:36px;width:36px;}
+      #plSide .sr-bar{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:5px;}
+      #plSide .plx-zr{display:flex;align-items:center;gap:6px;}
+      #plSide .plx-zr label{display:flex;align-items:center;gap:4px;margin:0;white-space:nowrap;font-size:11.5px;}
+      #plSide .plx-zr input{width:auto;margin:0;}
+      #plSide select,#plSide #plPartySearch{height:30px;font-size:12px;padding:3px 8px;border:1px solid #c9dce8;border-radius:7px;background:#fff;color:var(--text);box-sizing:border-box;width:100%;min-width:0;}
+      #plSide .pl-list{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;background:#fff;border:1px solid #c9dce8;border-radius:8px;}
+      .pl-list .pl-cnt{position:sticky;top:0;z-index:1;background:#1f2937;color:#ffd27a;font-size:11px;padding:4px 10px;}
+      .pl-list .pl-it{display:flex;align-items:center;gap:6px;padding:5px 9px;cursor:pointer;border-bottom:1px solid #edf1f5;font-size:12px;min-height:36px;box-sizing:border-box;}
+      .pl-list .pl-it:hover,.pl-list .pl-it.on{background:#fff6e0;} .pl-list .pl-it.cur{background:#ffe2a8;box-shadow:inset 3px 0 0 #c27a12;}
+      .pl-list .pl-it .nm{flex:1;min-width:0;line-height:1.25;} .pl-list .pl-it small{color:var(--text-muted);font-size:10.5px;}
+      .pl-list .pl-bd{font-size:9.5px;border-radius:999px;padding:1px 6px;white-space:nowrap;border:1px solid var(--border);} .pl-bd.c{background:#e8f5ec;color:#145c38;} .pl-bd.s{background:#e8f0fe;color:#16467e;} .pl-bd.b{background:#fff3d6;color:#7a5200;}
+      .pl-list .pl-none{padding:14px 12px;color:var(--text-muted);font-size:12px;}
+      .plx-main.sr-main{display:flex;flex-direction:column;min-height:0;background:var(--surface,#fff);border:1px solid var(--border);border-radius:10px;overflow:hidden;}
+      .plx-main #plWrap{flex:1 1 auto;display:flex;flex-direction:column;min-height:0;}
+      .plx-head{flex:0 0 auto;padding:6px 10px;border-bottom:1px solid var(--border);background:#f4f6f9;display:flex;flex-wrap:wrap;gap:3px 16px;align-items:baseline;font-size:11.5px;}
+      .plx-head .pn{font-size:13.5px;font-weight:700;color:var(--text);flex:1 1 100%;}
+      .plx-head .pn small{font-weight:400;color:var(--text-muted);font-size:11px;margin-left:6px;}
+      .plx-head .lb{color:var(--text-muted);}
+      .plx-tw{flex:1 1 auto;overflow:auto;min-height:0;-webkit-overflow-scrolling:touch;}
+      .plx-tw table{margin:0;border-collapse:separate;border-spacing:0;width:100%;}
+      .plx-tw thead th{position:sticky;top:0;z-index:2;background:#eef1f5;text-align:center !important;border-bottom:1px solid #d5dae1;white-space:nowrap;}
+      .plx-tw td{text-align:center;white-space:nowrap;} .plx-tw td.l{text-align:left;white-space:normal;min-width:220px;}
+      .plx-main .empty-state{margin:auto;padding:30px 16px;}
+      .pl-ic{border:1px solid var(--border);background:var(--surface);border-radius:6px;min-width:26px;height:22px;font-size:11px;cursor:pointer;margin:0 1px;padding:0 3px;} .pl-ic:disabled{opacity:.35;cursor:default;}
+      @media (max-width:760px){
+        .plx .sr-head .plx-sub{display:none;}
+        .plx-body.sr-layout{flex-direction:column;}
+        #plSide.sr-side{flex:0 0 auto;width:100%;height:52vh;max-height:52vh;}
+        #plSide.sr-side.collapsed{flex-basis:auto;width:100%;height:auto;max-height:none;}
+        #plSide .sr-bar{display:flex;}
+        #plSide.collapsed .sr-bar{display:none !important;}   /* গুটানো — শুধু "👥 পার্টি ▾" সারি */
+        .plx-main.sr-main{flex:1 1 auto;}
+        .plx-tw td.l small{display:block;}
+      }
+    </style>
+    <div class="plx" id="plRoot">
+      <div class="sr-head"><h1 class="i18n" data-bn="${plTitleBn}" data-en="${plTitleEn}">${t(plTitleBn, plTitleEn)}</h1>
+        <span class="plx-sub">${t('বামের তালিকা থেকে পার্টি বাছাই করুন — তার সব (ক্রয়+বিক্রয়) হিসাব ডানে', 'Pick a party on the left — all its (purchase+sales) entries show on the right')}</span>
+        <button type="button" id="plPrintBtn" class="btn btn-outline" style="width:auto;display:none;height:30px;padding:3px 12px;font-size:12px;">🖨️ ${t('প্রিন্ট প্রিভিউ','Print Preview')}</button></div>
+      <div class="plx-body sr-layout">
+        <aside class="sr-side" id="plSide">
+          <button type="button" class="sr-tog" id="plTog" title="${attr(t('পার্টির তালিকা লুকান/দেখান', 'Hide/show party list'))}">‹</button>
+          <div class="sr-side-h" data-lbl="${attr(t('পার্টি', 'Party'))}"><span>👥 ${t('পার্টি', 'Party')}</span></div>
+          <div class="sr-bar">
+            <div class="plx-zr"><label><input type="checkbox" id="plZoneCheck"> ${t('জোন','Zone')}</label>
+              <select id="plZoneFilter"><option value="">${t('সব জোন','All Zones')}</option>${zoneList.map(function (z) { return `<option value="${attr(z)}">${escapeHtml(z)}</option>`; }).join('')}</select></div>
+            <div class="pl-pick"><input id="plPartySearch" autocomplete="off" placeholder="${t('খুঁজুন — নাম/ফোন/কোড','Search — name/phone/code')}"></div>
+            <div id="plPartyList" class="pl-list"></div>
+          </div>
+          <datalist id="plPartyDatalist">${partyOptionsHtml(parties)}</datalist>
+        </aside>
+        <section class="plx-main sr-main"><div id="plWrap"><div class="empty-state">${t('বামের তালিকা থেকে একটা পার্টি বাছাই করুন।','Select a party from the list on the left.')}</div></div></section>
       </div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
-        <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;margin:0;"><input type="checkbox" id="plZoneCheck" style="width:auto;"> ${t('জোন','Zone')}</label>
-        <select id="plZoneFilter" style="width:auto;min-width:140px;">
-          <option value="">${t('সব জোন','All Zones')}</option>
-          ${zoneList.map(function (z) { return `<option value="${attr(z)}">${escapeHtml(z)}</option>`; }).join('')}
-        </select>
-        <div class="pl-pick"><input id="plPartySearch" autocomplete="off" placeholder="${t('পার্টি খুঁজুন — চাপলেই সব পার্টি','Search party — tap to see all')}" style="width:100%;padding:9px 30px 9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:13.5px;box-sizing:border-box;"><span class="pl-caret">▾</span>
-          <div id="plPartyList" class="pl-list" style="display:none;"></div></div>
-        <datalist id="plPartyDatalist">${partyOptionsHtml(parties)}</datalist>
-        <button type="button" id="plPrintBtn" class="btn btn-outline" style="width:auto;display:none;">🖨️ ${t('প্রিন্ট প্রিভিউ','Print Preview')}</button>
-      </div>
-    </div>
-    <style>.pl-pick{position:relative;min-width:260px;flex:1 1 260px;max-width:420px;} .pl-caret{position:absolute;right:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);pointer-events:none;}
-      .pl-list{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:50;background:var(--surface,#fff);border:1px solid var(--border);border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.14);max-height:min(60vh,420px);overflow-y:auto;-webkit-overflow-scrolling:touch;}
-      .pl-list .pl-cnt{position:sticky;top:0;background:var(--bg,#f4f5f7);font-size:11.5px;color:var(--text-muted);padding:6px 12px;border-bottom:1px solid var(--border);}
-      .pl-list .pl-it{display:flex;align-items:center;gap:8px;padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13.5px;min-height:40px;box-sizing:border-box;}
-      .pl-list .pl-it:hover,.pl-list .pl-it.on{background:#fff6e0;} .pl-list .pl-it .nm{flex:1;min-width:0;} .pl-list .pl-it small{color:var(--text-muted);}
-      .pl-list .pl-bd{font-size:10.5px;border-radius:999px;padding:1px 8px;white-space:nowrap;border:1px solid var(--border);} .pl-bd.c{background:#e8f5ec;color:#145c38;} .pl-bd.s{background:#e8f0fe;color:#16467e;} .pl-bd.b{background:#fff3d6;color:#7a5200;}
-      .pl-list .pl-none{padding:14px 12px;color:var(--text-muted);font-size:13px;}
-      .pl-ic{border:1px solid var(--border);background:var(--surface);border-radius:7px;min-width:32px;height:30px;font-size:13px;cursor:pointer;margin:0 1px;} .pl-ic:disabled{opacity:.35;cursor:default;} #plWrap .data-table th{text-align:center;}</style>
-    <div class="panel"><div id="plWrap"><div class="empty-state">${t('উপরে একটা পার্টি বাছাই করুন।','Select a party above.')}</div></div></div>`;
+    </div>`;
+
+  // পাতার উচ্চতা = স্ক্রিনের বাকি অংশ — তাই শিরোনাম ও টেবিল হেডার স্থির থাকে, ভিতরে স্ক্রল
+  const plRoot = document.getElementById('plRoot');
+  const plSize = function () {
+    if (!nodeAlive(plRoot)) { window.removeEventListener('resize', plSize); return; }
+    if (!document.body.contains(plRoot)) return;   // অন্য ট্যাবে সরিয়ে রাখা — ফিরে এলে আবার মাপা হবে
+    const tb = document.querySelector('.topbar'), bar = document.getElementById('tabBar');
+    const fixedTop = (tb ? tb.offsetHeight : 0) + (bar ? bar.offsetHeight : 0);
+    const host = plRoot.closest('.content'), padB = host ? parseFloat(getComputedStyle(host).paddingBottom) || 0 : 0;   // নিচের ফাঁকা অংশ বাদ — পুরো পেজ নড়বে না
+    plRoot.style.height = Math.max(380, window.innerHeight - Math.max(plRoot.getBoundingClientRect().top, fixedTop) - padB - 6) + 'px';
+  };
+  window.addEventListener('resize', plSize);
+  window.scrollTo(0, 0); setTimeout(plSize, 0);
+  const isMobileW = function () { return !!(window.matchMedia && window.matchMedia('(max-width: 760px)').matches); };
+  const plSide = wireReportSide(document.getElementById('plSide'), document.getElementById('plTog'), 'plSideCollapsed', function () {});
+  const sideOpen = function (open) { const sd = document.getElementById('plSide'); if (!sd) return; if (open) { if (sd.classList.contains('collapsed')) document.getElementById('plTog').click(); } else plSide.collapse(); };
 
   const zoneCheck = document.getElementById('plZoneCheck');
   const zoneSelect = document.getElementById('plZoneFilter');
@@ -19869,6 +19971,7 @@ async function renderPartyLedger(content, partyTypeFilter) {
       zoneSelect.value = '';
       datalist.innerHTML = partyOptionsHtml(parties);
       searchInput.value = '';
+      renderPick();
     }
   });
 
@@ -19883,7 +19986,7 @@ async function renderPartyLedger(content, partyTypeFilter) {
     setTimeout(function () {
       const touch = window.matchMedia && window.matchMedia('(pointer:coarse)').matches;
       if (!touch) searchInput.focus({ preventScroll: true });   // মোবাইলে কীবোর্ড নিজে উঠবে না
-      showPick();
+      renderPick();
       if (zone && pickItems.length === 1) choose(0);
     }, 30);
   });
@@ -19895,7 +19998,7 @@ async function renderPartyLedger(content, partyTypeFilter) {
   function renderPick() {
     const zone = zoneSelect.value;
     const qy = normName(searchInput.value);
-    const isSel = currentPartyKey && combined[currentPartyKey] && searchInput.value === partyLabel(combined[currentPartyKey]);
+    const isSel = false;   // খোঁজার ঘরে শুধু খোঁজার লেখা — বাছাই করা পার্টি তালিকায় রঙে চিহ্নিত
     pickItems = parties.filter(function (p) {
       if (zone && p.zone !== zone) return false;
       if (!qy || isSel) return true;
@@ -19905,30 +20008,29 @@ async function renderPartyLedger(content, partyTypeFilter) {
     const badge = function (p) { if ((p.personIds || []).length) return `<span class="pl-bd" style="background:#fdf4e7;color:#8a5a12;">${t('ব্যক্তি (ধার-দেনা)', 'Person (loan)')}</span>`; const c = (p.customerIds || []).length, sp = (p.supplierIds || []).length; return c && sp ? `<span class="pl-bd b">${t('গ্রাহক + সাপ্লায়ার', 'Both')}</span>` : c ? `<span class="pl-bd c">${t('গ্রাহক', 'Customer')}</span>` : `<span class="pl-bd s">${t('সাপ্লায়ার', 'Supplier')}</span>`; };
     pickBox.innerHTML = `<div class="pl-cnt">${t('মোট ', 'Total ')}${pickItems.length}${t('টা পার্টি', ' parties')}${zone ? ' · ' + escapeHtml(zone) : ''}</div>` +
       (pickItems.length ? pickItems.map(function (p, i) {
-        return `<div class="pl-it ${i === pickOn ? 'on' : ''}" data-i="${i}"><span class="nm">${escapeHtml(p.name)}${p.inactive ? ` <small>(${t('নিষ্ক্রিয়', 'inactive')})</small>` : ''}<br><small>${escapeHtml([p.zone, p.phone].filter(Boolean).join(' · '))}</small></span>${badge(p)}</div>`;
+        return `<div class="pl-it ${i === pickOn ? 'on' : ''}${p.key === currentPartyKey ? ' cur' : ''}" data-i="${i}"><span class="nm">${escapeHtml(p.name)}${p.inactive ? ` <small>(${t('নিষ্ক্রিয়', 'inactive')})</small>` : ''}<br><small>${escapeHtml([p.zone, p.phone].filter(Boolean).join(' · '))}</small></span>${badge(p)}</div>`;
       }).join('') : `<div class="pl-none">${t('এই নামে কোনো পার্টি নেই।', 'No party matches.')}</div>`);
   }
-  function showPick() { renderPick(); pickBox.style.display = ''; }
-  function hidePick() { pickBox.style.display = 'none'; }
+  // তালিকা সবসময় খোলা (বামের পেনেল); মোবাইলে খোঁজা/চাপ দিলে পেনেল নামে, পার্টি বাছলে উঠে যায়
+  function showPick() { renderPick(); if (isMobileW()) sideOpen(true); }
+  function hidePick() { if (isMobileW()) sideOpen(false); }
   function choose(i) {
     const p = pickItems[i]; if (!p) return;
-    searchInput.value = partyLabel(p); hidePick(); loadLedgerForKey(p.key);
+    searchInput.value = ''; currentPartyKey = p.key; renderPick(); hidePick(); loadLedgerForKey(p.key);
   }
-  searchInput.addEventListener('focus', function () { if (searchInput.value && currentPartyKey) searchInput.select(); showPick(); });
+  searchInput.addEventListener('focus', function () { if (searchInput.value) searchInput.select(); });
   searchInput.addEventListener('click', showPick);
   searchInput.addEventListener('input', showPick);
   searchInput.addEventListener('keydown', function (e) {
-    if (pickBox.style.display === 'none' && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { showPick(); e.preventDefault(); return; }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault(); if (!pickItems.length) return;
       pickOn = (pickOn + (e.key === 'ArrowDown' ? 1 : -1) + pickItems.length) % pickItems.length;
       pickBox.querySelectorAll('.pl-it').forEach(function (el, i) { el.classList.toggle('on', i === pickOn); if (i === pickOn) el.scrollIntoView({ block: 'nearest' }); });
-    } else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); if (pickBox.style.display !== 'none' && pickOn >= 0) choose(pickOn); }
+    } else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); if (pickOn >= 0) choose(pickOn); }
     else if (e.key === 'Escape') { hidePick(); }
   });
-  pickBox.addEventListener('mousedown', function (e) { e.preventDefault(); });   // বাছাইয়ের আগে ঘর থেকে ফোকাস না সরে
   pickBox.addEventListener('click', function (e) { const it = e.target.closest('.pl-it'); if (it) choose(Number(it.getAttribute('data-i'))); });
-  document.addEventListener('click', function (e) { if (!e.target.closest || !e.target.closest('.pl-pick')) hidePick(); });
+  renderPick();   // শুরুতেই পুরো তালিকা
 
   function findPartyByTypedValue(typedValue) {
     const opt = Array.from(datalist.options).find(function (o) { return o.value === typedValue; });
@@ -20010,7 +20112,7 @@ async function renderPartyLedger(content, partyTypeFilter) {
     if (!wrap) return;
     currentPartyKey = key;
     printBtn.style.display = key ? '' : 'none';
-    if (!key) { wrap.innerHTML = `<div class="empty-state">${t('উপরে একটা পার্টি বাছাই করুন।','Select a party above.')}</div>`; return; }
+    if (!key) { wrap.innerHTML = `<div class="empty-state">${t('বামের তালিকা থেকে একটা পার্টি বাছাই করুন।','Select a party from the list on the left.')}</div>`; return; }
     const party = combined[key];
     lastParty = party; lastPartyName = party.name;
     wrap.innerHTML = `<div class="empty-state">${t('লোড হচ্ছে...','Loading...')}</div>`;
@@ -20103,16 +20205,17 @@ async function renderPartyLedger(content, partyTypeFilter) {
         ? `<button type="button" class="pl-ic" data-pl="opening" data-id="${attr(r.RefID)}" title="${attr(t('ওপেনিং ব্যালেন্স বদলাতে পার্টি ফর্ম খুলুন', 'Open party form to change the opening balance'))}">✏️</button>`
         : ic('view', '👁️', t('দেখুন', 'View'), !known) + ic('edit', '✏️', t('এডিট (এডমিন — আগে আনপোস্ট হবে)', 'Edit (admin — unposts first)'), !known) +
         ic('del', '🗑️', t('ডিলিট — এরর হলেও জোর করে মোছা যায় (এডমিন)', 'Delete — can force-delete broken vouchers (admin)'), false) + ic('post', '✅', t('পোস্ট হয়ে গেছে', 'Posted'), true);
-      return `<tr class="${vkClass(baseType)}"><td>${escapeHtml(formatShortDate(r.Date))}</td><td>${escapeHtml(typeLabel)}</td><td style="text-align:left;">${escapeHtml(t(info.desc[0], info.desc[1]))} — <b>${escapeHtml(r.RefID)}</b>${r.__note ? ` <small style="color:var(--text-muted);">(${escapeHtml(r.__note)})</small>` : ''}</td>
+      return `<tr class="${vkClass(baseType)}"><td>${escapeHtml(formatShortDate(r.Date))}</td><td>${escapeHtml(typeLabel)}</td><td class="l">${escapeHtml(t(info.desc[0], info.desc[1]))} — <b>${escapeHtml(r.RefID)}</b>${r.__note ? ` <small style="color:var(--text-muted);">(${escapeHtml(r.__note)})</small>` : ''}</td>
         <td>${debit.toFixed(2)}</td><td>${credit.toFixed(2)}</td><td><b>${formatAmountDrCr(runningBalance, true)}</b></td><td style="white-space:nowrap;">${icons}</td></tr>`;
     }).join('');
     wrap.innerHTML = `
-      <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:14px;padding:12px 14px;background:var(--bg);border-radius:8px;font-size:13px;">
-        <div><span style="color:var(--text-muted);">${t('মোট Debit','Total Debit')}:</span> <b>${totalDebit.toFixed(2)}</b></div>
-        <div><span style="color:var(--text-muted);">${t('মোট Credit','Total Credit')}:</span> <b>${totalCredit.toFixed(2)}</b></div>
-        <div><span style="color:var(--text-muted);">${t('সর্বশেষ ব্যালেন্স','Closing Balance')}:</span> <b>${formatAmountDrCr(runningBalance, true)}</b></div>
+      <div class="plx-head">
+        <div class="pn">${escapeHtml(party.name)}<small>${escapeHtml([party.zone, party.phone, party.code].filter(Boolean).join(' · '))}</small></div>
+        <div><span class="lb">${t('মোট Debit','Total Debit')}:</span> <b>${totalDebit.toFixed(2)}</b></div>
+        <div><span class="lb">${t('মোট Credit','Total Credit')}:</span> <b>${totalCredit.toFixed(2)}</b></div>
+        <div><span class="lb">${t('সর্বশেষ ব্যালেন্স','Closing Balance')}:</span> <b>${formatAmountDrCr(runningBalance, true)}</b></div>
       </div>
-      <table class="data-table"><thead><tr>${headCells}</tr></thead><tbody>${bodyRows}</tbody></table>`;
+      <div class="plx-tw"><table class="data-table"><thead><tr>${headCells}</tr></thead><tbody>${bodyRows}</tbody></table></div>`;
   }
 
   document.getElementById('plWrap').addEventListener('click', async function (ev) {
@@ -20138,7 +20241,7 @@ async function renderPartyLedger(content, partyTypeFilter) {
   // পার্টি ব্যালান্স রিপোর্ট থেকে পার্টিতে দুই চাপ → এখানে সেই পার্টির লেজার সরাসরি
   if (window.__plPreselectKey) {
     const pre = window.__plPreselectKey; window.__plPreselectKey = null;
-    if (combined[pre]) { searchInput.value = partyLabel(combined[pre]); hidePick(); loadLedgerForKey(pre); }
+    if (combined[pre]) { currentPartyKey = pre; renderPick(); hidePick(); loadLedgerForKey(pre); }
   }
 
   printBtn.addEventListener('click', function () {
@@ -22325,7 +22428,8 @@ async function renderProfitLossReport(content) {
   // ফোন ঘোরালে (মোবাইল ↔ বড় পর্দা) মজুদ টেবিলের হেডার নতুন করে — কেজি/পিস কলাম দেখানো/লুকানোর সাথে মিল রাখতে
   let lastMob = isMob();
   const onPlResize = function () {
-    if (!content.isConnected || !document.getElementById('plStock')) { window.removeEventListener('resize', onPlResize); return; }
+    if (!nodeAlive(content)) { window.removeEventListener('resize', onPlResize); return; }
+    if (!content.isConnected || !document.getElementById('plStock')) return;   // অন্য ট্যাবে সরিয়ে রাখা
     if (R && isMob() !== lastMob) { lastMob = isMob(); render(); }
   };
   window.addEventListener('resize', onPlResize);
