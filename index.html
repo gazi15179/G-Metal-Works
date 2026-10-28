@@ -7772,6 +7772,23 @@ const LOAN_TYPES = {
   Take:    { bn: 'ধার নিলাম', en: 'Borrowed', party: [0, 1], bank: [1, 0], hint: 'আমার দেনা বাড়বে' },
   Repay:   { bn: 'ধার শোধ করলাম', en: 'Repaid', party: [1, 0], bank: [0, 1], hint: 'আমার দেনা কমবে' }
 };
+const LOAN_TYPES_BUILTIN = Object.keys(LOAN_TYPES);
+const LVT_NO_TABLE = 'নতুন ধরনের টেবিল নেই — আগে Supabase-এ 46 নম্বর SQL চালান।';
+/** ＋ দিয়ে বানানো লেনদেনের ধরন (যেমন প্রারম্ভিক পাওনা/দেনা) — LOAN_TYPES-এ যোগ হয়, সব জায়গায় একই নিয়মে চলে
+ *  Side 'Dr' = আমার পাওনা বাড়ে / দেনা কমে (পার্টি লেজারে ডেবিট), 'Cr' = দেনা বাড়ে / পাওনা কমে (ক্রেডিট)
+ *  HasCash = ক্যাশ/ব্যাংক বইয়েও যাবে কিনা */
+async function loanTypesLoad() {
+  try {
+    const { data, error } = await supabaseClient.from('LoanVoucherType').select('*'); if (error) throw error;
+    Object.keys(LOAN_TYPES).forEach(function (k) { if (LOAN_TYPES_BUILTIN.indexOf(k) < 0) delete LOAN_TYPES[k]; });
+    (data || []).filter(function (r) { return r.Status !== 'Deleted'; }).sort(function (a, b) { return String(a.Name).localeCompare(String(b.Name), 'bn'); }).forEach(function (r) {
+      const dr = r.Side === 'Dr', cash = !!r.HasCash;
+      LOAN_TYPES[r.TypeID] = { bn: r.Name, en: r.Name, party: dr ? [1, 0] : [0, 1], bank: cash ? (dr ? [0, 1] : [1, 0]) : [0, 0], custom: true, noCash: !cash, side: dr ? 'Dr' : 'Cr',
+        hint: (dr ? 'আমার পাওনা বাড়বে / দেনা কমবে' : 'আমার দেনা বাড়বে / পাওনা কমবে') + (cash ? ' · ক্যাশ/ব্যাংকে যাবে' : ' · শুধু খাতায় — ক্যাশ/ব্যাংকে যাবে না') };
+    });
+    return true;
+  } catch (e) { return false; }
+}
 function loanBalText(b) { b = Number(b) || 0; return Math.abs(b) < 0.005 ? t('হিসাব সমান (০)', 'settled (0)') : b > 0 ? t('আমি পাব ৳', 'I will get ৳') + b.toFixed(2) : t('আমি দেব ৳', 'I owe ৳') + Math.abs(b).toFixed(2); }
 async function loanPersons() { try { const { data, error } = await supabaseClient.from('LoanPerson').select('*'); if (error) throw error; return (data || []).filter(function (p) { return p.Status !== 'Deleted'; }).sort(function (a, b) { return String(a.Name).localeCompare(String(b.Name), 'bn'); }); } catch (e) { return null; } }
 /** ব্যক্তির জোড়া গ্রাহক/সাপ্লায়ার — চাইলে তার কাছে মাল বেচা/কেনা যায় (সাধারণ বিক্রয়/ক্রয় ভাউচারে); কোড = ব্যক্তির নম্বর */
@@ -7808,6 +7825,7 @@ async function loanTradeBalances(persons) {
 }
 const LOAN_KHATA_LABEL = { SalesInvoice: 'বিক্রয় (মাল দিলাম)', 'SalesInvoice-Receipt': 'বিক্রয়ে টাকা পেলাম', SalesReturn: 'বিক্রয় ফেরত (মাল ফেরত পেলাম)', PurchaseInvoice: 'ক্রয় (মাল নিলাম)', 'PurchaseInvoice-Payment': 'ক্রয়ে টাকা দিলাম', PurchaseReturn: 'ক্রয় ফেরত (মাল ফেরত দিলাম)', PaymentVoucher: 'পেমেন্ট (টাকা দিলাম)', ReceiptVoucher: 'কালেকশন (টাকা পেলাম)', IncomeVoucher: 'অন্যান্য আয়', 'IncomeVoucher-Receipt': 'টাকা পেলাম', ExpenseVoucher: 'খরচ (বাকি)' };
 async function postLoanVoucher(id) {
+  await loanTypesLoad();
   const { data: h, error } = await supabaseClient.from('LoanVoucher').select('*').eq('LoanID', id).maybeSingle();
   if (error) throw new Error(error.message); if (!h) throw new Error(t('ভাউচার পাওয়া যায়নি।', 'Voucher not found.'));
   if (h.Status === 'Posted') throw new Error(t('আগেই পোস্ট করা।', 'Already posted.'));
@@ -7831,6 +7849,7 @@ async function loanVoucherDelete(id) {
   showToast(t('মুছে ফেলা হয়েছে ✅', 'Deleted ✅'), 'success'); return true;
 }
 async function loanVoucherPrint(id) {
+  await loanTypesLoad();
   const { data: h } = await supabaseClient.from('LoanVoucher').select('*').eq('LoanID', id).maybeSingle(); if (!h) return;
   const [ps, accs] = await Promise.all([loanPersons(), cachedList('BankCashAccounts')]);
   const p = (ps || []).find(function (x) { return x.PersonID === h.PersonID; }) || {};
@@ -7839,6 +7858,7 @@ async function loanVoucherPrint(id) {
   await ownPrint({ idf: 'LoanID' }, h, 'দেনাদার পাওনাদার ভাউচার — ' + ty.bn, [['ভাউচার নং', escapeHtml(id)], ['তারিখ', escapeHtml(formatShortDate(h.Date))], ['ব্যক্তি', '<b>' + escapeHtml(p.Name || h.PersonID) + '</b>' + (p.Mobile ? ' (' + escapeHtml(p.Mobile) + ')' : '')], ['লেনদেন', '<b>' + escapeHtml(ty.bn) + '</b>'], ['টাকা', '<b>৳' + (Number(h.Amount) || 0).toFixed(2) + '</b>'], ['ক্যাশ/ব্যাংক', escapeHtml(acc)], ['নোট', escapeHtml(h.Note || '')], ['অবস্থা', h.Status === 'Posted' ? 'পোস্ট করা' : 'খসড়া']]);
 }
 async function loanPersonKhataPrint(personId) {
+  await loanTypesLoad();
   const ps = await loanPersons(); const p = (ps || []).find(function (x) { return x.PersonID === personId; }) || {};
   const { data: vs } = await supabaseClient.from('LoanVoucher').select('*').eq('PersonID', personId);
   const vmap = {}; (vs || []).forEach(function (v) { vmap[v.LoanID] = v; });
@@ -7871,12 +7891,14 @@ async function loanPersonKhataPrint(personId) {
 
 async function renderLoanPage(content) {
   let persons = await loanPersons();
+  await loanTypesLoad();
   const [accounts, fy] = await Promise.all([cachedList('BankCashAccounts'), getFiscalYearStart()]);
   const accs = accounts.filter(function (a) { return a.Status !== 'Deleted'; });
   if (persons === null) { content.innerHTML = `<div class="page-head"><div><h1>${t('দেনাদার পাওনাদার', 'Debtors & Creditors')}</h1></div></div><div class="panel"><div class="empty-state">${t('টেবিল নেই — আগে Supabase-এ 37 নম্বর SQL চালান।', 'Run SQL 37 first.')}</div></div>`; return; }
   let editId = null, vouchers = [], selPerson = '', trade = {};
-  const typeOpts = Object.keys(LOAN_TYPES).map(function (k) { return `<option value="${k}">${escapeHtml(LOAN_TYPES[k].bn)}</option>`; }).join('');
+  const typeOpts = Object.keys(LOAN_TYPES).map(function (k) { return `<option value="${attr(k)}">${escapeHtml(LOAN_TYPES[k].bn)}${LOAN_TYPES[k].custom ? ' ★' : ''}</option>`; }).join('');
   content.innerHTML = `<style>${VOUCHER_GRID_CSS}${OWN_CSS}
+      .gl-typerow{display:flex;gap:5px;} .gl-typerow select{flex:1;min-width:0;} .gl-plus{flex:0 0 38px;height:36px;border:1px solid #c27a12;background:#fff6e0;color:#8a4b00;border-radius:7px;font-size:18px;font-weight:700;cursor:pointer;line-height:1;}
       .ln-pos{color:#15803d;font-weight:700;} .lp-tr{min-width:46px !important;} .lp-tr.on{background:#e8f5ec;border-color:#5fb36b;} .ln-neg{color:#b42318;font-weight:700;} .ln-hint{font-size:11.5px;color:var(--text-muted);margin-top:2px;}
       .own-tbl tbody tr{cursor:pointer;} #ln_Bals tr.row-sel td{box-shadow:inset 0 0 0 9999px rgba(242,163,60,.18);}
       .ac-tbl{width:100%;border-collapse:collapse;} .ac-tbl th,.ac-tbl td{border-bottom:1px solid var(--border);padding:4px 6px;} .ac-tbl input{width:100%;min-width:60px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box;} .ac-tbl input:disabled{background:transparent;border-color:transparent;color:var(--text);}
@@ -7890,7 +7912,7 @@ async function renderLoanPage(content) {
       <div class="vg2" id="ln_Form">
         <div class="field"><label>${t('তারিখ', 'Date')}</label><input type="date" id="ln_Date" value="${ownToday()}"></div>
         <div class="field"><label>${t('ব্যক্তি', 'Person')}</label><select id="ln_Person"></select></div>
-        <div class="field"><label>${t('লেনদেন', 'Type')}</label><select id="ln_Type">${typeOpts}</select><div class="ln-hint" id="ln_TypeHint"></div></div>
+        <div class="field"><label>${t('লেনদেন', 'Type')}</label><div class="gl-typerow"><select id="ln_Type">${typeOpts}</select><button type="button" class="gl-plus" id="ln_AddType" tabindex="-1" title="${attr(t('নতুন ধরন যোগ করুন (যেমনঃ প্রারম্ভিক পাওনা)', 'Add a new type'))}">＋</button></div><div class="ln-hint" id="ln_TypeHint"></div></div>
         <div class="field"><label>${t('টাকা', 'Amount')}</label><input id="ln_Amount" type="number" step="any" min="0" inputmode="decimal"></div>
         <div class="field"><label>${t('ক্যাশ/ব্যাংক', 'Cash/Bank')}</label><select id="ln_Acc"><option value="">${t('— (ক্যাশ বইয়ে যাবে না)', '— (not in cash book)')}</option>${accs.map(function (a) { return `<option value="${attr(a.BankAccID)}">${escapeHtml(a.AccountName)}</option>`; }).join('')}</select></div>
         <div class="field"><label>${t('এই ব্যক্তির ব্যালান্স', 'Balance with this person')}</label><input id="ln_Bal" readonly class="vro vbold"></div>
@@ -7917,7 +7939,48 @@ async function renderLoanPage(content) {
   }
   const balances = function () { const b = {}; vouchers.forEach(function (v) { if (v.Status !== 'Posted') return; const ty = LOAN_TYPES[v.Type]; if (!ty) return; b[v.PersonID] = (b[v.PersonID] || 0) + (ty.party[0] - ty.party[1]) * (Number(v.Amount) || 0); }); return b; };
   function showBal() { const pid = $('ln_Person').value, b = pid ? (balances()[pid] || 0) + (trade[pid] || 0) : 0; const el = $('ln_Bal'); el.value = $('ln_Person').value ? loanBalText(b || 0) : ''; el.className = 'vro vbold ' + ((b || 0) > 0.005 ? 'ln-pos' : (b || 0) < -0.005 ? 'ln-neg' : ''); }
-  function showHint() { $('ln_TypeHint').textContent = (LOAN_TYPES[$('ln_Type').value] || {}).hint || ''; }
+  function showHint() {
+    const ty = LOAN_TYPES[$('ln_Type').value] || {};
+    $('ln_TypeHint').textContent = ty.hint || '';
+    const af = $('ln_Acc').closest('.field');   // ক্যাশ/ব্যাংক ছাড়া ধরন (যেমন প্রারম্ভিক) — অ্যাকাউন্টের ঘর লুকানো
+    if (af) af.style.display = ty.noCash ? 'none' : '';
+    if (ty.noCash) $('ln_Acc').value = ''; else if (!$('ln_Acc').value && !editId) resetAcc();
+  }
+  function fillTypeSel(keep) {
+    const v = keep || $('ln_Type').value;
+    $('ln_Type').innerHTML = Object.keys(LOAN_TYPES).map(function (k) { return `<option value="${attr(k)}">${escapeHtml(LOAN_TYPES[k].bn)}${LOAN_TYPES[k].custom ? ' ★' : ''}</option>`; }).join('');
+    $('ln_Type').value = LOAN_TYPES[v] ? v : 'Give'; showHint();
+  }
+  function openTypeModal() {
+    const used = {}; vouchers.forEach(function (v) { used[v.Type] = (used[v.Type] || 0) + 1; });
+    const listHtml = function () {
+      const cs = Object.keys(LOAN_TYPES).filter(function (k) { return LOAN_TYPES[k].custom; });
+      return cs.length ? `<table class="own-tbl gl-tbl"><thead><tr><th>${t('নাম', 'Name')}</th><th>${t('খাতায়', 'Ledger')}</th><th>${t('ক্যাশ/ব্যাংক', 'Cash')}</th><th></th></tr></thead><tbody>${cs.map(function (k) { const x = LOAN_TYPES[k];
+        return `<tr><td><b>${escapeHtml(x.bn)}</b></td><td>${x.side === 'Dr' ? t('পাওনা বাড়ে', 'Receivable up') : t('দেনা বাড়ে', 'Payable up')}</td><td>${x.noCash ? '—' : '✔'}</td><td><button type="button" class="own-ic" data-lvtdel="${attr(k)}" ${used[k] ? 'disabled' : ''} title="${attr(used[k] ? t('ব্যবহৃত — মোছা যাবে না', 'In use') : t('ডিলিট', 'Delete'))}">🗑️</button></td></tr>`; }).join('')}</tbody></table>` : `<div class="ln-hint">${t('এখনো নিজের কোনো ধরন নেই।', 'No custom types yet.')}</div>`;
+    };
+    openModal({ title: t('＋ নতুন লেনদেনের ধরন', '+ New entry type'), bodyHtml: `<style>${OWN_CSS}${VOUCHER_GRID_CSS}${GL_CSS}</style>
+      <div class="vg2" id="lvt_Form">
+        <div class="field vfull"><label class="vmain">${t('ধরনের নাম', 'Type name')}</label><input id="lvt_Name" autocomplete="off" placeholder="${attr(t('যেমনঃ প্রারম্ভিক পাওনা, প্রারম্ভিক দেনা, মওকুফ', 'e.g. Opening receivable'))}"></div>
+        <div class="field vfull"><label>${t('খাতায় কী হবে', 'Effect')}</label><select id="lvt_Side"><option value="Dr">${t('আমার পাওনা বাড়বে / দেনা কমবে (ডেবিট)', 'Receivable up / payable down (Dr)')}</option><option value="Cr">${t('আমার দেনা বাড়বে / পাওনা কমবে (ক্রেডিট)', 'Payable up / receivable down (Cr)')}</option></select></div>
+        <div class="field vfull"><label>${t('ক্যাশ/ব্যাংকে টাকা আসা-যাওয়া হবে?', 'Cash/bank movement?')}</label><select id="lvt_Cash"><option value="0">${t('না — শুধু খাতায় (যেমন প্রারম্ভিক জের)', 'No — ledger only')}</option><option value="1">${t('হ্যাঁ — ক্যাশ/ব্যাংক বইয়েও যাবে', 'Yes — cash/bank book too')}</option></select></div>
+      </div>
+      <div class="ln-hint" style="margin:-4px 0 8px;">${t('উদাহরণঃ "প্রারম্ভিক পাওনা" = পাওনা বাড়বে + শুধু খাতায় · "প্রারম্ভিক দেনা" = দেনা বাড়বে + শুধু খাতায়', 'e.g. Opening receivable = Dr, ledger only')}</div>
+      <h4 style="margin:6px 0;font-size:13px;">${t('নিজের বানানো ধরন', 'Custom types')}</h4><div id="lvt_List">${listHtml()}</div>`, onSave: async function () {
+        const nm = document.getElementById('lvt_Name').value.trim(); if (!nm) throw new Error(t('ধরনের নাম দিন।', 'Enter a name.'));
+        if (Object.keys(LOAN_TYPES).some(function (k) { return bnKey(LOAN_TYPES[k].bn) === bnKey(nm); })) throw new Error(t('এই নামে ধরন আগেই আছে।', 'This type already exists.'));
+        const { data, error } = await supabaseClient.from('LoanVoucherType').insert({ Name: nm, Side: document.getElementById('lvt_Side').value, HasCash: document.getElementById('lvt_Cash').value === '1', Status: 'Active', CreatedBy: (currentUser && currentUser.Email) || '' }).select().single();
+        if (error) throw new Error(/does not exist|schema cache|relation/i.test(error.message) ? LVT_NO_TABLE : error.message);
+        await loanTypesLoad(); fillTypeSel(data.TypeID);
+        showToast(t('নতুন ধরন যোগ হয়েছে ✅ ', 'Type added ✅ ') + nm, 'success');
+      } });
+    wireSequentialKeyNav(document.getElementById('lvt_Form')); document.getElementById('lvt_Name').focus();
+    document.getElementById('lvt_List').addEventListener('click', async function (e) {
+      const b = e.target.closest('[data-lvtdel]'); if (!b || b.disabled) return;
+      const k = b.getAttribute('data-lvtdel'); if (!confirm(t('ধরনটি মুছবেনঃ ', 'Delete type: ') + (LOAN_TYPES[k] || {}).bn + '?')) return;
+      const { error } = await supabaseClient.from('LoanVoucherType').update({ Status: 'Deleted' }).eq('TypeID', k); if (error) { showToast(error.message, 'error'); return; }
+      await loanTypesLoad(); document.getElementById('lvt_List').innerHTML = listHtml(); fillTypeSel();
+    });
+  }
   function resetForm() { editId = null; $('ln_FormTitle').textContent = t('নতুন লেনদেন', 'New entry'); $('ln_Amount').value = ''; $('ln_Note').value = ''; $('ln_Date').value = ownToday(); $('ln_Type').value = 'Give'; resetAcc(); $('ln_CancelBtn').style.display = 'none'; showHint(); showBal(); }
 
   // ===== ব্যক্তির তালিকা =====
@@ -8029,7 +8092,7 @@ async function renderLoanPage(content) {
     if (!$('ln_Date').value) { showToast(t('তারিখ দিন।', 'Enter a date.'), 'error'); return; }
     if (!$('ln_Person').value) { showToast(t('ব্যক্তি বাছাই করুন (না থাকলে উপরের "ব্যক্তির তালিকা"-য় যোগ করুন)।', 'Choose a person.'), 'error'); $('ln_Person').focus(); return; }
     if (!(amt > 0)) { showToast(t('টাকার পরিমাণ দিন।', 'Enter the amount.'), 'error'); $('ln_Amount').focus(); return; }
-    const rec = { Date: $('ln_Date').value, PersonID: $('ln_Person').value, Type: $('ln_Type').value, Amount: amt, BankCashAccID: $('ln_Acc').value || null, Note: $('ln_Note').value.trim() };
+    const rec = { Date: $('ln_Date').value, PersonID: $('ln_Person').value, Type: $('ln_Type').value, Amount: amt, BankCashAccID: (LOAN_TYPES[$('ln_Type').value] || {}).noCash ? null : ($('ln_Acc').value || null), Note: $('ln_Note').value.trim() };
     const btns = [$('ln_SaveBtn'), $('ln_PostBtn')]; btns.forEach(function (b) { b.disabled = true; });
     try {
       let id = editId;
@@ -8046,6 +8109,7 @@ async function renderLoanPage(content) {
   $('ln_CancelBtn').addEventListener('click', resetForm);
   $('ln_Person').addEventListener('change', showBal);
   $('ln_Type').addEventListener('change', showHint);
+  $('ln_AddType').addEventListener('click', openTypeModal);
   ['ln_From', 'ln_To', 'ln_PFilter'].forEach(function (id) { $(id).addEventListener('change', function () { selPerson = $('ln_PFilter').value; renderAll(); }); });
   // পাওনা-দেনার তালিকাঃ এক চাপে ওই ব্যক্তির লেনদেন নিচে, 👁️ খাতা প্রিন্ট
   $('ln_Bals').addEventListener('click', async function (e) {
@@ -8407,6 +8471,7 @@ async function renderGmwLoanList(content) {
   async function loadPersons() {
     try {
       const ps = await loanPersons(); if (!ps) { PB = null; return; }
+      await loanTypesLoad();
       const [vr, tr] = await Promise.all([supabaseClient.from('LoanVoucher').select('PersonID,Type,Amount,Status'), loanTradeBalances(ps)]);
       const b = {}; ((vr && vr.data) || []).forEach(function (v) { if (v.Status !== 'Posted') return; const ty = LOAN_TYPES[v.Type]; if (!ty) return; b[v.PersonID] = (b[v.PersonID] || 0) + (ty.party[0] - ty.party[1]) * glN(v.Amount); });
       PB = ps.map(function (p) { return { p: p, bal: (b[p.PersonID] || 0) + (tr[p.PersonID] || 0) }; });
