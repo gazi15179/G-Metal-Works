@@ -508,7 +508,8 @@ const MODULES = [
   ]},
   {key:'loan', bn:'লোন', en:'Loans', sub:[
     {key:'loanList', bn:'লোন তালিকা', en:'Loan List'},
-    {key:'loanTxn', bn:'লোন লেনদেন / কিস্তি', en:'Loan Entries / Installments'},
+    {key:'loanTxn', bn:'লোন ভাউচার', en:'Loan Voucher'},
+    {key:'loanLedger', bn:'লোন লেজার', en:'Loan Ledger'},
     {key:'loanReport', bn:'লোন রিপোর্ট ও স্টেটমেন্ট', en:'Loan Report & Statement'},
   ]},
   {key:'hr', bn:'এইচআর ও পে-রোল', en:'HR & Payroll', sub:[
@@ -536,7 +537,7 @@ const READY_PAGES = ['dashboard','salaryLedger','cashHandover','userCash','svSet
   'stockOverview','goodsReceive','materialIssue','stockTransfer','stockAdjust','stockLedger',
   'so','dc','si','sr','custLedger',
   'bom','processing','processingOld','prodDaily','procCosting','pOrder','pmi','fgr',
-  'coa','bankCash','jv','cv','pv','rv','ownerCapital','loans','loanList','loanTxn','loanReport','assetNames','assetPurchase','assetSale','fixedAssets','bankBook','trialBalance',
+  'coa','bankCash','jv','cv','pv','rv','ownerCapital','loans','loanList','loanTxn','loanLedger','loanReport','assetNames','assetPurchase','assetSale','fixedAssets','bankBook','trialBalance',
   'empCategories','empInfo','workRoles','sizeRates','attendance','dailyProduction','leave','payroll','salaryIssue','payHeads','hrReports','payslip',
   'invReport','salesReport','prodReport','finReport','plReport','partyBalance','vgSummary',
   'general','langSettings','companySettings','backup'];
@@ -567,7 +568,7 @@ const ACT_TABLE_BN = {
   MaterialIssue:'মালামাল ইস্যু', StockTransfer:'স্টক ট্রান্সফার', StockAdjustment:'স্টক সমন্বয়', ProcessingVoucher:'প্রসেসিং কষ্টিং',
   DailyProduction:'দৈনিক উৎপাদন', TeamProduction:'দৈনিক উৎপাদন ও দল', Payroll:'সেলারী ভাউচার', SalaryIssue:'সেলারী ইস্যু',
   Attendance:'হাজিরা', DailyBonus:'বোনাস', SizeRates:'সাইজ রেট', WorkRoles:'কাজের ধরন', PayHeads:'পে-হেড',
-  Loan:'লোন', LoanTxn:'লোন কিস্তি/লেনদেন', LoanPerson:'ধার-দেনা পার্টি', LoanVoucher:'ধার-দেনা ভাউচার',
+  Loan:'লোন', LoanTxn:'লোন ভাউচার', LoanTxnType:'লোন ভাউচারের ধরন', LoanPerson:'ধার-দেনা পার্টি', LoanVoucher:'ধার-দেনা ভাউচার',
   FixedAsset:'স্থায়ী সম্পদ', AssetMaster:'সম্পদ মাস্টার', AssetCategory:'সম্পদ ক্যাটাগরি', AssetPurchase:'সম্পদ ক্রয়', AssetSale:'সম্পদ বিক্রয়',
   items:'আইটেম মাস্টার', customers:'কাস্টমার', suppliers:'সাপ্লায়ার', warehouses:'গুদাম', zones:'জোন', categories:'ক্যাটাগরি',
   item_groups:'গ্রুপ', uom:'ইউনিট', employees:'কর্মচারী', users:'ব্যবহারকারী', roles:'ভূমিকা ও অনুমতি',
@@ -1812,6 +1813,7 @@ async function navigateTo(pageKey, moduleLabel, pageLabel, opts) {
     else if (pageKey === 'loans') await renderLoanPage(content);
     else if (pageKey === 'loanList') await renderGmwLoanList(content);   // লোন (GMW)
     else if (pageKey === 'loanTxn') await renderGmwLoanTxn(content);
+    else if (pageKey === 'loanLedger') await renderGmwLoanLedger(content);
     else if (pageKey === 'loanReport') await renderGmwLoanReport(content);
     else if (pageKey === 'assetNames') await renderAssetMasterPage(content);
     else if (pageKey === 'fixedAssets') await renderFixedAssetPage(content);
@@ -8073,36 +8075,42 @@ async function renderLoanPage(content) {
 /* ============================================================
    লোন (GMW) — সিসি লোন · এনজিও লোন · হ্যান্ড লোন  (সাইডবার → লোন)
    • লোন তালিকাঃ প্রতিটি লোনের তথ্য (ধরন, দাতা, লিমিট/সুদ/কিস্তি) ও এখনকার বকেয়া
-   • লোন লেনদেনঃ গ্রহণ/উত্তোলন · কিস্তি/জমা · সুদ-চার্জ — খসড়া/পোস্ট; পোস্টে ক্যাশ/ব্যাংক বইয়ে যায় (RefModule 'LoanTxn')
+   • লোন ভাউচারঃ লোন গ্রহণ (জমা) · সেবা বা সুদ (জমা, খরচ খাত) · কিস্তি প্রদান (খরচ) · ＋ নিজের বানানো ধরন
+     খসড়া/পোস্ট; পোস্টে ক্যাশ/ব্যাংক বইয়ে যায় (RefModule 'LoanTxn')
+   • লোন লেজারঃ তারিখ · বিবরণী · ভাউচার ধরন · ভাউঃ নম্বর · জমা · খরচ · ব্যালান্স (সাইড প্যানেল)
+     জমা = বকেয়া বাড়ে (লোন গ্রহণ, সেবা/সুদ), খরচ = বকেয়া কমে (কিস্তি প্রদান)
+     কিস্তির টাকা আগে বাকি সুদে, তারপর আসলে যায় (কিস্তি ভাউচারে "এর মধ্যে সুদ" লিখে দিলে সেটাই ধরা হয়)
    • সিসি লোনঃ একটি ব্যাংক অ্যাকাউন্ট (ব্যাংক ও ক্যাশ অ্যাকাউন্টে) — ব্যালান্স মাইনাস মানে ব্যবহৃত লোন;
-     কনট্রা/পেমেন্ট ভাউচারে ওই অ্যাকাউন্ট থেকে লেনদেনও লোনে ধরা পড়ে; এখানে শুধু উত্তোলন/জমা শর্টকাট ও ব্যাংকের সুদ-চার্জ কর্তন
-   • এনজিও লোনঃ কিস্তি হাতে এন্ট্রি — আসল ও সার্ভিস চার্জ আলাদা; লোন গ্রহণের সময় মোট সার্ভিস চার্জ (পরিশোধযোগ্য) লেখা থাকে
-   • হ্যান্ড লোনঃ ব্যক্তির কাছ থেকে লোন — আসল, সুদ (থাকলে), পরিশোধ
-   • খরচ (লাভ-ক্ষতিতে)ঃ সুদ/সার্ভিস চার্জ/চার্জ — যেদিন পরিশোধ বা কর্তন হয় (নগদ ভিত্তিতে)
+     কনট্রা/পেমেন্ট ভাউচারে ওই অ্যাকাউন্টের লেনদেনও লেজারে আসে; সুদ বাড়ে-কমে তাই প্রতিবার "সেবা বা সুদ" ভাউচারে লেখা হয়
+   • খরচ (লাভ-ক্ষতিতে)ঃ সেবা/সুদ ও খরচ-ধরনের ভাউচার — যেদিন বকেয়ায় যোগ হয়
    ============================================================ */
 const GL_TYPES = {
   CC:   { bn: 'সিসি লোন', en: 'CC loan', icon: '🏦' },
   NGO:  { bn: 'এনজিও লোন', en: 'NGO loan', icon: '🤝' },
   Hand: { bn: 'হ্যান্ড লোন', en: 'Hand loan', icon: '👤' }
 };
-const GL_TX = {
-  CC:   { Receive: { bn: 'উত্তোলন (সিসি থেকে টাকা তুললাম)', f: ['P'] }, Repay: { bn: 'জমা (সিসিতে টাকা জমা দিলাম)', f: ['P'] }, Interest: { bn: 'ব্যাংকের সুদ/চার্জ কর্তন', f: ['I', 'C'] } },
-  NGO:  { Receive: { bn: 'লোন গ্রহণ', f: ['P', 'I', 'C'] }, Repay: { bn: 'কিস্তি পরিশোধ', f: ['P', 'I', 'C'] }, Interest: { bn: 'জরিমানা/চার্জ বকেয়ায় যোগ', f: ['C'] }, Opening: { bn: 'প্রারম্ভিক জের (পুরনো লোন)', f: ['P', 'I'] } },
-  Hand: { Receive: { bn: 'লোন গ্রহণ', f: ['P', 'C'] }, Repay: { bn: 'লোন পরিশোধ', f: ['P', 'I', 'C'] }, Interest: { bn: 'সুদ/চার্জ বকেয়ায় যোগ', f: ['I', 'C'] }, Opening: { bn: 'প্রারম্ভিক জের (পুরনো লোন)', f: ['P'] } }
+/** নিজের ভাউচার ধরন — [বাংলা নাম (সিসি), বাংলা নাম (অন্য লোন)] */
+const GL_BUILTIN = {
+  Receive:  ['লোন গ্রহণ (সিসি থেকে উত্তোলন)', 'লোন গ্রহণ'],
+  Interest: ['সেবা বা সুদ (ব্যাংক কেটেছে)', 'সেবা বা সুদ'],
+  Repay:    ['কিস্তি প্রদান (সিসিতে জমা)', 'কিস্তি প্রদান'],
+  Opening:  ['', 'প্রারম্ভিক জের (পুরনো লোন)']
 };
 const GL_TX_HINT = {
-  CC:   { Receive: 'সিসি অ্যাকাউন্ট থেকে নিজের ক্যাশ/ব্যাংকে — ব্যবহৃত লোন বাড়বে', Repay: 'নিজের ক্যাশ/ব্যাংক থেকে সিসি অ্যাকাউন্টে — ব্যবহৃত লোন কমবে', Interest: 'ব্যাংক সিসি অ্যাকাউন্ট থেকে সুদ/চার্জ কেটেছে — লোন বাড়বে, খরচে যাবে' },
-  NGO:  { Receive: 'আসল টাকা হাতে এলো; সার্ভিস চার্জ = মোট কত দিতে হবে (খরচ হবে কিস্তি দেওয়ার দিন); ফি = এখনই কেটে রাখা টাকা (খরচ)', Repay: 'কিস্তির টাকা আসল ও সার্ভিস চার্জে ভাগ করে লিখুন', Interest: 'জরিমানা/চার্জ — নগদ ছাড়া বকেয়ায় যোগ (খরচে যাবে)', Opening: 'সফটওয়্যার শুরুর আগের লোন — এখনকার বাকি আসল ও বাকি সার্ভিস চার্জ' },
-  Hand: { Receive: 'ব্যক্তির কাছ থেকে টাকা নিলাম — দেনা বাড়বে', Repay: 'আসল পরিশোধ দেনা কমায়; সুদ খরচে যায়', Interest: 'সুদ/চার্জ এখন না দিয়ে দেনার সাথে যোগ (খরচে যাবে)', Opening: 'সফটওয়্যার শুরুর আগের লোন — এখনকার বাকি আসল' }
+  Receive:  ['সিসি অ্যাকাউন্ট থেকে নিজের ক্যাশ/ব্যাংকে — বকেয়া বাড়বে (লেজারে জমা)', 'লোনের টাকা হাতে এলো — বকেয়া বাড়বে (লেজারে জমা)'],
+  Interest: ['ব্যাংক স্টেটমেন্ট দেখে যত টাকা সুদ/চার্জ কেটেছে লিখুন — বকেয়া বাড়বে (জমা), লাভ-ক্ষতিতে খরচ', 'সেবা/সুদ/চার্জ বকেয়ার সাথে যোগ হবে (জমা) — লাভ-ক্ষতিতে খরচ হিসেবে যাবে'],
+  Repay:    ['নিজের ক্যাশ/ব্যাংক থেকে সিসিতে জমা — বকেয়া কমবে (খরচ); "এর মধ্যে সুদ" নিজে বসে, দরকারে বদলান', 'কিস্তির মোট টাকা — বকেয়া কমবে (লেজারে খরচ); "এর মধ্যে সুদ" নিজে বসে, দরকারে বদলান'],
+  Opening:  ['', 'সফটওয়্যার শুরুর আগের লোন — এখনকার বাকি আসল ও বাকি সেবা/সুদ']
 };
 const GL_ROW_CLS = { Opening: 'gl-op', Receive: 'gl-rc', Repay: 'gl-rp', Interest: 'gl-in' };
 const GL_NO_TABLE = 'লোনের টেবিল নেই — আগে Supabase-এ 44 নম্বর SQL চালান।';
+const GL_NO_TYPE_TABLE = 'নতুন ধরনের টেবিল নেই — আগে Supabase-এ 45 নম্বর SQL চালান।';
 const GL_CSS = `
   .vg2 .dmy-wrap{display:flex;width:100%;} .vg2 .dmy-in{width:100% !important;height:36px;font-size:13.5px;}
   .gl-tbl{font-size:11px !important;} .gl-tbl thead th{font-size:11px !important;font-weight:700;text-align:center !important;} .gl-tbl td{text-align:center;font-size:11px;padding:3px 6px !important;}
   .gl-tbl td.l{text-align:left;} .gl-tbl td.r{text-align:right;}
   .gl-tbl tbody tr{cursor:pointer;} .gl-tbl tbody tr.sel td{box-shadow:inset 0 0 0 9999px rgba(242,163,60,.22);}
-  .gl-tbl tr.gl-op td{background:#f3f4f6;} .gl-tbl tr.gl-rc td{background:#ecfdf3;} .gl-tbl tr.gl-rp td{background:#eef4ff;} .gl-tbl tr.gl-in td{background:#fdf0ef;}
+  .gl-tbl tr.gl-op td{background:#f3f4f6;} .gl-tbl tr.gl-rc td{background:#ecfdf3;} .gl-tbl tr.gl-rp td{background:#eef4ff;} .gl-tbl tr.gl-in td{background:#fdf0ef;} .gl-tbl tr.gl-cu td{background:#f6f0ff;}
   .gl-tbl tr.gl-sec td{background:#1f2937 !important;color:#ffd27a;font-weight:700;text-align:left;}
   .gl-tbl tr.gl-sub td{background:#eef0f3 !important;font-weight:700;}
   .gl-tbl tr.draft td{background:#fffbeb;}
@@ -8114,63 +8122,95 @@ const GL_CSS = `
   .gl-info .warn{background:#fff6e0;border-color:#e3b75c;} .gl-info .bad{background:#fdecea;border-color:#e8a29b;}
   .gl-radio{display:flex;gap:6px;flex-wrap:wrap;} .gl-radio label{display:flex !important;align-items:center;gap:5px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;cursor:pointer;font-size:13px !important;min-height:36px;margin:0 !important;}
   .gl-radio input{width:auto !important;height:auto !important;margin:0;} .gl-radio label.on{background:#fff6e0;border-color:#e3b75c;font-weight:700;}
+  .gl-typerow{display:flex;gap:5px;} .gl-typerow select{flex:1;min-width:0;} .gl-plus{flex:0 0 38px;height:36px;border:1px solid #c27a12;background:#fff6e0;color:#8a4b00;border-radius:7px;font-size:18px;font-weight:700;cursor:pointer;line-height:1;}
   @media (max-width:760px){ .gl-hide-m{display:none !important;} .gl-tbl .own-ic{min-width:30px;height:30px;font-size:13px;} .gl-tbl tr:not(.gl-sec):not(.gl-sub) td:last-child,.gl-tbl th:last-child{position:sticky;right:0;z-index:1;background:var(--surface,#fff);box-shadow:-2px 0 0 #e3e6ea;} }`;
 const glN = function (x) { return Number(x) || 0; };
 const glD10 = function (x) { return String(x || '').slice(0, 10); };
+const glR2 = function (x) { return Math.round((Number(x) || 0) * 100) / 100; };
 function glMoney(v) { const x = Number(v) || 0; return (x < 0 ? '−' : '') + Math.abs(x).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
-function glTxLabel(lt, ty) { const m = GL_TX[lt] || {}; return (m[ty] && m[ty].bn) || ty || ''; }
-function glFieldLabel(lt, ty, f) {
-  if (f === 'P') return lt === 'CC' ? t('টাকা', 'Amount') : ty === 'Repay' ? t('আসল পরিশোধ', 'Principal paid') : ty === 'Opening' ? t('বাকি আসল', 'Principal due') : t('আসল (লোনের টাকা)', 'Principal');
-  if (f === 'I') {
-    if (lt === 'NGO') return ty === 'Repay' ? t('সার্ভিস চার্জ পরিশোধ', 'Service charge paid') : ty === 'Opening' ? t('বাকি সার্ভিস চার্জ', 'Service charge due') : t('সার্ভিস চার্জ (মোট দিতে হবে)', 'Service charge (total payable)');
-    return ty === 'Repay' ? t('সুদ পরিশোধ', 'Interest paid') : t('সুদ', 'Interest');
-  }
-  if (ty === 'Receive') return t('ফি/চার্জ (কেটে রাখা)', 'Fees deducted');
-  if (lt === 'CC') return t('অন্যান্য চার্জ (এক্সাইজ ডিউটি ইত্যাদি)', 'Other charges');
-  return t('জরিমানা/অন্যান্য চার্জ', 'Penalty / other charges');
+
+/* ---------- ভাউচারের ধরন (নিজের + ＋ দিয়ে বানানো) ---------- */
+let GL_CT = {};   // নিজে বানানো ধরন — TypeID → { Name, Side 'In'|'Out', IsExpense, HasCash }
+function glSetTypes(rows) { GL_CT = {}; (rows || []).forEach(function (r) { if (r && r.TypeID && r.Status !== 'Deleted') GL_CT[r.TypeID] = r; }); }
+function glCustomList() { return Object.keys(GL_CT).map(function (k) { return GL_CT[k]; }).sort(function (a, b) { return String(a.Name).localeCompare(String(b.Name), 'bn'); }); }
+/** ধরনের নিয়মঃ side In = বকেয়া বাড়ে (জমা), Out = কমে (খরচ); exp = লাভ-ক্ষতিতে খরচ; cash = ক্যাশ/ব্যাংকে টাকা আসা-যাওয়া */
+function glKind(ty) {
+  if (ty === 'Receive') return { side: 'In', exp: false, cash: true };
+  if (ty === 'Interest') return { side: 'In', exp: true, cash: false };
+  if (ty === 'Repay') return { side: 'Out', exp: false, cash: true };
+  if (ty === 'Opening') return { side: 'In', exp: false, cash: false };
+  const c = GL_CT[ty];
+  if (c) return { side: c.Side === 'Out' ? 'Out' : 'In', exp: c.Side !== 'Out' && !!c.IsExpense, cash: c.HasCash !== false, custom: true, name: c.Name };
+  return { side: 'In', exp: false, cash: false, custom: true, name: ty };
+}
+function glTxLabel(lt, ty) { const b = GL_BUILTIN[ty]; if (b) return lt === 'CC' ? (b[0] || b[1]) : b[1]; const c = GL_CT[ty]; return c ? c.Name : (ty || ''); }
+function glShort(lt, ty) { return glTxLabel(lt, ty).replace(/\s*\(.*\)$/, ''); }
+function glTxTypes(lt) {   // ভাউচারের ধরনের তালিকা (লোনের ধরন অনুযায়ী)
+  const b = ['Receive', 'Interest', 'Repay'].concat(lt === 'CC' ? [] : ['Opening']);
+  return b.concat(glCustomList().map(function (c) { return c.TypeID; }));
+}
+function glRowCls(ty) { return GL_ROW_CLS[ty] || 'gl-cu'; }
+
+/* ---------- একটি লেনদেনের হিসাব ---------- */
+/** লেজারে জমা (বকেয়া বাড়ে) */
+function glIn(x) { const k = glKind(x.Type); if (k.side !== 'In') return 0; return x.Type === 'Interest' ? glN(x.Interest) + glN(x.Charges) : glN(x.Principal) + glN(x.Interest); }
+/** লেজারে খরচ (বকেয়া কমে) */
+function glOut(x) { return glKind(x.Type).side === 'Out' ? glN(x.Principal) + glN(x.Interest) : 0; }
+/** জমার মধ্যে সেবা/সুদের অংশ (বাকি সুদে যায়) */
+function glIntIn(x) {
+  const k = glKind(x.Type); if (k.side !== 'In') return 0;
+  if (x.Type === 'Interest') return glN(x.Interest) + glN(x.Charges);
+  if (x.Type === 'Receive' || x.Type === 'Opening') return glN(x.Interest);   // পুরনো এনজিও এন্ট্রির সার্ভিস চার্জ
+  return k.exp ? glN(x.Principal) + glN(x.Interest) : 0;
+}
+/** লাভ-ক্ষতিতে খরচ (সেবা/সুদ/চার্জ) — বকেয়ায় যোগ হওয়ার দিন */
+function glExpenseOf(lt, x) {
+  const I = glN(x.Interest), C = glN(x.Charges);
+  if (x.Type === 'Receive') return I + C;   // পুরনো এন্ট্রিঃ সার্ভিস চার্জ ও কেটে রাখা ফি
+  if (x.Type === 'Interest') return I + C;
+  if (x.Type === 'Repay') return C;         // পুরনো এন্ট্রিঃ কিস্তির সাথে জরিমানা
+  if (x.Type === 'Opening') return 0;
+  return glKind(x.Type).exp ? glN(x.Principal) + I : 0;
+}
+/** ক্যাশ/ব্যাংকে মোট টাকা */
+function glCashAmt(lt, x) {
+  const P = glN(x.Principal), I = glN(x.Interest), C = glN(x.Charges), k = glKind(x.Type);
+  if (x.Type === 'Opening') return 0;
+  if (x.Type === 'Interest') return lt === 'CC' ? I + C : 0;
+  if (x.Type === 'Receive') return lt === 'CC' ? P : P - C;
+  if (x.Type === 'Repay') return P + I + C;
+  return k.cash ? P + I : 0;
 }
 /** পোস্টে ক্যাশ/ব্যাংক বইয়ের এন্ট্রি — [অ্যাকাউন্ট, ডেবিট(ঢুকলো), ক্রেডিট(বের হলো)] */
 function glCashLegs(loan, x) {
-  const P = glN(x.Principal), I = glN(x.Interest), C = glN(x.Charges), acc = x.BankCashAccID || null;
+  const P = glN(x.Principal), I = glN(x.Interest), C = glN(x.Charges), acc = x.BankCashAccID || null, k = glKind(x.Type);
   if (loan.LoanType === 'CC') {
-    if (x.Type === 'Receive') return [[loan.BankAccID, 0, P], [acc, P, 0]];
-    if (x.Type === 'Repay') return [[acc, 0, P], [loan.BankAccID, P, 0]];
-    if (x.Type === 'Interest') return [[loan.BankAccID, 0, I + C]];
-    return [];
+    const cc = loan.BankAccID;
+    if (x.Type === 'Receive') return [[cc, 0, P], [acc, P, 0]];
+    if (x.Type === 'Repay') return [[acc, 0, P + I], [cc, P + I, 0]];
+    if (x.Type === 'Interest') return [[cc, 0, I + C]];
+    if (x.Type === 'Opening') return [];
+    const A = P + I;
+    if (k.side === 'In') return [[cc, 0, A]].concat(k.cash && acc ? [[acc, A, 0]] : []);
+    return [[cc, A, 0]].concat(k.cash && acc ? [[acc, 0, A]] : []);
   }
   if (!acc) return [];
   if (x.Type === 'Receive') return [[acc, P - C, 0]];
   if (x.Type === 'Repay') return [[acc, 0, P + I + C]];
+  if (k.custom && k.cash) return k.side === 'In' ? [[acc, P + I, 0]] : [[acc, 0, P + I]];
   return [];
 }
-/** নগদ টাকার পরিমাণ (ভাউচারের "মোট") */
-function glCashAmt(lt, x) {
-  const P = glN(x.Principal), I = glN(x.Interest), C = glN(x.Charges);
-  if (lt === 'CC') return x.Type === 'Interest' ? I + C : P;
-  if (x.Type === 'Receive') return P - C;
-  if (x.Type === 'Repay') return P + I + C;
-  if (x.Type === 'Interest') return I + C;
-  return P + I;
-}
-/** লাভ-ক্ষতিতে খরচ (সুদ/সার্ভিস চার্জ/চার্জ) */
-function glExpenseOf(lt, x) {
-  const I = glN(x.Interest), C = glN(x.Charges);
-  if (lt === 'CC') return x.Type === 'Interest' ? I + C : 0;
-  if (x.Type === 'Receive') return C;
-  if (x.Type === 'Repay' || x.Type === 'Interest') return I + C;
-  return 0;
-}
-/** এনজিও/হ্যান্ডঃ আসল বকেয়ার পরিবর্তন; এনজিওঃ বাকি সার্ভিস চার্জের পরিবর্তন */
-function glPrinDelta(x) { const P = glN(x.Principal); return x.Type === 'Repay' ? -P : x.Type === 'Interest' ? glN(x.Interest) + glN(x.Charges) : P; }
-function glScDelta(lt, x) { if (lt !== 'NGO') return 0; const I = glN(x.Interest); return x.Type === 'Repay' ? -I : (x.Type === 'Receive' || x.Type === 'Opening') ? I : 0; }
 
 async function glLoadAll() {
   const r1 = await supabaseClient.from('Loan').select('*');
   if (r1.error) throw new Error(/does not exist|schema cache|relation/i.test(r1.error.message) ? GL_NO_TABLE : r1.error.message);
   let txns = [];
   try { txns = await selectAllRows('LoanTxn'); } catch (e) { throw new Error(/does not exist|schema cache|relation/i.test(e.message) ? GL_NO_TABLE : e.message); }
+  let types = [], typesOk = true;
+  try { types = await selectAllRows('LoanTxnType'); } catch (e) { typesOk = false; }   // 45 নম্বর SQL চালানোর আগেও চলে
+  glSetTypes(types);
   const loans = (r1.data || []).filter(function (l) { return l.Status !== 'Deleted'; })
-    .sort(function (a, b) { const o = { CC: 0, NGO: 1, Hand: 2 }; return (o[a.LoanType] - o[b.LoanType]) || String(a.LoanID).localeCompare(String(b.LoanID), undefined, { numeric: true }); });
+    .sort(function (a, b) { const o = { CC: 0, NGO: 1, Hand: 2 }; return (o[a.LoanType] - o[b.LoanType]) || String(a.LoanName || '').localeCompare(String(b.LoanName || ''), 'bn'); });
   delete listCache.BankCashAccounts;
   const accs = (await cachedList('BankCashAccounts')).filter(function (a) { return a.Status !== 'Deleted'; });
   const ccAcc = loans.filter(function (l) { return l.LoanType === 'CC' && l.BankAccID; }).map(function (l) { return l.BankAccID; });
@@ -8182,7 +8222,7 @@ async function glLoadAll() {
       book = book.concat(data || []); if (!data || data.length < 1000) break;
     }
   }
-  return { loans: loans, txns: txns.filter(function (x) { return x.Status !== 'Deleted'; }), accs: accs, book: book };
+  return { loans: loans, txns: txns.filter(function (x) { return x.Status !== 'Deleted'; }), accs: accs, book: book, types: types, typesOk: typesOk };
 }
 function glAddPeriod(iso, kind, k) {
   const p = String(iso).split('-').map(Number);
@@ -8191,29 +8231,64 @@ function glAddPeriod(iso, kind, k) {
   else dt = new Date(p[0], p[1] - 1, p[2] + (kind === 'Daily' ? 1 : 7) * k);
   return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
 }
+
+/* ---------- লেজার ইঞ্জিন ---------- */
+/** একটি লোনের সব ঘটনা (to পর্যন্ত, তারিখের ক্রমে) — সিসিঃ সিসি অ্যাকাউন্টের ব্যাংক বই; অন্যঃ পোস্ট করা লেনদেন */
+function glEvents(loan, D, to) {
+  const ev = [];
+  if (loan.LoanType === 'CC') {
+    const xmap = {}; D.txns.forEach(function (x) { if (x.LoanID === loan.LoanID) xmap[x.TxnID] = x; });
+    D.book.filter(function (b) { return b.BankCashAccID === loan.BankAccID && glD10(b.Date) <= to; })
+      .sort(function (a, b) { return glD10(a.Date).localeCompare(glD10(b.Date)) || (glN(a.id) - glN(b.id)); })
+      .forEach(function (b) {
+        const x = b.RefModule === 'LoanTxn' ? xmap[b.RefID] || null : null, cr = glN(b.Credit), dr = glN(b.Debit), k = x ? glKind(x.Type) : null;
+        ev.push({ date: glD10(b.Date), id: b.RefID || '', ref: b.RefModule || '', x: x, inAmt: cr, outAmt: dr, intIn: k && k.exp && cr ? cr : 0,
+          splitI: x && dr && glN(x.Interest) > 0 ? glN(x.Interest) : null, exp: x ? glExpenseOf('CC', x) : 0 });
+      });
+  } else {
+    D.txns.filter(function (x) { return x.LoanID === loan.LoanID && x.Status === 'Posted' && glD10(x.Date) <= to; })
+      .sort(function (a, b) { return glD10(a.Date).localeCompare(glD10(b.Date)) || String(a.TxnID).localeCompare(String(b.TxnID), undefined, { numeric: true }); })
+      .forEach(function (x) {
+        const o = glOut(x);
+        ev.push({ date: glD10(x.Date), id: x.TxnID, ref: 'LoanTxn', x: x, inAmt: glIn(x), outAmt: o, intIn: glIntIn(x), splitI: o && glN(x.Interest) > 0 ? glN(x.Interest) : null, exp: glExpenseOf(loan.LoanType, x) });
+      });
+  }
+  return ev;
+}
+/** লেজারঃ প্রারম্ভিক জের, from–to সারি (চলমান ব্যালান্স), মোট, কিস্তির সুদ/আসল ভাগ
+ *  কিস্তির টাকা আগে বাকি সুদে যায়, তারপর আসলে (কিস্তিতে "এর মধ্যে সুদ" দেওয়া থাকলে সেটাই) */
+function glLedger(loan, D, from, to) {
+  let bal = 0, intOut = 0;
+  if (loan.LoanType === 'CC') { const acc = D.accs.find(function (a) { return a.BankAccID === loan.BankAccID; }); bal = acc ? -glN(acc.OpeningBalance) : 0; }
+  const R = { open: 0, openInt: 0, close: 0, closeInt: 0, rows: [], T: { inLoan: 0, inInt: 0, out: 0, intPaid: 0, prinPaid: 0, exp: 0, inAll: 0 } };
+  let opened = false;
+  glEvents(loan, D, to).forEach(function (e) {
+    if (!opened && e.date >= from) { R.open = bal; R.openInt = intOut; opened = true; }
+    let intPaid = 0, prinPaid = 0;
+    if (e.inAmt) { bal += e.inAmt; intOut += e.intIn; }
+    if (e.outAmt) {
+      intPaid = e.splitI !== null ? Math.min(e.splitI, e.outAmt) : Math.min(e.outAmt, Math.max(intOut, 0));
+      prinPaid = e.outAmt - intPaid; bal -= e.outAmt; intOut = Math.max(0, intOut - intPaid);
+    }
+    if (e.date < from) return;
+    const T = R.T; T.inAll += e.inAmt; T.inLoan += e.inAmt - e.intIn; T.inInt += e.intIn; T.out += e.outAmt; T.intPaid += intPaid; T.prinPaid += prinPaid; T.exp += e.exp;
+    R.rows.push(Object.assign({}, e, { bal: bal, intPaid: intPaid, prinPaid: prinPaid }));
+  });
+  if (!opened) { R.open = bal; R.openInt = intOut; }
+  R.close = bal; R.closeInt = intOut;
+  return R;
+}
 /** একটি লোনের অবস্থা — asOf তারিখ পর্যন্ত (শুধু পোস্ট করা) */
 function glState(loan, D, asOf) {
-  const S = { prin: 0, sc: 0, due: 0, exp: 0, recv: 0, repP: 0, paidI: 0, paidAll: 0, nRepay: 0, used: 0, avail: null, surplus: 0, drafts: 0, inst: null };
+  const L = glLedger(loan, D, '0000-00-00', asOf);
+  const S = { prin: 0, sc: 0, due: L.close, exp: L.T.exp, recv: L.T.inLoan, repP: L.T.prinPaid, paidI: L.T.intPaid, paidAll: 0, nRepay: 0, used: 0, avail: null, surplus: 0, drafts: 0, inst: null };
   const xs = D.txns.filter(function (x) { return x.LoanID === loan.LoanID; });
   S.drafts = xs.filter(function (x) { return x.Status !== 'Posted'; }).length;
-  xs.forEach(function (x) {
-    if (x.Status !== 'Posted' || glD10(x.Date) > asOf) return;
-    S.exp += glExpenseOf(loan.LoanType, x);
-    if (x.Type === 'Receive') S.recv += glN(x.Principal);
-    if (x.Type === 'Repay') { S.repP += glN(x.Principal); S.paidI += glN(x.Interest); S.paidAll += glN(x.Principal) + glN(x.Interest) + glN(x.Charges); S.nRepay++; }
-    if (loan.LoanType !== 'CC') { S.prin += glPrinDelta(x); S.sc += glScDelta(loan.LoanType, x); }
-  });
+  xs.forEach(function (x) { if (x.Status === 'Posted' && x.Type === 'Repay' && glD10(x.Date) <= asOf) { S.paidAll += glN(x.Principal) + glN(x.Interest) + glN(x.Charges); S.nRepay++; } });
   if (loan.LoanType === 'CC') {
-    const acc = D.accs.find(function (a) { return a.BankAccID === loan.BankAccID; });
-    let bal = acc ? glN(acc.OpeningBalance) : 0;
-    D.book.forEach(function (b) { if (b.BankCashAccID === loan.BankAccID && glD10(b.Date) <= asOf) bal += glN(b.Debit) - glN(b.Credit); });
-    S.used = bal < 0 ? -bal : 0; S.surplus = bal > 0 ? bal : 0; S.prin = -bal;
+    S.used = L.close > 0 ? L.close : 0; S.surplus = L.close < 0 ? -L.close : 0; S.prin = L.close;
     if (glN(loan.LimitAmount) > 0) S.avail = glN(loan.LimitAmount) - S.used;
-    S.due = S.used;
-  } else {
-    if (S.sc < 0) S.sc = 0;
-    S.due = S.prin + S.sc;
-  }
+  } else { S.sc = Math.min(Math.max(L.closeInt, 0), Math.max(L.close, 0)); S.prin = L.close - S.sc; }
   if (loan.LoanType === 'NGO' && loan.FirstInstallmentDate && glN(loan.InstallmentCount) > 0) {
     const cnt = glN(loan.InstallmentCount), amt = glN(loan.InstallmentAmount), kind = loan.InstallmentType || 'Weekly';
     let dueN = 0; for (let k = 0; k < cnt; k++) { if (glAddPeriod(loan.FirstInstallmentDate, kind, k) <= asOf) dueN++; else break; }
@@ -8222,46 +8297,105 @@ function glState(loan, D, asOf) {
   }
   return S;
 }
+/** কিস্তির "এর মধ্যে সুদ"-এর প্রস্তাবঃ এনজিও — বাকির অনুপাতে; অন্য — আগে বাকি সুদ */
+function glSuggestInterest(loan, D, date, amt) {
+  amt = glN(amt); if (!(amt > 0)) return 0;
+  const L = glLedger(loan, D, date, date), io = Math.max(L.closeInt, 0), due = L.close;
+  if (!(io > 0)) return 0;
+  if (loan.LoanType === 'NGO' && due > 0) return glR2(Math.min(io, amt * io / due));
+  return glR2(Math.min(io, amt));
+}
 function glToday() { return ownToday(); }
 function glAccName(D, id) { const a = D.accs.find(function (x) { return x.BankAccID === id; }); return a ? a.AccountName : (id || '—'); }
 function glInstKindBn(k) { return k === 'Monthly' ? 'মাসিক' : k === 'Daily' ? 'দৈনিক' : 'সাপ্তাহিক'; }
+function glMarkDirty() { window.__glDirty = Date.now(); }
 
 async function glPostTxn(loan, x) {
   for (const l of glCashLegs(loan, x)) { if (l[0] && (l[1] || l[2])) await postBankCashBookEntry(l[0], glD10(x.Date), 'LoanTxn', x.TxnID, l[1], l[2]); }
   const { error } = await supabaseClient.from('LoanTxn').update({ Status: 'Posted' }).eq('TxnID', x.TxnID);
   if (error) throw new Error(error.message);
+  glMarkDirty();
 }
 async function glUnpostTxn(id) {
-  if (!(await voucherAskAdmin(t('পোস্ট করা লোন লেনদেন বদলাতে এডমিন পাসওয়ার্ড দিন:', 'Admin password to change a posted loan entry:')))) return false;
+  if (!(await voucherAskAdmin(t('পোস্ট করা লোন ভাউচার বদলাতে এডমিন পাসওয়ার্ড দিন:', 'Admin password to change a posted loan voucher:')))) return false;
   await reversePostedDocumentStock('LoanTxn', id);   // ক্যাশ/ব্যাংক বইয়ের এন্ট্রি মুছে ব্যালান্স ঠিক
   const { error } = await supabaseClient.from('LoanTxn').update({ Status: 'Draft' }).eq('TxnID', id);
   if (error) throw new Error(error.message);
+  glMarkDirty();
   return true;
 }
 async function glDeleteTxn(id) {
   const { data: x } = await supabaseClient.from('LoanTxn').select('*').eq('TxnID', id).maybeSingle();
   const posted = !x || x.Status === 'Posted';
-  if (posted && !(await voucherAskAdmin(t('পোস্ট করা লোন লেনদেন মুছতে এডমিন পাসওয়ার্ড দিন:', 'Admin password to delete a posted loan entry:')))) return false;
+  if (posted && !(await voucherAskAdmin(t('পোস্ট করা লোন ভাউচার মুছতে এডমিন পাসওয়ার্ড দিন:', 'Admin password to delete a posted loan voucher:')))) return false;
   if (!confirm(t('মুছবেনঃ ', 'Delete: ') + id + (posted ? t(' — ক্যাশ/ব্যাংক বইয়ের এন্ট্রিও মুছবে।', ' — its cash/bank entries are removed too.') : '') + t(' ফেরানো যাবে না।', ' Cannot be undone.'))) return false;
   if (posted) await reversePostedDocumentStock('LoanTxn', id);
   const { error } = await supabaseClient.from('LoanTxn').delete().eq('TxnID', id);
   if (error) throw new Error(error.message);
+  glMarkDirty();
   return true;
 }
 async function glTxnPrint(id) {
   const D = await glLoadAll();
-  const x = D.txns.find(function (r) { return r.TxnID === id; }); if (!x) { showToast(t('লেনদেন পাওয়া যায়নি।', 'Entry not found.'), 'error'); return; }
+  const x = D.txns.find(function (r) { return r.TxnID === id; }); if (!x) { showToast(t('ভাউচার পাওয়া যায়নি।', 'Voucher not found.'), 'error'); return; }
   const ln = D.loans.find(function (l) { return l.LoanID === x.LoanID; }) || { LoanType: 'Hand', LoanName: x.LoanID };
-  const ty = GL_TYPES[ln.LoanType] || GL_TYPES.Hand, f = (GL_TX[ln.LoanType][x.Type] || { f: [] }).f;
-  const S = glState(ln, D, glD10(x.Date));
-  const pairs = [['ভাউচার নং', escapeHtml(x.TxnID)], ['তারিখ', escapeHtml(formatShortDate(glD10(x.Date)))], ['লোন', '<b>' + escapeHtml(ln.LoanName || '') + '</b> (' + escapeHtml(ty.bn) + ')'], ['দাতা', escapeHtml(ln.Lender || '') + (ln.Mobile ? ' (' + escapeHtml(ln.Mobile) + ')' : '')], ['লেনদেন', '<b>' + escapeHtml(glTxLabel(ln.LoanType, x.Type)) + '</b>']];
-  f.forEach(function (k) { const v = k === 'P' ? x.Principal : k === 'I' ? x.Interest : x.Charges; pairs.push([glFieldLabel(ln.LoanType, x.Type, k).replace(/<[^>]+>/g, ''), '৳' + glMoney(v)]); });
-  if (x.Type !== 'Opening' && !(ln.LoanType !== 'CC' && x.Type === 'Interest')) pairs.push(['মোট টাকা (নগদ/ব্যাংক)', '<b>৳' + glMoney(glCashAmt(ln.LoanType, x)) + '</b>']);
-  if (ln.LoanType === 'CC') pairs.push(['সিসি অ্যাকাউন্ট', escapeHtml(glAccName(D, ln.BankAccID))]);
-  if (x.BankCashAccID && x.Type !== 'Interest') pairs.push([ln.LoanType === 'CC' ? (x.Type === 'Receive' ? 'টাকা গেল' : 'টাকা এলো') : 'ক্যাশ/ব্যাংক', escapeHtml(glAccName(D, x.BankCashAccID))]);
-  if (x.Status === 'Posted') pairs.push([ln.LoanType === 'CC' ? 'ব্যবহৃত লোন (এই তারিখে)' : 'মোট বকেয়া (এই তারিখে)', '<b>৳' + glMoney(S.due) + '</b>']);
+  const ty = GL_TYPES[ln.LoanType] || GL_TYPES.Hand, k = glKind(x.Type), lt = ln.LoanType;
+  const L = glLedger(ln, D, glD10(x.Date), glD10(x.Date));
+  const row = L.rows.find(function (r) { return r.x && r.x.TxnID === x.TxnID; });
+  const pairs = [['ভাউচার নং', escapeHtml(x.TxnID)], ['তারিখ', escapeHtml(formatShortDate(glD10(x.Date)))], ['লোন', '<b>' + escapeHtml(ln.LoanName || '') + '</b> (' + escapeHtml(ty.bn) + ')'], ['দাতা', escapeHtml(ln.Lender || '') + (ln.Mobile ? ' (' + escapeHtml(ln.Mobile) + ')' : '')], ['ভাউচার ধরন', '<b>' + escapeHtml(glTxLabel(lt, x.Type)) + '</b>']];
+  const inA = glIn(x), outA = glOut(x);
+  if (inA) pairs.push(['জমা (বকেয়া বাড়লো)', '<b>৳' + glMoney(inA) + '</b>']);
+  if (outA) {
+    pairs.push(['খরচ (কিস্তি / পরিশোধ)', '<b>৳' + glMoney(outA) + '</b>']);
+    if (row) pairs.push(['এর মধ্যে সুদ / আসল', '৳' + glMoney(row.intPaid) + ' / ৳' + glMoney(row.prinPaid)]);
+  }
+  if (glN(x.Charges) && x.Type !== 'Interest') pairs.push(['চার্জ/জরিমানা', '৳' + glMoney(x.Charges)]);
+  const cash = glCashAmt(lt, x);
+  if (cash && k.cash) pairs.push(['ক্যাশ/ব্যাংকে টাকা', '৳' + glMoney(cash)]);
+  if (lt === 'CC') pairs.push(['সিসি অ্যাকাউন্ট', escapeHtml(glAccName(D, ln.BankAccID))]);
+  if (x.BankCashAccID && k.cash) pairs.push([lt === 'CC' ? (k.side === 'In' ? 'টাকা গেল' : 'টাকা এলো') : 'ক্যাশ/ব্যাংক', escapeHtml(glAccName(D, x.BankCashAccID))]);
+  if (x.Status === 'Posted') pairs.push([lt === 'CC' ? 'ব্যবহৃত লোন (এই তারিখে)' : 'মোট বকেয়া (এই তারিখে)', '<b>৳' + glMoney(L.close) + '</b>']);
   pairs.push(['নোট', escapeHtml(x.Note || '')]); pairs.push(['অবস্থা', x.Status === 'Posted' ? 'পোস্ট করা' : 'খসড়া']);
-  await ownPrint({ idf: 'TxnID' }, x, 'লোন ভাউচার — ' + glTxLabel(ln.LoanType, x.Type).replace(/\s*\(.*\)$/, ''), pairs);
+  await ownPrint({ idf: 'TxnID' }, x, 'লোন ভাউচার — ' + glShort(lt, x.Type), pairs);
+}
+/** ＋ নতুন ভাউচার ধরন (সব লোনে চলে) — তালিকা থেকে অব্যবহৃত ধরন মোছা যায় */
+async function glTypeModal(D, onDone) {
+  const used = {}; D.txns.forEach(function (x) { used[x.Type] = (used[x.Type] || 0) + 1; });
+  const listHtml = function () {
+    const cs = glCustomList();
+    return cs.length ? `<table class="own-tbl gl-tbl"><thead><tr><th>${t('নাম', 'Name')}</th><th>${t('লেজারে', 'Ledger')}</th><th>${t('লাভ-ক্ষতি', 'P&L')}</th><th>${t('ক্যাশ/ব্যাংক', 'Cash')}</th><th></th></tr></thead><tbody>${cs.map(function (c) {
+      return `<tr><td><b>${escapeHtml(c.Name)}</b></td><td>${c.Side === 'Out' ? t('খরচ (কমে)', 'Out') : t('জমা (বাড়ে)', 'In')}</td><td>${c.Side !== 'Out' && c.IsExpense ? '✔' : '—'}</td><td>${c.HasCash !== false ? '✔' : '—'}</td>
+        <td><button type="button" class="own-ic" data-gtdel="${attr(c.TypeID)}" title="${attr(used[c.TypeID] ? t('ব্যবহৃত — মোছা যাবে না', 'In use') : t('ডিলিট', 'Delete'))}" ${used[c.TypeID] ? 'disabled' : ''}>🗑️</button></td></tr>`; }).join('')}</tbody></table>` : `<div class="gl-hint">${t('এখনো নিজের কোনো ধরন নেই।', 'No custom types yet.')}</div>`;
+  };
+  openModal({ title: t('＋ নতুন ভাউচার ধরন', '+ New voucher type'), bodyHtml: `<style>${OWN_CSS}${GL_CSS}${VOUCHER_GRID_CSS}</style>
+    <div class="vg2" id="gtm_Form">
+      <div class="field vfull"><label class="vmain">${t('ধরনের নাম', 'Type name')}</label><input id="gtm_Name" autocomplete="off" placeholder="${attr(t('যেমনঃ জরিমানা, প্রসেসিং ফি, সুদ মওকুফ', 'e.g. Penalty, Processing fee'))}"></div>
+      <div class="field"><label>${t('লেজারে কোন ঘরে', 'Ledger side')}</label><select id="gtm_Side"><option value="In">${t('জমা — বকেয়া বাড়বে', 'In — dues up')}</option><option value="Out">${t('খরচ — বকেয়া কমবে', 'Out — dues down')}</option></select></div>
+      <div class="field"><label>${t('লাভ-ক্ষতিতে খরচ?', 'P&L expense?')}</label><select id="gtm_Exp"><option value="1">${t('হ্যাঁ (সুদ/চার্জের মতো)', 'Yes')}</option><option value="0">${t('না (আসলের মতো)', 'No')}</option></select></div>
+      <div class="field vfull"><label>${t('ক্যাশ/ব্যাংকে টাকা আসা-যাওয়া হবে?', 'Cash/bank movement?')}</label><select id="gtm_Cash"><option value="0">${t('না — শুধু লোনের খাতায়', 'No — loan book only')}</option><option value="1">${t('হ্যাঁ — ক্যাশ/ব্যাংক বইয়েও যাবে', 'Yes — cash/bank book too')}</option></select></div>
+    </div>
+    <h4 style="margin:6px 0;font-size:13px;">${t('নিজের বানানো ধরন', 'Custom types')}</h4><div id="gtm_List">${listHtml()}</div>` , onSave: async function () {
+      const nm = document.getElementById('gtm_Name').value.trim(); if (!nm) throw new Error(t('ধরনের নাম দিন।', 'Enter a name.'));
+      const all = Object.keys(GL_BUILTIN).map(function (k) { return GL_BUILTIN[k][1]; }).concat(glCustomList().map(function (c) { return c.Name; }));
+      if (all.some(function (n) { return bnKey(n) === bnKey(nm); })) throw new Error(t('এই নামে ধরন আগেই আছে।', 'This type already exists.'));
+      const side = document.getElementById('gtm_Side').value;
+      const { data, error } = await supabaseClient.from('LoanTxnType').insert({ Name: nm, Side: side, IsExpense: side === 'In' && document.getElementById('gtm_Exp').value === '1', HasCash: document.getElementById('gtm_Cash').value === '1', Status: 'Active', CreatedBy: (currentUser && currentUser.Email) || '' }).select().single();
+      if (error) throw new Error(/does not exist|schema cache|relation/i.test(error.message) ? GL_NO_TYPE_TABLE : error.message);
+      GL_CT[data.TypeID] = data; D.types = (D.types || []).concat([data]);
+      showToast(t('নতুন ধরন যোগ হয়েছে ✅ ', 'Type added ✅ ') + nm, 'success');
+      if (onDone) onDone(data.TypeID);
+    } });
+  const side = document.getElementById('gtm_Side'), exp = document.getElementById('gtm_Exp');
+  side.addEventListener('change', function () { exp.disabled = side.value === 'Out'; if (side.value === 'Out') exp.value = '0'; });
+  wireSequentialKeyNav(document.getElementById('gtm_Form'));
+  document.getElementById('gtm_Name').focus();
+  document.getElementById('gtm_List').addEventListener('click', async function (e) {
+    const b = e.target.closest('[data-gtdel]'); if (!b || b.disabled) return;
+    const id = b.getAttribute('data-gtdel'); if (!confirm(t('ধরনটি মুছবেনঃ ', 'Delete type: ') + (GL_CT[id] || {}).Name + '?')) return;
+    const { error } = await supabaseClient.from('LoanTxnType').update({ Status: 'Deleted' }).eq('TypeID', id);
+    if (error) { showToast(error.message, 'error'); return; }
+    delete GL_CT[id]; document.getElementById('gtm_List').innerHTML = listHtml(); if (onDone) onDone(null);
+  });
 }
 
 /* ---------- লোন → লোন তালিকা ---------- */
@@ -8351,13 +8485,13 @@ async function renderGmwLoanList(content) {
         const s = S[l.LoanID], closed = l.Status === 'Closed'; if (!closed) subDue += s.due;
         let info = '';
         if (lt === 'CC') info = t('লিমিট ', 'Limit ') + glMoney(l.LimitAmount) + (s.avail !== null ? ' · ' + t('বাকি লিমিট ', 'available ') + `<span class="${s.avail < 0 ? 'gl-neg' : ''}">${glMoney(s.avail)}</span>` : '') + (l.EndDate ? ' · ' + t('মেয়াদ ', 'exp. ') + `<span class="${glD10(l.EndDate) < today ? 'gl-neg' : ''}">${formatShortDate(glD10(l.EndDate))}</span>` : '');
-        else if (lt === 'NGO') info = s.inst ? (t('কিস্তি ', 'Inst. ') + s.inst.paidN + '/' + s.inst.cnt + ' (' + glInstKindBn(l.InstallmentType) + ' ৳' + glMoney(s.inst.amt) + ')' + (s.inst.late ? ` · <span class="gl-neg">${t('বকেয়া ', 'overdue ')}${s.inst.late}${t('টি', '')}</span>` : '') + (s.inst.next ? ' · ' + t('পরবর্তী ', 'next ') + formatShortDate(s.inst.next) : '')) : t('সার্ভিস চার্জ বাকি ৳', 'SC due ৳') + glMoney(s.sc);
+        else if (lt === 'NGO') info = s.inst ? (t('কিস্তি ', 'Inst. ') + s.inst.paidN + '/' + s.inst.cnt + ' (' + glInstKindBn(l.InstallmentType) + ' ৳' + glMoney(s.inst.amt) + ')' + (s.inst.late ? ` · <span class="gl-neg">${t('বকেয়া ', 'overdue ')}${s.inst.late}${t('টি', '')}</span>` : '') + (s.inst.next ? ' · ' + t('পরবর্তী ', 'next ') + formatShortDate(s.inst.next) : '')) : t('সেবা/সুদ বাকি ৳', 'Interest due ৳') + glMoney(s.sc);
         else info = (glN(l.InterestRate) ? t('সুদ ', 'Interest ') + glN(l.InterestRate) + '% · ' : '') + (l.Mobile ? escapeHtml(l.Mobile) : '');
         const ic = function (act, icon, title, dis) { return `<button type="button" class="own-ic" data-gl="${act}" data-id="${attr(l.LoanID)}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
         const used = D.txns.some(function (x) { return x.LoanID === l.LoanID; });
         return `<tr data-id="${attr(l.LoanID)}" class="${closed ? 'gl-closed' : ''} ${selId === l.LoanID ? 'sel' : ''}"><td>${++sl}</td><td><b>${escapeHtml(l.LoanID)}</b></td><td class="l"><b>${escapeHtml(l.LoanName || '')}</b>${closed ? ' <small>(' + t('বন্ধ', 'closed') + ')</small>' : ''}</td><td class="l gl-hide-m">${escapeHtml(l.Lender || '')}</td>
           <td class="l gl-hide-m">${info}</td><td class="r"><b class="${s.due > 0.004 ? 'gl-neg' : ''}">${glMoney(s.due)}</b>${s.drafts ? `<br><small>${s.drafts} ${t('খসড়া', 'draft')}</small>` : ''}</td>
-          <td style="white-space:nowrap;">${ic('view', '👁️', t('স্টেটমেন্ট দেখুন', 'View statement'))}${ic('edit', '✏️', t('এডিট', 'Edit'))}${ic('del', '🗑️', used ? t('লেনদেন আছে — মোছা যাবে না (চাইলে "বন্ধ" করুন)', 'Has entries — cannot delete') : t('ডিলিট', 'Delete'), used)}${ic('save', '💾', t('সেভ (এডিট চলাকালে)', 'Save (while editing)'), editId !== l.LoanID)}<span class="gl-hide-m">${ic('txn', '➕', t('লেনদেন/কিস্তি দিন', 'Add entry'))}</span></td></tr>`;
+          <td style="white-space:nowrap;">${ic('view', '👁️', t('লোন লেজার দেখুন', 'View ledger'))}${ic('edit', '✏️', t('এডিট', 'Edit'))}${ic('del', '🗑️', used ? t('লেনদেন আছে — মোছা যাবে না (চাইলে "বন্ধ" করুন)', 'Has entries — cannot delete') : t('ডিলিট', 'Delete'), used)}${ic('save', '💾', t('সেভ (এডিট চলাকালে)', 'Save (while editing)'), editId !== l.LoanID)}<span class="gl-hide-m">${ic('txn', '➕', t('ভাউচার দিন', 'Add voucher'))}</span></td></tr>`;
       }).join('');
       return `<tr class="gl-sec"><td colspan="7">${GL_TYPES[lt].icon} ${escapeHtml(t(GL_TYPES[lt].bn, GL_TYPES[lt].en))} (${ls.length}${t('টি', '')})</td></tr>${rows}<tr class="gl-sub"><td></td><td colspan="2" class="l">${t('মোট বকেয়া — ', 'Total dues — ')}${escapeHtml(GL_TYPES[lt].bn)}</td><td class="gl-hide-m"></td><td class="gl-hide-m"></td><td class="r">${glMoney(subDue)}</td><td></td></tr>`;
     }).join('');
@@ -8401,8 +8535,8 @@ async function renderGmwLoanList(content) {
     if (b.disabled || b.__busy) return; b.__busy = true;
     const id = b.getAttribute('data-id'), act = b.getAttribute('data-gl');
     try {
-      if (act === 'view') { window.__glStmtLoan = id; navigateTo('loanReport', t('লোন', 'Loans'), t('লোন রিপোর্ট ও স্টেটমেন্ট', 'Loan Report & Statement')); }
-      else if (act === 'txn') { window.__glTxnLoan = id; navigateTo('loanTxn', t('লোন', 'Loans'), t('লোন লেনদেন / কিস্তি', 'Loan Entries / Installments')); }
+      if (act === 'view') { window.__glLedgerLoan = id; navigateTo('loanLedger', t('লোন', 'Loans'), t('লোন লেজার', 'Loan Ledger')); }
+      else if (act === 'txn') { window.__glTxnLoan = id; navigateTo('loanTxn', t('লোন', 'Loans'), t('লোন ভাউচার', 'Loan Voucher')); }
       else if (act === 'edit') openEdit(id);
       else if (act === 'save') await save();
       else if (act === 'del') {
@@ -8417,65 +8551,88 @@ async function renderGmwLoanList(content) {
   resetForm();
 }
 
-/* ---------- লোন → লোন লেনদেন / কিস্তি ---------- */
+
+/* ---------- লোন → লোন ভাউচার (লোন গ্রহণ · সেবা বা সুদ · কিস্তি প্রদান · ＋ ধরন) ---------- */
 async function renderGmwLoanTxn(content) {
   let D;
-  try { D = await glLoadAll(); } catch (e) { content.innerHTML = `<div class="page-head"><div><h1>${t('লোন লেনদেন / কিস্তি', 'Loan Entries')}</h1></div></div><div class="panel"><div class="empty-state">${escapeHtml(e.message)}</div></div>`; return; }
+  try { D = await glLoadAll(); } catch (e) { content.innerHTML = `<div class="page-head"><div><h1>${t('লোন ভাউচার', 'Loan Voucher')}</h1></div></div><div class="panel"><div class="empty-state">${escapeHtml(e.message)}</div></div>`; return; }
   const today = glToday(), fy = await getFiscalYearStart(today);
-  let editId = null, selId = '';
-  const loanOpts = function () { return D.loans.filter(function (l) { return l.Status !== 'Closed' || l.LoanID === (editId && (D.txns.find(function (x) { return x.TxnID === editId; }) || {}).LoanID); }).map(function (l) { return `<option value="${attr(l.LoanID)}">${GL_TYPES[l.LoanType].icon} ${escapeHtml(l.LoanName)} — ${escapeHtml(GL_TYPES[l.LoanType].bn)}</option>`; }).join(''); };
+  let editId = null, selId = '', iTouched = false, legacy = { I: false, C: false };
+  const loanOpts = function () {
+    const keep = editId && (D.txns.find(function (x) { return x.TxnID === editId; }) || {}).LoanID;
+    return D.loans.filter(function (l) { return l.Status !== 'Closed' || l.LoanID === keep; }).map(function (l) { return `<option value="${attr(l.LoanID)}">${GL_TYPES[l.LoanType].icon} ${escapeHtml(l.LoanName)} — ${escapeHtml(GL_TYPES[l.LoanType].bn)}</option>`; }).join('');
+  };
   content.innerHTML = `<style>${DMY_CSS}${VOUCHER_GRID_CSS}${OWN_CSS}${GL_CSS}</style>
-    <div class="page-head"><div><h1>${t('লোন লেনদেন / কিস্তি', 'Loan Entries / Installments')}</h1><p>${t('লোন গ্রহণ/উত্তোলন, কিস্তি/জমা ও সুদ-চার্জ — পোস্ট করলে ক্যাশ/ব্যাংক বইয়ে যায়', 'Receipts, installments and interest — posting goes to the cash/bank book')}</p></div></div>
+    <div class="page-head"><div><h1>${t('লোন ভাউচার', 'Loan Voucher')}</h1><p>${t('লোন গ্রহণ (জমা) · সেবা বা সুদ (জমা) · কিস্তি প্রদান (খরচ) — ＋ দিয়ে নতুন ধরন; পোস্ট করলে ক্যাশ/ব্যাংক বইয়ে যায়', 'Loan received · interest · installment — + for new types')}</p></div></div>
     ${D.loans.length ? '' : `<div class="panel"><div class="empty-state">${t('আগে "লোন তালিকা" পেজে লোন যোগ করুন।', 'Add a loan in "Loan List" first.')}</div></div>`}
-    <div class="panel" ${D.loans.length ? '' : 'style="display:none;"'}><h4 id="glt_FormTitle" style="margin:0 0 10px;font-size:14px;">${t('নতুন লেনদেন', 'New entry')}</h4>
+    <div class="panel" ${D.loans.length ? '' : 'style="display:none;"'}><h4 id="glt_FormTitle" style="margin:0 0 10px;font-size:14px;">${t('নতুন ভাউচার', 'New voucher')}</h4>
       <div class="gl-info" id="glt_Info"></div>
       <div class="vg2" id="glt_Form">
         <div class="field"><label>${t('তারিখ', 'Date')}</label>${dmyDateField('glt_Date', today)}</div>
         <div class="field"><label class="vmain">${t('লোন', 'Loan')}</label><select id="glt_Loan"><option value="">${t('— লোন বাছাই করুন —', '— choose loan —')}</option>${loanOpts()}</select></div>
-        <div class="field vfull"><label>${t('লেনদেন', 'Type')}</label><select id="glt_Type"></select><div class="gl-hint" id="glt_Hint"></div></div>
-        <div class="field" id="glt_PF"><label id="glt_PL"></label><input id="glt_P" type="number" step="any" min="0" inputmode="decimal"></div>
+        <div class="field vfull"><label>${t('ভাউচার ধরন', 'Voucher type')}</label><div class="gl-typerow"><select id="glt_Type"></select><button type="button" class="gl-plus" id="glt_AddType" tabindex="-1" title="${attr(t('নতুন ধরন যোগ করুন', 'Add a new type'))}">＋</button></div><div class="gl-hint" id="glt_Hint"></div></div>
+        <div class="field" id="glt_AF2"><label id="glt_AL2" class="vmain"></label><input id="glt_A" type="number" step="any" min="0" inputmode="decimal"></div>
         <div class="field" id="glt_IF"><label id="glt_IL"></label><input id="glt_I" type="number" step="any" min="0" inputmode="decimal"></div>
-        <div class="field" id="glt_CF"><label id="glt_CL"></label><input id="glt_C" type="number" step="any" min="0" inputmode="decimal"></div>
-        <div class="field" id="glt_TF"><label id="glt_TL">${t('মোট টাকা', 'Total')}</label><input id="glt_Total" readonly tabindex="-1" class="vro vbold"></div>
+        <div class="field" id="glt_PF"><label>${t('এর মধ্যে আসল', 'Principal part')}</label><input id="glt_P" readonly tabindex="-1" class="vro"></div>
+        <div class="field" id="glt_CF"><label>${t('চার্জ/জরিমানা (পুরনো এন্ট্রি)', 'Charges (old entry)')}</label><input id="glt_C" type="number" step="any" min="0" inputmode="decimal"></div>
         <div class="field" id="glt_AF"><label id="glt_AL">${t('ক্যাশ/ব্যাংক', 'Cash/Bank')}</label><select id="glt_Acc"></select></div>
-        <div class="field" id="glt_NF"><label>${t('নোট', 'Note')}</label><input id="glt_Note" autocomplete="off"></div>
+        <div class="field" id="glt_TF"><label>${t('ক্যাশ/ব্যাংকে টাকা', 'Cash/bank amount')}</label><input id="glt_Total" readonly tabindex="-1" class="vro vbold"></div>
+        <div class="field vfull" id="glt_NF"><label>${t('বিবরণী / নোট', 'Particulars / note')}</label><input id="glt_Note" autocomplete="off"></div>
       </div>
-      <div class="own-btns"><button type="button" class="btn btn-outline" id="glt_SaveBtn">💾 ${t('সেভ (খসড়া)', 'Save (draft)')}</button><button type="button" class="btn btn-primary" id="glt_PostBtn">✅ ${t('সেভ + পোস্ট', 'Save + post')}</button><button type="button" class="btn btn-outline" id="glt_CancelBtn" style="display:none;">${t('এডিট বাতিল', 'Cancel edit')}</button></div>
+      <div class="own-btns"><button type="button" class="btn btn-outline" id="glt_SaveBtn">💾 ${t('সেভ (খসড়া)', 'Save (draft)')}</button><button type="button" class="btn btn-primary" id="glt_PostBtn">✅ ${t('সেভ + পোস্ট', 'Save + post')}</button><button type="button" class="btn btn-outline" id="glt_CancelBtn" style="display:none;">${t('এডিট বাতিল', 'Cancel edit')}</button><button type="button" class="btn btn-outline" id="glt_Ledger">📒 ${t('লোন লেজার', 'Loan ledger')}</button></div>
     </div>
-    <div class="panel"><h4 style="margin:0 0 8px;font-size:14px;">${t('লেনদেনের তালিকা', 'Entries')} <small style="font-weight:400;color:var(--text-muted);">${t('— এক ট্যাপে বাছাই, দুই ট্যাপে এডিট', '— tap to select, double-tap to edit')}</small></h4>
+    <div class="panel"><h4 style="margin:0 0 8px;font-size:14px;">${t('ভাউচারের তালিকা', 'Vouchers')} <small style="font-weight:400;color:var(--text-muted);">${t('— এক ট্যাপে বাছাই, দুই ট্যাপে এডিট', '— tap to select, double-tap to edit')}</small></h4>
       <div class="own-filter"><div class="field"><label>${t('তারিখ হইতে', 'From')}</label>${dmyDateField('glt_From', fy)}</div><div class="field"><label>${t('তারিখ পর্যন্ত', 'To')}</label>${dmyDateField('glt_To', today)}</div>
-        <div class="field"><label>${t('লোন', 'Loan')}</label><select id="glt_LFilter"><option value="">${t('সব', 'All')}</option>${D.loans.map(function (l) { return `<option value="${attr(l.LoanID)}">${escapeHtml(l.LoanName)}</option>`; }).join('')}</select></div></div>
+        <div class="field"><label>${t('লোন', 'Loan')}</label><select id="glt_LFilter"><option value="">${t('সব', 'All')}</option>${D.loans.slice().sort(function (a, b) { return String(a.LoanName).localeCompare(String(b.LoanName), 'bn'); }).map(function (l) { return `<option value="${attr(l.LoanID)}">${escapeHtml(l.LoanName)}</option>`; }).join('')}</select></div></div>
       <div class="own-wrap" id="glt_List"></div></div>`;
   const $ = function (id) { return document.getElementById(id); };
   wireDmyFields(content);
   wireSequentialKeyNav($('glt_Form'));
   const loanOf = function () { return D.loans.find(function (l) { return l.LoanID === $('glt_Loan').value; }) || null; };
+  const ltOf = function () { const l = loanOf(); return l ? l.LoanType : 'Hand'; };
   const accOpts = function (excl) { return `<option value="">${t('— (ক্যাশ বইয়ে যাবে না)', '— (not in cash book)')}</option>` + D.accs.filter(function (a) { return a.BankAccID !== excl; }).map(function (a) { return `<option value="${attr(a.BankAccID)}">${escapeHtml(a.AccountName)}</option>`; }).join(''); };
   const cashAcc = function () { const c = D.accs.find(function (a) { return a.Type === 'Cash' || /নগদ|cash|ক্যাশ/i.test(a.AccountName || ''); }); return c ? c.BankAccID : ''; };
+  const shown = function (id) { return $(id).style.display !== 'none'; };
   function fillTypes(keep) {
-    const ln = loanOf(), lt = ln ? ln.LoanType : 'Hand', m = GL_TX[lt], v = keep || $('glt_Type').value;
-    $('glt_Type').innerHTML = Object.keys(m).map(function (k) { return `<option value="${k}">${escapeHtml(m[k].bn)}</option>`; }).join('');
-    $('glt_Type').value = m[v] ? v : (lt === 'CC' ? 'Receive' : 'Repay');
+    const lt = ltOf(), v = keep || $('glt_Type').value, list = glTxTypes(lt);
+    if (keep && list.indexOf(keep) < 0) list.push(keep);   // পুরনো/মোছা ধরনের ভাউচার এডিট
+    $('glt_Type').innerHTML = list.map(function (k) { return `<option value="${attr(k)}">${escapeHtml(glTxLabel(lt, k))}${GL_BUILTIN[k] ? '' : ' ★'}</option>`; }).join('');
+    $('glt_Type').value = list.indexOf(v) >= 0 ? v : (lt === 'CC' ? 'Receive' : 'Repay');
   }
   function applyType() {
-    const ln = loanOf(), lt = ln ? ln.LoanType : 'Hand', ty = $('glt_Type').value, f = ((GL_TX[lt] || {})[ty] || { f: [] }).f;
-    $('glt_Hint').textContent = ((GL_TX_HINT[lt] || {})[ty]) || '';
-    [['P', 'glt_PF', 'glt_PL', 'glt_P'], ['I', 'glt_IF', 'glt_IL', 'glt_I'], ['C', 'glt_CF', 'glt_CL', 'glt_C']].forEach(function (a) {
-      const on = f.indexOf(a[0]) >= 0; $(a[1]).style.display = on ? '' : 'none'; if (!on) $(a[3]).value = ''; $(a[2]).textContent = glFieldLabel(lt, ty, a[0]);
-    });
-    const needAcc = lt === 'CC' ? ty !== 'Interest' : (ty === 'Receive' || ty === 'Repay');
+    const ln = loanOf(), lt = ltOf(), ty = $('glt_Type').value, k = glKind(ty), cc = lt === 'CC' ? 0 : 1;
+    let hint = GL_TX_HINT[ty] ? (GL_TX_HINT[ty][cc] || GL_TX_HINT[ty][1]) : '';
+    if (!hint && k.custom) hint = (k.side === 'In' ? t('জমা — বকেয়া বাড়বে', 'In — dues up') : t('খরচ — বকেয়া কমবে', 'Out — dues down')) + (k.exp ? t('; লাভ-ক্ষতিতে খরচ', '; P&L expense') : '') + (k.cash ? t('; ক্যাশ/ব্যাংকে যাবে', '; cash/bank') : t('; শুধু লোনের খাতায়', '; loan book only'));
+    $('glt_Hint').textContent = hint;
+    $('glt_AL2').textContent = ty === 'Receive' ? t('লোনের টাকা', 'Loan amount') : ty === 'Interest' ? t('সেবা/সুদের টাকা', 'Interest amount') : ty === 'Repay' ? t('কিস্তির টাকা (মোট)', 'Installment (total)') : ty === 'Opening' ? t('বাকি আসল', 'Principal due') : t('টাকা', 'Amount');
+    const showI = ty === 'Repay' || ty === 'Opening' || (legacy.I && ty === 'Receive');
+    $('glt_IF').style.display = showI ? '' : 'none'; if (!showI) $('glt_I').value = '';
+    $('glt_IL').textContent = ty === 'Repay' ? t('এর মধ্যে সুদ/সেবা', 'Of which interest') : ty === 'Opening' ? t('বাকি সেবা/সুদ', 'Interest due') : t('সার্ভিস চার্জ (পুরনো এন্ট্রি)', 'Service charge (old)');
+    $('glt_PF').style.display = ty === 'Repay' ? '' : 'none';
+    $('glt_CF').style.display = legacy.C ? '' : 'none'; if (!legacy.C) $('glt_C').value = '';
+    const needAcc = lt === 'CC' ? (ty === 'Receive' || ty === 'Repay' || (k.custom && k.cash)) : k.cash;
     $('glt_AF').style.display = needAcc ? '' : 'none';
-    $('glt_TF').style.display = (ty === 'Opening' || (lt !== 'CC' && ty === 'Interest')) ? 'none' : '';
-    $('glt_AL').textContent = lt === 'CC' ? (ty === 'Receive' ? t('টাকা কোথায় গেল (নিজের ক্যাশ/ব্যাংক)', 'Money went to') : t('টাকা কোথা থেকে (নিজের ক্যাশ/ব্যাংক)', 'Money came from')) : ty === 'Receive' ? t('টাকা কোথায় এলো', 'Received into') : t('কোথা থেকে দিলাম', 'Paid from');
-    const keep = $('glt_Acc').value; $('glt_Acc').innerHTML = accOpts(lt === 'CC' && ln ? ln.BankAccID : null); $('glt_Acc').value = keep;
+    $('glt_TF').style.display = needAcc ? '' : 'none';
+    $('glt_AL').textContent = lt === 'CC' ? (k.side === 'In' ? t('টাকা কোথায় গেল (নিজের ক্যাশ/ব্যাংক)', 'Money went to') : t('টাকা কোথা থেকে (নিজের ক্যাশ/ব্যাংক)', 'Money came from')) : k.side === 'In' ? t('টাকা কোথায় এলো', 'Received into') : t('কোথা থেকে দিলাম', 'Paid from');
+    const keepAcc = $('glt_Acc').value; $('glt_Acc').innerHTML = accOpts(lt === 'CC' && ln ? ln.BankAccID : null); $('glt_Acc').value = keepAcc;
     if (needAcc && !$('glt_Acc').value && !editId) $('glt_Acc').value = cashAcc();
-    if (lt === 'NGO' && ty === 'Receive' && !editId && $('glt_P').value && !$('glt_I').value && glN(ln.InterestRate)) $('glt_I').value = (glN($('glt_P').value) * glN(ln.InterestRate) / 100).toFixed(2);
-    calc(); showInfo();
+    suggest(); calc(); showInfo();
+  }
+  function suggest() {   // কিস্তিঃ এর মধ্যে সুদ — নিজে বসে (হাতে বদলালে আর বসে না)
+    const ln = loanOf(); if (!ln || $('glt_Type').value !== 'Repay' || iTouched) return;
+    const date = dmyIso('glt_Date') || today;
+    $('glt_I').value = $('glt_A').value ? String(glSuggestInterest(ln, D, date, $('glt_A').value)) : '';
+  }
+  function buildRec() {
+    const ty = $('glt_Type').value, k = glKind(ty), A = glN($('glt_A').value), Iv = shown('glt_IF') ? glN($('glt_I').value) : 0, C = shown('glt_CF') ? glN($('glt_C').value) : 0;
+    let P = 0, I = 0;
+    if (ty === 'Receive') { P = A; I = Iv; } else if (ty === 'Interest') { I = A; } else if (ty === 'Repay') { I = Iv; P = glR2(A - Iv); } else if (ty === 'Opening') { P = A; I = Iv; } else if (k.exp) { I = A; } else { P = A; }
+    return { Type: ty, Principal: P, Interest: I, Charges: C };
   }
   function calc() {
-    const ln = loanOf(), lt = ln ? ln.LoanType : 'Hand';
-    const x = { Type: $('glt_Type').value, Principal: $('glt_P').value, Interest: $('glt_I').value, Charges: $('glt_C').value };
-    $('glt_Total').value = glMoney(glCashAmt(lt, x));
+    const r = buildRec();
+    $('glt_P').value = r.Type === 'Repay' ? glMoney(r.Principal) : '';
+    $('glt_Total').value = glMoney(glCashAmt(ltOf(), r));
   }
   function showInfo() {
     const ln = loanOf(); if (!ln) { $('glt_Info').innerHTML = ''; return; }
@@ -8486,83 +8643,92 @@ async function renderGmwLoanTxn(content) {
       if (S.surplus) c.push(`<div><small>${t('অ্যাকাউন্টে জমা (উদ্বৃত্ত)', 'Surplus in account')}</small><b>৳${glMoney(S.surplus)}</b></div>`);
       if (ln.EndDate) c.push(`<div class="${glD10(ln.EndDate) < today ? 'bad' : ''}"><small>${t('মেয়াদ শেষ', 'Expiry')}</small><b>${formatShortDate(glD10(ln.EndDate))}</b></div>`);
     } else {
-      c.push(`<div><small>${t('বাকি আসল', 'Principal due')}</small><b>৳${glMoney(S.prin)}</b></div>`);
-      if (lt === 'NGO') c.push(`<div><small>${t('বাকি সার্ভিস চার্জ', 'Service charge due')}</small><b>৳${glMoney(S.sc)}</b></div>`);
+      c.push(`<div><small>${t('বাকি আসল', 'Principal due')}</small><b>৳${glMoney(S.prin)}</b></div>`, `<div><small>${t('বাকি সেবা/সুদ', 'Interest due')}</small><b>৳${glMoney(S.sc)}</b></div>`);
       c.push(`<div class="warn"><small>${t('মোট বকেয়া', 'Total dues')}</small><b>৳${glMoney(S.due)}</b></div>`);
       if (S.inst) c.push(`<div><small>${t('কিস্তি দেওয়া', 'Installments paid')}</small><b>${S.inst.paidN} / ${S.inst.cnt}</b></div>`, `<div class="${S.inst.late ? 'bad' : ''}"><small>${t('বকেয়া কিস্তি', 'Overdue')}</small><b>${S.inst.late}${t('টি', '')}${S.inst.late && S.inst.amt ? ' (৳' + glMoney(S.inst.late * S.inst.amt) + ')' : ''}</b></div>`, `<div><small>${t('পরবর্তী কিস্তি', 'Next installment')}</small><b>${S.inst.next ? formatShortDate(S.inst.next) + (S.inst.amt ? ' · ৳' + glMoney(S.inst.amt) : '') : '—'}</b></div>`);
     }
-    c.push(`<div><small>${t('মোট সুদ/চার্জ খরচ', 'Interest/charges expensed')}</small><b>৳${glMoney(S.exp)}</b></div>`);
+    c.push(`<div><small>${t('মোট সেবা/সুদ খরচ', 'Interest expensed')}</small><b>৳${glMoney(S.exp)}</b></div>`);
     $('glt_Info').innerHTML = c.join('');
   }
   function resetForm(keepLoan) {
-    editId = null; $('glt_FormTitle').textContent = t('নতুন লেনদেন', 'New entry');
+    editId = null; iTouched = false; legacy = { I: false, C: false }; $('glt_FormTitle').textContent = t('নতুন ভাউচার', 'New voucher');
     const l = keepLoan ? $('glt_Loan').value : ''; $('glt_Loan').innerHTML = `<option value="">${t('— লোন বাছাই করুন —', '— choose loan —')}</option>` + loanOpts(); $('glt_Loan').value = l;
-    ['glt_P', 'glt_I', 'glt_C', 'glt_Note'].forEach(function (id) { $(id).value = ''; }); $('glt_Acc').value = '';
+    ['glt_A', 'glt_I', 'glt_C', 'glt_Note'].forEach(function (id) { $(id).value = ''; }); $('glt_Acc').value = '';
     $('glt_Date').value = isoToDmy(today); $('glt_CancelBtn').style.display = 'none'; fillTypes(); applyType(); renderList();
   }
   async function openEdit(id) {
-    let x = D.txns.find(function (r) { return r.TxnID === id; }); if (!x) return;
+    let x = D.txns.find(function (r) { return r.TxnID === id; }); if (!x) { showToast(t('ভাউচার পাওয়া যায়নি।', 'Voucher not found.'), 'error'); return; }
     if (x.Status === 'Posted') { if (!(await glUnpostTxn(id))) return; D = await glLoadAll(); x = D.txns.find(function (r) { return r.TxnID === id; }); if (!x) return; }
-    editId = id; selId = id; $('glt_FormTitle').textContent = t('এডিটঃ ', 'Edit: ') + id;
+    editId = id; selId = id; iTouched = true;
+    const ty = x.Type, k = glKind(ty);
+    legacy = { I: ty === 'Receive' && glN(x.Interest) > 0, C: glN(x.Charges) > 0 && ty !== 'Interest' };
+    $('glt_FormTitle').textContent = t('এডিটঃ ', 'Edit: ') + id;
     $('glt_Loan').innerHTML = `<option value="">${t('— লোন বাছাই করুন —', '— choose loan —')}</option>` + loanOpts(); $('glt_Loan').value = x.LoanID;
-    $('glt_Date').value = isoToDmy(glD10(x.Date)); fillTypes(x.Type);
-    $('glt_P').value = x.Principal || ''; $('glt_I').value = x.Interest || ''; $('glt_C').value = x.Charges || ''; $('glt_Note').value = x.Note || '';
+    $('glt_Date').value = isoToDmy(glD10(x.Date)); fillTypes(ty);
+    const A = ty === 'Receive' || ty === 'Opening' ? glN(x.Principal) : ty === 'Interest' ? glN(x.Interest) + (legacy.C ? 0 : glN(x.Charges)) : glN(x.Principal) + glN(x.Interest);
+    $('glt_A').value = A || ''; $('glt_I').value = (ty === 'Repay' || ty === 'Opening' || legacy.I) ? (glN(x.Interest) || '') : ''; $('glt_C').value = legacy.C ? glN(x.Charges) : ''; $('glt_Note').value = x.Note || '';
+    if (ty === 'Interest' && glN(x.Charges)) legacy.C = false;   // সুদের পুরনো চার্জ টাকার সাথে একসাথে
     applyType(); $('glt_Acc').value = x.BankCashAccID || ''; calc();
-    $('glt_CancelBtn').style.display = ''; renderList(); window.scrollTo({ top: 0, behavior: 'smooth' });
+    $('glt_CancelBtn').style.display = ''; renderList(); window.scrollTo({ top: 0, behavior: 'smooth' }); $('glt_A').focus();
+    void k;
   }
   function renderList() {
     const from = dmyIso('glt_From') || '0000-00-00', to = dmyIso('glt_To') || '9999-12-31', lf = $('glt_LFilter').value;
     const lmap = {}; D.loans.forEach(function (l) { lmap[l.LoanID] = l; });
     const rows = D.txns.filter(function (x) { const d = glD10(x.Date); return d >= from && d <= to && (!lf || x.LoanID === lf) && lmap[x.LoanID]; })
       .sort(function (a, b) { return glD10(a.Date).localeCompare(glD10(b.Date)) || String(a.TxnID).localeCompare(String(b.TxnID), undefined, { numeric: true }); });
-    if (!rows.length) { $('glt_List').innerHTML = `<div class="empty-state">${t('এই সময়ে কোনো লেনদেন নেই।', 'No entries in this period.')}</div>`; return; }
-    const T = { p: 0, i: 0, c: 0, cash: 0 };
+    if (!rows.length) { $('glt_List').innerHTML = `<div class="empty-state">${t('এই সময়ে কোনো ভাউচার নেই।', 'No vouchers in this period.')}</div>`; return; }
+    const T = { in: 0, out: 0, i: 0 };
     const body = rows.map(function (x, i) {
-      const ln = lmap[x.LoanID], posted = x.Status === 'Posted', cash = glCashAmt(ln.LoanType, x);
-      if (posted) { T.p += glN(x.Principal); T.i += glN(x.Interest); T.c += glN(x.Charges); }
+      const ln = lmap[x.LoanID], posted = x.Status === 'Posted', inA = glIn(x), outA = glOut(x), cash = glCashAmt(ln.LoanType, x);
+      if (posted) { T.in += inA; T.out += outA; if (outA) T.i += glN(x.Interest); }
       const ic = function (act, icon, title, dis) { return `<button type="button" class="own-ic" data-gt="${act}" data-id="${attr(x.TxnID)}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
-      return `<tr data-id="${attr(x.TxnID)}" class="${posted ? GL_ROW_CLS[x.Type] || '' : 'draft'} ${selId === x.TxnID ? 'sel' : ''}"><td>${i + 1}</td><td>${escapeHtml(formatShortDate(glD10(x.Date)))}</td><td><b>${escapeHtml(x.TxnID)}</b></td>
-        <td class="l">${GL_TYPES[ln.LoanType].icon} ${escapeHtml(ln.LoanName)}</td><td class="l">${escapeHtml(glTxLabel(ln.LoanType, x.Type).replace(/\s*\(.*\)$/, ''))}${x.Note ? `<br><small>${escapeHtml(x.Note)}</small>` : ''}</td>
-        <td class="r">${glN(x.Principal) ? glMoney(x.Principal) : '—'}</td><td class="r gl-hide-m">${glN(x.Interest) ? glMoney(x.Interest) : '—'}</td><td class="r gl-hide-m">${glN(x.Charges) ? glMoney(x.Charges) : '—'}</td><td class="r"><b>${(x.Type === 'Opening' || (ln.LoanType !== 'CC' && x.Type === 'Interest')) ? '—' : glMoney(cash)}</b></td>
+      return `<tr data-id="${attr(x.TxnID)}" class="${posted ? glRowCls(x.Type) : 'draft'} ${selId === x.TxnID ? 'sel' : ''}"><td>${i + 1}</td><td>${escapeHtml(formatShortDate(glD10(x.Date)))}</td><td><b>${escapeHtml(x.TxnID)}</b></td>
+        <td class="l">${GL_TYPES[ln.LoanType].icon} ${escapeHtml(ln.LoanName)}</td><td class="l">${escapeHtml(glShort(ln.LoanType, x.Type))}${x.Note ? `<br><small>${escapeHtml(x.Note)}</small>` : ''}</td>
+        <td class="r">${inA ? glMoney(inA) : '—'}</td><td class="r">${outA ? glMoney(outA) : '—'}</td><td class="r gl-hide-m">${outA && glN(x.Interest) ? glMoney(x.Interest) : '—'}</td><td class="r gl-hide-m">${cash ? glMoney(cash) : '—'}</td>
         <td>${posted ? `<span class="badge active">${t('পোস্ট', 'Posted')}</span>` : `<span class="badge draft">${t('খসড়া', 'Draft')}</span>`}</td>
         <td style="white-space:nowrap;">${ic('view', '👁️', t('দেখুন / প্রিন্ট', 'View / print'))}${ic('edit', '✏️', posted ? t('এডিট (এডমিন — আগে আনপোস্ট)', 'Edit (admin)') : t('এডিট', 'Edit'))}${ic('del', '🗑️', t('ডিলিট', 'Delete'))}${ic('post', posted ? '✅' : '💾', posted ? t('পোস্ট হয়ে গেছে', 'Posted') : t('পোস্ট করুন', 'Post'), posted)}</td></tr>`;
     }).join('');
-    $('glt_List').innerHTML = `<table class="own-tbl gl-tbl"><thead><tr><th>${t('ক্রঃ', 'Sl')}</th><th>${t('তারিখ', 'Date')}</th><th>${t('নং', 'No.')}</th><th>${t('লোন', 'Loan')}</th><th>${t('লেনদেন', 'Type')}</th><th>${t('আসল/টাকা', 'Principal')}</th><th class="gl-hide-m">${t('সুদ/সা.চার্জ', 'Interest/SC')}</th><th class="gl-hide-m">${t('চার্জ', 'Charges')}</th><th>${t('নগদ/ব্যাংক', 'Cash')}</th><th>${t('অবস্থা', 'Status')}</th><th></th></tr></thead>
-      <tbody>${body}</tbody><tfoot><tr><td></td><td colspan="4" class="l">${t('মোট (পোস্ট করা)', 'Total (posted)')}</td><td class="r">${glMoney(T.p)}</td><td class="r gl-hide-m">${glMoney(T.i)}</td><td class="r gl-hide-m">${glMoney(T.c)}</td><td></td><td></td><td></td></tr></tfoot></table>`;
+    $('glt_List').innerHTML = `<table class="own-tbl gl-tbl"><thead><tr><th>${t('ক্রঃ', 'Sl')}</th><th>${t('তারিখ', 'Date')}</th><th>${t('ভাউঃ নম্বর', 'No.')}</th><th>${t('লোন', 'Loan')}</th><th>${t('ভাউচার ধরন', 'Type')}</th><th>${t('জমা', 'In')}</th><th>${t('খরচ', 'Out')}</th><th class="gl-hide-m">${t('এর মধ্যে সুদ', 'Interest part')}</th><th class="gl-hide-m">${t('ক্যাশ/ব্যাংক', 'Cash')}</th><th>${t('অবস্থা', 'Status')}</th><th></th></tr></thead>
+      <tbody>${body}</tbody><tfoot><tr><td></td><td colspan="4" class="l">${t('মোট (পোস্ট করা)', 'Total (posted)')}</td><td class="r">${glMoney(T.in)}</td><td class="r">${glMoney(T.out)}</td><td class="r gl-hide-m">${glMoney(T.i)}</td><td class="gl-hide-m"></td><td></td><td></td></tr></tfoot></table>`;
   }
   async function save(andPost) {
     const ln = loanOf(); if (!ln) { showToast(t('লোন বাছাই করুন।', 'Choose a loan.'), 'error'); $('glt_Loan').focus(); return; }
     const date = dmyIso('glt_Date'); if (!date) { showToast(t('তারিখ ঠিক নেই (দিন-মাস-বছর)।', 'Invalid date.'), 'error'); $('glt_Date').focus(); return; }
-    const lt = ln.LoanType, ty = $('glt_Type').value, f = GL_TX[lt][ty].f;
-    const P = f.indexOf('P') >= 0 ? glN($('glt_P').value) : 0, I = f.indexOf('I') >= 0 ? glN($('glt_I').value) : 0, C = f.indexOf('C') >= 0 ? glN($('glt_C').value) : 0;
-    if (P < 0 || I < 0 || C < 0) { showToast(t('মাইনাস টাকা দেওয়া যাবে না।', 'Amounts cannot be negative.'), 'error'); return; }
-    if (!(P + I + C > 0)) { showToast(t('টাকার পরিমাণ দিন।', 'Enter the amount.'), 'error'); $(f[0] === 'P' ? 'glt_P' : f[0] === 'I' ? 'glt_I' : 'glt_C').focus(); return; }
-    if ((ty === 'Receive' || (lt === 'CC' && ty === 'Repay')) && !(P > 0)) { showToast(t('আসল/টাকার পরিমাণ দিন।', 'Enter the principal.'), 'error'); $('glt_P').focus(); return; }
-    if (ty === 'Receive' && C >= P) { showToast(t('কেটে রাখা ফি আসলের চেয়ে কম হতে হবে।', 'Fees must be less than the principal.'), 'error'); $('glt_C').focus(); return; }
-    const acc = $('glt_AF').style.display === 'none' ? null : ($('glt_Acc').value || null);
-    if (lt === 'CC' && ty !== 'Interest' && !acc) { showToast(t('নিজের ক্যাশ/ব্যাংক অ্যাকাউন্ট বাছাই করুন।', 'Choose your cash/bank account.'), 'error'); $('glt_Acc').focus(); return; }
+    const lt = ln.LoanType, r = buildRec(), ty = r.Type, k = glKind(ty), A = glN($('glt_A').value), Iv = shown('glt_IF') ? glN($('glt_I').value) : 0;
+    if (A < 0 || Iv < 0 || r.Charges < 0) { showToast(t('মাইনাস টাকা দেওয়া যাবে না।', 'Amounts cannot be negative.'), 'error'); return; }
+    if (!(A > 0) && !(ty === 'Opening' && Iv > 0)) { showToast(t('টাকার পরিমাণ দিন।', 'Enter the amount.'), 'error'); $('glt_A').focus(); return; }
+    if (ty === 'Repay' && Iv > A + 0.004) { showToast(t('"এর মধ্যে সুদ" কিস্তির মোট টাকার চেয়ে বেশি হতে পারে না।', 'Interest part cannot exceed the installment.'), 'error'); $('glt_I').focus(); return; }
+    if (ty === 'Receive' && r.Charges >= r.Principal) { showToast(t('কেটে রাখা চার্জ লোনের টাকার চেয়ে কম হতে হবে।', 'Charges must be less than the loan amount.'), 'error'); $('glt_C').focus(); return; }
+    const acc = shown('glt_AF') ? ($('glt_Acc').value || null) : null;
+    if (lt === 'CC' && shown('glt_AF') && !acc) { showToast(t('নিজের ক্যাশ/ব্যাংক অ্যাকাউন্ট বাছাই করুন।', 'Choose your cash/bank account.'), 'error'); $('glt_Acc').focus(); return; }
     if (lt === 'CC' && !ln.BankAccID) { showToast(t('এই সিসি লোনে অ্যাকাউন্ট জোড়া নেই — লোন তালিকায় ঠিক করুন।', 'No CC account linked to this loan.'), 'error'); return; }
-    if (lt !== 'CC' && ty === 'Repay') { const S = glState(ln, D, date); if (P > S.prin + 0.004 && !confirm(t('আসল পরিশোধ বাকি আসলের (৳', 'Principal paid exceeds the principal due (৳') + glMoney(S.prin) + t(') চেয়ে বেশি। তবুও সেভ করবেন?', '). Save anyway?'))) return; }
-    if (lt === 'CC' && ty === 'Receive' && glN(ln.LimitAmount) > 0) { const S = glState(ln, D, date); if (S.used + P > glN(ln.LimitAmount) + 0.004 && !confirm(t('উত্তোলনের পরে লিমিট ছাড়িয়ে যাবে (ব্যবহৃত ৳', 'This exceeds the CC limit (used ৳') + glMoney(S.used + P) + t(')। তবুও সেভ করবেন?', '). Save anyway?'))) return; }
-    const rec = { LoanID: ln.LoanID, Date: date, Type: ty, Principal: P, Interest: I, Charges: C, Amount: glCashAmt(lt, { Type: ty, Principal: P, Interest: I, Charges: C }), BankCashAccID: acc, Note: $('glt_Note').value.trim() };
+    if (k.side === 'Out') { const S = glState(ln, D, date); if (A > S.due + 0.004 && !confirm(t('টাকা বকেয়ার (৳', 'Amount exceeds the dues (৳') + glMoney(S.due) + t(') চেয়ে বেশি। তবুও সেভ করবেন?', '). Save anyway?'))) return; }
+    if (lt === 'CC' && ty === 'Receive' && glN(ln.LimitAmount) > 0) { const S = glState(ln, D, date); if (S.used + A > glN(ln.LimitAmount) + 0.004 && !confirm(t('উত্তোলনের পরে লিমিট ছাড়িয়ে যাবে (ব্যবহৃত ৳', 'This exceeds the CC limit (used ৳') + glMoney(S.used + A) + t(')। তবুও সেভ করবেন?', '). Save anyway?'))) return; }
+    const rec = { LoanID: ln.LoanID, Date: date, Type: ty, Principal: r.Principal, Interest: r.Interest, Charges: r.Charges, Amount: glCashAmt(lt, r) || (glIn(r) + glOut(r)), BankCashAccID: acc, Note: $('glt_Note').value.trim() };
     const btns = [$('glt_SaveBtn'), $('glt_PostBtn')]; btns.forEach(function (b) { b.disabled = true; });
     try {
       let row;
       if (editId) { const { data, error } = await supabaseClient.from('LoanTxn').update(rec).eq('TxnID', editId).select().single(); if (error) throw new Error(error.message); row = data; }
-      else { const { data, error } = await supabaseClient.from('LoanTxn').insert(Object.assign({ Status: 'Draft', CreatedBy: (currentUser && currentUser.Email) || '' }, rec)).select().single(); if (error) throw new Error(/does not exist|schema cache/.test(error.message) ? GL_NO_TABLE : error.message); row = data; }
+      else { const { data, error } = await supabaseClient.from('LoanTxn').insert(Object.assign({ Status: 'Draft', CreatedBy: (currentUser && currentUser.Email) || '' }, rec)).select().single(); if (error) throw new Error(/does not exist|schema cache/.test(error.message) ? GL_NO_TABLE : /check constraint|violates/i.test(error.message) ? GL_NO_TYPE_TABLE : error.message); row = data; }
       if (andPost) await glPostTxn(ln, row);
+      glMarkDirty();
       showToast((andPost ? t('পোস্ট হয়েছে ✅ ', 'Posted ✅ ') : t('সেভ হয়েছে ✅ ', 'Saved ✅ ')) + row.TxnID, 'success');
-      D = await glLoadAll(); selId = row.TxnID; resetForm(true); $('glt_P').focus();
+      D = await glLoadAll(); selId = row.TxnID; resetForm(true); $('glt_A').focus();
     } catch (err) { showToast(err.message, 'error'); }
     finally { btns.forEach(function (b) { b.disabled = false; }); }
   }
   $('glt_Loan').addEventListener('change', function () { fillTypes(); applyType(); });
-  $('glt_Type').addEventListener('change', applyType);
-  ['glt_P', 'glt_I', 'glt_C'].forEach(function (id) { $(id).addEventListener('input', calc); });
-  $('glt_P').addEventListener('change', function () { const ln = loanOf(); if (ln && ln.LoanType === 'NGO' && $('glt_Type').value === 'Receive' && !$('glt_I').value && glN(ln.InterestRate)) { $('glt_I').value = (glN($('glt_P').value) * glN(ln.InterestRate) / 100).toFixed(2); calc(); } });
+  $('glt_Type').addEventListener('change', function () { if (!editId) iTouched = false; applyType(); });
+  $('glt_A').addEventListener('input', function () { suggest(); calc(); });
+  $('glt_I').addEventListener('input', function () { iTouched = $('glt_I').value !== ''; calc(); });
+  $('glt_C').addEventListener('input', calc);
+  $('glt_Date').addEventListener('change', function () { suggest(); calc(); });
+  $('glt_AddType').addEventListener('click', function () { glTypeModal(D, function (newId) { const cur = newId || $('glt_Type').value; fillTypes(cur); applyType(); }); });
   $('glt_SaveBtn').addEventListener('click', function () { save(false); });
   $('glt_PostBtn').addEventListener('click', function () { save(true); });
   $('glt_CancelBtn').addEventListener('click', function () { resetForm(true); });
+  $('glt_Ledger').addEventListener('click', function () { window.__glLedgerLoan = $('glt_Loan').value || ''; navigateTo('loanLedger', t('লোন', 'Loans'), t('লোন লেজার', 'Loan Ledger')); });
   ['glt_From', 'glt_To', 'glt_LFilter'].forEach(function (id) { $(id).addEventListener('change', renderList); });
   let lastTap = { id: '', at: 0 };
   $('glt_List').addEventListener('click', async function (e) {
@@ -8589,52 +8755,208 @@ async function renderGmwLoanTxn(content) {
   });
   resetForm(false);
   if (window.__glTxnLoan) { const l = window.__glTxnLoan; window.__glTxnLoan = null; $('glt_Loan').value = l; fillTypes(); applyType(); }
+  if (window.__glTxnType) { const ty = window.__glTxnType; window.__glTxnType = null; fillTypes(ty); applyType(); }
   if (window.__glEditId) { const id = window.__glEditId; window.__glEditId = null; try { await openEdit(id); } catch (err) { showToast(err.message, 'error'); } }
 }
 
-/* ---------- লোন → লোন রিপোর্ট ও স্টেটমেন্ট (A4 প্রিন্ট) ---------- */
+/* ---------- লোন রিপোর্ট/স্টেটমেন্টের হিসাব (লেজার ইঞ্জিন থেকে) ---------- */
 function glDayBefore(iso) { const p = iso.split('-').map(Number); const x = new Date(p[0], p[1] - 1, p[2] - 1); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); }
-/** সারসংক্ষেপঃ প্রারম্ভিক বকেয়া · গ্রহণ/উত্তোলন (+) · আসল পরিশোধ/জমা (−) · সুদ-চার্জ খরচ · সমাপনী বকেয়া */
+/** সারসংক্ষেপঃ প্রারম্ভিক বকেয়া · লোন গ্রহণ (+) · কিস্তি/পরিশোধ (−) · সেবা/সুদ যোগ (+) · সমাপনী বকেয়া · খরচ · সুদ/আসল পরিশোধ */
 function glSummary(loan, D, from, to) {
-  const o = glState(loan, D, glDayBefore(from)), c = glState(loan, D, to);
-  const r = { open: o.due, close: c.due, recv: 0, repay: 0, exp: 0, add: 0 };
-  if (loan.LoanType === 'CC') {
-    const intIds = {}; D.txns.forEach(function (x) { if (x.LoanID === loan.LoanID && x.Type === 'Interest') intIds[x.TxnID] = true; });
-    D.book.forEach(function (b) { if (b.BankCashAccID !== loan.BankAccID) return; const d = glD10(b.Date); if (d < from || d > to) return; if (b.RefModule === 'LoanTxn' && intIds[b.RefID]) return; r.recv += glN(b.Credit); r.repay += glN(b.Debit); });
-  }
-  D.txns.forEach(function (x) {
-    if (x.LoanID !== loan.LoanID || x.Status !== 'Posted') return; const d = glD10(x.Date); if (d < from || d > to) return;
-    r.exp += glExpenseOf(loan.LoanType, x);
-    if (loan.LoanType === 'CC') return;
-    if (x.Type === 'Receive' || x.Type === 'Opening') r.recv += glN(x.Principal) + (loan.LoanType === 'NGO' ? glN(x.Interest) : 0);
-    else if (x.Type === 'Repay') r.repay += glN(x.Principal) + (loan.LoanType === 'NGO' ? glN(x.Interest) : 0);
-    else if (x.Type === 'Interest') r.add += glN(x.Interest) + glN(x.Charges);
-  });
-  if (loan.LoanType === 'CC') r.add = r.close - r.open - r.recv + r.repay;   // সুদ/চার্জ কর্তন (ব্যাংক বই থেকে)
-  return r;
+  const L = glLedger(loan, D, from, to);
+  return { open: L.open, close: L.close, recv: L.T.inLoan, add: L.T.inInt, repay: L.T.out, exp: L.T.exp, intPaid: L.T.intPaid, prinPaid: L.T.prinPaid };
 }
-/** একটি লোনের স্টেটমেন্টের সারি — চলমান বকেয়াসহ */
+/** লেজারের একটি সারির বিবরণ */
+function glRowInfo(loan, r) {
+  if (r.x) return { type: glShort(loan.LoanType, r.x.Type), desc: r.x.Note || '', cls: glRowCls(r.x.Type) };
+  return { type: bookRefLabel(r.ref), desc: '', cls: r.inAmt ? 'gl-rc' : 'gl-rp' };
+}
+/** একটি লোনের স্টেটমেন্টের সারি — চলমান বকেয়াসহ (অন্য পেজও এটা ব্যবহার করে) */
 function glStatementRows(loan, D, from, to) {
-  const out = []; const open = glState(loan, D, glDayBefore(from)).due; let bal = open;
-  if (loan.LoanType === 'CC') {
-    const xmap = {}; D.txns.forEach(function (x) { if (x.LoanID === loan.LoanID) xmap[x.TxnID] = x; });
-    D.book.filter(function (b) { const d = glD10(b.Date); return b.BankCashAccID === loan.BankAccID && d >= from && d <= to; })
-      .sort(function (a, b) { return glD10(a.Date).localeCompare(glD10(b.Date)) || (a.id - b.id); })
-      .forEach(function (b) {
-        const x = b.RefModule === 'LoanTxn' ? xmap[b.RefID] : null, cr = glN(b.Credit), dr = glN(b.Debit);
-        bal += cr - dr;
-        out.push({ date: glD10(b.Date), id: b.RefID || '', desc: x ? glTxLabel('CC', x.Type).replace(/\s*\(.*\)$/, '') + (x.Note ? ' — ' + x.Note : '') : bookRefLabel(b.RefModule), up: cr, down: dr, i: x && x.Type === 'Interest' ? glN(x.Interest) + glN(x.Charges) : 0, bal: bal, cls: x ? GL_ROW_CLS[x.Type] : (cr ? 'gl-rc' : 'gl-rp') });
-      });
-  } else {
-    D.txns.filter(function (x) { const d = glD10(x.Date); return x.LoanID === loan.LoanID && x.Status === 'Posted' && d >= from && d <= to; })
-      .sort(function (a, b) { return glD10(a.Date).localeCompare(glD10(b.Date)) || String(a.TxnID).localeCompare(String(b.TxnID), undefined, { numeric: true }); })
-      .forEach(function (x) {
-        const dp = glPrinDelta(x) + glScDelta(loan.LoanType, x); bal += dp;
-        out.push({ date: glD10(x.Date), id: x.TxnID, desc: glTxLabel(loan.LoanType, x.Type).replace(/\s*\(.*\)$/, '') + (x.Note ? ' — ' + x.Note : ''), up: dp > 0 ? dp : 0, down: dp < 0 ? -dp : 0, i: glExpenseOf(loan.LoanType, x), cash: x.Type === 'Opening' || x.Type === 'Interest' ? 0 : glCashAmt(loan.LoanType, x), bal: bal, cls: GL_ROW_CLS[x.Type] });
-      });
-  }
-  return { open: open, rows: out };
+  const L = glLedger(loan, D, from, to);
+  return { open: L.open, rows: L.rows.map(function (r) {
+    const inf = glRowInfo(loan, r);
+    return { date: r.date, id: r.id, desc: inf.type + (inf.desc ? ' — ' + inf.desc : ''), up: r.inAmt, down: r.outAmt, i: r.exp, cash: r.x && loan.LoanType !== 'CC' ? glCashAmt(loan.LoanType, r.x) : 0, bal: r.bal, cls: inf.cls, intPaid: r.intPaid, prinPaid: r.prinPaid };
+  }) };
 }
+
+/* ---------- লোন → লোন লেজার (সাইড প্যানেল · ফ্রিজ হেডার · A4 প্রিন্ট) ----------
+   কলামঃ ক্রঃ · তারিখ · বিবরণী · ভাউচার ধরন · ভাউঃ নম্বর · জমা · খরচ · ব্যালান্স · (👁️ ✏️ 🗑️ 💾)
+   হেডারের উপরে ও ফুটারেঃ এই সময়ে লোন গ্রহণ · সেবা/সুদ · কিস্তি প্রদান = সুদ পরিশোধ + আসল পরিশোধ · বকেয়া */
+async function renderGmwLoanLedger(content) {
+  const today = glToday(), fy = await getFiscalYearStart(today);
+  let D = null, sel = window.__glLedgerLoan || '', loadedAt = 0, lastPrint = null; window.__glLedgerLoan = null;
+  content.innerHTML = `<style>${DMY_CSS}${RPT_SIDE_CSS}
+      .gld-sum{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:5px;margin-bottom:6px;}
+      .gld-sum div{border:1px solid var(--border);border-radius:8px;padding:3px 8px;background:var(--surface);display:flex;flex-direction:column;align-items:center;min-width:0;}
+      .gld-sum small{font-size:10.5px;font-weight:600;color:var(--text-muted);white-space:nowrap;} .gld-sum b{font-size:13px;color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap;}
+      .gld-sum .in{background:#ecfdf3;border-color:#b7e2c4;} .gld-sum .int{background:#fdf0ef;border-color:#efc2bc;} .gld-sum .out{background:#eef4ff;border-color:#bcd0f2;}
+      .gld-sum .ip{background:#fff6e0;border-color:#e3b75c;} .gld-sum .pp{background:#f3efff;border-color:#cfc2f2;} .gld-sum .due{background:#1f2937;border-color:#1f2937;} .gld-sum .due small{color:#cbd5e1;} .gld-sum .due b{color:#ffd27a;}
+      .gld-loans{margin-top:8px;border-top:1px dashed #b9cfdd;padding-top:6px;grid-column:1 / -1;}
+      .gld-loans h4{font-size:11px;font-weight:700;color:#2f6f8f;margin:0 0 4px;}
+      .gld-ln{display:flex;justify-content:space-between;gap:6px;align-items:baseline;width:100%;border:1px solid #c9dce8;background:#fff;border-radius:7px;padding:3px 8px;margin:0 0 3px;font-size:11.5px;cursor:pointer;font-family:inherit;color:var(--text);text-align:left;}
+      .gld-ln span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .gld-ln b{font-variant-numeric:tabular-nums;white-space:nowrap;} .gld-ln.on{background:#1f2937;color:#ffd27a;border-color:#1f2937;}
+      .sr-tbl.gld-tbl tr.ln td{background:#1a2029 !important;color:#f2a33c;font-weight:700 !important;padding:2px 8px !important;}
+      .sr-tbl.gld-tbl tr.op td{background:#fafafa;font-style:italic;color:#555;}
+      .sr-tbl.gld-tbl tr.cl td{background:#eef0f3;font-weight:700 !important;border-bottom:1.5px solid #9aa2ad !important;}
+      .sr-tbl.gld-tbl tr.nil td{color:#888;font-style:italic;}
+      .sr-tbl.gld-tbl tr.gl-rc td{background:#ecfdf3;} .sr-tbl.gld-tbl tr.gl-rp td{background:#eef4ff;} .sr-tbl.gld-tbl tr.gl-in td{background:#fdf0ef;} .sr-tbl.gld-tbl tr.gl-op td{background:#f3f4f6;} .sr-tbl.gld-tbl tr.gl-cu td{background:#f6f0ff;}
+      .sr-tbl.gld-tbl tbody tr.tx{cursor:pointer;} .sr-tbl.gld-tbl tbody tr.tx.sel td{outline:1.5px solid #2563eb;outline-offset:-1.5px;}
+      .sr-tbl.gld-tbl td.nm{min-width:150px;white-space:normal;line-height:1.2 !important;} .sr-tbl.gld-tbl td.nm small{display:block;color:var(--text-muted);font-size:10px;} .sr-tbl.gld-tbl td.nm small::before{content:'' !important;}
+      .sr-tbl.gld-tbl td.neg,.sr-tbl.gld-tbl td.neg b{color:#c0392b;}
+      .sr-tbl.gld-tbl tfoot tr.ft2 td{background:#fff6e0;font-weight:600;white-space:normal;}
+      .sr-tbl.gld-tbl .gld-mb{display:none;}
+      @media (max-width:760px){
+        .gld-sum{grid-template-columns:repeat(3,minmax(0,1fr));gap:3px;} .gld-sum small{font-size:9.5px;} .gld-sum b{font-size:11.5px;}
+        .sr-tbl.gld-tbl .gld-dk{display:none;} .sr-tbl.gld-tbl .gld-mb{display:table-cell;} .sr-tbl.gld-tbl .gld-act{display:none;}
+        .sr-tbl.gld-tbl td{font-size:10px;padding:1px 3px !important;} .sr-tbl.gld-tbl th{font-size:10px;padding:3px 3px !important;white-space:normal !important;}
+        .sr-tbl.gld-tbl td.nm{min-width:96px;max-width:140px;} .sr-tbl.gld-tbl td{white-space:nowrap;} .sr-tbl.gld-tbl td.nm{white-space:normal;} .sr-tbl.gld-tbl td.nm small{font-size:9px;line-height:1.1;}
+      }
+    </style>
+    <div class="sr-head"><h1>${t('লোন লেজার', 'Loan Ledger')}</h1></div>
+    <div class="sr-layout">
+     <aside class="sr-side" id="gldSide">
+      <button type="button" class="sr-tog" id="gldTog" title="${attr(t('প্যানেল লুকান/দেখান', 'Hide/show panel'))}">‹</button>
+      <div class="sr-side-h" data-lbl="${attr(t('ফিল্টার', 'Filters'))}"><span>🔎 ${t('ফিল্টার', 'Filters')}</span></div>
+      <div class="sr-bar" id="gldBar">
+        <div class="field"><label>${t('লোনের ধরন', 'Loan type')}</label><select id="gld_Type"><option value="">${t('সব ধরন', 'All types')}</option>${Object.keys(GL_TYPES).map(function (k) { return `<option value="${k}">${GL_TYPES[k].icon} ${escapeHtml(GL_TYPES[k].bn)}</option>`; }).join('')}</select></div>
+        <div class="field"><label>${t('লোন', 'Loan')}</label><select id="gld_Loan"><option value="">${t('সব লোন', 'All loans')}</option></select></div>
+        <div class="field"><label>${t('তারিখ হইতে', 'From')}</label>${dmyDateField('gld_From', fy)}</div>
+        <div class="field"><label>${t('তারিখ পর্যন্ত', 'To')}</label>${dmyDateField('gld_To', today)}</div>
+        <div class="sr-btns" style="grid-column:1 / -1;"><button type="button" class="btn btn-primary" id="gld_Show">🔄 ${t('দেখাও', 'Show')}</button><button type="button" class="btn btn-outline" id="gld_Print">🖨️ ${t('প্রিন্ট', 'Print')}</button></div>
+        <div class="sr-btns" style="grid-column:1 / -1;"><button type="button" class="btn btn-outline" id="gld_New">＋ ${t('নতুন ভাউচার', 'New voucher')}</button></div>
+        <div class="gld-loans" id="gld_Loans"></div>
+      </div>
+     </aside>
+     <div class="sr-main panel">
+      <div class="gld-sum" id="gld_Sum"></div>
+      <div id="gld_Wrap"><div class="sr-hint">${t('লোড হচ্ছে…', 'Loading…')}</div></div>
+      <div class="sr-note" id="gld_Note"></div>
+     </div>
+    </div>`;
+  wireDmyFields(content);
+  const $ = function (id) { return document.getElementById(id); };
+  const isMob = function () { return window.matchMedia('(max-width:760px)').matches; };
+  const fit = function () { fitReportScroll(content); };
+  const side = wireReportSide($('gldSide'), $('gldTog'), 'gldSideCollapsed', fit);
+  wireSequentialKeyNav($('gldBar'));
+  const fmt = function (v, pr) { v = Math.abs(glN(v)); const d = (!pr && isMob() && Math.abs(v - Math.round(v)) < 0.005) ? 0 : 2; return v.toLocaleString('en-IN', { minimumFractionDigits: d, maximumFractionDigits: d }); };
+  const money = function (v, pr) { v = glN(v); return (v < -0.005 ? '−' : '') + fmt(v, pr); };
+  const amt = function (v, pr) { return glN(v) ? fmt(v, pr) : '—'; };
+  const range = function () { return { from: dmyIso('gld_From') || '0000-00-00', to: dmyIso('gld_To') || '9999-12-31' }; };
+  const loansOfType = function () { const ty = $('gld_Type').value; return D.loans.filter(function (l) { return !ty || l.LoanType === ty; }).slice().sort(function (a, b) { return String(a.LoanName || '').localeCompare(String(b.LoanName || ''), 'bn'); }); };
+  function fillLoans() {
+    const cur = sel; const ls = loansOfType();
+    $('gld_Loan').innerHTML = `<option value="">${t('সব লোন', 'All loans')}</option>` + ls.map(function (l) { return `<option value="${attr(l.LoanID)}">${GL_TYPES[l.LoanType].icon} ${escapeHtml(l.LoanName)}${l.Status === 'Closed' ? ' (' + t('বন্ধ', 'closed') + ')' : ''}</option>`; }).join('');
+    $('gld_Loan').value = ls.some(function (l) { return l.LoanID === cur; }) ? cur : ''; sel = $('gld_Loan').value;
+  }
+  async function load() {
+    try { D = await glLoadAll(); } catch (e) { $('gld_Wrap').innerHTML = `<div class="sr-hint">${escapeHtml(e.message)}</div>`; return; }
+    loadedAt = Date.now();
+    if (!$('gld_Wrap')) return;
+    if (sel) { const l = D.loans.find(function (x) { return x.LoanID === sel; }); if (l && $('gld_Type').value && $('gld_Type').value !== l.LoanType) $('gld_Type').value = ''; }
+    fillLoans(); render();
+  }
+  function render() {
+    if (!D || !$('gld_Wrap')) return;
+    const R = range(); if (R.from > R.to) { showToast(t('"হইতে" তারিখ "পর্যন্ত" তারিখের পরে হতে পারে না।', '"From" cannot be after "To".'), 'error'); return; }
+    const ls = loansOfType(), list = ls.filter(function (l) { return !sel || l.LoanID === sel; });
+    // সাইড প্যানেলঃ লোনওয়ারি বকেয়া (পর্যন্ত তারিখে)
+    let allDue = 0;
+    const btns = ls.map(function (l) { const c = glLedger(l, D, R.to, R.to).close; if (l.Status !== 'Closed') allDue += c; return `<button type="button" class="gld-ln ${sel === l.LoanID ? 'on' : ''}" data-ln="${attr(l.LoanID)}"><span>${GL_TYPES[l.LoanType].icon} ${escapeHtml(l.LoanName)}</span><b>${money(c)}</b></button>`; }).join('');
+    $('gld_Loans').innerHTML = `<h4>${t('লোনওয়ারি বকেয়া', 'Dues by loan')}</h4><button type="button" class="gld-ln ${sel ? '' : 'on'}" data-ln=""><span>∑ ${t('সব লোন', 'All loans')}</span><b>${money(allDue)}</b></button>${btns || `<div class="sr-note">${t('কোনো লোন নেই', 'No loans')}</div>`}`;
+    // মূল টেবিল
+    const G = { inLoan: 0, inInt: 0, inAll: 0, out: 0, intPaid: 0, prinPaid: 0, open: 0, close: 0, n: 0 };
+    const ic = function (act, icon, title, r, dis) { return `<button type="button" class="sr-ic" data-gl="${act}" data-ref="${attr(r.ref)}" data-id="${attr(r.id)}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
+    const span = function (desk, mob, inner) { return `<td class="gld-dk" colspan="${desk}">${inner}</td><td class="gld-mb" colspan="${mob}">${inner}</td>`; };
+    const parts = []; let html = '';
+    list.forEach(function (l) {
+      const L = glLedger(l, D, R.from, R.to);
+      if (!sel && !L.rows.length && Math.abs(L.open) < 0.005) return;   // সব লোনে ফাঁকা লোন বাদ
+      ['inLoan', 'inInt', 'inAll', 'out', 'intPaid', 'prinPaid'].forEach(function (k) { G[k] += L.T[k]; }); G.open += L.open; G.close += L.close; G.n += L.rows.length;
+      const body = L.rows.map(function (r, i) {
+        const inf = glRowInfo(l, r), loanTx = !!r.x, base = voucherBaseTypeSafe(r.ref), reg = VOUCHER_REGISTRY[base], ok = loanTx || (reg && reg.kind !== 'legacy');
+        const split = r.outAmt ? `${t('সুদ ', 'int ')}${fmt(r.intPaid)} · ${t('আসল ', 'prin ')}${fmt(r.prinPaid)}` : '';
+        const descTxt = [inf.desc, split].filter(Boolean);
+        return `<tr class="tx ${inf.cls}" data-ref="${attr(r.ref)}" data-id="${attr(r.id)}" data-ok="${ok ? 1 : ''}"><td>${i + 1}</td><td>${escapeHtml(formatShortDate(r.date))}</td>
+          <td class="nm gld-dk">${descTxt.length ? escapeHtml(descTxt[0]) + (descTxt[1] ? `<small>${escapeHtml(descTxt[1])}</small>` : '') : '—'}</td>
+          <td class="gld-dk">${escapeHtml(inf.type)}</td><td class="gld-dk"><b>${escapeHtml(r.id)}</b></td>
+          <td class="gld-mb nm"><b>${escapeHtml(inf.type)}</b><small>${escapeHtml(r.id)}${descTxt.length ? ' · ' + escapeHtml(descTxt.join(' · ')) : ''}</small></td>
+          <td class="n">${amt(r.inAmt)}</td><td class="n">${amt(r.outAmt)}</td><td class="n ${r.bal < -0.005 ? 'neg' : ''}"><b>${money(r.bal)}</b></td>
+          <td class="gld-act" style="white-space:nowrap;">${ic('view', '👁️', t('দেখুন / প্রিন্ট', 'View / print'), r, !ok)}${ic('edit', '✏️', t('এডিট (এডমিন — আগে আনপোস্ট হবে)', 'Edit (admin)'), r, !ok)}${ic('del', '🗑️', t('ডিলিট', 'Delete'), r, !ok)}${ic('post', '✅', t('পোস্ট হয়ে গেছে', 'Posted'), r, true)}</td></tr>`;
+      }).join('');
+      html += `<tr class="ln">${span(9, 6, GL_TYPES[l.LoanType].icon + ' ' + escapeHtml(l.LoanName) + (l.Lender ? ' — ' + escapeHtml(l.Lender) : '') + (l.LoanType === 'CC' && glN(l.LimitAmount) ? ' · ' + t('লিমিট ', 'limit ') + fmt(l.LimitAmount) : ''))}</tr>
+        <tr class="op"><td></td><td>${escapeHtml(R.from === '0000-00-00' ? '' : formatShortDate(R.from))}</td>${span(5, 3, t('প্রারম্ভিক জের (আগের বকেয়া)', 'Opening balance (previous dues)'))}<td class="n ${L.open < -0.005 ? 'neg' : ''}"><b>${money(L.open)}</b></td><td class="gld-act"></td></tr>
+        ${body || `<tr class="nil">${span(9, 6, t('এই সময়ে কোনো লেনদেন নেই।', 'No entries in this period.'))}</tr>`}
+        ${sel ? '' : `<tr class="cl"><td colspan="2">${t('মোট', 'Total')}</td>${span(3, 1, '(' + L.rows.length + t('টা) · সুদ ', ') · int ') + fmt(L.T.intPaid) + t(' · আসল ', ' · prin ') + fmt(L.T.prinPaid))}<td class="n">${fmt(L.T.inAll)}</td><td class="n">${fmt(L.T.out)}</td><td class="n ${L.close < -0.005 ? 'neg' : ''}">${money(L.close)}</td><td class="gld-act"></td></tr>`}`;
+      parts.push({ l: l, L: L });
+    });
+    // হেডারের উপরের সারাংশ
+    const cards = [['in', t('লোন গ্রহণ', 'Loan received'), G.inLoan], ['int', t('সেবা/সুদ', 'Interest'), G.inInt], ['out', t('কিস্তি প্রদান', 'Installments'), G.out], ['ip', t('সুদ দিলাম', 'Interest paid'), G.intPaid], ['pp', t('আসল দিলাম', 'Principal paid'), G.prinPaid], ['due', t('বকেয়া', 'Dues'), G.close]];
+    $('gld_Sum').innerHTML = cards.map(function (c) { return `<div class="${c[0]}"><small>${c[1]}</small><b>৳${money(c[2])}</b></div>`; }).join('');
+    const drafts = D.txns.filter(function (x) { return x.Status !== 'Posted' && list.some(function (l) { return l.LoanID === x.LoanID; }); }).length;
+    $('gld_Note').textContent = t('জমা = বকেয়া বাড়ে (লোন গ্রহণ, সেবা/সুদ) · খরচ = বকেয়া কমে (কিস্তি প্রদান)। কিস্তির টাকা আগে বাকি সুদে, তারপর আসলে ধরা হয়। এক চাপে সারি বাছাই, দুই চাপে ভাউচার খোলে।', 'In = dues up, Out = dues down. Tap once to select, twice to open.') + (drafts ? ' ⚠️ ' + drafts + t('টা খসড়া ভাউচার পোস্ট হয়নি — লেজারে ধরা হয়নি।', ' draft vouchers not posted — not in the ledger.') : '');
+    lastPrint = { R: R, parts: parts, G: G };
+    if (!html) { $('gld_Wrap').innerHTML = `<div class="sr-hint">${D.loans.length ? t('এই সময়ে কোনো লেনদেন নেই।', 'No entries in this period.') : t('আগে "লোন তালিকা" পেজে লোন যোগ করুন।', 'Add a loan in "Loan List" first.')}</div>`; return; }
+    $('gld_Wrap').innerHTML = `<div class="sr-scroll"><table class="sr-tbl gld-tbl"><thead><tr><th>${t('ক্রঃ', 'Sl')}</th><th>${t('তারিখ', 'Date')}</th><th class="gld-dk">${t('বিবরণী', 'Particulars')}</th><th class="gld-dk">${t('ভাউচার ধরন', 'Voucher type')}</th><th class="gld-dk">${t('ভাউঃ নম্বর', 'V. No')}</th><th class="gld-mb">${t('ধরন / নম্বর / বিবরণী', 'Type / No / Particulars')}</th><th>${t('জমা', 'In')}</th><th>${t('খরচ', 'Out')}</th><th>${t('ব্যালান্স', 'Balance')}</th><th class="gld-act"></th></tr></thead>
+      <tbody>${html}</tbody>
+      <tfoot><tr><td colspan="2">${sel ? t('মোট', 'Total') : t('সর্বমোট', 'Grand total')}</td>${span(3, 1, '(' + G.n + t('টা)', ')'))}<td class="n">${fmt(G.inAll)}</td><td class="n">${fmt(G.out)}</td><td class="n ${G.close < -0.005 ? 'neg' : ''}">${money(G.close)}</td><td class="gld-act"></td></tr>
+      <tr class="ft2">${span(9, 6, t('এই সময়ে — কিস্তি প্রদান ৳', 'This period — installments ৳') + fmt(G.out) + t(' = সুদ ৳', ' = interest ৳') + fmt(G.intPaid) + t(' + আসল ৳', ' + principal ৳') + fmt(G.prinPaid) + t(' · সেবা/সুদ যোগ ৳', ' · interest added ৳') + fmt(G.inInt) + t(' · লোন গ্রহণ ৳', ' · loan received ৳') + fmt(G.inLoan))}</tr></tfoot></table></div>`;
+    fit();
+  }
+  function printLedger() {
+    const P = lastPrint; if (!P || !P.parts.length) { showToast(t('প্রিন্ট করার মতো তথ্য নেই।', 'Nothing to print.'), 'error'); return; }
+    const rows = P.parts.map(function (p) {
+      const body = p.L.rows.map(function (r, i) {
+        const inf = glRowInfo(p.l, r), split = r.outAmt ? 'সুদ ' + fmt(r.intPaid, 1) + ' · আসল ' + fmt(r.prinPaid, 1) : '';
+        return `<tr><td>${i + 1}</td><td>${escapeHtml(formatShortDate(r.date))}</td><td style="text-align:left;">${escapeHtml(inf.desc || '')}${split ? `<br><small>${escapeHtml(split)}</small>` : ''}</td><td>${escapeHtml(inf.type)}</td><td>${escapeHtml(r.id)}</td><td>${amt(r.inAmt, 1)}</td><td>${amt(r.outAmt, 1)}</td><td><b>${money(r.bal, 1)}</b></td></tr>`;
+      }).join('');
+      return `<tr class="pb-zh"><td colspan="8">${escapeHtml(GL_TYPES[p.l.LoanType].bn)} — ${escapeHtml(p.l.LoanName)}${p.l.Lender ? ' (' + escapeHtml(p.l.Lender) + ')' : ''}</td></tr>
+        <tr><td></td><td>${escapeHtml(P.R.from === '0000-00-00' ? '' : formatShortDate(P.R.from))}</td><td colspan="5" style="text-align:left;"><i>প্রারম্ভিক জের</i></td><td><b>${money(p.L.open, 1)}</b></td></tr>
+        ${body || '<tr><td colspan="8"><i>এই সময়ে কোনো লেনদেন নেই।</i></td></tr>'}
+        <tr class="pb-sub"><td colspan="5" style="text-align:left;">মোট (${p.L.rows.length}টা) — কিস্তিতে সুদ ${fmt(p.L.T.intPaid, 1)} · আসল ${fmt(p.L.T.prinPaid, 1)}</td><td>${fmt(p.L.T.inAll, 1)}</td><td>${fmt(p.L.T.out, 1)}</td><td>${money(p.L.close, 1)}</td></tr>`;
+    }).join('');
+    const G = P.G, l = sel && D.loans.find(function (x) { return x.LoanID === sel; });
+    printReportA4({ title: 'লোন লেজার', period: (P.R.from === '0000-00-00' ? '' : formatShortDate(P.R.from) + ' হইতে ') + (P.R.to === '9999-12-31' ? 'আজ' : formatShortDate(P.R.to)) + ' পর্যন্ত',
+      filters: l ? l.LoanName + ' (' + GL_TYPES[l.LoanType].bn + ')' : ($('gld_Type').value ? GL_TYPES[$('gld_Type').value].bn + ' — সব' : 'সব লোন'),
+      summary: [['লোন গ্রহণ', '৳' + money(G.inLoan, 1)], ['সেবা/সুদ', '৳' + money(G.inInt, 1)], ['কিস্তি প্রদান', '৳' + money(G.out, 1)], ['সুদ দিলাম', '৳' + money(G.intPaid, 1)], ['আসল দিলাম', '৳' + money(G.prinPaid, 1)], ['বকেয়া', '৳' + money(G.close, 1)]],
+      html: `<table><thead><tr><th>ক্রঃ</th><th>তারিখ</th><th>বিবরণী</th><th>ভাউচার ধরন</th><th>ভাউঃ নম্বর</th><th>জমা</th><th>খরচ</th><th>ব্যালান্স</th></tr></thead><tbody>${rows}</tbody>
+        <tfoot><tr><td colspan="5">সর্বমোট — কিস্তি প্রদান ${fmt(G.out, 1)} = সুদ ${fmt(G.intPaid, 1)} + আসল ${fmt(G.prinPaid, 1)}</td><td>${fmt(G.inAll, 1)}</td><td>${fmt(G.out, 1)}</td><td>${money(G.close, 1)}</td></tr></tfoot></table>` });
+  }
+  async function openRow(ref, id, act) {
+    if (ref === 'LoanTxn') {
+      if (act === 'view') return glTxnPrint(id);
+      if (act === 'edit') { window.__glEditId = id; return navigateTo('loanTxn', t('লোন', 'Loans'), t('লোন ভাউচার', 'Loan Voucher')); }
+      if (act === 'del') { if (await glDeleteTxn(id)) { showToast(t('মুছে ফেলা হয়েছে ✅', 'Deleted ✅'), 'success'); await load(); } return; }
+      return;
+    }
+    const base = voucherBaseTypeSafe(ref);
+    if (act === 'view') return voucherView(base, id);
+    if (act === 'edit') return voucherEdit(base, id);
+    if (act === 'del') { if (await voucherDelete(base, id)) { await load(); } }
+  }
+  $('gld_Show').addEventListener('click', async function () { const b = this; if (b.__busy) return; b.__busy = true; b.disabled = true; try { await load(); side.collapse(); } finally { b.__busy = false; b.disabled = false; } });
+  $('gld_Print').addEventListener('click', printLedger);
+  $('gld_New').addEventListener('click', function () { window.__glTxnLoan = sel || null; navigateTo('loanTxn', t('লোন', 'Loans'), t('লোন ভাউচার', 'Loan Voucher')); });
+  $('gld_Type').addEventListener('change', function () { fillLoans(); render(); });
+  $('gld_Loan').addEventListener('change', function () { sel = $('gld_Loan').value; render(); });
+  ['gld_From', 'gld_To'].forEach(function (id) { $(id).addEventListener('change', function () { if (dmyIso(id)) render(); }); });
+  $('gld_Loans').addEventListener('click', function (e) { const b = e.target.closest('[data-ln]'); if (!b) return; sel = b.getAttribute('data-ln'); $('gld_Loan').value = sel; render(); side.collapse(); });
+  let lastTap = { id: '', at: 0 };
+  $('gld_Wrap').addEventListener('click', async function (e) {
+    const b = e.target.closest('[data-gl]');
+    if (b) { if (b.disabled || b.__busy) return; b.__busy = true; try { await openRow(b.getAttribute('data-ref'), b.getAttribute('data-id'), b.getAttribute('data-gl')); } catch (err) { showToast(err.message, 'error'); } finally { b.__busy = false; } return; }
+    const tr = e.target.closest('tr.tx'); if (!tr) return;
+    const key = tr.getAttribute('data-ref') + '|' + tr.getAttribute('data-id'), now = Date.now();
+    if (lastTap.id === key && now - lastTap.at < 450) { lastTap = { id: '', at: 0 }; if (tr.getAttribute('data-ok')) { try { await openRow(tr.getAttribute('data-ref'), tr.getAttribute('data-id'), tr.getAttribute('data-ref') === 'LoanTxn' ? 'edit' : 'view'); } catch (err) { showToast(err.message, 'error'); } } return; }
+    lastTap = { id: key, at: now }; content.querySelectorAll('#gld_Wrap tr.sel').forEach(function (r) { r.classList.remove('sel'); }); tr.classList.add('sel');
+  });
+  // অন্য পেজে ভাউচার সেভ/পোস্ট/ডিলিট হলে — এই পেজে ফিরলে নিজে নতুন করে আনে
+  const onBack = function () { if (!content.isConnected) return; if ((window.__glDirty || 0) > loadedAt) load(); };
+  window.addEventListener('resize', onBack);
+  await load();
+}
+
 async function renderGmwLoanReport(content) {
   let D;
   try { D = await glLoadAll(); } catch (e) { content.innerHTML = `<div class="page-head"><div><h1>${t('লোন রিপোর্ট ও স্টেটমেন্ট', 'Loan Report & Statement')}</h1></div></div><div class="panel"><div class="empty-state">${escapeHtml(e.message)}</div></div>`; return; }
@@ -19815,7 +20137,7 @@ async function voucherEdit(base, id, posted) {
   if (R && R.kind === 'head') { const HK = HV_KINDS[R.hv]; closeModal(); window['__' + HK.P + 'EditId'] = id; return navigateTo(HK.page, t('হিসাব', 'Accounts'), t(HK.bn, HK.en)); }   // এক্সপেন্স/রিসিপ্ট — নিজের পেজে উপরের ঘরে
   if (R.kind === 'asset') { closeModal(); window.__assetEditId = { base: base, id: id }; return navigateTo(ASSET_VCFG[base].page, t('হিসাব', 'Accounts'), ASSET_VCFG[base].bn); }
   if (R.kind === 'loan') { closeModal(); window.__loanEditId = id; return navigateTo('loans', t('হিসাব', 'Accounts'), t('ধার-দেনা (পাওনা/দেনা)', 'Loans')); }
-  if (R.kind === 'gmwloan') { closeModal(); window.__glEditId = id; return navigateTo('loanTxn', t('লোন', 'Loans'), t('লোন লেনদেন / কিস্তি', 'Loan Entries / Installments')); }
+  if (R.kind === 'gmwloan') { closeModal(); window.__glEditId = id; return navigateTo('loanTxn', t('লোন', 'Loans'), t('লোন ভাউচার', 'Loan Voucher')); }
   const h = await voucherFetchHeader(base, id);
   if (!h) { showToast(t('ভাউচারটা পাওয়া যায়নি — 🗑️ দিয়ে লেজার থেকে মুছে ফেলতে পারেন।', 'Voucher not found — remove it with 🗑️.'), 'error'); return false; }
   if (h.Status === 'Posted') {
@@ -20985,7 +21307,7 @@ function vgsTypes() {
     { key: 'IncomeVoucher', mod: 'acc', bn: 'রিসিপ্ট ভাউচার', table: 'IncomeVoucher', idf: 'IncID', date: 'Date', lines: 'IncomeVoucher_Lines', lineIdf: 'IncID', lineSum: ['Amount'], typed: true, page: 'icv' },
     { key: 'CapitalVoucher', mod: 'acc', bn: 'মালিকের মূলধন', table: 'CapitalVoucher', idf: 'CapID', date: 'Date', amount: 'Amount', nameField: 'OwnerName', page: 'ownerCapital' },
     { key: 'LoanVoucher', mod: 'acc', bn: 'ধার-দেনা', table: 'LoanVoucher', idf: 'LoanID', date: 'Date', amount: 'Amount', person: true, page: 'loans' },
-    { key: 'LoanTxn', mod: 'loan', bn: 'লোন লেনদেন / কিস্তি', table: 'LoanTxn', idf: 'TxnID', date: 'Date', loanTxn: true, page: 'loanTxn' },
+    { key: 'LoanTxn', mod: 'loan', bn: 'লোন ভাউচার', table: 'LoanTxn', idf: 'TxnID', date: 'Date', loanTxn: true, page: 'loanTxn' },
     { key: 'AssetPurchase', mod: 'asset', bn: 'এ্যাসেট ক্রয়', table: 'AssetPurchase', idf: 'APID', date: 'Date', amount: 'TotalAmount', nameField: 'PartyName', page: 'assetPurchase' },
     { key: 'AssetSale', mod: 'asset', bn: 'এ্যাসেট বিক্রয়', table: 'AssetSale', idf: 'ASID', date: 'Date', amount: 'TotalAmount', nameField: 'PartyName', page: 'assetSale' },
     { key: 'Payroll', mod: 'hr', bn: 'সেলারী ভাউচার', table: 'Payroll', idf: 'PayrollID', no: 'VoucherNo', date: 'VoucherDate', amount: 'TotalNetPay', employee: true, page: 'payroll' },
@@ -21960,7 +22282,7 @@ async function plLoadData() {
   const names = ['stock_ledger', 'ProcessingVoucher', 'ProcessingFG_Lines', 'ProcessingByProduct_Lines', 'PurchaseInvoice', 'PI_Lines', 'PurchaseReturn', 'PR_Return_Lines',
     'SalesInvoice', 'SI_Lines', 'SalesReturn', 'SR_Lines', 'TeamProduction', 'TeamProduction_Members', 'TeamProduction_Costs',
     'Payroll', 'Payroll_Lines', 'Payroll_Details', 'DailyBonus', 'ExpenseVoucher', 'ExpenseVoucher_Lines', 'IncomeVoucher', 'IncomeVoucher_Lines',
-    'PaymentVoucher', 'ReceiptVoucher', 'JournalVoucher', 'JV_Lines', 'ChartOfAccounts', 'FixedAsset', 'AssetSale', 'AssetSale_Lines', 'Loan', 'LoanTxn'];
+    'PaymentVoucher', 'ReceiptVoucher', 'JournalVoucher', 'JV_Lines', 'ChartOfAccounts', 'FixedAsset', 'AssetSale', 'AssetSale_Lines', 'Loan', 'LoanTxn', 'LoanTxnType'];
   delete listCache.Items; delete listCache.Customers; delete listCache.Suppliers;
   const res = await Promise.all(names.map(safe));
   const D = {}; names.forEach(function (n, i) { D[n] = res[i] || []; });
@@ -22206,6 +22528,7 @@ function plCompute(D, from, to, opt) {
   });
   const detDep = Object.keys(depBy).map(function (k) { return { desc: k, amt: depBy[k] }; });
   // লোন (সিসি/এনজিও/হ্যান্ড) — সুদ, সার্ভিস চার্জ ও চার্জ (পোস্ট করা লেনদেন; যেদিন দেওয়া/কাটা হয়)
+  if (typeof glSetTypes === 'function') glSetTypes(D.LoanTxnType);   // ＋ দিয়ে বানানো লোন ভাউচারের ধরন
   const lnMap = {}; (D.Loan || []).forEach(function (l) { lnMap[l.LoanID] = l; });
   const lnExp = {};
   (D.LoanTxn || []).forEach(function (x) {
@@ -23060,7 +23383,7 @@ const ALL_DATA_SHEETS = [
   'Attendance','LeaveRequests','Payroll','Payroll_Lines','Payroll_Details','SalaryIssue','EmployeeCategories','WorkRoles','SizeRates','TeamProduction','TeamProduction_Items','TeamProduction_Members','TeamProduction_Costs','DailyBonus',
   'SystemSettings',
   // পরে যোগ হওয়া টেবিল (খরচ/আয়/কালেকশন/মূলধন ভাউচার, স্থায়ী সম্পদ, খাত)
-  'ExpenseCategories','ExpenseVoucher','ExpenseVoucher_Lines','IncomeVoucher','IncomeVoucher_Lines','CollectionVoucher','CapitalVoucher','Loan','LoanTxn',
+  'ExpenseCategories','ExpenseVoucher','ExpenseVoucher_Lines','IncomeVoucher','IncomeVoucher_Lines','CollectionVoucher','CapitalVoucher','Loan','LoanTxn','LoanTxnType',
   'PayHeads','FixedAsset','AssetCategory','AssetMaster','AssetPurchase','AssetPurchase_Lines','AssetSale','AssetSale_Lines'
 ];
 
