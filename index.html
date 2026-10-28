@@ -16145,6 +16145,10 @@ function voucherViewPostedApply(P, kind, dt, id) {
    কোনো সেটিং না থাকলে সব ঘর চালু (আগের মতো)। প্রিন্ট/প্রিন্ট প্রিভিউতে কোনো প্রভাব নেই। ===== */
 /* ক্রয়/বিক্রয় ভাউচার — চিকন শিরোনাম ও উপরের অংশ, ডেস্কটপে উঁচু উইন্ডো (দর/মূল্য পর্যন্ত স্ক্রল ছাড়াই) */
 const SV_COMPACT_CSS = `
+  .vstk-tip{position:fixed;z-index:100001;pointer-events:none;background:#1f2937;color:#fff;border-radius:6px;padding:3px 8px;font-size:11.5px;line-height:1.3;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,.25);display:flex;gap:6px;align-items:baseline;}
+  .vstk-tip span{color:#fbbf24;font-size:10.5px;font-weight:700;}
+  .vstk-tip::after{content:"";position:absolute;left:50%;bottom:-5px;margin-left:-5px;border:5px solid transparent;border-bottom:0;border-top-color:#1f2937;}
+  .vstk-tip.below::after{bottom:auto;top:-5px;border-top:0;border-bottom:5px solid #1f2937;}
   .vpick{background:var(--surface,#fff);color:var(--text,#111);border:1.5px solid #c27a12;border-radius:8px;box-shadow:0 10px 28px rgba(0,0,0,.28);overflow:hidden;font-size:12.5px;}
   .vpick-q{width:100%;box-sizing:border-box;height:32px;border:0;border-bottom:1px solid var(--border,#ddd);padding:4px 9px;font-size:12.5px;outline:none;background:transparent;color:inherit;}
   .vpick-list{overflow-y:auto;}
@@ -16514,6 +16518,51 @@ async function vfsLoad(P) {
 }
 
 /** স্টক ও স্টক দরের ঘর (পিস / কেজি আলাদা) — সেটিং-এ বন্ধ থাকলে ঘর ফাঁকা */
+/** আইটেমের স্টক ও স্টক দর (লেখা হিসেবে) — স্টকের ঘর ও পরিমাণ/দরের ঘরের পপআপ দুটোই এখান থেকে */
+function vfsStockVals(P) {
+  const itemSel = document.getElementById(P + '_ItemID');
+  const kp = (itemSel && !itemSel.value) ? null : window['__' + P + 'LastStockKP'];
+  const f3 = function (x) { return String(+(Number(x) || 0).toFixed(3)); };
+  const o = { kp: kp, sPc: '', sKg: '', rPcT: '', rKgT: '' };
+  if (!kp) return o;
+  if (!kp.has) o.sKg = t('স্টক নেই', 'No stock');
+  else { o.sKg = f3(kp.kg); o.sPc = (kp.pcs || kp.piece) ? f3(kp.pcs) : '—'; }
+  const main = Number(kp.cost) || Number(window['__' + P + 'LastStockRate']) || 0;
+  const rKg = kp.piece ? (kp.avg ? main / kp.avg : 0) : main, rPc = kp.piece ? main : (kp.avg ? main * kp.avg : 0);
+  o.rKgT = rKg ? rKg.toFixed(2) : '—'; o.rPcT = rPc ? rPc.toFixed(2) : ((kp.piece || kp.pcs) ? '—' : '');
+  return o;
+}
+
+/** পরিমাণ/দরের ঘরে চাপ দিলে (বা কার্সর গেলে) ছোট পপআপ — পিসে পিসের স্টক, কেজিতে কেজির স্টক; দরে স্টক দর।
+ *  লেখা চালিয়ে যাওয়া যায়, ঘর ছাড়লেই পপআপ চলে যায়। স্টকের কলাম সেটিং-এ লুকানো থাকলেও এখানে দেখায়। */
+function voucherStockTipWire(P) {
+  const map = { _QtyPcs: ['sPc', 'স্টক', 'Stock', 'পিস', 'pcs'], _QtyKg: ['sKg', 'স্টক', 'Stock', 'কেজি', 'kg'], _RatePc: ['rPcT', 'স্টক দর', 'Stock rate', '/পিস', '/pc'], _RateKg: ['rKgT', 'স্টক দর', 'Stock rate', '/কেজি', '/kg'] };
+  let tip = null, cur = null;
+  const hide = function () { if (tip) { tip.remove(); tip = null; } cur = null; };
+  const show = function (el, suf) {
+    const m = map[suf], v = vfsStockVals(P);
+    if (!v.kp) { hide(); return; }   // আইটেম বাছাই হয়নি
+    const val = v[m[0]];
+    const txt = !val || val === '—' ? t(m[1] + ' নেই', 'No ' + m[2].toLowerCase()) : (val === t('স্টক নেই', 'No stock') ? val : val + ' ' + t(m[3], m[4]));
+    if (!tip) { tip = document.createElement('div'); tip.className = 'vstk-tip'; document.body.appendChild(tip); }
+    tip.innerHTML = `<span>${escapeHtml(t(m[1], m[2]))}</span><b>${escapeHtml(txt)}</b>`;
+    cur = el;
+    const r = el.getBoundingClientRect(), tw = tip.offsetWidth, th = tip.offsetHeight;
+    let left = Math.max(4, Math.min(window.innerWidth - tw - 4, r.left + r.width / 2 - tw / 2));
+    let top = r.top - th - 5; tip.classList.toggle('below', top < 4); if (top < 4) top = r.bottom + 5;
+    tip.style.left = left + 'px'; tip.style.top = top + 'px';
+  };
+  Object.keys(map).forEach(function (suf) {
+    const el = document.getElementById(P + suf); if (!el) return;
+    const on = function () { show(el, suf); };
+    el.addEventListener('focus', on); el.addEventListener('click', on);
+    el.addEventListener('blur', function () { if (cur === el) hide(); });
+  });
+  const mb = document.getElementById('modalBody'); if (mb) mb.addEventListener('scroll', function () { if (cur) show(cur, Object.keys(map).find(function (k) { return P + k === cur.id; })); }, { passive: true });
+  const sel = document.getElementById(P + '_ItemID'); if (sel) sel.addEventListener('change', function () { setTimeout(function () { if (cur) show(cur, Object.keys(map).find(function (k) { return P + k === cur.id; })); }, 400); });
+  const watch = setInterval(function () { if (!document.getElementById(P + '_QtyPcs')) { clearInterval(watch); hide(); } }, 1500);   // ফর্ম বন্ধ হলে পপআপও
+}
+
 function vfsStockDisplay(P, set) {
   const g = function (id) { return document.getElementById(P + id); };
   const itemSel = g('_ItemID');
@@ -16857,11 +16906,11 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
           <td data-f="no"><input id="pv3_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো','Auto')}" readonly tabindex="-1" class="ro"></td>
           <td data-f="mdate"><input type="date" id="pv3_SupplierInvoiceDate" value="${attr(rec.SupplierInvoiceDate)}" ${rec.SupplierInvoiceDate?'':'disabled'}></td>
           <td data-f="mno"><input id="pv3_SupplierInvoiceNo" value="${attr(rec.SupplierInvoiceNo)}" ${rec.SupplierInvoiceNo?'':'disabled'}></td></tr>
-        <tr class="h"><th data-f="item">${t('আইটেম','Item')}</th><th data-f="wh">${t('গুদাম','Warehouse')}</th><th class="i" data-f="group"><label><input type="checkbox" id="pv3_GroupCheck"> ${t('গ্রুপ','Group')}</label></th><th class="i" data-f="cat"><label><input type="checkbox" id="pv3_CatCheck"> ${t('ক্যাটাগরি','Category')}</label></th></tr>
-        <tr><td data-f="item"><select id="pv3_ItemID"><option value="">—</option></select></td>
+        <tr class="h"><th class="i" data-f="cat"><label><input type="checkbox" id="pv3_CatCheck"> ${t('ক্যাটাগরি','Category')}</label></th><th data-f="wh">${t('গুদাম','Warehouse')}</th><th class="i" data-f="group"><label><input type="checkbox" id="pv3_GroupCheck"> ${t('গ্রুপ','Group')}</label></th><th data-f="item">${t('আইটেম','Item')}</th></tr>
+        <tr><td data-f="cat"><select id="pv3_CatSelect" disabled style="display:none;"><option value="">—</option>${optsHtml(window.__pv3Categories, 'CategoryID','CategoryName','')}</select></td>
           <td data-f="wh"><select id="pv3_WarehouseID"><option value="">—</option>${optsHtml(window.__pv3Warehouses, 'WarehouseID','WarehouseName', rec.WarehouseID)}</select></td>
           <td data-f="group"><select id="pv3_GroupSelect" disabled style="display:none;"><option value="">—</option>${optsHtml(window.__pv3Groups, 'GroupID','GroupName','')}</select></td>
-          <td data-f="cat"><select id="pv3_CatSelect" disabled style="display:none;"><option value="">—</option>${optsHtml(window.__pv3Categories, 'CategoryID','CategoryName','')}</select></td></tr>
+          <td data-f="item"><select id="pv3_ItemID"><option value="">—</option></select></td></tr>
         <tr class="h"><th colspan="2" data-f="qtyPcs qtyKg">${t('পরিমান','Quantity')}</th><th colspan="2" class="i" data-f="stkPcs stkKg">${t('স্টক পরিমান','Stock quantity')}</th></tr>
         <tr class="h2"><th id="pv3_LblPcs" data-f="qtyPcs">${t('পিস','Pcs')}</th><th id="pv3_LblKg" data-f="qtyKg">${t('কেজি','Kg')}</th><th class="i" data-f="stkPcs">${t('পিস','Pcs')}</th><th class="i" data-f="stkKg">${t('কেজি','Kg')}</th></tr>
         <tr><td data-f="qtyPcs"><input id="pv3_QtyPcs" type="number" step="any" min="0" inputmode="decimal"></td>
@@ -17856,7 +17905,8 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
   vfsWire('pv3', pvSetP);
   voucherSmoothWire('pv3');
   voucherAmountEnterWire('pv3');
-  voucherItemPickerWire('pv3');   // আইটেমে Enter → তালিকা, ↓↑ বাছাই, Enter → পরের ঘর   // মূল্যে Enter → ক্রয় লাইন + → আইটেম
+  voucherItemPickerWire('pv3');
+  voucherStockTipWire('pv3');   // পরিমাণ/দরের ঘরে চাপ দিলে স্টক/স্টক দর পপআপ   // আইটেমে Enter → তালিকা, ↓↑ বাছাই, Enter → পরের ঘর   // মূল্যে Enter → ক্রয় লাইন + → আইটেম
     // চিকন উপরের অংশ, দর/মূল্যে টানাটানি ছাড়া   // ক্রয় ভাউচার সেটিং — টিক না থাকা ঘর দেখা যাবে না
   if (pv3ViewPosted) voucherViewPostedApply('pv3', 'purchase', existingDocType, existingId);
   voucherNavWire('pv3', 'purchase', existingDocType, existingId);   // ◀ ▶ আগের/পরের ভাউচার
@@ -18106,11 +18156,11 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
           <td data-f="no"><input id="sv3_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো','Auto')}" readonly tabindex="-1" class="ro"></td>
           <td data-f="mdate"><input type="date" id="sv3_ManualVoucherDate" value="${attr(rec.ManualVoucherDate)}" ${rec.ManualVoucherDate?'':'disabled'}></td>
           <td data-f="mno"><input id="sv3_ManualVoucherNo" value="${attr(rec.ManualVoucherNo)}" ${rec.ManualVoucherNo?'':'disabled'}></td></tr>
-        <tr class="h"><th data-f="item">${t('আইটেম','Item')}</th><th data-f="wh">${t('গুদাম','Warehouse')}</th><th class="i" data-f="group"><label><input type="checkbox" id="sv3_GroupCheck"> ${t('গ্রুপ','Group')}</label></th><th class="i" data-f="cat"><label><input type="checkbox" id="sv3_CatCheck"> ${t('ক্যাটাগরি','Category')}</label></th></tr>
-        <tr><td data-f="item"><select id="sv3_ItemID"><option value="">—</option></select></td>
+        <tr class="h"><th class="i" data-f="cat"><label><input type="checkbox" id="sv3_CatCheck"> ${t('ক্যাটাগরি','Category')}</label></th><th data-f="wh">${t('গুদাম','Warehouse')}</th><th class="i" data-f="group"><label><input type="checkbox" id="sv3_GroupCheck"> ${t('গ্রুপ','Group')}</label></th><th data-f="item">${t('আইটেম','Item')}</th></tr>
+        <tr><td data-f="cat"><select id="sv3_CatSelect" disabled style="display:none;"><option value="">—</option>${optsHtml(window.__sv3Categories, 'CategoryID','CategoryName','')}</select></td>
           <td data-f="wh"><select id="sv3_WarehouseID"><option value="">—</option>${optsHtml(window.__sv3Warehouses, 'WarehouseID','WarehouseName', rec.WarehouseID)}</select></td>
           <td data-f="group"><select id="sv3_GroupSelect" disabled style="display:none;"><option value="">—</option>${optsHtml(window.__sv3Groups, 'GroupID','GroupName','')}</select></td>
-          <td data-f="cat"><select id="sv3_CatSelect" disabled style="display:none;"><option value="">—</option>${optsHtml(window.__sv3Categories, 'CategoryID','CategoryName','')}</select></td></tr>
+          <td data-f="item"><select id="sv3_ItemID"><option value="">—</option></select></td></tr>
         <tr class="h"><th colspan="2" data-f="qtyPcs qtyKg">${t('পরিমান','Quantity')}</th><th colspan="2" class="i" data-f="stkPcs stkKg">${t('স্টক পরিমান','Stock quantity')}</th></tr>
         <tr class="h2"><th id="sv3_LblPcs" data-f="qtyPcs">${t('পিস','Pcs')}</th><th id="sv3_LblKg" data-f="qtyKg">${t('কেজি','Kg')}</th><th class="i" data-f="stkPcs">${t('পিস','Pcs')}</th><th class="i" data-f="stkKg">${t('কেজি','Kg')}</th></tr>
         <tr><td data-f="qtyPcs"><input id="sv3_QtyPcs" type="number" step="any" min="0" inputmode="decimal"></td>
@@ -19096,7 +19146,8 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
   svFieldSettingsWire(svSetP);   // বিক্রয় ভাউচার সেটিং — বন্ধ ঘর এডিট করা যাবে না
   voucherSmoothWire('sv3');
   voucherAmountEnterWire('sv3');
-  voucherItemPickerWire('sv3');   // আইটেমে Enter → তালিকা, ↓↑ বাছাই, Enter → পরের ঘর   // মূল্যে Enter → বিক্রয় লাইন + → আইটেম
+  voucherItemPickerWire('sv3');
+  voucherStockTipWire('sv3');   // পরিমাণ/দরের ঘরে চাপ দিলে স্টক/স্টক দর পপআপ   // আইটেমে Enter → তালিকা, ↓↑ বাছাই, Enter → পরের ঘর   // মূল্যে Enter → বিক্রয় লাইন + → আইটেম
     // চিকন উপরের অংশ, দর/মূল্যে টানাটানি ছাড়া
   if (sv3ViewPosted) voucherViewPostedApply('sv3', 'sales', existingDocType, existingId);
   voucherNavWire('sv3', 'sales', existingDocType, existingId);   // ◀ ▶ আগের/পরের ভাউচার
