@@ -8419,9 +8419,10 @@ async function renderGmwLoanList(content) {
         <div class="field"><label>${t('ঠিকানা', 'Address')}</label><input id="gll_Addr" autocomplete="off"></div>
         <div class="field"><label>${t('মঞ্জুর/শুরুর তারিখ', 'Sanction / start date')}</label>${dmyDateField('gll_Start', today)}</div>
         <div class="field"><label id="gll_EndL">${t('মেয়াদ শেষ (নবায়ন)', 'Expiry (renewal)')}</label>${dmyDateField('gll_End', '')}</div>
-        <div class="field gl-x gl-cc"><label class="vmain">${t('সিসি লিমিট (৳)', 'CC limit (৳)')}</label><input id="gll_Limit" type="number" step="any" min="0" inputmode="decimal"></div>
+        <div class="field gl-x gl-cc"><label class="vmain">${t('সিসি লিমিট (৳)', 'CC limit (৳)')}</label><input id="gll_Limit" type="number" step="any" min="0" inputmode="decimal" placeholder="4800000"></div>
         <div class="field"><label id="gll_RateL">${t('সুদের হার (% বার্ষিক)', 'Interest rate (% p.a.)')}</label><input id="gll_Rate" type="number" step="any" min="0" inputmode="decimal"></div>
-        <div class="field vfull gl-x gl-cc"><label class="vmain">${t('সিসি অ্যাকাউন্ট (ব্যাংক ও ক্যাশ অ্যাকাউন্টে)', 'CC account (in Bank & Cash Accounts)')}</label><select id="gll_Acc"></select><div class="gl-hint">${t('ব্যাংক ও ক্যাশ অ্যাকাউন্টে এই সিসির জন্য একটি "Bank" অ্যাকাউন্ট খুলুন — ওপেনিং ব্যালেন্সে আগের ব্যবহৃত টাকা মাইনাসে (যেমনঃ -500000)। কনট্রা/পেমেন্ট ভাউচারে এই অ্যাকাউন্ট থেকে লেনদেনও লোনে ধরা পড়বে।', 'Open a "Bank" account for this CC in Bank & Cash Accounts — enter the used amount as a negative opening balance.')} <a href="#" id="gll_GoBank">${t('＋ নতুন অ্যাকাউন্ট খুলুন', '+ open account')}</a></div></div>
+        <div class="field vfull gl-x gl-cc"><label class="vmain">${t('সিসি অ্যাকাউন্ট (ব্যাংক ও ক্যাশ অ্যাকাউন্টে)', 'CC account (in Bank & Cash Accounts)')}</label><select id="gll_Acc"></select><div class="gl-hint">${t('ব্যাংক ও ক্যাশ অ্যাকাউন্টে এই সিসির জন্য একটি "Bank" অ্যাকাউন্ট খুলুন — আগের ব্যবহৃত লোন নিচের "শুরুর ব্যবহৃত লোন" ঘরে দিন। কনট্রা/পেমেন্ট ভাউচারে এই অ্যাকাউন্ট থেকে লেনদেনও লোনে ধরা পড়বে।', 'Open a "Bank" account for this CC in Bank & Cash Accounts — enter the used loan amount in the Cr box of the opening balance.')} <a href="#" id="gll_GoBank">${t('＋ নতুন অ্যাকাউন্ট খুলুন', '+ open account')}</a></div></div>
+        <div class="field vfull gl-x gl-cc"><label class="vmain">${t('শুরুর ব্যবহৃত লোন (৳) — সফটওয়্যার শুরুর আগে যত টাকা তোলা হয়েছে', 'Loan used at start (৳)')}</label><input id="gll_CCOpen" type="number" step="any" min="0" inputmode="decimal" placeholder="4800000"><div class="gl-hint">${t('যেমনঃ পুরো লিমিট তোলা থাকলে 4800000 লিখুন (প্লাস)। এটা সিসি অ্যাকাউন্টের ওপেনিং ব্যালেন্সে নিজে বসবে। সুদ আলাদা "সেবা বা সুদ" ভাউচারে দিন।', 'e.g. 4800000 if the full limit was drawn. Saved as the CC account opening balance.')}</div></div>
         <div class="field gl-x gl-ngo"><label>${t('কিস্তির ধরন', 'Installment type')}</label><select id="gll_InstType"><option value="Weekly">${t('সাপ্তাহিক', 'Weekly')}</option><option value="Monthly">${t('মাসিক', 'Monthly')}</option><option value="Daily">${t('দৈনিক', 'Daily')}</option></select></div>
         <div class="field gl-x gl-ngo"><label>${t('কিস্তির সংখ্যা', 'No. of installments')}</label><input id="gll_InstCnt" type="number" step="1" min="0" inputmode="numeric"></div>
         <div class="field gl-x gl-ngo"><label>${t('প্রতি কিস্তি (৳)', 'Per installment (৳)')}</label><input id="gll_InstAmt" type="number" step="any" min="0" inputmode="decimal"></div>
@@ -8437,6 +8438,7 @@ async function renderGmwLoanList(content) {
   wireDmyFields(content);
   wireSequentialKeyNav($('gll_Form'));
   const curType = function () { const r = content.querySelector('input[name="gll_Type"]:checked'); return r ? r.value : 'CC'; };
+  function fillCCOpen() { const a = D.accs.find(function (x) { return x.BankAccID === $('gll_Acc').value; }); const ob = a ? glN(a.OpeningBalance) : 0; $('gll_CCOpen').value = ob ? String(glR2(Math.abs(ob))) : ''; }
   function fillAcc(sel) { $('gll_Acc').innerHTML = `<option value="">${t('— অ্যাকাউন্ট বাছাই করুন —', '— choose account —')}</option>` + bankAccs().map(function (a) { return `<option value="${attr(a.BankAccID)}">${escapeHtml(a.AccountName)}</option>`; }).join(''); $('gll_Acc').value = sel || ''; }
   function applyType() {
     const lt = curType();
@@ -8447,10 +8449,11 @@ async function renderGmwLoanList(content) {
     $('gll_EndL').textContent = lt === 'CC' ? t('মেয়াদ শেষ (নবায়ন)', 'Expiry (renewal)') : t('পরিশোধের শেষ তারিখ', 'Final due date');
   }
   content.querySelectorAll('input[name="gll_Type"]').forEach(function (r) { r.addEventListener('change', applyType); });
+  $('gll_Acc').addEventListener('change', fillCCOpen);
   $('gll_GoBank').addEventListener('click', function (e) { e.preventDefault(); navigateTo('bankCash', t('হিসাব', 'Accounts'), t('ব্যাংক ও ক্যাশ অ্যাকাউন্ট', 'Bank & Cash Accounts')); });
   function resetForm() {
     editId = null; $('gll_FormTitle').textContent = t('নতুন লোন', 'New loan');
-    ['gll_Name', 'gll_Lender', 'gll_Branch', 'gll_AccNo', 'gll_Mobile', 'gll_Addr', 'gll_Limit', 'gll_Rate', 'gll_InstCnt', 'gll_InstAmt', 'gll_Note'].forEach(function (id) { $(id).value = ''; });
+    ['gll_Name', 'gll_Lender', 'gll_Branch', 'gll_AccNo', 'gll_Mobile', 'gll_Addr', 'gll_Limit', 'gll_CCOpen', 'gll_Rate', 'gll_InstCnt', 'gll_InstAmt', 'gll_Note'].forEach(function (id) { $(id).value = ''; });
     $('gll_Start').value = isoToDmy(today); $('gll_End').value = ''; $('gll_FirstInst').value = ''; $('gll_InstType').value = 'Weekly'; $('gll_Status').value = 'Active';
     content.querySelectorAll('input[name="gll_Type"]').forEach(function (r) { r.disabled = false; });
     fillAcc(''); $('gll_CancelBtn').style.display = 'none'; applyType(); renderList();
@@ -8463,7 +8466,7 @@ async function renderGmwLoanList(content) {
     content.querySelectorAll('input[name="gll_Type"]').forEach(function (r) { r.disabled = hasTx && r.value !== l.LoanType; });   // লেনদেন থাকলে ধরন বদলানো যাবে না
     $('gll_Name').value = l.LoanName || ''; $('gll_Lender').value = l.Lender || ''; $('gll_Branch').value = l.Branch || ''; $('gll_AccNo').value = l.AccountNo || '';
     $('gll_Mobile').value = l.Mobile || ''; $('gll_Addr').value = l.Address || ''; $('gll_Start').value = isoToDmy(l.StartDate); $('gll_End').value = isoToDmy(l.EndDate);
-    $('gll_Limit').value = l.LimitAmount || ''; $('gll_Rate').value = l.InterestRate || ''; fillAcc(l.BankAccID || '');
+    $('gll_Limit').value = l.LimitAmount ? Math.abs(glN(l.LimitAmount)) : ''; $('gll_Rate').value = l.InterestRate || ''; fillAcc(l.BankAccID || ''); fillCCOpen();
     $('gll_InstType').value = l.InstallmentType || 'Weekly'; $('gll_InstCnt').value = l.InstallmentCount || ''; $('gll_InstAmt').value = l.InstallmentAmount || ''; $('gll_FirstInst').value = isoToDmy(l.FirstInstallmentDate);
     $('gll_Status').value = l.Status === 'Closed' ? 'Closed' : 'Active'; $('gll_Note').value = l.Note || '';
     $('gll_CancelBtn').style.display = ''; applyType(); renderList(); window.scrollTo({ top: 0, behavior: 'smooth' }); $('gll_Name').focus();
@@ -8484,7 +8487,7 @@ async function renderGmwLoanList(content) {
       const rows = ls.map(function (l) {
         const s = S[l.LoanID], closed = l.Status === 'Closed'; if (!closed) subDue += s.due;
         let info = '';
-        if (lt === 'CC') info = t('লিমিট ', 'Limit ') + glMoney(l.LimitAmount) + (s.avail !== null ? ' · ' + t('বাকি লিমিট ', 'available ') + `<span class="${s.avail < 0 ? 'gl-neg' : ''}">${glMoney(s.avail)}</span>` : '') + (l.EndDate ? ' · ' + t('মেয়াদ ', 'exp. ') + `<span class="${glD10(l.EndDate) < today ? 'gl-neg' : ''}">${formatShortDate(glD10(l.EndDate))}</span>` : '');
+        if (lt === 'CC') info = (s.surplus ? `<span class="gl-neg">${t('⚠️ সিসি অ্যাকাউন্টে উদ্বৃত্ত ৳', '⚠️ CC account surplus ৳')}${glMoney(s.surplus)}${t(' — ওপেনিং ব্যালেন্স Dr ঘরে দেওয়া হয়নি তো?', ' — opening entered in Dr?')}</span> · ` : '') + t('লিমিট ', 'Limit ') + glMoney(Math.abs(glN(l.LimitAmount))) + (s.avail !== null ? ' · ' + t('বাকি লিমিট ', 'available ') + `<span class="${s.avail < 0 ? 'gl-neg' : ''}">${glMoney(s.avail)}</span>` : '') + (l.EndDate ? ' · ' + t('মেয়াদ ', 'exp. ') + `<span class="${glD10(l.EndDate) < today ? 'gl-neg' : ''}">${formatShortDate(glD10(l.EndDate))}</span>` : '');
         else if (lt === 'NGO') info = s.inst ? (t('কিস্তি ', 'Inst. ') + s.inst.paidN + '/' + s.inst.cnt + ' (' + glInstKindBn(l.InstallmentType) + ' ৳' + glMoney(s.inst.amt) + ')' + (s.inst.late ? ` · <span class="gl-neg">${t('বকেয়া ', 'overdue ')}${s.inst.late}${t('টি', '')}</span>` : '') + (s.inst.next ? ' · ' + t('পরবর্তী ', 'next ') + formatShortDate(s.inst.next) : '')) : t('সেবা/সুদ বাকি ৳', 'Interest due ৳') + glMoney(s.sc);
         else info = (glN(l.InterestRate) ? t('সুদ ', 'Interest ') + glN(l.InterestRate) + '% · ' : '') + (l.Mobile ? escapeHtml(l.Mobile) : '');
         const ic = function (act, icon, title, dis) { return `<button type="button" class="own-ic" data-gl="${act}" data-id="${attr(l.LoanID)}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
@@ -8502,6 +8505,7 @@ async function renderGmwLoanList(content) {
     if (!name) { showToast(t('লোনের নাম দিন।', 'Enter the loan name.'), 'error'); $('gll_Name').focus(); return; }
     const bad = ['gll_Start', 'gll_End', 'gll_FirstInst'].find(function (id) { return $(id).value && !dmyIso(id); });
     if (bad) { showToast(t('তারিখ ঠিক নেই (দিন-মাস-বছর)।', 'Invalid date (dd-mm-yyyy).'), 'error'); $(bad).focus(); return; }
+    if (lt === 'CC' && glN($('gll_Limit').value) < 0) { $('gll_Limit').value = Math.abs(glN($('gll_Limit').value)); showToast(t('লিমিট মাইনাস হয় না — প্লাস করে দেওয়া হলো, আবার সেভ চাপুন।', 'Limit cannot be negative — fixed, press Save again.'), 'error'); $('gll_Limit').focus(); return; }
     if (lt === 'CC' && !$('gll_Acc').value) { showToast(t('সিসি অ্যাকাউন্ট বাছাই করুন (না থাকলে আগে ব্যাংক ও ক্যাশ অ্যাকাউন্টে খুলুন)।', 'Choose the CC account.'), 'error'); $('gll_Acc').focus(); return; }
     if (lt === 'CC' && D.loans.some(function (l) { return l.LoanType === 'CC' && l.BankAccID === $('gll_Acc').value && l.LoanID !== editId; })) { showToast(t('এই অ্যাকাউন্ট আরেকটি সিসি লোনে জোড়া আছে।', 'This account is already linked to another CC loan.'), 'error'); return; }
     if (editId && lt === 'CC') { const old = D.loans.find(function (l) { return l.LoanID === editId; }); if (old && old.BankAccID && old.BankAccID !== $('gll_Acc').value && D.txns.some(function (x) { return x.LoanID === editId && x.Status === 'Posted'; })) { showToast(t('পোস্ট করা লেনদেন আছে — সিসি অ্যাকাউন্ট বদলানো যাবে না।', 'Posted entries exist — the CC account cannot change.'), 'error'); return; } }
@@ -8516,6 +8520,13 @@ async function renderGmwLoanList(content) {
       let row;
       if (editId) { const { data, error } = await supabaseClient.from('Loan').update(rec).eq('LoanID', editId).select().single(); if (error) throw new Error(error.message); row = data; }
       else { const { data, error } = await supabaseClient.from('Loan').insert(Object.assign({ CreatedBy: (currentUser && currentUser.Email) || '' }, rec)).select().single(); if (error) throw new Error(/does not exist|schema cache/.test(error.message) ? GL_NO_TABLE : error.message); row = data; }
+      if (lt === 'CC' && $('gll_CCOpen').value !== '') {   // শুরুর ব্যবহৃত লোন → সিসি অ্যাকাউন্টের ওপেনিং ব্যালেন্স (মাইনাস = দেনা)
+        const ob = -Math.abs(glN($('gll_CCOpen').value)), acc = D.accs.find(function (a) { return a.BankAccID === rec.BankAccID; });
+        if (!acc || Math.abs(glN(acc.OpeningBalance) - ob) > 0.004) {
+          const { error } = await supabaseClient.from('BankCashAccounts').update({ OpeningBalance: ob }).eq('BankAccID', rec.BankAccID); if (error) throw new Error(error.message);
+          listCache = {};
+        }
+      }
       showToast(t('সেভ হয়েছে ✅ ', 'Saved ✅ ') + row.LoanID, 'success');
       D = await glLoadAll(); selId = row.LoanID; resetForm();
     } catch (err) { showToast(err.message, 'error'); }
