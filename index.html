@@ -7,7 +7,8 @@
 <!-- হোম স্ক্রিনে যোগ করলে অ্যাপের মতো (ব্রাউজার বার ছাড়া) খুলবে -->
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#12161d">
-<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%20-10%20120%20120%22%3E%3Crect%20x%3D%220%22%20y%3D%22-10%22%20width%3D%22120%22%20height%3D%22120%22%20rx%3D%2222%22%20fill%3D%22%23ffffff%22/%3E%3Cg%20transform%3D%22translate%28-6%2C16%29%20scale%281.1%29%22%3E%3Cg%20stroke%3D%22%231f4fd1%22%20stroke-width%3D%223.6%22%20stroke-linecap%3D%22round%22%3E%3Cline%20x1%3D%2286.68%22%20y1%3D%2253.35%22%20x2%3D%22101.69%22%20y2%3D%2249.61%22/%3E%3Cline%20x1%3D%2284.01%22%20y1%3D%2246.58%22%20x2%3D%2294.02%22%20y2%3D%2240.99%22/%3E%3Cline%20x1%3D%2279.65%22%20y1%3D%2240.76%22%20x2%3D%2296.19%22%20y2%3D%2224.56%22/%3E%3Cline%20x1%3D%2273.92%22%20y1%3D%2236.28%22%20x2%3D%2282.03%22%20y2%3D%2222.45%22/%3E%3Cline%20x1%3D%2267.21%22%20y1%3D%2233.46%22%20x2%3D%2274.85%22%20y2%3D%225.34%22/%3E%3Cline%20x1%3D%2260.00%22%20y1%3D%2232.50%22%20x2%3D%2260.00%22%20y2%3D%2214.50%22/%3E%3Cline%20x1%3D%2252.79%22%20y1%3D%2233.46%22%20x2%3D%2245.15%22%20y2%3D%225.34%22/%3E%3Cline%20x1%3D%2246.08%22%20y1%3D%2236.28%22%20x2%3D%2237.97%22%20y2%3D%2222.45%22/%3E%3Cline%20x1%3D%2240.35%22%20y1%3D%2240.76%22%20x2%3D%2223.81%22%20y2%3D%2224.56%22/%3E%3Cline%20x1%3D%2235.99%22%20y1%3D%2246.58%22%20x2%3D%2225.98%22%20y2%3D%2240.99%22/%3E%3Cline%20x1%3D%2233.32%22%20y1%3D%2253.35%22%20x2%3D%2218.31%22%20y2%3D%2249.61%22/%3E%3C/g%3E%3Cpath%20d%3D%22M36%2C60%20A24%2C24%200%200%201%2084%2C60%20Z%22%20fill%3D%22%231f4fd1%22/%3E%3Cline%20x1%3D%2222%22%20y1%3D%2260%22%20x2%3D%2298%22%20y2%3D%2260%22%20stroke%3D%22%231f4fd1%22%20stroke-width%3D%223.6%22%20stroke-linecap%3D%22round%22/%3E%3Ctext%20x%3D%2260%22%20y%3D%2256%22%20text-anchor%3D%22middle%22%20font-family%3D%22Arial%2C%20Helvetica%2C%20sans-serif%22%20font-weight%3D%22800%22%20font-size%3D%2217.3%22%20fill%3D%22%23ffffff%22%20letter-spacing%3D%220.5%22%3EGM%3C/text%3E%3C/g%3E%3C/svg%3E" type="image/svg+xml">
+<link rel="alternate icon" href="icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -50,6 +51,8 @@ button{font-family:inherit;}
   display:flex;align-items:center;justify-content:center;
   font-family:'Oswald',sans-serif;font-weight:700;color:var(--ink-900);font-size:17px;
 }
+.login-brand .mark.svg,.brand-mark.svg{background:#fff;clip-path:none;border-radius:10px;box-shadow:0 0 0 1px rgba(0,0,0,.08);padding:0;overflow:hidden;}
+.login-brand .mark.svg svg,.brand-mark.svg svg{width:100%;height:100%;display:block;}
 .login-brand b{font-family:'Oswald',sans-serif;font-size:17px;display:block;}
 .login-brand span{font-size:11px;color:var(--text-muted);letter-spacing:.08em;}
 .field{margin-bottom:14px;}
@@ -319,7 +322,7 @@ table.data-table{width:100%;border-collapse:collapse;font-size:13px;}
 <div class="login-screen" id="loginScreen">
   <div class="login-card">
     <div class="login-brand">
-      <div class="mark">GM</div>
+      <div class="mark svg"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -10 120 120"><rect x="0" y="-10" width="120" height="120" rx="22" fill="#ffffff"/><g transform="translate(-6,16) scale(1.1)"><g stroke="#1f4fd1" stroke-width="3.6" stroke-linecap="round"><line x1="86.68" y1="53.35" x2="101.69" y2="49.61"/><line x1="84.01" y1="46.58" x2="94.02" y2="40.99"/><line x1="79.65" y1="40.76" x2="96.19" y2="24.56"/><line x1="73.92" y1="36.28" x2="82.03" y2="22.45"/><line x1="67.21" y1="33.46" x2="74.85" y2="5.34"/><line x1="60.00" y1="32.50" x2="60.00" y2="14.50"/><line x1="52.79" y1="33.46" x2="45.15" y2="5.34"/><line x1="46.08" y1="36.28" x2="37.97" y2="22.45"/><line x1="40.35" y1="40.76" x2="23.81" y2="24.56"/><line x1="35.99" y1="46.58" x2="25.98" y2="40.99"/><line x1="33.32" y1="53.35" x2="18.31" y2="49.61"/></g><path d="M36,60 A24,24 0 0 1 84,60 Z" fill="#1f4fd1"/><line x1="22" y1="60" x2="98" y2="60" stroke="#1f4fd1" stroke-width="3.6" stroke-linecap="round"/><text x="60" y="56" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="800" font-size="17.3" fill="#ffffff" letter-spacing="0.5">GM</text></g></svg></div>
       <div>
         <b>G Metal Works</b>
         <span>PRODUCTION ERP</span>
@@ -393,7 +396,7 @@ table.data-table{width:100%;border-collapse:collapse;font-size:13px;}
 <div class="app" id="app">
   <aside class="sidebar" id="sidebar">
     <div class="brand">
-      <div class="brand-mark" id="brandMark">GM</div>
+      <div class="brand-mark svg" id="brandMark"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -10 120 120"><rect x="0" y="-10" width="120" height="120" rx="22" fill="#ffffff"/><g transform="translate(-6,16) scale(1.1)"><g stroke="#1f4fd1" stroke-width="3.6" stroke-linecap="round"><line x1="86.68" y1="53.35" x2="101.69" y2="49.61"/><line x1="84.01" y1="46.58" x2="94.02" y2="40.99"/><line x1="79.65" y1="40.76" x2="96.19" y2="24.56"/><line x1="73.92" y1="36.28" x2="82.03" y2="22.45"/><line x1="67.21" y1="33.46" x2="74.85" y2="5.34"/><line x1="60.00" y1="32.50" x2="60.00" y2="14.50"/><line x1="52.79" y1="33.46" x2="45.15" y2="5.34"/><line x1="46.08" y1="36.28" x2="37.97" y2="22.45"/><line x1="40.35" y1="40.76" x2="23.81" y2="24.56"/><line x1="35.99" y1="46.58" x2="25.98" y2="40.99"/><line x1="33.32" y1="53.35" x2="18.31" y2="49.61"/></g><path d="M36,60 A24,24 0 0 1 84,60 Z" fill="#1f4fd1"/><line x1="22" y1="60" x2="98" y2="60" stroke="#1f4fd1" stroke-width="3.6" stroke-linecap="round"/><text x="60" y="56" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="800" font-size="17.3" fill="#ffffff" letter-spacing="0.5">GM</text></g></svg></div>
       <div class="brand-text"><b data-bn="জি মেটাল ওয়ার্কস" data-en="G Metal Works">জি মেটাল ওয়ার্কস</b><span data-bn="প্রোডাকশন ইআরপি" data-en="PRODUCTION ERP">প্রোডাকশন ইআরপি</span></div>
       <button class="collapse-btn" id="collapseBtn">‹</button>
     </div>
@@ -1633,18 +1636,12 @@ async function bootApp() {
 
 /** CompanyProfile-এ সেভ করা LogoURL থাকলে সাইডবারের ব্র্যান্ড আইকনে আসল লোগো দেখাবে,
  *  না থাকলে বা লোড ব্যর্থ হলে "GM" টেক্সট ফলব্যাক হিসেবে থেকে যাবে। */
-async function applyCompanyLogo() {
+/** সফটওয়্যারের লোগো — জি মেটাল ওয়ার্কসের সূর্য মার্কা (GM) */
+const GM_LOGO_SVG = '<svg xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block;" viewBox="12 0 96 76"><g stroke="#1f4fd1" stroke-width="2.6" stroke-linecap="round"><line x1="86.68" y1="53.35" x2="101.69" y2="49.61"/><line x1="84.95" y1="48.44" x2="94.75" y2="43.90"/><line x1="82.33" y1="43.95" x2="99.26" y2="31.77"/><line x1="78.90" y1="40.03" x2="88.69" y2="29.70"/><line x1="74.80" y1="36.83" x2="88.94" y2="14.69"/><line x1="70.17" y1="34.45" x2="76.45" y2="18.69"/><line x1="65.18" y1="32.99" x2="70.75" y2="3.96"/><line x1="60.00" y1="32.50" x2="60.00" y2="14.50"/><line x1="54.82" y1="32.99" x2="49.25" y2="3.96"/><line x1="49.83" y1="34.45" x2="43.55" y2="18.69"/><line x1="45.20" y1="36.83" x2="31.06" y2="14.69"/><line x1="41.10" y1="40.03" x2="31.31" y2="29.70"/><line x1="37.67" y1="43.95" x2="20.74" y2="31.77"/><line x1="35.05" y1="48.44" x2="25.25" y2="43.90"/><line x1="33.32" y1="53.35" x2="18.31" y2="49.61"/></g><path d="M36,60 A24,24 0 0 1 84,60 Z" fill="#1f4fd1"/><line x1="22" y1="60" x2="98" y2="60" stroke="#1f4fd1" stroke-width="2.6" stroke-linecap="round"/><text x="60" y="56" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="800" font-size="17.3" fill="#ffffff" letter-spacing="0.5">GM</text><text x="22" y="71.20" textLength="76" lengthAdjust="spacingAndGlyphs" font-family="Arial, Helvetica, sans-serif" font-weight="700" font-size="11.1" fill="#1f4fd1">G Metal Works</text></svg>';
+const GM_MARK_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -10 120 120"><rect x="0" y="-10" width="120" height="120" rx="22" fill="#ffffff"/><g transform="translate(-6,16) scale(1.1)"><g stroke="#1f4fd1" stroke-width="3.6" stroke-linecap="round"><line x1="86.68" y1="53.35" x2="101.69" y2="49.61"/><line x1="84.01" y1="46.58" x2="94.02" y2="40.99"/><line x1="79.65" y1="40.76" x2="96.19" y2="24.56"/><line x1="73.92" y1="36.28" x2="82.03" y2="22.45"/><line x1="67.21" y1="33.46" x2="74.85" y2="5.34"/><line x1="60.00" y1="32.50" x2="60.00" y2="14.50"/><line x1="52.79" y1="33.46" x2="45.15" y2="5.34"/><line x1="46.08" y1="36.28" x2="37.97" y2="22.45"/><line x1="40.35" y1="40.76" x2="23.81" y2="24.56"/><line x1="35.99" y1="46.58" x2="25.98" y2="40.99"/><line x1="33.32" y1="53.35" x2="18.31" y2="49.61"/></g><path d="M36,60 A24,24 0 0 1 84,60 Z" fill="#1f4fd1"/><line x1="22" y1="60" x2="98" y2="60" stroke="#1f4fd1" stroke-width="3.6" stroke-linecap="round"/><text x="60" y="56" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="800" font-size="17.3" fill="#ffffff" letter-spacing="0.5">GM</text></g></svg>';
+async function applyCompanyLogo() {   // সাইডবারে সবসময় সফটওয়্যারের সূর্য মার্কা লোগো (প্রিন্টে কোম্পানি প্রোফাইলের লোগো, না থাকলে এটাই)
   const brandMark = document.getElementById('brandMark');
-  try {
-    const profile = await api('getSingleton', { sheet: 'CompanyProfile' });
-    if (profile && profile.LogoURL) {
-      brandMark.innerHTML = `<img src="${attr(profile.LogoURL)}" alt="Logo" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;" onerror="this.parentNode.textContent='GM';">`;
-    } else {
-      brandMark.textContent = 'GM';
-    }
-  } catch (e) {
-    brandMark.textContent = 'GM';
-  }
+  if (brandMark) { brandMark.classList.add('svg'); brandMark.innerHTML = GM_MARK_SVG; }
 }
 
 /* ============================================================
@@ -4373,7 +4370,7 @@ async function payvPrint(K, rec, ctx) {
   </div>
   <div class="voucher-watermark">gmetal</div>
   <div class="v-co">
-    <div class="v-logo">${co.LogoURL ? `<img src="${attr(co.LogoURL)}" alt="">` : '<span>লোগো</span>'}</div>
+    <div class="v-logo">${co.LogoURL ? `<img src="${attr(co.LogoURL)}" alt="">` : GM_LOGO_SVG}</div>
     <div class="v-co-info">
       <div class="v-co-name">${escapeHtml(coName)}</div>
       <div class="v-co-addr">${escapeHtml(coAddr)}</div>
@@ -5325,7 +5322,7 @@ async function hvPrint(K, rec, lines, ctx) {
   </div>
   <div class="voucher-watermark">gmetal</div>
   <div class="v-co">
-    <div class="v-logo">${co.LogoURL ? `<img src="${attr(co.LogoURL)}" alt="">` : '<span>লোগো</span>'}</div>
+    <div class="v-logo">${co.LogoURL ? `<img src="${attr(co.LogoURL)}" alt="">` : GM_LOGO_SVG}</div>
     <div class="v-co-info">
       <div class="v-co-name">${escapeHtml(coName)}</div>
       <div class="v-co-addr">${escapeHtml(coAddr)}</div>
@@ -6263,7 +6260,7 @@ async function cvPrint(rec, ctx) {
   </div>
   <div class="voucher-watermark">gmetal</div>
   <div class="v-co">
-    <div class="v-logo">${co.LogoURL ? `<img src="${attr(co.LogoURL)}" alt="">` : '<span>লোগো</span>'}</div>
+    <div class="v-logo">${co.LogoURL ? `<img src="${attr(co.LogoURL)}" alt="">` : GM_LOGO_SVG}</div>
     <div class="v-co-info">
       <div class="v-co-name">${escapeHtml(co.CompanyNameBn || 'জি মেটাল ওয়ার্কস')}</div>
       <div class="v-co-addr">${escapeHtml(co.AddressBn || 'আলামপুর ব্রীজঘাট বাজার, কোটচাঁদপুর রোড, মহেশপুর, ঝিনাইদহ।')}</div>
@@ -10955,7 +10952,7 @@ async function renderPayrollPage(content) {
       <div class="toolbar"><button class="primary" onclick="window.print()">🖨️ প্রিন্ট</button>
         <button onclick="document.getElementById('pg').textContent='@page{size:A5 portrait;margin:6mm;}'">A5 খাড়া</button>
         <button onclick="document.getElementById('pg').textContent='@page{size:A5 landscape;margin:6mm;}'">A5 আড়াআড়ি</button></div>
-      <div class="v-co"><div class="v-logo">${co.LogoURL ? `<img src="${attr(co.LogoURL)}" alt="">` : '<span>লোগো</span>'}</div>
+      <div class="v-co"><div class="v-logo">${co.LogoURL ? `<img src="${attr(co.LogoURL)}" alt="">` : GM_LOGO_SVG}</div>
         <div class="v-co-info"><div class="v-co-name">${escapeHtml(co.CompanyNameBn || 'জি মেটাল ওয়ার্কস')}</div><div class="v-co-addr">${escapeHtml(co.AddressBn || '')}</div>${co.Phone ? `<div class="v-co-mob">মোবাইলঃ <span class="en">${escapeHtml(co.Phone)}</span></div>` : ''}<div class="v-type">সেলারী ভাউচার — হাজিরা ও মুজুরী</div></div>
         <div class="v-meta"><div class="v-print">প্রিন্টঃ <span class="en">${escapeHtml(formatPrintDate())}</span></div><div class="v-meta-row"><span>ভাউচার নংঃ</span><b class="en">${escapeHtml(st.no || 'খসড়া')}</b></div><div class="v-meta-row"><span>তারিখঃ</span><b class="en">${escapeHtml(formatShortDate(st.vdate))}</b></div></div></div>
       <div class="v-party"><div class="v-party-name"><span class="lbl">কর্মচারীঃ</span> ${escapeHtml(e.Name || st.emp)}</div>
@@ -11590,7 +11587,7 @@ async function renderSalaryIssuePage(content) {
       <style>${VOUCHER_TABLE_CSS} .items-table td,.items-table th{font-size:10.5px;padding:4px 5px;} .items-table .r{text-align:right;} .items-table td{text-align:center;}</style>
       <style>@page{size:A5 portrait;margin:8mm;}</style></head><body>
       <div class="toolbar"><button class="primary" onclick="window.print()">🖨️ প্রিন্ট</button></div>
-      <div class="v-co"><div class="v-logo">${co.LogoURL ? `<img src="${attr(co.LogoURL)}" alt="">` : '<span>লোগো</span>'}</div>
+      <div class="v-co"><div class="v-logo">${co.LogoURL ? `<img src="${attr(co.LogoURL)}" alt="">` : GM_LOGO_SVG}</div>
         <div class="v-co-info"><div class="v-co-name">${escapeHtml(co.CompanyNameBn || 'জি মেটাল ওয়ার্কস')}</div><div class="v-co-addr">${escapeHtml(co.AddressBn || '')}</div>${co.Phone ? `<div class="v-co-mob">মোবাইলঃ <span class="en">${escapeHtml(co.Phone)}</span></div>` : ''}<div class="v-type">${escapeHtml(title)}</div></div>
         <div class="v-meta"><div class="v-print">প্রিন্টঃ <span class="en">${escapeHtml(formatPrintDate())}</span></div><div class="v-meta-row"><span>ভাউচার নংঃ</span><b class="en">${escapeHtml(v.no)}</b></div><div class="v-meta-row"><span>তারিখঃ</span><b class="en">${escapeHtml(formatShortDate(v.date))}</b></div></div></div>
       ${one ? `<div class="v-party"><div class="v-party-name"><span class="lbl">কর্মচারীঃ</span> ${escapeHtml(e0.Name || x0.EmployeeID)}</div><div class="v-party-sub"><span>${escapeHtml(base.catMap[e0.CategoryID] || '')}</span>${e0.Phone ? `<span>মোবাইলঃ ${escapeHtml(e0.Phone)}</span>` : ''}</div></div>` : ''}
@@ -14869,7 +14866,7 @@ async function openProcessingPrintView(docId, autoPrint, dIn) {
   </div>
   <div class="voucher-watermark">gmetal</div>
   <div class="v-co">
-    <div class="v-logo">${co.LogoURL ? `<img src="${attr(co.LogoURL)}" alt="">` : '<span>লোগো</span>'}</div>
+    <div class="v-logo">${co.LogoURL ? `<img src="${attr(co.LogoURL)}" alt="">` : GM_LOGO_SVG}</div>
     <div class="v-co-info">
       <div class="v-co-name">${escapeHtml(coName)}</div>
       <div class="v-co-addr">${escapeHtml(coAddr)}</div>
@@ -20782,7 +20779,7 @@ async function printReportA4(o) {
   const initials = String(co.CompanyName || 'GM').split(/\s+/).map(function (w) { return w.charAt(0); }).join('').slice(0, 2).toUpperCase() || 'GM';
   const logo = co.LogoURL
     ? `<img src="${attr(co.LogoURL)}" alt="" onerror="this.parentNode.innerHTML='<span>${escapeHtml(initials)}</span>'">`
-    : `<span>${escapeHtml(initials)}</span>`;
+    : GM_LOGO_SVG;
   const summary = (o.summary || []).filter(function (x) { return x && x[1] !== '' && x[1] !== undefined; });
   win.document.write(`<!DOCTYPE html><html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${escapeHtml(o.title || '')}</title>
     <link href="https://fonts.googleapis.com/css2?family=Anek+Bangla:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -23956,7 +23953,7 @@ function buildVoucherTableBody(opts) {
   <div class="voucher-watermark">gmetal</div>
 
   <div class="v-co">
-    <div class="v-logo">${co.LogoURL ? `<img src="${attr(co.LogoURL)}" alt="">` : '<span>লোগো</span>'}</div>
+    <div class="v-logo">${co.LogoURL ? `<img src="${attr(co.LogoURL)}" alt="">` : GM_LOGO_SVG}</div>
     <div class="v-co-info">
       <div class="v-co-name">${escapeHtml(coName)}</div>
       <div class="v-co-addr">${escapeHtml(coAddr)}</div>
