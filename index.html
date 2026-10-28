@@ -21446,10 +21446,27 @@ async function vgnLoad() {
   // ১) পার্টি লেজার — গ্রাহক / সাপ্লায়ার / ব্যক্তি
   const C = {}, S = {}, P = {};
   cus.forEach(function (x) { C[x.CustomerID] = nm(x); }); sup.forEach(function (x) { S[x.SupplierID] = nm(x); }); lps.forEach(function (x) { P[x.PersonID] = x.Name; });
+  // একই কোড + একই নামের গ্রাহক ও সাপ্লায়ার = একটাই পার্টি (পার্টি লেজার পেজের নিয়মেই) — দুই দিকের এন্ট্রি এক নামে মিলিয়ে।
+  // আগে গ্রাহক আর সাপ্লায়ার আলাদা সারিতে আসত, তাই এমন পার্টির ব্যালান্স পার্টি লেজারের সাথে মিলত না।
+  const normN = function (x) { return String(x || '').replace(/\s+/g, ' ').trim().toLowerCase(); };
+  const pkey = function (rec, id) { return rec && rec.Code ? rec.Code + '|' + normN(nm(rec)) : null; };
+  const CR = {}, SR = {}; cus.forEach(function (x) { CR[x.CustomerID] = x; }); sup.forEach(function (x) { SR[x.SupplierID] = x; });
+  const keyCus = {}, keySup = {};
+  cus.forEach(function (x) { if (x.Status === 'Deleted') return; const k = pkey(x); if (k) keyCus[k] = keyCus[k] || x.CustomerID; });
+  sup.forEach(function (x) { if (x.Status === 'Deleted') return; const k = pkey(x); if (k) keySup[k] = keySup[k] || x.SupplierID; });
+  const both = function (k) { return k && keyCus[k] && keySup[k]; };
   pl.forEach(function (r) {
-    const g = r.PartyType === 'Customer' ? 'cus' : r.PartyType === 'Supplier' ? 'sup' : r.PartyType === 'Person' ? 'per' : null; if (!g) return;
-    const name = (g === 'cus' ? C : g === 'sup' ? S : P)[r.PartyID] || r.PartyID;
-    put(g, r.PartyID, name, { date: d10(r.Date), open: r.RefModule === OPENING_REF, no: r.RefModule === OPENING_REF ? '' : (r.RefID || ''), ref: r.RefModule, desc: vgnRefLabel(r.RefModule), dr: n2(r.Debit), cr: n2(r.Credit), sort: n2(r.id) });
+    let g = r.PartyType === 'Customer' ? 'cus' : r.PartyType === 'Supplier' ? 'sup' : r.PartyType === 'Person' ? 'per' : null; if (!g) return;
+    let id = r.PartyID, name = (g === 'cus' ? C : g === 'sup' ? S : P)[r.PartyID] || r.PartyID;
+    if (g === 'cus' || g === 'sup') {
+      const k = pkey(g === 'cus' ? CR[r.PartyID] : SR[r.PartyID]);
+      if (both(k)) {   // গ্রাহক + সাপ্লায়ার দুটোই — গ্রাহক দলে এক সারিতে
+        g = 'cus'; id = 'PK:' + k; name = (C[keyCus[k]] || name) + ' ' + t('(গ্রাহক+সাপ্লায়ার)', '(customer+supplier)');
+      } else if (k) {   // একই কোড+নামের একাধিক রেকর্ড (একই দিকে) — এক সারিতে
+        id = 'PK:' + g + ':' + k;
+      }
+    }
+    put(g, id, name, { date: d10(r.Date), open: r.RefModule === OPENING_REF, no: r.RefModule === OPENING_REF ? '' : (r.RefID || ''), ref: r.RefModule, desc: vgnRefLabel(r.RefModule), dr: n2(r.Debit), cr: n2(r.Credit), sort: n2(r.id) });
   });
   // ২) ক্যাশ ও ব্যাংক — অ্যাকাউন্টের প্রারম্ভিক জের + বই
   const A = {}; accs.forEach(function (a) { A[a.BankAccID] = a; });
@@ -21636,8 +21653,10 @@ async function renderVoucherGroupSummary(content) {
     $('vgs_Body').innerHTML = html || `<tr><td colspan="6" style="padding:14px;color:var(--text-muted);">${t('কোনো হিসাব নেই।', 'Nothing to show.')}</td></tr>`;
     $('vgs_Foot').innerHTML = '';
     const get = function (k) { return (data.find(function (x) { return x.g[0] === k; }) || { names: [] }).names; };
-    const cusGet = get('cus').reduce(function (s, n) { return s + Math.max(n.f.close, 0); }, 0), supOwe = get('sup').reduce(function (s, n) { return s + Math.max(-n.f.close, 0); }, 0), bank = get('bank').reduce(function (s, n) { return s + n.f.close; }, 0);
-    $('vgs_Cards').innerHTML = `<div class="vgs-card"><small>${t('নাম / বিষয়', 'Names / subjects')}</small><b>${nN}</b></div><div class="vgs-card"><small>${t('গ্রাহকের কাছে পাবো', 'Receivable from customers')}</small><b class="vgs-dr">৳${fmt(cusGet)}</b></div><div class="vgs-card"><small>${t('সাপ্লায়ারকে দেবো', 'Payable to suppliers')}</small><b class="vgs-cr">৳${fmt(supOwe)}</b></div><div class="vgs-card"><small>${t('ক্যাশ ও ব্যাংকে', 'Cash & bank')}</small><b>${DCt(bank)}</b></div>`;
+    // পাবো = গ্রাহক+সাপ্লায়ারের সব ডেঃ ব্যালান্স, দেবো = সব ক্রেঃ ব্যালান্স (গ্রাহক+সাপ্লায়ার একই পার্টি হলে নেট অনুযায়ী ঠিক দিকে পড়ে)
+    const parties = get('cus').concat(get('sup'));
+    const cusGet = parties.reduce(function (s, n) { return s + Math.max(n.f.close, 0); }, 0), supOwe = parties.reduce(function (s, n) { return s + Math.max(-n.f.close, 0); }, 0), bank = get('bank').reduce(function (s, n) { return s + n.f.close; }, 0);
+    $('vgs_Cards').innerHTML = `<div class="vgs-card"><small>${t('নাম / বিষয়', 'Names / subjects')}</small><b>${nN}</b></div><div class="vgs-card"><small>${t('পার্টির কাছে পাবো', 'Receivable from parties')}</small><b class="vgs-dr">৳${fmt(cusGet)}</b></div><div class="vgs-card"><small>${t('পার্টিকে দেবো', 'Payable to parties')}</small><b class="vgs-cr">৳${fmt(supOwe)}</b></div><div class="vgs-card"><small>${t('ক্যাশ ও ব্যাংকে', 'Cash & bank')}</small><b>${DCt(bank)}</b></div>`;
     return { data: data, nN: nN };
   };
 
