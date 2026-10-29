@@ -21803,8 +21803,7 @@ async function renderNetWorthReport(content) {
     return;
   }
   const today = ownToday();
-  const prevMonthEnd = (function () { const d = new Date(today + 'T00:00:00'); d.setDate(0); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); })();
-  const st = { to: today, cmp: prevMonthEnd, open: {} };
+  const st = { to: today, open: {} };
   let X = null;
   const fmt = function (x) { return (Number(x) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
   content.innerHTML = `<style>${DMY_CSS}${RPT_SIDE_CSS}
@@ -21823,8 +21822,10 @@ async function renderNetWorthReport(content) {
       .nw tr.nw-net td{font-weight:800;font-size:12px;} .nw tr.nw-net.neg td{background:#fdeef0;color:#b42318;} .nw tr.nw-net.pos td{background:#eaf7ef;color:#15803d;}
       .nw tr.nw-sub td{font-weight:700;background:#f6f7f9;}
       .nw .up{color:#15803d;} .nw .down{color:#b42318;} .nw .tw{display:inline-block;width:14px;color:var(--text-muted);}
+      .nw .nw-dr{color:#1d4ed8;} .nw .nw-cr{color:#b42318;}
+      .nw .nw-st{font-size:10.5px;font-weight:600;white-space:nowrap;} .nw .nw-stm{display:none;} .nw .st-get{color:#1d4ed8;} .nw .st-give{color:#b42318;} .nw .st-have{color:#15803d;}
       .nw .nw-help{font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.6;}
-      @media (max-width:760px){ .nw table.nw-t th,.nw table.nw-t td{padding:3px 4px;} .nw .nw-chg{display:none;} .nw .sr-main.panel{padding:4px;} .nw .nw-card b{font-size:14px;} }
+      @media (max-width:760px){ .nw table.nw-t th,.nw table.nw-t td{padding:2px 3px;} .nw table.nw-t td.lb{min-width:0;font-size:10.5px;line-height:1.25;} .nw .nw-stc{display:none;} .nw .nw-stm{display:block;line-height:1.1;} .nw .nw-st{font-size:9.5px;white-space:normal;} .nw table.nw-t td small{display:none;} .nw .tw{width:9px;} .nw .sr-main.panel{padding:4px;} .nw .nw-card b{font-size:14px;} }
     </style>
     <div class="nw">
       <div class="sr-head"><h1>${t('ব্যবসার প্রকৃত অবস্থা', 'Business Position')}</h1></div>
@@ -21834,14 +21835,13 @@ async function renderNetWorthReport(content) {
         <div class="sr-side-h" data-lbl="${attr(t('অপশন', 'Options'))}"><span>🔎 ${t('অপশন', 'Options')}</span></div>
         <div class="sr-bar" id="nwBar">
           <div class="field"><label>${t('তারিখ (এই দিন পর্যন্ত)', 'As of')}</label>${dmyDateField('nwTo', st.to)}</div>
-          <div class="field"><label>${t('তুলনার তারিখ', 'Compare with')}</label>${dmyDateField('nwCmp', st.cmp)}</div>
           <div class="sr-btns"><button type="button" class="btn btn-primary" id="nwShow">🔄 ${t('দেখাও', 'Show')}</button><button type="button" class="btn btn-outline" id="nwPrint">🖨️ ${t('প্রিন্ট', 'Print')}</button></div>
         </div>
        </aside>
        <div class="sr-main panel">
         <div class="nw-cards" id="nwCards"></div>
         <div class="pvl-wrap"><table class="nw-t" id="nwTbl"><thead id="nwHead"></thead><tbody id="nwBody"><tr><td colspan="5">${t('লোড হচ্ছে...', 'Loading...')}</td></tr></tbody></table></div>
-        <div class="nw-help">${t('নিট অবস্থা = সব সম্পদ − সব দায় (নিজের বিনিয়োগ ধরা হয়নি)। ঋণাত্মক = ঘাটতিঃ সব সম্পদ বেচে সব দেনা শোধ করলেও এত টাকা কম পড়বে। "স্থায়ী সম্পদ বাদে" = মেশিন না বেচে হাতের টাকা, পাওনা আর মজুদ দিয়ে দেনা শোধের অবস্থা। অঙ্কগুলো সফটওয়্যারের নিজের হিসাব থেকেঃ পার্টি লেজার, ব্যাংক ও নগদ বই, লোন মডিউল, স্টক ওভারভিউর দর, সেলারী ভাউচার − ইস্যু, খরচ খাত লেজার — শুধু পোস্ট করা ভাউচার। সারিতে চাপলে ভেতরের নাম দেখা যায়।', 'Net position = all assets − all liabilities (owner investment excluded). Negative = deficit. Tap a line to see names.')}</div>
+        <div class="nw-help">${t('ডেবিট = ব্যবসার যা আছে বা পাবে (সম্পদ), ক্রেডিট = ব্যবসার যা দিতে হবে (দায়)। ব্যালান্স = ওপর থেকে চলমান জের — শেষ সারিতে নিট অবস্থা। নিট অবস্থা = সব সম্পদ − সব দায় (নিজের বিনিয়োগ ধরা হয়নি)। ঋণাত্মক = ঘাটতিঃ সব সম্পদ বেচে সব দেনা শোধ করলেও এত টাকা কম পড়বে। "স্থায়ী সম্পদ বাদে" = মেশিন না বেচে হাতের টাকা, পাওনা আর মজুদ দিয়ে দেনা শোধের অবস্থা। অঙ্কগুলো সফটওয়্যারের নিজের হিসাব থেকেঃ পার্টি লেজার, ব্যাংক ও নগদ বই, লোন মডিউল, স্টক ওভারভিউর দর, সেলারী ভাউচার − ইস্যু, খরচ খাত লেজার — শুধু পোস্ট করা ভাউচার। সারিতে চাপলে ভেতরের নাম দেখা যায়।', 'Net position = all assets − all liabilities (owner investment excluded). Negative = deficit. Tap a line to see names.')}</div>
        </div>
       </div>
     </div>`;
@@ -21851,30 +21851,47 @@ async function renderNetWorthReport(content) {
   wireSequentialKeyNav($('nwBar'));
   const lbl = function (v) { return v < -0.004 ? t('ঘাটতি (লোকসানে)', 'Deficit') : v > 0.004 ? t('উদ্বৃত্ত', 'Surplus') : t('সমান', 'Even'); };
   const sgn = function (v) { const r = Math.round((Number(v) || 0) * 100) / 100; return (r < 0 ? '−' : '') + fmt(Math.abs(r)); };
-  const chg = function (a, b, goodUp) { if (a === null) return ''; const d = Math.round((b - a) * 100) / 100; if (!d) return '—'; const good = goodUp ? d > 0 : d < 0; return `<span class="${good ? 'up' : 'down'}">${d > 0 ? '▲ ' : '▼ '}${fmt(Math.abs(d))}</span>`; };
+  // মোবাইলের পর্দায় পূর্ণ টাকায় .00 বাদ — টেবিল পর্দায় ধরে (অঙ্ক একই); প্রিন্ট/ডেস্কটপে দুই দশমিক
+  const nwMob = function () { return window.matchMedia('(max-width:760px)').matches; };
+  const fmtS = function (x) { const n = Math.abs(Number(x) || 0); const d = nwMob() && Math.abs(n - Math.round(n)) < 0.005 ? 0 : 2; return n.toLocaleString('en-IN', { minimumFractionDigits: d, maximumFractionDigits: d }); };
+  const amt = function (v) { const r = Math.round((Number(v) || 0) * 100) / 100; return r ? fmtS(r) : ''; };
+  const bal = function (v) { const r = Math.round((Number(v) || 0) * 100) / 100; if (!r) return '0.00'; return `<span class="${r > 0 ? 'nw-dr' : 'nw-cr'}">${fmtS(r)} ${r > 0 ? t('ডেঃ', 'Dr') : t('ক্রেঃ', 'Cr')}</span>`; };
+  // অবস্থা — সারির ধরন ও চিহ্ন দেখে (ডেবিট = ব্যবসার আছে/পাবো, ক্রেডিট = ব্যবসার দেবো)
+  const HAVE = { bank: ['হাতে আছে', 'In hand'], stock: ['মজুদ আছে', 'In stock'], fa: ['সম্পদ আছে', 'Owned'] };
+  const status = function (k, v) {
+    const r = Math.round((Number(v) || 0) * 100) / 100; if (!r) return '';
+    if (r > 0) { const h = HAVE[k]; return `<span class="nw-st ${h ? 'st-have' : 'st-get'}">${h ? t(h[0], h[1]) : t('পাবো', 'Receivable')}</span>`; }
+    return `<span class="nw-st st-give">${k === 'bank' ? t('দেবো (ঋণাত্মক জের)', 'Payable (overdrawn)') : t('দেবো', 'Payable')}</span>`;
+  };
+  const netSt = function (v) { const r = Math.round((Number(v) || 0) * 100) / 100; return `<span class="nw-st ${r < 0 ? 'st-give' : 'st-have'}">${escapeHtml(lbl(r))}</span>`; };
   const render = function () {
     if (!X) return;
-    const B = nwCompute(X, st.to), Ac = st.cmp ? nwCompute(X, st.cmp) : null;
-    const hasC = !!Ac;
-    $('nwHead').innerHTML = `<tr><th style="text-align:left;">${t('বিবরণ', 'Item')}</th>${hasC ? `<th>${escapeHtml(isoToDmy(st.cmp))}</th>` : ''}<th>${escapeHtml(isoToDmy(st.to))}</th>${hasC ? `<th class="nw-chg">${t('পরিবর্তন', 'Change')}</th>` : ''}</tr>`;
-    const cols = hasC ? 4 : 2;
-    const sec = function (title) { return `<tr class="nw-sec"><td colspan="${cols}">${escapeHtml(title)}</td></tr>`; };
-    const block = function (order, side, goodUp) {
-      return order.map(function (o) {
-        const b = B.lines[o[0]], a = Ac ? Ac.lines[o[0]] : null;
-        if (!b && !a) return '';
-        const vb = b ? b.total : 0, va = a ? a.total : 0, open = !!st.open[o[0]];
-        const names = Array.from(new Set(Object.keys((b && b.names) || {}).concat(Object.keys((a && a.names) || {})))).sort(function (x, y) { return String(x).localeCompare(String(y), 'bn'); });
-        return `<tr class="nw-line" data-k="${attr(o[0])}"><td class="lb"><span class="tw">${open ? '▾' : '▸'}</span>${escapeHtml(t(o[1], o[1]))} <small style="color:var(--text-muted);font-weight:400;">(${names.length})</small></td>${hasC ? `<td>${fmt(va)}</td>` : ''}<td><b>${fmt(vb)}</b></td>${hasC ? `<td class="nw-chg">${chg(va, vb, goodUp)}</td>` : ''}</tr>` +
-          (open ? names.map(function (n) { const nb = b && b.names[n] || 0, na = a && a.names[n] || 0; return `<tr class="nw-name"><td class="lb">${escapeHtml(n)}</td>${hasC ? `<td>${fmt(na)}</td>` : ''}<td>${fmt(nb)}</td>${hasC ? `<td class="nw-chg">${chg(na, nb, goodUp)}</td>` : ''}</tr>`; }).join('') : '');
+    const B = nwCompute(X, st.to);
+    $('nwHead').innerHTML = `<tr><th style="text-align:left;">${t('বিবরণ', 'Description')}</th><th>${t('ডেবিট', 'Debit')}</th><th>${t('ক্রেডিট', 'Credit')}</th><th>${t('ব্যালান্স', 'Balance')}</th><th class="nw-stc">${t('অবস্থা', 'Status')}</th></tr>`;
+    let run = 0, tDr = 0, tCr = 0;
+    const sec = function (title) { return `<tr class="nw-sec"><td colspan="5">${escapeHtml(title)}</td></tr>`; };
+    // সম্পদের সারি ডেবিটে (+), দায়ের সারি ক্রেডিটে (−) — চিহ্ন উল্টো হলে উল্টো ঘরে
+    const block = function (order, isA) {
+      let sDr = 0, sCr = 0;
+      const html = order.map(function (o) {
+        const L = B.lines[o[0]]; if (!L) return '';
+        const v = isA ? L.total : -L.total, dr = v > 0 ? v : 0, cr = v < 0 ? -v : 0, open = !!st.open[o[0]];
+        sDr += dr; sCr += cr; run += v;
+        const names = Object.keys(L.names || {}).sort(function (x, y) { return String(x).localeCompare(String(y), 'bn'); });
+        return `<tr class="nw-line" data-k="${attr(o[0])}"><td class="lb"><span class="tw">${open ? '▾' : '▸'}</span>${escapeHtml(t(o[1], o[1]))} <small style="color:var(--text-muted);font-weight:400;">(${names.length})</small></td><td><b>${amt(dr)}</b></td><td><b>${amt(cr)}</b></td><td>${bal(run)}<span class="nw-stm">${status(o[0], v)}</span></td><td class="nw-stc">${status(o[0], v)}</td></tr>` +
+          (open ? names.map(function (n) { const nv = isA ? L.names[n] : -L.names[n]; return `<tr class="nw-name"><td class="lb">${escapeHtml(n)}</td><td>${amt(nv > 0 ? nv : 0)}</td><td>${amt(nv < 0 ? -nv : 0)}</td><td>${bal(nv)}<span class="nw-stm">${status(o[0], nv)}</span></td><td class="nw-stc">${status(o[0], nv)}</td></tr>`; }).join('') : '');
       }).join('');
+      tDr += sDr; tCr += sCr;
+      return { html: html, dr: sDr, cr: sCr };
     };
-    const row = function (cls, title, va, vb, goodUp, signed) { const f = signed ? sgn : fmt; return `<tr class="${cls}"><td class="lb">${escapeHtml(title)}</td>${hasC ? `<td>${f(va)}</td>` : ''}<td>${f(vb)}</td>${hasC ? `<td class="nw-chg">${chg(va, vb, goodUp)}</td>` : ''}</tr>`; };
-    $('nwBody').innerHTML = sec(t('সম্পদ (ব্যবসার যা আছে)', 'Assets')) + block(NW_ORDER_A, 'A', true) + row('nw-tot', t('মোট সম্পদ', 'Total assets'), Ac ? Ac.tA : 0, B.tA, true) +
-      sec(t('দায় (ব্যবসার যা দেওয়ার আছে)', 'Liabilities')) + block(NW_ORDER_L, 'L', false) + row('nw-tot', t('মোট দায়', 'Total liabilities'), Ac ? Ac.tL : 0, B.tL, false) +
-      row('nw-net ' + (B.net < 0 ? 'neg' : 'pos'), t('নিট অবস্থা — ', 'Net position — ') + lbl(B.net), Ac ? Ac.net : 0, B.net, true, true) +
-      row('nw-sub', t('স্থায়ী সম্পদ বাদে নিট অবস্থা — ', 'Net excluding fixed assets — ') + lbl(B.netNoFA), Ac ? Ac.netNoFA : 0, B.netNoFA, true, true);
-    $('nwCards').innerHTML = `<div class="nw-card"><small>${t('মোট সম্পদ', 'Total assets')}</small><b>৳${fmt(B.tA)}</b></div><div class="nw-card"><small>${t('মোট দায়', 'Total liabilities')}</small><b>৳${fmt(B.tL)}</b></div>
+    const A = block(NW_ORDER_A, true), runA = run;
+    const Lb = block(NW_ORDER_L, false);
+    const tot = function (cls, title, dr, cr, b, stHtml) { return `<tr class="${cls}"><td class="lb">${escapeHtml(title)}</td><td>${amt(dr) || '0.00'}</td><td>${amt(cr) || '0.00'}</td><td>${bal(b)}<span class="nw-stm">${stHtml || ''}</span></td><td class="nw-stc">${stHtml || ''}</td></tr>`; };
+    $('nwBody').innerHTML = sec(t('সম্পদ (ব্যবসার যা আছে)', 'Assets')) + A.html + tot('nw-tot', t('মোট সম্পদ', 'Total assets'), A.dr, A.cr, runA, '') +
+      sec(t('দায় (ব্যবসার যা দেওয়ার আছে)', 'Liabilities')) + Lb.html + tot('nw-tot', t('মোট দায়', 'Total liabilities'), Lb.dr, Lb.cr, Lb.dr - Lb.cr, '') +
+      tot('nw-net ' + (B.net < 0 ? 'neg' : 'pos'), t('সর্বমোট — নিট অবস্থা', 'Grand total — net position'), tDr, tCr, B.net, netSt(B.net)) +
+      `<tr class="nw-sub"><td class="lb">${t('স্থায়ী সম্পদ বাদে নিট অবস্থা', 'Net excluding fixed assets')}</td><td></td><td></td><td>${bal(B.netNoFA)}<span class="nw-stm">${netSt(B.netNoFA)}</span></td><td class="nw-stc">${netSt(B.netNoFA)}</td></tr>`;
+    $('nwCards').innerHTML = `<div class="nw-card"><small>${t('মোট সম্পদ (ডেবিট)', 'Total assets (Dr)')}</small><b>৳${fmt(B.tA)}</b></div><div class="nw-card"><small>${t('মোট দায় (ক্রেডিট)', 'Total liabilities (Cr)')}</small><b>৳${fmt(B.tL)}</b></div>
       <div class="nw-card ${B.net < 0 ? 'neg' : 'pos'}"><small>${t('নিট অবস্থা', 'Net position')} — ${escapeHtml(lbl(B.net))}</small><b>৳${sgn(B.net)}</b></div>
       <div class="nw-card ${B.netNoFA < 0 ? 'neg' : 'pos'}"><small>${t('স্থায়ী সম্পদ বাদে', 'Excl. fixed assets')}</small><b>৳${sgn(B.netNoFA)}</b></div>`;
     return B;
@@ -21882,14 +21899,13 @@ async function renderNetWorthReport(content) {
   const load = async function () { $('nwBody').innerHTML = `<tr><td colspan="4">${t('লোড হচ্ছে...', 'Loading...')}</td></tr>`; X = await nwLoad(); render(); };
   $('nwTbl').addEventListener('click', function (e) { const tr = e.target.closest('tr.nw-line'); if (!tr) return; const k = tr.getAttribute('data-k'); st.open[k] = !st.open[k]; render(); });
   $('nwTo').addEventListener('change', function () { const v = dmyToIso(this.value); if (v) { st.to = v; render(); } });
-  $('nwCmp').addEventListener('change', function () { const v = dmyToIso(this.value); if (v || !this.value) { st.cmp = v || ''; render(); } });
   $('nwShow').addEventListener('click', async function () { try { listCache = {}; await load(); side.collapse(); } catch (err) { showToast(err.message, 'error'); } });
   $('nwPrint').addEventListener('click', function () {
     const B = render(); if (!B) return;
-    const tbl = $('nwTbl').cloneNode(true); tbl.querySelectorAll('.tw').forEach(function (x) { x.remove(); }); tbl.querySelectorAll('.nw-chg').forEach(function (x) { x.style.display = ''; });
-    printReportA4({ title: t('ব্যবসার প্রকৃত অবস্থা', 'Business Position'), period: (st.cmp ? isoToDmy(st.cmp) + ' ও ' : '') + isoToDmy(st.to), filters: t('নিজের বিনিয়োগ ধরা হয়নি · শুধু পোস্ট করা ভাউচার', 'Owner investment excluded · posted vouchers only'),
+    const tbl = $('nwTbl').cloneNode(true); tbl.querySelectorAll('.tw').forEach(function (x) { x.remove(); });
+    printReportA4({ title: t('ব্যবসার প্রকৃত অবস্থা', 'Business Position'), period: isoToDmy(st.to) + t(' পর্যন্ত', ''), filters: t('নিজের বিনিয়োগ ধরা হয়নি · শুধু পোস্ট করা ভাউচার', 'Owner investment excluded · posted vouchers only'),
       summary: [[t('মোট সম্পদ', 'Total assets'), '৳' + fmt(B.tA)], [t('মোট দায়', 'Total liabilities'), '৳' + fmt(B.tL)], [t('নিট অবস্থা', 'Net position') + ' (' + lbl(B.net) + ')', '৳' + sgn(B.net)], [t('স্থায়ী সম্পদ বাদে', 'Excl. fixed assets'), '৳' + sgn(B.netNoFA)]],
-      html: '<style>table{width:100%;border-collapse:collapse;} th,td{text-align:center;padding:3px 6px;} td.lb{text-align:left;} tr.nw-sec td{background:#1f2937;color:#ffd27a;font-weight:700;} tr.nw-tot td,tr.nw-sub td{background:#eef1f5;font-weight:700;} tr.nw-net td{font-weight:800;} tr.nw-net.neg td{color:#b42318;} tr.nw-name td{font-size:10px;color:#555;} tr.nw-name td.lb{padding-left:18px;} .up{color:#15803d;} .down{color:#b42318;}</style>' + tbl.outerHTML });
+      html: '<style>table{width:100%;border-collapse:collapse;} th,td{text-align:center;padding:3px 6px;} td.lb{text-align:left;} .nw-stm{display:none !important;} tr.nw-sec td{background:#1f2937 !important;color:#ffd27a;font-weight:700;} tr.nw-tot td,tr.nw-sub td{background:#eef1f5 !important;font-weight:700;} tr.nw-net td{background:#fdeef0 !important;} tr.nw-net td{font-weight:800;} tr.nw-net.neg td{color:#b42318;} tr.nw-name td{font-size:10px;color:#555;} tr.nw-name td.lb{padding-left:18px;} .nw-dr{color:#1d4ed8;} .nw-cr{color:#b42318;} .nw-st{font-size:9.5px;font-weight:600;} .st-get{color:#1d4ed8;} .st-give{color:#b42318;} .st-have{color:#15803d;}</style>' + tbl.outerHTML });
   });
   try { await load(); } catch (err) { $('nwBody').innerHTML = `<tr><td colspan="4">${escapeHtml(err.message)}</td></tr>`; }
 }
