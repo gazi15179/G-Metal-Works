@@ -36,7 +36,7 @@ button{font-family:inherit;}
 /* ===== Login Screen ===== */
 .login-screen{
   position:fixed;inset:0;z-index:200;
-  background:radial-gradient(circle at 30% 20%, #232b38, var(--ink-900) 70%);
+  background:radial-gradient(circle at 30% 20%, #1d6b43, #0a3a22 70%);   /* গাঢ় সবুজ */
   display:flex;align-items:center;justify-content:center;padding:20px;
 }
 .login-card{
@@ -79,6 +79,13 @@ button{font-family:inherit;}
 }
 .login-error.show{display:block;}
 .login-hint{font-size:11.5px;color:var(--text-muted);margin-top:16px;text-align:center;line-height:1.6;}
+/* লগইন পেজঃ লেখা গাঢ় নীল — শুধু এই পেজে (বাকি সফটওয়্যারের লেবেল/বোতাম আগের মতো) */
+.login-screen .login-brand b,.login-screen .field label,.login-screen .login-hint{color:#0b2e6e;}
+.login-screen .login-brand span{color:#1e4a8c;}
+.login-screen .field input{color:#0b2e6e;}
+.login-screen .field input:focus{border-color:#0b2e6e;}
+.login-screen .btn-primary{background:#0b2e6e;color:#fff;}
+.login-screen .btn-primary:hover{background:#082356;}
 
 /* ===== App shell ===== */
 .app{display:none;min-height:100vh;}
