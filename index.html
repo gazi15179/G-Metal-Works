@@ -514,7 +514,7 @@ const MODULES = [
     {key:'loanTxn', bn:'লোন ভাউচার', en:'Loan Voucher'},
     {key:'loanLedger', bn:'লোন লেজার', en:'Loan Ledger'},
     {key:'loanReport', bn:'লোন রিপোর্ট ও স্টেটমেন্ট', en:'Loan Report & Statement'},
-    {key:'loans', bn:'দেনাদার পাওনাদার (হ্যান্ড লোনের ভিতরে)', en:'Debtors & Creditors (in Hand loan)', hidden:true},
+    {key:'loans', bn:'চলতি (দায় ও দেনা)', en:'Current (dues & debts)'},
   ]},
   {key:'hr', bn:'এইচআর ও পে-রোল', en:'HR & Payroll', sub:[
     {key:'empCategories', bn:'কর্মচারীর ধরন', en:'Employee Types'},{key:'empInfo', bn:'কর্মচারী তথ্য', en:'Employee Info'},
@@ -572,7 +572,7 @@ const ACT_TABLE_BN = {
   MaterialIssue:'মালামাল ইস্যু', StockTransfer:'স্টক ট্রান্সফার', StockAdjustment:'স্টক সমন্বয়', ProcessingVoucher:'প্রসেসিং কষ্টিং',
   DailyProduction:'দৈনিক উৎপাদন', TeamProduction:'দৈনিক উৎপাদন ও দল', Payroll:'সেলারী ভাউচার', SalaryIssue:'সেলারী ইস্যু',
   Attendance:'হাজিরা', DailyBonus:'বোনাস', SizeRates:'সাইজ রেট', WorkRoles:'কাজের ধরন', PayHeads:'পে-হেড',
-  Loan:'লোন', LoanTxn:'লোন ভাউচার', LoanTxnType:'লোন ভাউচারের ধরন', LoanPerson:'দেনাদার পাওনাদার পার্টি', LoanVoucher:'দেনাদার পাওনাদার ভাউচার',
+  Loan:'লোন', LoanTxn:'লোন ভাউচার', LoanTxnType:'লোন ভাউচারের ধরন', LoanPerson:'চলতি (দায় ও দেনা) পার্টি', LoanVoucher:'চলতি (দায় ও দেনা) ভাউচার',
   FixedAsset:'স্থায়ী সম্পদ', AssetMaster:'সম্পদ মাস্টার', AssetCategory:'সম্পদ ক্যাটাগরি', AssetPurchase:'সম্পদ ক্রয়', AssetSale:'সম্পদ বিক্রয়',
   items:'আইটেম মাস্টার', customers:'কাস্টমার', suppliers:'সাপ্লায়ার', warehouses:'গুদাম', zones:'জোন', categories:'ক্যাটাগরি',
   item_groups:'গ্রুপ', uom:'ইউনিট', employees:'কর্মচারী', users:'ব্যবহারকারী', roles:'ভূমিকা ও অনুমতি',
@@ -7713,7 +7713,7 @@ const BOOK_REF_LABEL = {
   SalesInvoice: 'নগদ বিক্রয়', 'SalesInvoice-Receipt': 'বিক্রয়ে টাকা গ্রহণ', SalesReturn: 'নগদ বিক্রয় ফেরত',
   PurchaseInvoice: 'নগদ ক্রয়', 'PurchaseInvoice-Payment': 'ক্রয়ে টাকা প্রদান', PurchaseReturn: 'নগদ ক্রয় ফেরত',
   PaymentVoucher: 'পেমেন্ট ভাউচার', ReceiptVoucher: 'কালেকশন ভাউচার', ExpenseVoucher: 'এক্সপেন্স ভাউচার (খরচ)', IncomeVoucher: 'রিসিপ্ট ভাউচার (অন্যান্য আয়)', 'IncomeVoucher-Receipt': 'রিসিপ্ট ভাউচারে (বাকির) নগদ গ্রহণ', ContraVoucher: 'কনট্রা (অ্যাকাউন্ট বদল)',
-  CapitalVoucher: 'মালিকের মূলধন', LoanVoucher: 'দেনাদার পাওনাদার', LoanTxn: 'লোন (সিসি/এনজিও/হ্যান্ড)', FixedAsset: 'স্থায়ী সম্পদ', AssetPurchase: 'এ্যাসেট ক্রয়', AssetSale: 'এ্যাসেট বিক্রয়',
+  CapitalVoucher: 'মালিকের মূলধন', LoanVoucher: 'চলতি (দায় ও দেনা)', LoanTxn: 'লোন (সিসি/এনজিও/হ্যান্ড)', FixedAsset: 'স্থায়ী সম্পদ', AssetPurchase: 'এ্যাসেট ক্রয়', AssetSale: 'এ্যাসেট বিক্রয়',
   SalaryIssue: 'সেলারী ইস্যু (বেতন প্রদান)', 'SalaryIssue-Reversal': 'সেলারী ইস্যু বাতিল (টাকা ফেরত)'
 };
 function bookRefLabel(m) {
@@ -7762,7 +7762,7 @@ async function findMisplacedCashRows(book) {
 }
 
 /* ============================================================
-   লোন → দেনাদার পাওনাদার (আগে হিসাব → ধার-দেনা) — গ্রাহক/সাপ্লায়ার নন এমন ব্যক্তির সাথে নগদ ধার-দেনা
+   লোন → চলতি (দায় ও দেনা) (আগে হিসাব → ধার-দেনা) — গ্রাহক/সাপ্লায়ার নন এমন ব্যক্তির সাথে নগদ ধার-দেনা
    • ধার দিলাম (পাওনা বাড়ে) · ধার ফেরত পেলাম (পাওনা কমে) · ধার নিলাম (দেনা বাড়ে) · ধার শোধ করলাম (দেনা কমে)
    • পার্টি লেজারে ধরন "Person": ডেবিট = সে আমাকে দেবে (আমি পাব), ক্রেডিট = আমি তাকে দেব
    • নগদ/ব্যাংক বইয়ের সাথে জোড়া; পোস্ট করা এন্ট্রি বদলাতে এডমিন পাসওয়ার্ড; স্টকে কিছু যায় না
@@ -7856,7 +7856,7 @@ async function loanVoucherPrint(id) {
   const p = (ps || []).find(function (x) { return x.PersonID === h.PersonID; }) || {};
   const acc = (accs.find(function (a) { return a.BankAccID === h.BankCashAccID; }) || {}).AccountName || '—';
   const ty = LOAN_TYPES[h.Type] || { bn: h.Type };
-  await ownPrint({ idf: 'LoanID' }, h, 'দেনাদার পাওনাদার ভাউচার — ' + ty.bn, [['ভাউচার নং', escapeHtml(id)], ['তারিখ', escapeHtml(formatShortDate(h.Date))], ['ব্যক্তি', '<b>' + escapeHtml(p.Name || h.PersonID) + '</b>' + (p.Mobile ? ' (' + escapeHtml(p.Mobile) + ')' : '')], ['লেনদেন', '<b>' + escapeHtml(ty.bn) + '</b>'], ['টাকা', '<b>৳' + (Number(h.Amount) || 0).toFixed(2) + '</b>'], ['ক্যাশ/ব্যাংক', escapeHtml(acc)], ['নোট', escapeHtml(h.Note || '')], ['অবস্থা', h.Status === 'Posted' ? 'পোস্ট করা' : 'খসড়া']]);
+  await ownPrint({ idf: 'LoanID' }, h, 'চলতি (দায় ও দেনা) ভাউচার — ' + ty.bn, [['ভাউচার নং', escapeHtml(id)], ['তারিখ', escapeHtml(formatShortDate(h.Date))], ['ব্যক্তি', '<b>' + escapeHtml(p.Name || h.PersonID) + '</b>' + (p.Mobile ? ' (' + escapeHtml(p.Mobile) + ')' : '')], ['লেনদেন', '<b>' + escapeHtml(ty.bn) + '</b>'], ['টাকা', '<b>৳' + (Number(h.Amount) || 0).toFixed(2) + '</b>'], ['ক্যাশ/ব্যাংক', escapeHtml(acc)], ['নোট', escapeHtml(h.Note || '')], ['অবস্থা', h.Status === 'Posted' ? 'পোস্ট করা' : 'খসড়া']]);
 }
 async function loanPersonKhataPrint(personId) {
   await loanTypesLoad();
@@ -7881,7 +7881,7 @@ async function loanPersonKhataPrint(personId) {
   .who{margin:8px 0;border:1px solid #c9ced6;border-radius:8px;padding:7px 10px;} table{width:100%;border-collapse:collapse;} th,td{border:1px solid #9aa2ad;padding:4px 5px;text-align:center;} th{background:#eef0f3;}
   .tot{margin-top:8px;text-align:right;font-size:13px;font-weight:700;} @media print{.toolbar{display:none;}}</style></head><body>
   <div class="toolbar"><button onclick="window.print()">🖨️ প্রিন্ট</button></div>
-  <div class="head"><h1>${escapeHtml((company && (company.CompanyName || company.Name)) || 'জি মেটাল ওয়ার্কস')}</h1><div class="badge">দেনাদার পাওনাদার খাতা</div></div>
+  <div class="head"><h1>${escapeHtml((company && (company.CompanyName || company.Name)) || 'জি মেটাল ওয়ার্কস')}</h1><div class="badge">চলতি (দায় ও দেনা) খাতা</div></div>
   <div class="who">নামঃ <b>${escapeHtml(p.Name || personId)}</b>${p.Mobile ? ' · মোবাইলঃ ' + escapeHtml(p.Mobile) : ''}${p.Address ? ' · ঠিকানাঃ ' + escapeHtml(p.Address) : ''}<br>তারিখঃ ${escapeHtml(formatShortDate(ownToday()))}</div>
   <table><thead><tr><th>তারিখ</th><th>নং</th><th>বিবরণ</th><th>আমি দিলাম (টাকা/মাল)</th><th>আমি পেলাম (টাকা/মাল)</th><th>ব্যালান্স</th></tr></thead><tbody>${trs || '<tr><td colspan="6">কোনো লেনদেন নেই</td></tr>'}</tbody></table>
   <div class="tot">${escapeHtml(loanBalText(bal))}</div>
@@ -7895,7 +7895,7 @@ async function renderLoanPage(content) {
   await loanTypesLoad();
   const [accounts, fy] = await Promise.all([cachedList('BankCashAccounts'), getFiscalYearStart()]);
   const accs = accounts.filter(function (a) { return a.Status !== 'Deleted'; });
-  if (persons === null) { content.innerHTML = `<div class="page-head"><div><h1>${t('দেনাদার পাওনাদার', 'Debtors & Creditors')}</h1></div></div><div class="panel"><div class="empty-state">${t('টেবিল নেই — আগে Supabase-এ 37 নম্বর SQL চালান।', 'Run SQL 37 first.')}</div></div>`; return; }
+  if (persons === null) { content.innerHTML = `<div class="page-head"><div><h1>${t('চলতি (দায় ও দেনা)', 'Current (dues & debts)')}</h1></div></div><div class="panel"><div class="empty-state">${t('টেবিল নেই — আগে Supabase-এ 37 নম্বর SQL চালান।', 'Run SQL 37 first.')}</div></div>`; return; }
   let editId = null, vouchers = [], selPerson = '', trade = {};
   const typeOpts = Object.keys(LOAN_TYPES).map(function (k) { return `<option value="${attr(k)}">${escapeHtml(LOAN_TYPES[k].bn)}${LOAN_TYPES[k].custom ? ' ★' : ''}</option>`; }).join('');
   content.innerHTML = `<style>${VOUCHER_GRID_CSS}${OWN_CSS}
@@ -7906,7 +7906,7 @@ async function renderLoanPage(content) {
       details.own-sec{border:1px solid var(--border);border-radius:10px;padding:8px 12px;margin-bottom:10px;background:var(--surface);} details.own-sec summary{cursor:pointer;font-weight:700;font-size:13.5px;padding:4px 0;}
       @media (max-width:760px){ .ac-tbl .ln-hide-m{display:none;} .ac-tbl input{font-size:15px;} .lp-tr{min-width:40px !important;padding:0 4px !important;} .ac-tbl td:first-child{min-width:96px;}
         #ln_List td:last-child,#ln_List th:last-child,#ln_Bals td:last-child,#ln_Bals th:last-child{position:sticky;right:0;z-index:1;background:var(--surface,#fff);box-shadow:-2px 0 0 #e3e6ea;} }</style>
-    <div class="page-head"><div><h1>${t('দেনাদার পাওনাদার', 'Debtors & Creditors')}</h1><p>${t('গ্রাহক/সাপ্লায়ার নন এমন ব্যক্তিকে ধার দেওয়া বা তাঁর কাছ থেকে ধার নেওয়া — নগদ/ব্যাংক বই ও পার্টি লেজারের সাথে জোড়া', 'Cash loans with people who are not customers or suppliers')}</p></div></div>
+    <div class="page-head"><div><h1>${t('চলতি (দায় ও দেনা)', 'Current (dues & debts)')}</h1><p>${t('গ্রাহক/সাপ্লায়ার নন এমন ব্যক্তিকে ধার দেওয়া বা তাঁর কাছ থেকে ধার নেওয়া — নগদ/ব্যাংক বই ও পার্টি লেজারের সাথে জোড়া', 'Cash loans with people who are not customers or suppliers')}</p></div></div>
     <div class="own-cards" id="ln_Cards"></div>
     <details class="own-sec" id="lp_Sec"><summary>👤 ${t('ব্যক্তির তালিকা — ＋ যোগ · ✏️ এডিট · 🗑️ ডিলিট · 💾 সেভ', 'People — add · edit · delete · save')}</summary><div id="lp_Wrap" style="margin-top:8px;overflow-x:auto;"></div></details>
     <div class="panel"><h4 id="ln_FormTitle" style="margin:0 0 10px;font-size:14px;">${t('নতুন লেনদেন', 'New entry')}</h4>
@@ -8050,7 +8050,7 @@ async function renderLoanPage(content) {
     const withBal = persons.filter(function (p) { return Math.abs(b[p.PersonID] || 0) > 0.005 || vouchers.some(function (v) { return v.PersonID === p.PersonID; }) || p.LinkedCustomerID || p.LinkedSupplierID; });
     const sTxt = function (v) { v = Number(v) || 0; return Math.abs(v) < 0.005 ? '—' : `<span class="${v > 0 ? 'ln-pos' : 'ln-neg'}">${v > 0 ? '+' : '−'}${Math.abs(v).toFixed(2)}</span>`; };
     $('ln_Bals').innerHTML = !withBal.length ? `<div class="empty-state">${t('এখনো কোনো লেনদেন নেই।', 'No entries yet.')}</div>` :
-      `<table class="own-tbl"><thead><tr><th class="own-hide-m">${t('ক্রঃ', 'No.')}</th><th>${t('নাম', 'Name')}</th><th class="own-hide-m">${t('মোবাইল', 'Mobile')}</th><th title="${attr(t('শুধু দেনাদার পাওনাদার (+ পাব, − দেব)', 'Loans only'))}">${t('দেনাদার পাওনাদার', 'Loans')}</th><th title="${attr(t('বিক্রয়/ক্রয় ভাউচারের বাকি (+ পাব, − দেব)', 'Trade balance'))}">${t('বেচাকেনা', 'Trade')}</th><th>${t('মোট', 'Total')}</th><th></th></tr></thead><tbody>` +
+      `<table class="own-tbl"><thead><tr><th class="own-hide-m">${t('ক্রঃ', 'No.')}</th><th>${t('নাম', 'Name')}</th><th class="own-hide-m">${t('মোবাইল', 'Mobile')}</th><th title="${attr(t('শুধু চলতি (দায় ও দেনা) (+ পাব, − দেব)', 'Loans only'))}">${t('চলতি (দায় ও দেনা)', 'Loans')}</th><th title="${attr(t('বিক্রয়/ক্রয় ভাউচারের বাকি (+ পাব, − দেব)', 'Trade balance'))}">${t('বেচাকেনা', 'Trade')}</th><th>${t('মোট', 'Total')}</th><th></th></tr></thead><tbody>` +
       withBal.map(function (p, i) { const v = b[p.PersonID] || 0; return `<tr data-bp="${attr(p.PersonID)}" class="${selPerson === p.PersonID ? 'row-sel' : ''}"><td class="own-hide-m">${i + 1}</td><td><b>${escapeHtml(p.Name)}</b>${p.LinkedCustomerID ? ' 🛒' : ''}${p.LinkedSupplierID ? ' 📦' : ''}</td><td class="own-hide-m">${escapeHtml(p.Mobile || '')}</td><td class="r">${sTxt(lb[p.PersonID])}</td><td class="r">${(p.LinkedCustomerID || p.LinkedSupplierID) ? sTxt(trade[p.PersonID]) : '—'}</td><td class="r ${v > 0.005 ? 'ln-pos' : v < -0.005 ? 'ln-neg' : ''}">${v > 0.005 ? t('পাব ৳', 'get ৳') + v.toFixed(2) : v < -0.005 ? t('দেব ৳', 'owe ৳') + (-v).toFixed(2) : '—'}</td>
         <td style="white-space:nowrap;"><button type="button" class="own-ic" data-kh="${attr(p.PersonID)}" title="${attr(t('খাতা দেখুন / প্রিন্ট', 'View / print ledger'))}">👁️</button></td></tr>`; }).join('') +
       `</tbody><tfoot><tr><td class="own-hide-m"></td><td>${t('মোট', 'Total')}</td><td class="own-hide-m"></td><td></td><td></td><td class="r"><span class="ln-pos">${t('পাব ৳', 'get ৳')}${get.toFixed(2)}</span><br><span class="ln-neg">${t('দেব ৳', 'owe ৳')}${owe.toFixed(2)}</span></td><td></td></tr></tfoot></table>`;
@@ -8518,7 +8518,7 @@ async function glTypeModal(D, onDone) {
 async function renderGmwLoanList(content) {
   let D;
   try { D = await glLoadAll(); } catch (e) { content.innerHTML = `<div class="page-head"><div><h1>${t('লোন তালিকা', 'Loan List')}</h1></div></div><div class="panel"><div class="empty-state">${escapeHtml(e.message)}</div></div>`; return; }
-  let editId = null, selId = '', PB = null;   // PB = দেনাদার পাওনাদার (ব্যক্তি) — হ্যান্ড লোনের ভিতরে
+  let editId = null, selId = '', PB = null;   // PB = চলতি (দায় ও দেনা) — লোন তালিকায় আলাদা অংশ
   const today = glToday();
   async function loadPersons() {
     try {
@@ -8529,14 +8529,14 @@ async function renderGmwLoanList(content) {
       PB = ps.map(function (p) { return { p: p, bal: (b[p.PersonID] || 0) + (tr[p.PersonID] || 0) }; });
     } catch (e) { PB = null; }
   }
-  const openDP = function (pid) { window.__loanPersonSel = pid || null; navigateTo('loans', t('লোন › হ্যান্ড লোন', 'Loans › Hand loan'), t('দেনাদার পাওনাদার', 'Debtors & Creditors')); };
+  const openDP = function (pid) { window.__loanPersonSel = pid || null; navigateTo('loans', t('লোন', 'Loans'), t('চলতি (দায় ও দেনা)', 'Current (dues & debts)')); };
   const bankAccs = function () { return D.accs.filter(function (a) { return a.Type !== 'Cash'; }); };
   content.innerHTML = `<style>${DMY_CSS}${VOUCHER_GRID_CSS}${OWN_CSS}${GL_CSS}</style>
     <div class="page-head"><div><h1>${t('লোন তালিকা', 'Loan List')}</h1><p>${t('সিসি লোন, এনজিও লোন ও হ্যান্ড লোন — প্রতিটি লোনের তথ্য ও এখনকার বকেয়া', 'CC, NGO and hand loans — details and current dues')}</p></div></div>
     <div class="own-cards" id="gll_Cards"></div>
     <div class="panel"><h4 id="gll_FormTitle" style="margin:0 0 10px;font-size:14px;">${t('নতুন লোন', 'New loan')}</h4>
       <div class="vg2" id="gll_Form">
-        <div class="field vfull"><label>${t('লোনের ধরন', 'Loan type')}</label><div class="gl-radio" id="gll_TypeR">${Object.keys(GL_TYPES).map(function (k, i) { return `<label class="${i ? '' : 'on'}"><input type="radio" name="gll_Type" value="${k}" ${i ? '' : 'checked'}> ${GL_TYPES[k].icon} ${escapeHtml(GL_TYPES[k].bn)}</label>`; }).join('')}</div></div>
+        <div class="field vfull"><label>${t('লোনের ধরন', 'Loan type')}</label><div class="gl-radio" id="gll_TypeR">${Object.keys(GL_TYPES).map(function (k, i) { return `<label class="${i ? '' : 'on'}"><input type="radio" name="gll_Type" value="${k}" ${i ? '' : 'checked'}> ${GL_TYPES[k].icon} ${escapeHtml(GL_TYPES[k].bn)}</label>`; }).join('')}<label><input type="radio" name="gll_Type" value="Current"> 🔄 ${t('চলতি (দায় ও দেনা)', 'Current (dues & debts)')}</label></div></div>
         <div class="field"><label class="vmain">${t('লোনের নাম', 'Loan name')}</label><input id="gll_Name" autocomplete="off" placeholder="${attr(t('যেমনঃ সোনালী ব্যাংক সিসি', 'e.g. Sonali Bank CC'))}"></div>
         <div class="field"><label id="gll_LenderL">${t('ব্যাংক / প্রতিষ্ঠান', 'Bank / institution')}</label><input id="gll_Lender" autocomplete="off"></div>
         <div class="field gl-x gl-cc gl-ngo"><label>${t('শাখা', 'Branch')}</label><input id="gll_Branch" autocomplete="off"></div>
@@ -8549,7 +8549,7 @@ async function renderGmwLoanList(content) {
         <div class="field"><label id="gll_RateL">${t('সুদের হার (% বার্ষিক)', 'Interest rate (% p.a.)')}</label><input id="gll_Rate" type="number" step="any" min="0" inputmode="decimal"></div>
         <div class="field vfull gl-x gl-cc"><label class="vmain">${t('সিসি অ্যাকাউন্ট (ব্যাংক ও ক্যাশ অ্যাকাউন্টে)', 'CC account (in Bank & Cash Accounts)')}</label><select id="gll_Acc"></select><div class="gl-hint">${t('ব্যাংক ও ক্যাশ অ্যাকাউন্টে এই সিসির জন্য একটি "Bank" অ্যাকাউন্ট খুলুন — আগের ব্যবহৃত লোন নিচের "শুরুর ব্যবহৃত লোন" ঘরে দিন। কনট্রা/পেমেন্ট ভাউচারে এই অ্যাকাউন্ট থেকে লেনদেনও লোনে ধরা পড়বে।', 'Open a "Bank" account for this CC in Bank & Cash Accounts — enter the used loan amount in the Cr box of the opening balance.')} <a href="#" id="gll_GoBank">${t('＋ নতুন অ্যাকাউন্ট খুলুন', '+ open account')}</a></div></div>
         <div class="field vfull gl-x gl-cc"><label class="vmain">${t('শুরুর ব্যবহৃত লোন (৳) — সফটওয়্যার শুরুর আগে যত টাকা তোলা হয়েছে', 'Loan used at start (৳)')}</label><input id="gll_CCOpen" type="number" step="any" min="0" inputmode="decimal" placeholder="4800000"><div class="gl-hint">${t('যেমনঃ পুরো লিমিট তোলা থাকলে 4800000 লিখুন (প্লাস)। এটা সিসি অ্যাকাউন্টের ওপেনিং ব্যালেন্সে নিজে বসবে। সুদ আলাদা "সেবা বা সুদ" ভাউচারে দিন।', 'e.g. 4800000 if the full limit was drawn. Saved as the CC account opening balance.')}</div></div>
-        <div class="field vfull gl-x gl-hand"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;border:1px dashed #e3b75c;background:#fff8e8;border-radius:8px;padding:6px 10px;"><span style="font-size:12px;flex:1;min-width:180px;">${t('ব্যক্তিকে ধার দেওয়া (পাওনা) বা ব্যক্তির কাছ থেকে ধার নেওয়া (দেনা) — দেনাদার পাওনাদার', 'Lend to / borrow from a person — Debtors & Creditors')}</span><button type="button" class="btn btn-outline" id="gll_GoDP" tabindex="-1" style="width:auto;min-height:34px;">👤 ${t('দেনাদার পাওনাদার খুলুন', 'Open Debtors & Creditors')}</button></div></div>
+        <div class="field vfull gl-x gl-current"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;border:1px dashed #e3b75c;background:#fff8e8;border-radius:8px;padding:6px 10px;"><span style="font-size:12px;flex:1;min-width:180px;">${t('ব্যক্তিকে ধার দেওয়া (পাওনা) বা ব্যক্তির কাছ থেকে ধার নেওয়া (দেনা) — এটা লোন নয়, আলাদা পেজে রাখা হয়', 'Lend to / borrow from a person — kept on its own page')}</span><button type="button" class="btn btn-outline" id="gll_GoDP" tabindex="-1" style="width:auto;min-height:34px;">🔄 ${t('চলতি (দায় ও দেনা) খুলুন', 'Open Current (dues & debts)')}</button></div></div>
         <div class="field gl-x gl-ngo"><label>${t('কিস্তির ধরন', 'Installment type')}</label><select id="gll_InstType"><option value="Weekly">${t('সাপ্তাহিক', 'Weekly')}</option><option value="Monthly">${t('মাসিক', 'Monthly')}</option><option value="Daily">${t('দৈনিক', 'Daily')}</option></select></div>
         <div class="field gl-x gl-ngo"><label>${t('কিস্তির সংখ্যা', 'No. of installments')}</label><input id="gll_InstCnt" type="number" step="1" min="0" inputmode="numeric"></div>
         <div class="field gl-x gl-ngo"><label>${t('প্রতি কিস্তি (৳)', 'Per installment (৳)')}</label><input id="gll_InstAmt" type="number" step="any" min="0" inputmode="decimal"></div>
@@ -8572,6 +8572,10 @@ async function renderGmwLoanList(content) {
   function applyType() {
     const lt = curType();
     content.querySelectorAll('#gll_TypeR label').forEach(function (l) { l.classList.toggle('on', l.querySelector('input').checked); });
+    const cur = lt === 'Current';   // চলতি (দায় ও দেনা) — লোন নয়, শুধু পেজ খোলার বাটন
+    content.querySelectorAll('#gll_Form > .field').forEach(function (el) { if (!el.querySelector('#gll_TypeR') && !el.classList.contains('gl-x')) el.style.display = cur ? 'none' : ''; });
+    const btns = $('gll_SaveBtn').closest('.own-btns'); if (btns) btns.style.display = cur ? 'none' : '';
+    if (cur) { content.querySelectorAll('#gll_Form .gl-x').forEach(function (el) { el.style.display = el.classList.contains('gl-current') ? '' : 'none'; }); return; }
     content.querySelectorAll('#gll_Form .gl-x').forEach(function (el) { el.style.display = el.classList.contains('gl-' + lt.toLowerCase()) ? '' : 'none'; });
     $('gll_LenderL').textContent = lt === 'Hand' ? t('দাতার নাম (ব্যক্তি)', 'Lender (person)') : lt === 'NGO' ? t('এনজিও / সমিতির নাম', 'NGO name') : t('ব্যাংকের নাম', 'Bank name');
     $('gll_RateL').textContent = lt === 'NGO' ? t('সার্ভিস চার্জ (% ফ্ল্যাট)', 'Service charge (% flat)') : t('সুদের হার (% বার্ষিক)', 'Interest rate (% p.a.)');
@@ -8608,12 +8612,12 @@ async function renderGmwLoanList(content) {
     $('gll_Cards').innerHTML = `<div class="own-card"><small>🏦 ${t('সিসি লোন (ব্যবহৃত)', 'CC used')}</small><b>৳${glMoney(cc)}</b></div><div class="own-card"><small>🤝 ${t('এনজিও লোন বকেয়া', 'NGO dues')}</small><b>৳${glMoney(ngo)}</b></div>
       <div class="own-card"><small>👤 ${t('হ্যান্ড লোন বকেয়া', 'Hand loan dues')}</small><b>৳${glMoney(hand)}</b></div><div class="own-card hl"><small>${t('মোট লোন দেনা', 'Total loan liability')}</small><b>৳${glMoney(cc + ngo + hand)}</b></div>
       ${late ? `<div class="own-card" style="background:#fdecea;border-color:#e8a29b;"><small>${t('বকেয়া কিস্তি (এনজিও)', 'Overdue installments')}</small><b>${late}${t('টি', '')}</b></div>` : ''}
-      ${PB && PB.length ? (function () { let get = 0, owe = 0; PB.forEach(function (x) { if (x.bal > 0) get += x.bal; else owe -= x.bal; }); return `<div class="own-card" style="cursor:pointer;" id="gll_DPCard"><small>👤 ${t('দেনাদার পাওনাদার', 'Debtors & creditors')}</small><b><span class="gl-pos">${t('পাব ', 'get ')}৳${glMoney(get)}</span> · <span class="gl-neg">${t('দেব ', 'owe ')}৳${glMoney(owe)}</span></b></div>`; })() : ''}`;
+      ${PB && PB.length ? (function () { let get = 0, owe = 0; PB.forEach(function (x) { if (x.bal > 0) get += x.bal; else owe -= x.bal; }); return `<div class="own-card" style="cursor:pointer;" id="gll_DPCard"><small>🔄 ${t('চলতি (দায় ও দেনা)', 'Current (dues & debts)')}</small><b><span class="gl-pos">${t('পাব ', 'get ')}৳${glMoney(get)}</span> · <span class="gl-neg">${t('দেব ', 'owe ')}৳${glMoney(owe)}</span></b></div>`; })() : ''}`;
     if (!D.loans.length && !(PB && PB.length)) { $('gll_List').innerHTML = `<div class="empty-state">${t('এখনো কোনো লোন যোগ করা হয়নি — উপরের ফর্মে লোন যোগ করুন।', 'No loans yet — add one above.')}</div>`; return; }
     let sl = 0;
-    const body = Object.keys(GL_TYPES).map(function (lt) {
-      const ls = D.loans.filter(function (l) { return l.LoanType === lt; });
-      const pp = lt === 'Hand' && PB ? PB.slice().sort(function (a, b) { return String(a.p.Name).localeCompare(String(b.p.Name), 'bn'); }) : [];
+    const body = Object.keys(GL_TYPES).concat(['Current']).map(function (lt) {
+      const ls = lt === 'Current' ? [] : D.loans.filter(function (l) { return l.LoanType === lt; });
+      const pp = lt === 'Current' && PB ? PB.slice().sort(function (a, b) { return String(a.p.Name).localeCompare(String(b.p.Name), 'bn'); }) : [];
       if (!ls.length && !pp.length) return '';
       let subDue = 0;
       const rows = ls.map(function (l) {
@@ -8629,22 +8633,24 @@ async function renderGmwLoanList(content) {
           <td style="white-space:nowrap;">${ic('view', '👁️', t('লোন লেজার দেখুন', 'View ledger'))}${ic('edit', '✏️', t('এডিট', 'Edit'))}${ic('del', '🗑️', used ? t('লেনদেন আছে — মোছা যাবে না (চাইলে "বন্ধ" করুন)', 'Has entries — cannot delete') : t('ডিলিট', 'Delete'), used)}${ic('save', '💾', t('সেভ (এডিট চলাকালে)', 'Save (while editing)'), editId !== l.LoanID)}<span class="gl-hide-m">${ic('txn', '➕', t('ভাউচার দিন', 'Add voucher'))}</span></td></tr>`;
       }).join('');
       let dp = '';
-      if (pp.length) {   // হ্যান্ড লোনের ভিতরে — দেনাদার পাওনাদার (ব্যক্তি)
+      if (pp.length) {   // আলাদা অংশ — চলতি (দায় ও দেনা)
         let get = 0, owe = 0;
         const pic = function (act, icon, title, pid, dis) { return `<button type="button" class="own-ic" data-dp="${act}" data-pid="${attr(pid)}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
-        dp = `<tr class="gl-sub"><td colspan="7" style="text-align:left;">👤 ${t('দেনাদার পাওনাদার — ব্যক্তিকে ধার দেওয়া / ধার নেওয়া', 'Debtors & creditors')} (${pp.length}${t('জন', '')})</td></tr>` + pp.map(function (x, i) {
+        dp = pp.map(function (x, i) {
           const v = x.bal; if (v > 0) get += v; else owe -= v;
           return `<tr data-pid="${attr(x.p.PersonID)}" class="${v > 0.004 ? 'gl-rc' : v < -0.004 ? 'gl-in' : ''}"><td>${i + 1}</td><td><b>${escapeHtml(x.p.PersonID)}</b></td><td class="l"><b>${escapeHtml(x.p.Name || '')}</b></td><td class="l gl-hide-m">${escapeHtml(x.p.Mobile || '')}</td>
             <td class="l gl-hide-m">${Math.abs(v) < 0.005 ? t('হিসাব সমান', 'settled') : v > 0 ? t('আমি পাব (দেনাদার)', 'I will get (debtor)') : t('আমি দেব (পাওনাদার)', 'I owe (creditor)')}</td><td class="r"><b class="${v > 0.004 ? 'gl-pos' : v < -0.004 ? 'gl-neg' : ''}">${glMoney(Math.abs(v))}</b></td>
-            <td style="white-space:nowrap;">${pic('view', '👁️', t('খাতা দেখুন', 'View'), x.p.PersonID)}${pic('edit', '✏️', t('লেনদেন দিন / এডিট', 'Entry / edit'), x.p.PersonID)}${pic('del', '🗑️', t('দেনাদার পাওনাদার পেজ থেকে মুছুন', 'Delete from its page'), x.p.PersonID, true)}${pic('save', '💾', t('সেভ', 'Save'), x.p.PersonID, true)}</td></tr>`;
-        }).join('') + `<tr class="gl-sub"><td></td><td colspan="2" class="l">${t('মোট — দেনাদার পাওনাদার', 'Total — debtors & creditors')}</td><td class="gl-hide-m"></td><td class="gl-hide-m"></td><td class="r"><span class="gl-pos">${t('পাব ', 'get ')}${glMoney(get)}</span><br><span class="gl-neg">${t('দেব ', 'owe ')}${glMoney(owe)}</span></td><td></td></tr>`;
+            <td style="white-space:nowrap;">${pic('view', '👁️', t('খাতা দেখুন', 'View'), x.p.PersonID)}${pic('edit', '✏️', t('লেনদেন দিন / এডিট', 'Entry / edit'), x.p.PersonID)}${pic('del', '🗑️', t('চলতি (দায় ও দেনা) পেজ থেকে মুছুন', 'Delete from its page'), x.p.PersonID, true)}${pic('save', '💾', t('সেভ', 'Save'), x.p.PersonID, true)}</td></tr>`;
+        }).join('') + `<tr class="gl-sub"><td></td><td colspan="2" class="l">${t('মোট — চলতি (দায় ও দেনা)', 'Total — current dues & debts')}</td><td class="gl-hide-m"></td><td class="gl-hide-m"></td><td class="r"><span class="gl-pos">${t('পাব ', 'get ')}${glMoney(get)}</span><br><span class="gl-neg">${t('দেব ', 'owe ')}${glMoney(owe)}</span></td><td></td></tr>`;
       }
+      if (lt === 'Current') return `<tr class="gl-sec"><td colspan="7">🔄 ${t('চলতি (দায় ও দেনা) — ব্যক্তিকে ধার দেওয়া / ধার নেওয়া', 'Current (dues & debts)')} (${pp.length}${t('জন', '')})</td></tr>${dp}`;
       return `<tr class="gl-sec"><td colspan="7">${GL_TYPES[lt].icon} ${escapeHtml(t(GL_TYPES[lt].bn, GL_TYPES[lt].en))} (${ls.length}${t('টি', '')})</td></tr>${rows}${ls.length ? `<tr class="gl-sub"><td></td><td colspan="2" class="l">${t('মোট বকেয়া — ', 'Total dues — ')}${escapeHtml(GL_TYPES[lt].bn)}</td><td class="gl-hide-m"></td><td class="gl-hide-m"></td><td class="r">${glMoney(subDue)}</td><td></td></tr>` : ''}${dp}`;
     }).join('');
     $('gll_List').innerHTML = `<table class="own-tbl gl-tbl"><thead><tr><th>${t('ক্রঃ', 'Sl')}</th><th>${t('আইডি', 'ID')}</th><th>${t('লোনের নাম', 'Loan')}</th><th class="gl-hide-m">${t('দাতা', 'Lender')}</th><th class="gl-hide-m">${t('তথ্য', 'Info')}</th><th>${t('বকেয়া (৳)', 'Dues (৳)')}</th><th></th></tr></thead><tbody>${body}</tbody></table>`;
   }
   async function save() {
     const lt = curType(), name = $('gll_Name').value.trim();
+    if (lt === 'Current') { openDP(''); return; }
     if (!name) { showToast(t('লোনের নাম দিন।', 'Enter the loan name.'), 'error'); $('gll_Name').focus(); return; }
     const bad = ['gll_Start', 'gll_End', 'gll_FirstInst'].find(function (id) { return $(id).value && !dmyIso(id); });
     if (bad) { showToast(t('তারিখ ঠিক নেই (দিন-মাস-বছর)।', 'Invalid date (dd-mm-yyyy).'), 'error'); $(bad).focus(); return; }
@@ -8711,7 +8717,7 @@ async function renderGmwLoanList(content) {
   });
   await loadPersons();
   resetForm();
-  // দেনাদার পাওনাদার পেজে লেনদেন হলে — এই পেজে ফিরলে বকেয়া নতুন করে
+  // চলতি (দায় ও দেনা) পেজে লেনদেন হলে — এই পেজে ফিরলে বকেয়া নতুন করে
   window.addEventListener('resize', function () { if (!content.isConnected || !window.__dpDirty || window.__dpDirty <= (content.__dpAt || 0)) return; content.__dpAt = Date.now(); loadPersons().then(renderList); });
 }
 
@@ -20362,7 +20368,7 @@ const VOUCHER_REGISTRY = {
   FixedAsset: { bn: 'স্থায়ী সম্পদ', table: 'FixedAsset', idf: 'AssetID', lines: [], kind: 'legacy' },
   // পুরনো সংস্করণের ভাউচার — এখনকার সফটওয়্যারে ফর্ম নেই; দেখা/এডিট নয়, শুধু মোছা (টেবিল ও আইডির নাম অনুমানে)
   CollectionVoucher: { bn: 'কালেকশন (পুরনো)', table: 'CollectionVoucher', idf: ['CollectionID', 'ColID', 'CollID', 'VoucherID', 'ID'], lines: [], kind: 'legacy' },
-  LoanVoucher: { bn: 'দেনাদার পাওনাদার', table: 'LoanVoucher', idf: 'LoanID', lines: [], kind: 'loan' },
+  LoanVoucher: { bn: 'চলতি (দায় ও দেনা)', table: 'LoanVoucher', idf: 'LoanID', lines: [], kind: 'loan' },
   LoanTxn: { bn: 'লোন', table: 'LoanTxn', idf: 'TxnID', lines: [], kind: 'gmwloan' },
 };
 function voucherBaseType(refModule) { return String(refModule || '').replace(/-(Payment|Receipt|Reversal|RM|FG|ByProduct|In|Out|Discount)$/, ''); }
@@ -20400,7 +20406,7 @@ async function voucherEdit(base, id, posted) {
   if (!R || R.kind === 'legacy') { showToast(t('এই ধরনের ভাউচার এডিটের ব্যবস্থা নেই — 🗑️ দিয়ে মুছে নতুন করে দিন।', 'This voucher type cannot be edited — delete it and enter it again.'), 'error'); return false; }
   if (R && R.kind === 'head') { const HK = HV_KINDS[R.hv]; closeModal(); window['__' + HK.P + 'EditId'] = id; return navigateTo(HK.page, t('হিসাব', 'Accounts'), t(HK.bn, HK.en)); }   // এক্সপেন্স/রিসিপ্ট — নিজের পেজে উপরের ঘরে
   if (R.kind === 'asset') { closeModal(); window.__assetEditId = { base: base, id: id }; return navigateTo(ASSET_VCFG[base].page, t('হিসাব', 'Accounts'), ASSET_VCFG[base].bn); }
-  if (R.kind === 'loan') { closeModal(); window.__loanEditId = id; return navigateTo('loans', t('লোন › হ্যান্ড লোন', 'Loans › Hand loan'), t('দেনাদার পাওনাদার', 'Debtors & Creditors')); }
+  if (R.kind === 'loan') { closeModal(); window.__loanEditId = id; return navigateTo('loans', t('লোন', 'Loans'), t('চলতি (দায় ও দেনা)', 'Current (dues & debts)')); }
   if (R.kind === 'gmwloan') { closeModal(); window.__glEditId = id; return navigateTo('loanTxn', t('লোন', 'Loans'), t('লোন ভাউচার', 'Loan Voucher')); }
   const h = await voucherFetchHeader(base, id);
   if (!h) { showToast(t('ভাউচারটা পাওয়া যায়নি — 🗑️ দিয়ে লেজার থেকে মুছে ফেলতে পারেন।', 'Voucher not found — remove it with 🗑️.'), 'error'); return false; }
@@ -20667,7 +20673,7 @@ async function renderPartyLedger(content, partyTypeFilter) {
       return [p.name, p.zone, p.phone, p.code].some(function (x) { return normName(x).indexOf(qy) !== -1; });
     });
     pickOn = pickItems.length ? 0 : -1;
-    const badge = function (p) { if ((p.personIds || []).length) return `<span class="pl-bd" style="background:#fdf4e7;color:#8a5a12;">${t('ব্যক্তি (দেনাদার পাওনাদার)', 'Person (loan)')}</span>`; const c = (p.customerIds || []).length, sp = (p.supplierIds || []).length; return c && sp ? `<span class="pl-bd b">${t('গ্রাহক + সাপ্লায়ার', 'Both')}</span>` : c ? `<span class="pl-bd c">${t('গ্রাহক', 'Customer')}</span>` : `<span class="pl-bd s">${t('সাপ্লায়ার', 'Supplier')}</span>`; };
+    const badge = function (p) { if ((p.personIds || []).length) return `<span class="pl-bd" style="background:#fdf4e7;color:#8a5a12;">${t('ব্যক্তি (চলতি (দায় ও দেনা))', 'Person (loan)')}</span>`; const c = (p.customerIds || []).length, sp = (p.supplierIds || []).length; return c && sp ? `<span class="pl-bd b">${t('গ্রাহক + সাপ্লায়ার', 'Both')}</span>` : c ? `<span class="pl-bd c">${t('গ্রাহক', 'Customer')}</span>` : `<span class="pl-bd s">${t('সাপ্লায়ার', 'Supplier')}</span>`; };
     pickBox.innerHTML = `<div class="pl-cnt">${t('মোট ', 'Total ')}${pickItems.length}${t('টা পার্টি', ' parties')}${zone ? ' · ' + escapeHtml(zone) : ''}</div>` +
       (pickItems.length ? pickItems.map(function (p, i) {
         return `<div class="pl-it ${i === pickOn ? 'on' : ''}${p.key === currentPartyKey ? ' cur' : ''}" data-i="${i}"><span class="nm">${escapeHtml(p.name)}${p.inactive ? ` <small>(${t('নিষ্ক্রিয়', 'inactive')})</small>` : ''}<br><small>${escapeHtml([p.zone, p.phone].filter(Boolean).join(' · '))}</small></span>${badge(p)}</div>`;
@@ -20723,7 +20729,7 @@ async function renderPartyLedger(content, partyTypeFilter) {
       AssetPurchase: { desc:['এ্যাসেট ক্রয় ভাউচার','Asset purchase voucher'], type:['এ্যাসেট ক্রয়','Asset purchase'] },
       'AssetPurchase-Payment': { desc:['এ্যাসেট ক্রয়ে প্রদান','Paid on asset purchase'], type:['পেমেন্ট','Payment'] },
       AssetSale: { desc:['এ্যাসেট বিক্রয় ভাউচার','Asset sale voucher'], type:['এ্যাসেট বিক্রয়','Asset sale'] },
-      LoanVoucher: { desc:['দেনাদার পাওনাদার ভাউচার','Loan voucher'], type:['দেনাদার পাওনাদার','Loan'] },
+      LoanVoucher: { desc:['চলতি (দায় ও দেনা) ভাউচার','Loan voucher'], type:['চলতি (দায় ও দেনা)','Loan'] },
       'AssetSale-Receipt': { desc:['এ্যাসেট বিক্রয়ে গ্রহণ','Received on asset sale'], type:['রিসিপ্ট','Receipt'] },
       'PaymentVoucher-Reversal': { desc:['পেমেন্ট ভাউচার বাতিল','Payment voucher reversal'], type:['বাতিল','Reversal'] },
       SalaryIssue: { desc:['সেলারী ইস্যু (বেতন পরিশোধ)','Salary issue'], type:['বেতন','Salary'] },
@@ -21570,7 +21576,7 @@ function vgsTypes() {
     { key: 'ExpenseVoucher', mod: 'acc', bn: 'এক্সপেন্স ভাউচার', table: 'ExpenseVoucher', idf: 'ExpID', date: 'Date', lines: 'ExpenseVoucher_Lines', lineIdf: 'ExpID', lineSum: ['Amount'], typed: true, page: 'ev' },
     { key: 'IncomeVoucher', mod: 'acc', bn: 'রিসিপ্ট ভাউচার', table: 'IncomeVoucher', idf: 'IncID', date: 'Date', lines: 'IncomeVoucher_Lines', lineIdf: 'IncID', lineSum: ['Amount'], typed: true, page: 'icv' },
     { key: 'CapitalVoucher', mod: 'acc', bn: 'মালিকের মূলধন', table: 'CapitalVoucher', idf: 'CapID', date: 'Date', amount: 'Amount', nameField: 'OwnerName', page: 'ownerCapital' },
-    { key: 'LoanVoucher', mod: 'acc', bn: 'দেনাদার পাওনাদার', table: 'LoanVoucher', idf: 'LoanID', date: 'Date', amount: 'Amount', person: true, page: 'loans' },
+    { key: 'LoanVoucher', mod: 'acc', bn: 'চলতি (দায় ও দেনা)', table: 'LoanVoucher', idf: 'LoanID', date: 'Date', amount: 'Amount', person: true, page: 'loans' },
     { key: 'LoanTxn', mod: 'loan', bn: 'লোন ভাউচার', table: 'LoanTxn', idf: 'TxnID', date: 'Date', loanTxn: true, page: 'loanTxn' },
     { key: 'AssetPurchase', mod: 'asset', bn: 'এ্যাসেট ক্রয়', table: 'AssetPurchase', idf: 'APID', date: 'Date', amount: 'TotalAmount', nameField: 'PartyName', page: 'assetPurchase' },
     { key: 'AssetSale', mod: 'asset', bn: 'এ্যাসেট বিক্রয়', table: 'AssetSale', idf: 'ASID', date: 'Date', amount: 'TotalAmount', nameField: 'PartyName', page: 'assetSale' },
