@@ -36,7 +36,7 @@ button{font-family:inherit;}
 /* ===== Login Screen ===== */
 .login-screen{
   position:fixed;inset:0;z-index:200;
-  background:radial-gradient(circle at 30% 20%, #1d6b43, #0a3a22 70%);   /* গাঢ় সবুজ */
+  background:radial-gradient(circle at 30% 20%, #232b38, var(--ink-900) 70%);
   display:flex;align-items:center;justify-content:center;padding:20px;
 }
 .login-card{
@@ -79,13 +79,6 @@ button{font-family:inherit;}
 }
 .login-error.show{display:block;}
 .login-hint{font-size:11.5px;color:var(--text-muted);margin-top:16px;text-align:center;line-height:1.6;}
-/* লগইন পেজঃ লেখা গাঢ় নীল — শুধু এই পেজে (বাকি সফটওয়্যারের লেবেল/বোতাম আগের মতো) */
-.login-screen .login-brand b,.login-screen .field label,.login-screen .login-hint{color:#0b2e6e;}
-.login-screen .login-brand span{color:#1e4a8c;}
-.login-screen .field input{color:#0b2e6e;}
-.login-screen .field input:focus{border-color:#0b2e6e;}
-.login-screen .btn-primary{background:#0b2e6e;color:#fff;}
-.login-screen .btn-primary:hover{background:#082356;}
 
 /* ===== App shell ===== */
 .app{display:none;min-height:100vh;}
@@ -21810,7 +21803,7 @@ async function renderNetWorthReport(content) {
     return;
   }
   const today = ownToday();
-  const st = { to: today, open: {} };
+  const st = { to: today, cmp: '', open: {} };   // cmp খালি = তুলনা নেই
   let X = null;
   const fmt = function (x) { return (Number(x) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
   content.innerHTML = `<style>${DMY_CSS}${RPT_SIDE_CSS}
@@ -21830,9 +21823,11 @@ async function renderNetWorthReport(content) {
       .nw tr.nw-sub td{font-weight:700;background:#f6f7f9;}
       .nw .up{color:#15803d;} .nw .down{color:#b42318;} .nw .tw{display:inline-block;width:14px;color:var(--text-muted);}
       .nw .nw-dr{color:#1d4ed8;} .nw .nw-cr{color:#b42318;}
-      .nw .nw-st{font-size:10.5px;font-weight:600;white-space:nowrap;} .nw .nw-stm{display:none;} .nw .st-get{color:#1d4ed8;} .nw .st-give{color:#b42318;} .nw .st-have{color:#15803d;}
+      .nw .nw-st{font-size:10.5px;font-weight:600;white-space:nowrap;} .nw .nw-stm{display:none;}
+      .nw .nw-cmpx .btn{width:100%;height:28px;padding:2px 6px;font-size:11.5px;}
+      .nw th.nw-cc,.nw td.nw-cc{background:#f6f8fb;} .nw tr.nw-sec td.nw-cc{background:#1f2937;} .nw .st-get{color:#1d4ed8;} .nw .st-give{color:#b42318;} .nw .st-have{color:#15803d;}
       .nw .nw-help{font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.6;}
-      @media (max-width:760px){ .nw table.nw-t th,.nw table.nw-t td{padding:2px 3px;} .nw table.nw-t td.lb{min-width:0;font-size:10.5px;line-height:1.25;} .nw .nw-stc{display:none;} .nw .nw-stm{display:block;line-height:1.1;} .nw .nw-st{font-size:9.5px;white-space:normal;} .nw table.nw-t td small{display:none;} .nw .tw{width:9px;} .nw .sr-main.panel{padding:4px;} .nw .nw-card b{font-size:14px;} }
+      @media (max-width:760px){ .nw table.nw-t th,.nw table.nw-t td{padding:2px 3px;} .nw table.nw-t td.lb{min-width:0;font-size:10.5px;line-height:1.25;} .nw .nw-stc{display:none;} .nw .nw-stm{display:block;line-height:1.1;} .nw .nw-st{font-size:9.5px;white-space:normal;} .nw table.nw-t td small{display:none;} .nw .tw{width:9px;} .nw .nw-cv{display:none;} .nw .sr-main.panel{padding:4px;} .nw .nw-card b{font-size:14px;} }
     </style>
     <div class="nw">
       <div class="sr-head"><h1>${t('ব্যবসার প্রকৃত অবস্থা', 'Business Position')}</h1></div>
@@ -21842,6 +21837,8 @@ async function renderNetWorthReport(content) {
         <div class="sr-side-h" data-lbl="${attr(t('অপশন', 'Options'))}"><span>🔎 ${t('অপশন', 'Options')}</span></div>
         <div class="sr-bar" id="nwBar">
           <div class="field"><label>${t('তারিখ (এই দিন পর্যন্ত)', 'As of')}</label>${dmyDateField('nwTo', st.to)}</div>
+          <div class="field"><label>${t('তুলনার তারিখ (ঐচ্ছিক)', 'Compare with (optional)')}</label>${dmyDateField('nwCmp', st.cmp)}</div>
+          <div class="nw-cmpx" id="nwCmpX" style="display:none;"><button type="button" class="btn btn-outline" id="nwCmpClear" data-perm-safe="1">✕ ${t('তুলনা বাদ', 'Clear comparison')}</button></div>
           <div class="sr-btns"><button type="button" class="btn btn-primary" id="nwShow">🔄 ${t('দেখাও', 'Show')}</button><button type="button" class="btn btn-outline" id="nwPrint">🖨️ ${t('প্রিন্ট', 'Print')}</button></div>
         </div>
        </aside>
@@ -21871,50 +21868,60 @@ async function renderNetWorthReport(content) {
     return `<span class="nw-st st-give">${k === 'bank' ? t('দেবো (ঋণাত্মক জের)', 'Payable (overdrawn)') : t('দেবো', 'Payable')}</span>`;
   };
   const netSt = function (v) { const r = Math.round((Number(v) || 0) * 100) / 100; return `<span class="nw-st ${r < 0 ? 'st-give' : 'st-have'}">${escapeHtml(lbl(r))}</span>`; };
+  // পরিবর্তন — চিহ্নসহ মান (সম্পদ +, দায় −) বাড়লে ব্যবসার জন্য ভালো (সবুজ ▲), কমলে লাল ▼
+  const chg = function (then, now) { const d = Math.round(((Number(now) || 0) - (Number(then) || 0)) * 100) / 100; if (!d) return '—'; return `<span class="${d > 0 ? 'up' : 'down'}">${d > 0 ? '▲ ' : '▼ '}${fmtS(d)}</span>`; };
   const render = function () {
     if (!X) return;
-    const B = nwCompute(X, st.to);
-    $('nwHead').innerHTML = `<tr><th style="text-align:left;">${t('বিবরণ', 'Description')}</th><th>${t('ডেবিট', 'Debit')}</th><th>${t('ক্রেডিট', 'Credit')}</th><th>${t('ব্যালান্স', 'Balance')}</th><th class="nw-stc">${t('অবস্থা', 'Status')}</th></tr>`;
+    const B = nwCompute(X, st.to), C = st.cmp ? nwCompute(X, st.cmp) : null, cols = C ? 7 : 5;
+    $('nwCmpX').style.display = C ? '' : 'none';
+    const cc = function (then, now) { return C ? `<td class="nw-cc nw-cv">${bal(then)}</td><td class="nw-cc">${chg(then, now)}</td>` : ''; };
+    $('nwHead').innerHTML = `<tr><th style="text-align:left;">${t('বিবরণ', 'Description')}</th><th>${t('ডেবিট', 'Debit')}</th><th>${t('ক্রেডিট', 'Credit')}</th><th>${t('ব্যালান্স', 'Balance')}</th><th class="nw-stc">${t('অবস্থা', 'Status')}</th>` +
+      (C ? `<th class="nw-cc nw-cv">${escapeHtml(isoToDmy(st.cmp))} ${t('তারিখে', '')}</th><th class="nw-cc">${t('পরিবর্তন', 'Change')}</th>` : '') + `</tr>`;
     let run = 0, tDr = 0, tCr = 0;
-    const sec = function (title) { return `<tr class="nw-sec"><td colspan="5">${escapeHtml(title)}</td></tr>`; };
+    const sec = function (title) { return `<tr class="nw-sec"><td colspan="${cols}">${escapeHtml(title)}</td></tr>`; };
+    const EMPTY = { total: 0, names: {} };
     // সম্পদের সারি ডেবিটে (+), দায়ের সারি ক্রেডিটে (−) — চিহ্ন উল্টো হলে উল্টো ঘরে
     const block = function (order, isA) {
       let sDr = 0, sCr = 0;
       const html = order.map(function (o) {
-        const L = B.lines[o[0]]; if (!L) return '';
-        const v = isA ? L.total : -L.total, dr = v > 0 ? v : 0, cr = v < 0 ? -v : 0, open = !!st.open[o[0]];
+        const L0 = B.lines[o[0]], Lc0 = C ? C.lines[o[0]] : null; if (!L0 && !Lc0) return '';
+        const L = L0 || EMPTY, Lc = Lc0 || EMPTY, sg = isA ? 1 : -1;
+        const v = sg * L.total, vc = sg * Lc.total, dr = v > 0 ? v : 0, cr = v < 0 ? -v : 0, open = !!st.open[o[0]];
         sDr += dr; sCr += cr; run += v;
-        const names = Object.keys(L.names || {}).sort(function (x, y) { return String(x).localeCompare(String(y), 'bn'); });
-        return `<tr class="nw-line" data-k="${attr(o[0])}"><td class="lb"><span class="tw">${open ? '▾' : '▸'}</span>${escapeHtml(t(o[1], o[1]))} <small style="color:var(--text-muted);font-weight:400;">(${names.length})</small></td><td><b>${amt(dr)}</b></td><td><b>${amt(cr)}</b></td><td>${bal(run)}<span class="nw-stm">${status(o[0], v)}</span></td><td class="nw-stc">${status(o[0], v)}</td></tr>` +
-          (open ? names.map(function (n) { const nv = isA ? L.names[n] : -L.names[n]; return `<tr class="nw-name"><td class="lb">${escapeHtml(n)}</td><td>${amt(nv > 0 ? nv : 0)}</td><td>${amt(nv < 0 ? -nv : 0)}</td><td>${bal(nv)}<span class="nw-stm">${status(o[0], nv)}</span></td><td class="nw-stc">${status(o[0], nv)}</td></tr>`; }).join('') : '');
+        const names = Array.from(new Set(Object.keys(L.names || {}).concat(C ? Object.keys(Lc.names || {}) : []))).sort(function (x, y) { return String(x).localeCompare(String(y), 'bn'); });
+        return `<tr class="nw-line" data-k="${attr(o[0])}"><td class="lb"><span class="tw">${open ? '▾' : '▸'}</span>${escapeHtml(t(o[1], o[1]))} <small style="color:var(--text-muted);font-weight:400;">(${names.length})</small></td><td><b>${amt(dr)}</b></td><td><b>${amt(cr)}</b></td><td>${bal(run)}<span class="nw-stm">${status(o[0], v)}</span></td><td class="nw-stc">${status(o[0], v)}</td>${cc(vc, v)}</tr>` +
+          (open ? names.map(function (n) { const nv = sg * (L.names[n] || 0), nvc = sg * (Lc.names[n] || 0); return `<tr class="nw-name"><td class="lb">${escapeHtml(n)}</td><td>${amt(nv > 0 ? nv : 0)}</td><td>${amt(nv < 0 ? -nv : 0)}</td><td>${bal(nv)}<span class="nw-stm">${status(o[0], nv)}</span></td><td class="nw-stc">${status(o[0], nv)}</td>${cc(nvc, nv)}</tr>`; }).join('') : '');
       }).join('');
       tDr += sDr; tCr += sCr;
       return { html: html, dr: sDr, cr: sCr };
     };
     const A = block(NW_ORDER_A, true), runA = run;
     const Lb = block(NW_ORDER_L, false);
-    const tot = function (cls, title, dr, cr, b, stHtml) { return `<tr class="${cls}"><td class="lb">${escapeHtml(title)}</td><td>${amt(dr) || '0.00'}</td><td>${amt(cr) || '0.00'}</td><td>${bal(b)}<span class="nw-stm">${stHtml || ''}</span></td><td class="nw-stc">${stHtml || ''}</td></tr>`; };
-    $('nwBody').innerHTML = sec(t('সম্পদ (ব্যবসার যা আছে)', 'Assets')) + A.html + tot('nw-tot', t('মোট সম্পদ', 'Total assets'), A.dr, A.cr, runA, '') +
-      sec(t('দায় (ব্যবসার যা দেওয়ার আছে)', 'Liabilities')) + Lb.html + tot('nw-tot', t('মোট দায়', 'Total liabilities'), Lb.dr, Lb.cr, Lb.dr - Lb.cr, '') +
-      tot('nw-net ' + (B.net < 0 ? 'neg' : 'pos'), t('সর্বমোট — নিট অবস্থা', 'Grand total — net position'), tDr, tCr, B.net, netSt(B.net)) +
-      `<tr class="nw-sub"><td class="lb">${t('স্থায়ী সম্পদ বাদে নিট অবস্থা', 'Net excluding fixed assets')}</td><td></td><td></td><td>${bal(B.netNoFA)}<span class="nw-stm">${netSt(B.netNoFA)}</span></td><td class="nw-stc">${netSt(B.netNoFA)}</td></tr>`;
-    $('nwCards').innerHTML = `<div class="nw-card"><small>${t('মোট সম্পদ (ডেবিট)', 'Total assets (Dr)')}</small><b>৳${fmt(B.tA)}</b></div><div class="nw-card"><small>${t('মোট দায় (ক্রেডিট)', 'Total liabilities (Cr)')}</small><b>৳${fmt(B.tL)}</b></div>
-      <div class="nw-card ${B.net < 0 ? 'neg' : 'pos'}"><small>${t('নিট অবস্থা', 'Net position')} — ${escapeHtml(lbl(B.net))}</small><b>৳${sgn(B.net)}</b></div>
-      <div class="nw-card ${B.netNoFA < 0 ? 'neg' : 'pos'}"><small>${t('স্থায়ী সম্পদ বাদে', 'Excl. fixed assets')}</small><b>৳${sgn(B.netNoFA)}</b></div>`;
-    return B;
+    const tot = function (cls, title, dr, cr, b, stHtml, bThen) { return `<tr class="${cls}"><td class="lb">${escapeHtml(title)}</td><td>${amt(dr) || '0.00'}</td><td>${amt(cr) || '0.00'}</td><td>${bal(b)}<span class="nw-stm">${stHtml || ''}</span></td><td class="nw-stc">${stHtml || ''}</td>${cc(bThen, b)}</tr>`; };
+    $('nwBody').innerHTML = sec(t('সম্পদ (ব্যবসার যা আছে)', 'Assets')) + A.html + tot('nw-tot', t('মোট সম্পদ', 'Total assets'), A.dr, A.cr, runA, '', C ? C.tA : 0) +
+      sec(t('দায় (ব্যবসার যা দেওয়ার আছে)', 'Liabilities')) + Lb.html + tot('nw-tot', t('মোট দায়', 'Total liabilities'), Lb.dr, Lb.cr, Lb.dr - Lb.cr, '', C ? -C.tL : 0) +
+      tot('nw-net ' + (B.net < 0 ? 'neg' : 'pos'), t('সর্বমোট — নিট অবস্থা', 'Grand total — net position'), tDr, tCr, B.net, netSt(B.net), C ? C.net : 0) +
+      `<tr class="nw-sub"><td class="lb">${t('স্থায়ী সম্পদ বাদে নিট অবস্থা', 'Net excluding fixed assets')}</td><td></td><td></td><td>${bal(B.netNoFA)}<span class="nw-stm">${netSt(B.netNoFA)}</span></td><td class="nw-stc">${netSt(B.netNoFA)}</td>${cc(C ? C.netNoFA : 0, B.netNoFA)}</tr>`;
+    const cTxt = function (then, now) { return C ? `<div style="font-size:10.5px;margin-top:2px;">${escapeHtml(isoToDmy(st.cmp))}: ৳${sgn(then)} · ${chg(then, now)}</div>` : ''; };
+    $('nwCards').innerHTML = `<div class="nw-card"><small>${t('মোট সম্পদ (ডেবিট)', 'Total assets (Dr)')}</small><b>৳${fmt(B.tA)}</b>${cTxt(C && C.tA, B.tA)}</div><div class="nw-card"><small>${t('মোট দায় (ক্রেডিট)', 'Total liabilities (Cr)')}</small><b>৳${fmt(B.tL)}</b>${C ? `<div style="font-size:10.5px;margin-top:2px;">${escapeHtml(isoToDmy(st.cmp))}: ৳${fmt(C.tL)} · ${chg(-C.tL, -B.tL)}</div>` : ''}</div>
+      <div class="nw-card ${B.net < 0 ? 'neg' : 'pos'}"><small>${t('নিট অবস্থা', 'Net position')} — ${escapeHtml(lbl(B.net))}</small><b>৳${sgn(B.net)}</b>${cTxt(C && C.net, B.net)}</div>
+      <div class="nw-card ${B.netNoFA < 0 ? 'neg' : 'pos'}"><small>${t('স্থায়ী সম্পদ বাদে', 'Excl. fixed assets')}</small><b>৳${sgn(B.netNoFA)}</b>${cTxt(C && C.netNoFA, B.netNoFA)}</div>`;
+    return { B: B, C: C };
   };
-  const load = async function () { $('nwBody').innerHTML = `<tr><td colspan="4">${t('লোড হচ্ছে...', 'Loading...')}</td></tr>`; X = await nwLoad(); render(); };
+  const load = async function () { $('nwBody').innerHTML = `<tr><td colspan="5">${t('লোড হচ্ছে...', 'Loading...')}</td></tr>`; X = await nwLoad(); render(); };
   $('nwTbl').addEventListener('click', function (e) { const tr = e.target.closest('tr.nw-line'); if (!tr) return; const k = tr.getAttribute('data-k'); st.open[k] = !st.open[k]; render(); });
   $('nwTo').addEventListener('change', function () { const v = dmyToIso(this.value); if (v) { st.to = v; render(); } });
+  $('nwCmp').addEventListener('change', function () { const v = dmyToIso(this.value); if (v) { st.cmp = v; render(); } else if (!this.value.trim()) { st.cmp = ''; render(); } });
+  $('nwCmpClear').addEventListener('click', function () { $('nwCmp').value = ''; st.cmp = ''; render(); });
   $('nwShow').addEventListener('click', async function () { try { listCache = {}; await load(); side.collapse(); } catch (err) { showToast(err.message, 'error'); } });
   $('nwPrint').addEventListener('click', function () {
-    const B = render(); if (!B) return;
+    const R = render(); if (!R) return; const B = R.B;
     const tbl = $('nwTbl').cloneNode(true); tbl.querySelectorAll('.tw').forEach(function (x) { x.remove(); });
-    printReportA4({ title: t('ব্যবসার প্রকৃত অবস্থা', 'Business Position'), period: isoToDmy(st.to) + t(' পর্যন্ত', ''), filters: t('নিজের বিনিয়োগ ধরা হয়নি · শুধু পোস্ট করা ভাউচার', 'Owner investment excluded · posted vouchers only'),
+    printReportA4({ title: t('ব্যবসার প্রকৃত অবস্থা', 'Business Position'), period: isoToDmy(st.to) + t(' পর্যন্ত', '') + (R.C ? t(' · তুলনাঃ ', ' · vs ') + isoToDmy(st.cmp) : ''), filters: t('নিজের বিনিয়োগ ধরা হয়নি · শুধু পোস্ট করা ভাউচার', 'Owner investment excluded · posted vouchers only'),
       summary: [[t('মোট সম্পদ', 'Total assets'), '৳' + fmt(B.tA)], [t('মোট দায়', 'Total liabilities'), '৳' + fmt(B.tL)], [t('নিট অবস্থা', 'Net position') + ' (' + lbl(B.net) + ')', '৳' + sgn(B.net)], [t('স্থায়ী সম্পদ বাদে', 'Excl. fixed assets'), '৳' + sgn(B.netNoFA)]],
-      html: '<style>table{width:100%;border-collapse:collapse;} th,td{text-align:center;padding:3px 6px;} td.lb{text-align:left;} .nw-stm{display:none !important;} tr.nw-sec td{background:#1f2937 !important;color:#ffd27a;font-weight:700;} tr.nw-tot td,tr.nw-sub td{background:#eef1f5 !important;font-weight:700;} tr.nw-net td{background:#fdeef0 !important;} tr.nw-net td{font-weight:800;} tr.nw-net.neg td{color:#b42318;} tr.nw-name td{font-size:10px;color:#555;} tr.nw-name td.lb{padding-left:18px;} .nw-dr{color:#1d4ed8;} .nw-cr{color:#b42318;} .nw-st{font-size:9.5px;font-weight:600;} .st-get{color:#1d4ed8;} .st-give{color:#b42318;} .st-have{color:#15803d;}</style>' + tbl.outerHTML });
+      html: '<style>table{width:100%;border-collapse:collapse;} th,td{text-align:center;padding:3px 6px;} td.lb{text-align:left;} .nw-stm{display:none !important;} tr.nw-sec td{background:#1f2937 !important;color:#ffd27a;font-weight:700;} tr.nw-tot td,tr.nw-sub td{background:#eef1f5 !important;font-weight:700;} tr.nw-net td{background:#fdeef0 !important;} tr.nw-net td{font-weight:800;} tr.nw-net.neg td{color:#b42318;} tr.nw-name td{font-size:10px;color:#555;} tr.nw-name td.lb{padding-left:18px;} .up{color:#15803d;} .down{color:#b42318;} .nw-dr{color:#1d4ed8;} .nw-cr{color:#b42318;} .nw-st{font-size:9.5px;font-weight:600;} .st-get{color:#1d4ed8;} .st-give{color:#b42318;} .st-have{color:#15803d;}</style>' + tbl.outerHTML });
   });
-  try { await load(); } catch (err) { $('nwBody').innerHTML = `<tr><td colspan="4">${escapeHtml(err.message)}</td></tr>`; }
+  try { await load(); } catch (err) { $('nwBody').innerHTML = `<tr><td colspan="5">${escapeHtml(err.message)}</td></tr>`; }
 }
 
 async function renderVoucherGroupSummary(content) {
