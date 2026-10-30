@@ -16396,7 +16396,13 @@ const SV_COMPACT_CSS = `
  *  (পরিমাণ → দর → মূল্য → Enter = লাইন + → আবার আইটেম)। লিখে খোঁজা যায়, Escape দিলে তালিকা বন্ধ, আইটেম যেমন ছিল।
  *  মাউস/আঙুলে আগের মতোই সাধারণ তালিকা খোলে। */
 function voucherItemPickerWire(P) {
-  const sel = document.getElementById(P + '_ItemID');
+  voucherSelectPickerWire(P, '_ItemID');
+  voucherSelectPickerWire(P, P === 'sv3' ? '_CustomerID' : '_SupplierID');   // পার্টির নামও — চাপ দিলে বা লিখলেই খোঁজার তালিকা
+}
+/** খোঁজার তালিকা (আইটেম / পার্টি): ঘরে চাপ দিলে, Enter দিলে, বা সরাসরি অক্ষর লিখলেই খোলে; লিখে খোঁজা, ↓ ↑ বাছাই, Enter বসান। */
+function voucherSelectPickerWire(P, suffix) {
+  const isItem = suffix === '_ItemID';
+  const sel = document.getElementById(P + suffix);
   const panel = document.getElementById(P + '_TabEntryPanel');
   if (!sel || !panel) return;
   let box = null;
@@ -16413,21 +16419,23 @@ function voucherItemPickerWire(P) {
   const outside = function (e) { if (box && !box.contains(e.target)) close(); };
   const choose = function (value) {
     close();
-    const changed = value !== sel.value, before = window['__' + P + 'LastStockKP'];
+    const changed = value !== sel.value, before = isItem ? window['__' + P + 'LastStockKP'] : null;
     if (changed) { sel.value = value; sel.dispatchEvent(new Event('change', { bubbles: true })); }
     sel.focus();
     if (!sel.value) return;
     let n = 0;
     const go = function () {   // আইটেমের স্টক/একক হিসাব শেষ হলে (কোন ঘর চালু তা ঠিক হয়) পরের ঘরে
       if (document.activeElement !== sel) return;   // এর মধ্যে নিজে অন্য ঘরে গেলে আর সরানো নয়
-      if (changed && window['__' + P + 'LastStockKP'] === before && n++ < 25) return setTimeout(go, 40);
+      if (isItem && changed && window['__' + P + 'LastStockKP'] === before && n++ < 25) return setTimeout(go, 40);
       const nx = nextField(); if (nx) { nx.focus(); try { if (nx.select) nx.select(); } catch (e) {} }
     };
     setTimeout(go, changed ? 40 : 0);
   };
-  const open = function () {
+  const open = function (startText) {
     close();
-    const opts = Array.from(sel.options).filter(function (o) { return o.value && !o.disabled; }).map(function (o) { return { v: o.value, t: o.textContent }; });
+    if (sel.disabled) return;
+    // যা দেখা যায় শুধু তাই (জোন বাছাই করলে সেই জোনের নাম)
+    const opts = Array.from(sel.options).filter(function (o) { return o.value && !o.disabled && !o.hidden && o.style.display !== 'none'; }).map(function (o) { return { v: o.value, t: o.textContent }; });
     const r = sel.getBoundingClientRect();
     box = document.createElement('div');
     box.className = 'vpick';
@@ -16443,6 +16451,10 @@ function voucherItemPickerWire(P) {
     const paint = function () {
       const term = q.value.trim().toLowerCase();
       shown = opts.filter(function (o) { return !term || o.t.toLowerCase().indexOf(term) !== -1; });
+      if (term) {   // যে নাম এই অক্ষর দিয়ে শুরু সেগুলো আগে, তারপর নামের মাঝে বা জোনে মিল
+        const st = function (o) { const x = o.t.toLowerCase(); return x.indexOf(term) === 0 ? 0 : x.split(/[\s(—-]+/).some(function (w) { return w.indexOf(term) === 0; }) ? 1 : 2; };
+        shown = shown.map(function (o, i) { return { o: o, k: st(o), i: i }; }).sort(function (a, b) { return a.k - b.k || a.i - b.i; }).map(function (x) { return x.o; });
+      }
       if (hi >= shown.length) hi = shown.length - 1; if (hi < 0) hi = 0;
       listEl.innerHTML = shown.length ? shown.map(function (o, i) { return `<div class="vpick-o${i === hi ? ' on' : ''}${o.v === sel.value ? ' cur' : ''}" data-i="${i}">${escapeHtml(o.t)}</div>`; }).join('')
         : `<div class="vpick-none">${t('কিছু পাওয়া যায়নি', 'Nothing found')}</div>`;
@@ -16462,14 +16474,28 @@ function voucherItemPickerWire(P) {
     });
     listEl.addEventListener('mousedown', function (e) { const o = e.target.closest('.vpick-o'); if (!o) return; e.preventDefault(); choose(shown[Number(o.getAttribute('data-i'))].v); });
     setTimeout(function () { document.addEventListener('mousedown', outside, true); }, 0);
+    if (startText) { q.value = startText; hi = 0; paint(); }
     q.focus();
   };
+  // ঘরে চাপ (মাউস/আঙুল) — ফোনের সাধারণ লম্বা তালিকার বদলে খোঁজার তালিকা
+  sel.addEventListener('mousedown', function (e) { if (sel.disabled) return; e.preventDefault(); sel.focus(); if (box) close(); else open(); });
+  let tx = 0, ty = 0;
+  sel.addEventListener('touchstart', function (e) { const t0 = e.touches[0]; tx = t0.clientX; ty = t0.clientY; }, { passive: true });
+  sel.addEventListener('touchend', function (e) {
+    if (sel.disabled) return;
+    const t1 = e.changedTouches[0]; if (t1 && (Math.abs(t1.clientX - tx) > 10 || Math.abs(t1.clientY - ty) > 10)) return;   // স্ক্রল করছিল — খুলবে না
+    e.preventDefault(); sel.focus(); if (!box) open();
+  }, { passive: false });
   const h = function (e) {
     if (!nodeAlive(sel)) { window.removeEventListener('keydown', h, true); close(); return; } if (!document.body.contains(sel)) return;   // অন্য ট্যাবে সরিয়ে রাখা — কিছু করবে না
-    if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return;
+    if (e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return;
     if (document.activeElement !== sel || sel.disabled) return;
-    e.preventDefault(); e.stopImmediatePropagation();   // সাধারণ "পরের ঘরে যাও" এখানে নয় — আগে তালিকা
-    open();
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.stopImmediatePropagation(); open(); return; }   // সাধারণ "পরের ঘরে যাও" নয় — আগে তালিকা
+    if (e.key && e.key.length === 1 && e.key !== ' ') {   // সরাসরি অক্ষর লিখলে খোঁজার তালিকা খোলে
+      e.preventDefault(); e.stopImmediatePropagation();
+      // বাংলা অক্ষর বা সংখ্যা হলে সেটা দিয়েই খোঁজা শুরু; ইংরেজি অক্ষর (অভ্র ইত্যাদি ফোনেটিক লেখার প্রথম চাপ) হলে খালি ঘর — বাকিটা খোঁজার ঘরে লিখুন
+      open(/[a-z]/i.test(e.key) ? '' : e.key);
+    }
   };
   window.addEventListener('keydown', h, true);
 }
