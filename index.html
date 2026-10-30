@@ -3506,45 +3506,69 @@ async function openItemForm(existing) {
  */
 
 async function renderPartyMasterPage(content) {
+  // উপরের অংশ (শিরোনাম + জোন + খোঁজা + নতুন পার্টি) ফ্রিজ — নিচে তালিকা স্ক্রল হয়
   content.innerHTML = `
-    <div class="page-head"><div>
+    <style>
+      /* মোবাইলে body-র overflow-x:hidden নিজেই স্ক্রল-বক্স হয়ে ফ্রিজ নষ্ট করে — clip একই কাজ করে কিন্তু ফ্রিজ ঠিক থাকে */
+      body:has(.pm-head){overflow-x:clip !important;}
+      .pm-head{position:sticky;top:0;z-index:6;background:var(--bg, #f3f4f6);padding:6px 0 8px;margin:0 0 6px;display:flex;align-items:flex-end;justify-content:space-between;gap:10px;flex-wrap:wrap;border-bottom:1px solid var(--border);}
+      .pm-head h1{margin:0;} .pm-head p{margin:2px 0 0;}
+      .pm-tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+      .pm-tools select,.pm-tools input{height:34px;border:1px solid var(--border);border-radius:8px;padding:0 9px;font-size:13px;background:var(--surface,#fff);color:var(--text);box-sizing:border-box;}
+      .pm-tools select{min-width:130px;} .pm-tools input{width:220px;}
+      .pm-tools .btn{width:auto;margin:0;height:34px;white-space:nowrap;}
+      .pm-cnt{font-size:11.5px;color:var(--text-muted);white-space:nowrap;}
+      #partyListWrap mark{background:#fde68a;color:inherit;padding:0 1px;border-radius:2px;}
+      @media (max-width:760px){ .pm-head{padding:4px 0 6px;gap:6px;} .pm-head h1{font-size:18px;} .pm-head p{display:none;} .pm-tools{width:100%;} .pm-tools select{min-width:0;flex:0 0 34%;} .pm-tools input{flex:1;width:auto;min-width:0;} .pm-cnt{display:none;} }
+    </style>
+    <div class="page-head pm-head" id="pmHead"><div>
         <h1 class="i18n" data-bn="পার্টি (সাপ্লায়ার / কাস্টমার)" data-en="Party (Supplier / Customer)">${t('পার্টি (সাপ্লায়ার / কাস্টমার)','Party (Supplier / Customer)')}</h1>
         <p class="i18n" data-bn="একই ব্যক্তি বা প্রতিষ্ঠান থেকে ক্রয় ও তার কাছে বিক্রয় — দুটোই করা যাবে" data-en="Buy from and sell to the same person or business — both work">${t('একই ব্যক্তি বা প্রতিষ্ঠান থেকে ক্রয় ও তার কাছে বিক্রয় — দুটোই করা যাবে','Buy from and sell to the same person or business — both work')}</p>
       </div>
-      <button class="btn btn-primary i18n" style="width:auto;" id="partyAddBtn" data-bn="+ নতুন পার্টি" data-en="+ New Party">${t('+ নতুন পার্টি','+ New Party')}</button></div>
+      <div class="pm-tools" id="pmTools" data-keynav="1">
+        <select id="pmZone" title="${attr(t('জোন', 'Zone'))}"><option value="">${t('সব জোন', 'All zones')}</option></select>
+        <input type="search" id="pmQ" placeholder="${attr(t('🔍 নাম, কোড বা ফোন লিখুন…', '🔍 Name, code or phone…'))}" autocomplete="off">
+        <span class="pm-cnt" id="pmCnt"></span>
+        <button class="btn btn-primary i18n" id="partyAddBtn" data-bn="+ নতুন পার্টি" data-en="+ New Party">${t('+ নতুন পার্টি','+ New Party')}</button>
+      </div></div>
     <div class="panel"><div id="partyListWrap"></div></div>`;
 
-  async function loadPartyList() {
-    const [suppliers, customers] = await Promise.all([api('list', { sheet:'Suppliers' }), api('list', { sheet:'Customers' })]);
-    const map = {};
-    function upsert(rec) {
-      const key = rec.Code || rec.SupplierID || rec.CustomerID;
-      if (!key) return;
-      if (!map[key]) map[key] = { Code:key, Name:rec.Name, CompanyName:rec.CompanyName, Phone:rec.Phone, Zone:rec.Zone, Active:false };
-      if (!map[key].Name && rec.Name) map[key].Name = rec.Name;
-      if (!map[key].CompanyName && rec.CompanyName) map[key].CompanyName = rec.CompanyName;
-      if (isTrue(rec.IsActive)) map[key].Active = true;
-    }
-    suppliers.filter(function (s) { return s.Status !== 'Deleted'; }).forEach(upsert);
-    customers.filter(function (c) { return c.Status !== 'Deleted'; }).forEach(upsert);
+  let allRows = [];
+  const noZone = t('জোন নেই', 'No zone');
+  const nm = function (r) { return String(r.CompanyName || r.Name || ''); };
+  const norm = function (x) { return String(x || '').toLowerCase().replace(/\s+/g, ' ').trim(); };
 
-    const rows = Object.values(map);
+  function renderPartyList() {
     const wrap = document.getElementById('partyListWrap');
-    if (!wrap) return; // ব্যবহারকারী এই ফাঁকে অন্য পেজ/ট্যাবে চলে গেলে এই এলিমেন্ট আর DOM-এ থাকবে না
-    if (rows.length === 0) {
+    if (!wrap) return;
+    const zSel = document.getElementById('pmZone'), qEl = document.getElementById('pmQ');
+    const zf = zSel ? zSel.value : '', q = norm(qEl ? qEl.value : '');
+    const rows = allRows.filter(function (r) {
+      const z = String(r.Zone || '').trim() || noZone;
+      if (zf && z !== zf) return false;
+      if (!q) return true;
+      return [r.Code, r.Name, r.CompanyName, r.Phone, r.Zone].some(function (v) { return norm(v).indexOf(q) !== -1; });
+    });
+    const cnt = document.getElementById('pmCnt');
+    if (cnt) cnt.textContent = (zf || q) ? t(rows.length + ' / ' + allRows.length + 'টি', rows.length + ' / ' + allRows.length) : t(allRows.length + 'টি পার্টি', allRows.length + ' parties');
+    if (allRows.length === 0) {
       wrap.innerHTML = `<div class="empty-state i18n" data-bn="এখনো কোনো পার্টি যোগ করা হয়নি।" data-en="No parties added yet.">${t('এখনো কোনো পার্টি যোগ করা হয়নি।','No parties added yet.')}</div>`;
       return;
     }
+    if (rows.length === 0) { wrap.innerHTML = `<div class="empty-state">${t('এই নামে বা জোনে কোনো পার্টি নেই।', 'No party matches.')}</div>`; return; }
 
     // জোন অনুযায়ী ভাগ — প্রতিটা জোনের শিরোনাম সারি, তার নিচে সেই জোনের পার্টিরা ক্রঃ ১, ২, ৩… (জোনে জোনে নতুন করে)
-    const noZone = t('জোন নেই', 'No zone');
     const byZone = {};
     rows.forEach(function (r) { const z = String(r.Zone || '').trim() || noZone; (byZone[z] = byZone[z] || []).push(r); });
     const zones = Object.keys(byZone).sort(function (x, y) {
       if (x === noZone) return 1; if (y === noZone) return -1;   // জোন ছাড়া পার্টিরা সবার শেষে
       return x.localeCompare(y, 'bn');
     });
-    const nm = function (r) { return String(r.CompanyName || r.Name || ''); };
+    const hl = function (v) {   // খোঁজা লেখা হলুদ দাগে
+      const sv = String(v || ''); if (!q) return escapeHtml(sv);
+      const k = sv.toLowerCase().indexOf(q); if (k === -1) return escapeHtml(sv);
+      return escapeHtml(sv.slice(0, k)) + '<mark>' + escapeHtml(sv.slice(k, k + q.length)) + '</mark>' + escapeHtml(sv.slice(k + q.length));
+    };
     const headers = [
       ['ক্রঃ','Sl'], ['কোড','Code'], ['প্রোপ্রাইটর','Proprietor'], ['ব্যবসার নাম','Business Name'],
       ['ফোন','Phone'], ['অবস্থা','Status']
@@ -3558,8 +3582,8 @@ async function renderPartyMasterPage(content) {
         list.map(function (r, i) {
           return `<tr>
           <td class="c">${i + 1}</td>
-          <td>${escapeHtml(r.Code)}</td><td>${escapeHtml(r.Name)}</td><td>${escapeHtml(r.CompanyName)}</td>
-          <td>${escapeHtml(r.Phone)}</td>
+          <td>${hl(r.Code)}</td><td>${hl(r.Name)}</td><td>${hl(r.CompanyName)}</td>
+          <td>${hl(r.Phone)}</td>
           <td class="c"><span class="badge ${r.Active?'active':'inactive'} i18n" data-bn="${r.Active?'সক্রিয়':'নিষ্ক্রিয়'}" data-en="${r.Active?'Active':'Inactive'}">${t(r.Active?'সক্রিয়':'নিষ্ক্রিয়', r.Active?'Active':'Inactive')}</span></td>
           <td class="row-actions"><button onclick='openPartyForm(${JSON.stringify(r.Code)})' title="${t('সম্পাদনা','Edit')}">${editSvg}</button></td>
         </tr>`;
@@ -3575,6 +3599,58 @@ async function renderPartyMasterPage(content) {
       <table class="data-table"><thead><tr>${headCells}<th></th></tr></thead><tbody>${body}</tbody></table>`;
   }
 
+  async function loadPartyList() {
+    const [suppliers, customers] = await Promise.all([api('list', { sheet:'Suppliers' }), api('list', { sheet:'Customers' })]);
+    const map = {};
+    function upsert(rec) {
+      const key = rec.Code || rec.SupplierID || rec.CustomerID;
+      if (!key) return;
+      if (!map[key]) map[key] = { Code:key, Name:rec.Name, CompanyName:rec.CompanyName, Phone:rec.Phone, Zone:rec.Zone, Active:false };
+      if (!map[key].Name && rec.Name) map[key].Name = rec.Name;
+      if (!map[key].CompanyName && rec.CompanyName) map[key].CompanyName = rec.CompanyName;
+      if (!map[key].Phone && rec.Phone) map[key].Phone = rec.Phone;
+      if (!map[key].Zone && rec.Zone) map[key].Zone = rec.Zone;
+      if (isTrue(rec.IsActive)) map[key].Active = true;
+    }
+    suppliers.filter(function (s) { return s.Status !== 'Deleted'; }).forEach(upsert);
+    customers.filter(function (c) { return c.Status !== 'Deleted'; }).forEach(upsert);
+    allRows = Object.values(map);
+    if (!document.getElementById('partyListWrap')) return; // ব্যবহারকারী এই ফাঁকে অন্য পেজ/ট্যাবে চলে গেলে এই এলিমেন্ট আর DOM-এ থাকবে না
+    // জোনের তালিকা — বাছাই করা জোন যেমন ছিল
+    const zSel = document.getElementById('pmZone');
+    if (zSel) {
+      const keep = zSel.value;
+      const zs = Array.from(new Set(allRows.map(function (r) { return String(r.Zone || '').trim() || noZone; }))).sort(function (x, y) { if (x === noZone) return 1; if (y === noZone) return -1; return x.localeCompare(y, 'bn'); });
+      zSel.innerHTML = `<option value="">${t('সব জোন', 'All zones')}</option>` + zs.map(function (z) { return `<option value="${attr(z)}">${escapeHtml(z)}</option>`; }).join('');
+      if (zs.indexOf(keep) !== -1) zSel.value = keep;
+    }
+    renderPartyList();
+  }
+
+  // ফ্রিজের উচ্চতা — উপরের বার (শিরোনাম) আর ট্যাবের সারির ঠিক নিচে আটকে থাকে
+  const pmTop = function () {
+    const head = document.getElementById('pmHead'); if (!head) { window.removeEventListener('resize', pmTop); return; }
+    const tb = document.querySelector('.main > .topbar'), tabs = document.getElementById('tabBar');
+    let top = 0;
+    if (tb && getComputedStyle(tb).position !== 'static') top += tb.offsetHeight;
+    if (tabs && tabs.offsetParent !== null && getComputedStyle(tabs).position !== 'static') top += tabs.offsetHeight;
+    head.style.top = top + 'px';
+  };
+  pmTop(); window.addEventListener('resize', pmTop);
+  document.getElementById('pmZone').addEventListener('change', renderPartyList);
+  let qT = 0;
+  document.getElementById('pmQ').addEventListener('input', function () { clearTimeout(qT); qT = setTimeout(renderPartyList, 80); });
+  // Enter = পরের ঘর, Escape = আগের ঘর (জোন → খোঁজা → নতুন পার্টি); খোঁজার ঘরে Escape আগে লেখা মুছে
+  document.getElementById('pmTools').addEventListener('keydown', function (e) {
+    const order = ['pmZone', 'pmQ', 'partyAddBtn'].map(function (id) { return document.getElementById(id); });
+    const i = order.indexOf(document.activeElement); if (i === -1) return;
+    if (e.key === 'Enter' && document.activeElement.id !== 'partyAddBtn') { e.preventDefault(); e.stopPropagation(); if (order[i + 1]) order[i + 1].focus(); }
+    else if (e.key === 'Escape') {
+      e.preventDefault(); e.stopPropagation();
+      if (document.activeElement.id === 'pmQ' && document.activeElement.value) { document.activeElement.value = ''; renderPartyList(); return; }
+      if (order[i - 1]) order[i - 1].focus();
+    }
+  });
   await loadPartyList();
   window.__refreshPartyList = loadPartyList;
   document.getElementById('partyAddBtn').addEventListener('click', function () { openPartyForm(null); });
