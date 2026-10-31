@@ -16447,6 +16447,12 @@ const SV_COMPACT_CSS = `
   .vpick{background:var(--surface,#fff);color:var(--text,#111);border:1.5px solid #c27a12;border-radius:8px;box-shadow:0 10px 28px rgba(0,0,0,.28);overflow:hidden;font-size:12.5px;}
   .vpick-q{width:100%;box-sizing:border-box;height:32px;border:0;border-bottom:1px solid var(--border,#ddd);padding:4px 9px;font-size:12.5px;outline:none;background:transparent;color:inherit;}
   .vpick-list{overflow-y:auto;}
+  .vpick-cats{display:flex;gap:5px;overflow-x:auto;padding:5px 6px;border-bottom:1px solid var(--border,#ddd);background:rgba(194,122,18,.06);scrollbar-width:thin;}
+  .vpick-cats button{flex:0 0 auto;border:1px solid #d8b47a;background:var(--surface,#fff);color:inherit;border-radius:14px;padding:3px 10px;font-size:12px;cursor:pointer;white-space:nowrap;-webkit-tap-highlight-color:transparent;}
+  .vpick-cats button small{opacity:.6;font-size:10px;}
+  .vpick-cats button.on{background:#c27a12;border-color:#c27a12;color:#fff;font-weight:700;}
+  .vpick-cats button.on small{opacity:.85;}
+  @media (pointer:coarse){ .vpick .vpick-cats button{padding:6px 12px;font-size:13px;} .vpick .vpick-o{padding:9px 12px;} }
   .vpick-o{padding:5px 10px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .vpick-o.cur{font-weight:700;}
   .vpick-o.on{background:#c27a12;color:#fff;}
@@ -16490,6 +16496,7 @@ function voucherSelectPickerWire(P, suffix) {
   const panel = document.getElementById(P + '_TabEntryPanel');
   if (!sel || !panel) return;
   let box = null;
+  let catPick = '';   // আইটেমের তালিকায় শেষবার বাছাই করা ক্যাটাগরি — পরের বার খুললেও সেটাই থাকে
   const nextField = function () {   // আইটেমের পরের চালু ঘর (সাধারণ Enter-নিয়মের মতোই বাছাই)
     const list = Array.from(panel.querySelectorAll('input, select, textarea')).filter(function (el) {
       return !el.disabled && el.type !== 'checkbox' && el.offsetParent !== null && !el.classList.contains('dmy-shadow') && el.getAttribute('tabindex') !== '-1';
@@ -16527,11 +16534,22 @@ function voucherSelectPickerWire(P, suffix) {
     close();
     if (sel.disabled) return;
     // যা দেখা যায় শুধু তাই (জোন বাছাই করলে সেই জোনের নাম)
-    const opts = Array.from(sel.options).filter(function (o) { return o.value && !o.disabled && !o.hidden && o.style.display !== 'none'; }).map(function (o) { return { v: o.value, t: o.textContent }; });
+    const imap = window['__' + P + 'ItemMap'] || {};
+    const opts = Array.from(sel.options).filter(function (o) { return o.value && !o.disabled && !o.hidden && o.style.display !== 'none'; }).map(function (o) { return { v: o.value, t: o.textContent, c: isItem && imap[o.value] ? String(imap[o.value].CategoryID || '') : '' }; });
+    // আইটেমঃ উপরে ক্যাটাগরির বোতাম — আগে ক্যাটাগরি, তারপর আইটেম (তালিকায় যেসব ক্যাটাগরির আইটেম আছে শুধু সেগুলো)
+    let cats = [];
+    if (isItem) {
+      const cm = {}; (window['__' + P + 'Categories'] || []).forEach(function (c) { cm[c.CategoryID] = c.CategoryName || c.CategoryID; });
+      const have = {}; opts.forEach(function (o) { if (o.c) have[o.c] = (have[o.c] || 0) + 1; });
+      cats = Object.keys(have).map(function (k) { return { id: k, name: cm[k] || k, n: have[k] }; }).sort(function (a, b) { return a.name.localeCompare(b.name, 'bn', { numeric: true }); });
+      if (catPick && !have[catPick]) catPick = '';
+    }
     const r = sel.getBoundingClientRect();
     box = document.createElement('div');
     box.className = 'vpick';
-    box.innerHTML = `<input class="vpick-q" type="text" placeholder="${attr(t('খুঁজুন… (↓ ↑ বাছাই, Enter = বসান, Esc = বন্ধ)', 'Search… (↓ ↑ pick, Enter = choose, Esc = close)'))}"><div class="vpick-list"></div>`;
+    box.innerHTML = `<input class="vpick-q" type="text" placeholder="${attr(t('খুঁজুন… (↓ ↑ বাছাই, Enter = বসান, Esc = বন্ধ)', 'Search… (↓ ↑ pick, Enter = choose, Esc = close)'))}">` +
+      (cats.length > 1 ? `<div class="vpick-cats"><button type="button" data-cat="" class="${catPick ? '' : 'on'}">${t('সব', 'All')} <small>${opts.length}</small></button>${cats.map(function (c) { return `<button type="button" data-cat="${attr(c.id)}" class="${catPick === c.id ? 'on' : ''}">${escapeHtml(c.name)} <small>${c.n}</small></button>`; }).join('')}</div>` : '') +
+      `<div class="vpick-list"></div>`;
     document.body.appendChild(box);
     const q = box.querySelector('.vpick-q'), listEl = box.querySelector('.vpick-list');
     place = function () {
@@ -16539,7 +16557,8 @@ function voucherSelectPickerWire(P, suffix) {
       if (isPhone()) {   // ফোনঃ পর্দার উপরের দিকে পুরো চওড়া — কীবোর্ড খুললেও তালিকা দেখা যায়
         const vv = window.visualViewport, vh = vv ? vv.height : window.innerHeight, vt = vv ? vv.offsetTop : 0;
         box.style.cssText = `position:fixed;left:6px;right:6px;top:${Math.round(vt + 6)}px;z-index:100000;`;
-        listEl.style.maxHeight = Math.max(140, Math.round(vh - 6 - 34 - 12)) + 'px';
+        const ch = (box.querySelector('.vpick-cats') || { offsetHeight: 0 }).offsetHeight;
+        listEl.style.maxHeight = Math.max(140, Math.round(vh - 6 - 34 - 12 - ch)) + 'px';
         return;
       }
       const rr = sel.getBoundingClientRect();
@@ -16547,13 +16566,14 @@ function voucherSelectPickerWire(P, suffix) {
       const below = window.innerHeight - rr.bottom - 8, above = rr.top - 8;
       const maxH = Math.max(160, Math.min(340, Math.max(below, above)));
       box.style.cssText = `position:fixed;left:${Math.max(6, left)}px;width:${w}px;z-index:100000;` + (below >= 200 || below >= above ? `top:${rr.bottom + 2}px;` : `bottom:${window.innerHeight - rr.top + 2}px;`);
-      listEl.style.maxHeight = (maxH - 34) + 'px';
+      const ch = (box.querySelector('.vpick-cats') || { offsetHeight: 0 }).offsetHeight;
+      listEl.style.maxHeight = Math.max(120, maxH - 34 - ch) + 'px';
     };
     place();
     let shown = [], hi = 0;
     const paint = function () {
       const term = q.value.trim().toLowerCase();
-      shown = opts.filter(function (o) { return !term || o.t.toLowerCase().indexOf(term) !== -1; });
+      shown = opts.filter(function (o) { return (!catPick || o.c === catPick) && (!term || o.t.toLowerCase().indexOf(term) !== -1); });
       if (term) {   // যে নাম এই অক্ষর দিয়ে শুরু সেগুলো আগে, তারপর নামের মাঝে বা জোনে মিল
         const st = function (o) { const x = o.t.toLowerCase(); return x.indexOf(term) === 0 ? 0 : x.split(/[\s(—-]+/).some(function (w) { return w.indexOf(term) === 0; }) ? 1 : 2; };
         shown = shown.map(function (o, i) { return { o: o, k: st(o), i: i }; }).sort(function (a, b) { return a.k - b.k || a.i - b.i; }).map(function (x) { return x.o; });
@@ -16566,6 +16586,18 @@ function voucherSelectPickerWire(P, suffix) {
     hi = Math.max(0, opts.findIndex(function (o) { return o.v === sel.value; }));
     paint();
     q.addEventListener('input', function () { hi = 0; paint(); });
+    const catsEl = box.querySelector('.vpick-cats');
+    if (catsEl) {
+      // ক্যাটাগরিতে চাপ — তালিকা সেই ক্যাটাগরির আইটেমে ছোট হয় (কীবোর্ড/ফোকাস খোঁজার ঘরেই থাকে)
+      catsEl.addEventListener('mousedown', function (e) { e.preventDefault(); });
+      catsEl.addEventListener('click', function (e) {
+        const bt = e.target.closest('button[data-cat]'); if (!bt) return;
+        catPick = bt.getAttribute('data-cat');
+        catsEl.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === bt); });
+        hi = 0; paint(); place();
+      });
+      const onb = catsEl.querySelector('button.on'); if (onb && onb.scrollIntoView) onb.scrollIntoView({ block: 'nearest', inline: 'center' });
+    }
     q.addEventListener('keydown', function (e) {
       if (e.key === 'ArrowDown') { e.preventDefault(); if (hi < shown.length - 1) { hi++; paint(); } }
       else if (e.key === 'ArrowUp') { e.preventDefault(); if (hi > 0) { hi--; paint(); } }
