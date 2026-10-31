@@ -16489,19 +16489,27 @@ function voucherSelectPickerWire(P, suffix) {
     return list[list.indexOf(sel) + 1] || null;
   };
   const close = function () { if (box) { box.remove(); box = null; } document.removeEventListener('mousedown', outside, true); };
-  const mb = document.getElementById('modalBody');   // ফর্ম স্ক্রল হলে বা জানালার মাপ বদলালে তালিকা বন্ধ (জায়গা সরে যায়)
-  if (mb) mb.addEventListener('scroll', function () { if (box) { close(); } }, { passive: true });
-  window.addEventListener('resize', function () { if (box) close(); });
-  const outside = function (e) { if (box && !box.contains(e.target)) close(); };
+  // ফোনঃ খোঁজার ঘরে আঙুল দিলে কীবোর্ড খোলে — তাতে পর্দার মাপ বদলায়/ফর্ম স্ক্রল হয়। আগে এতে তালিকা বন্ধ হয়ে যেত
+  // (তাই মোবাইলে পার্টির নাম আনা যাচ্ছিল না)। এখন বন্ধ নয় — তালিকা নতুন মাপে জায়গা ঠিক করে নেয়।
+  const isPhone = function () { return window.innerWidth <= 760 || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches); };
+  let place = function () {};
+  const mb = document.getElementById('modalBody');
+  if (mb) mb.addEventListener('scroll', function () { if (box && !isPhone()) place(); }, { passive: true });
+  window.addEventListener('resize', function () { if (box) place(); });
+  if (window.visualViewport) { window.visualViewport.addEventListener('resize', function () { if (box) place(); }); window.visualViewport.addEventListener('scroll', function () { if (box) place(); }); }
+  const outside = function (e) { if (box && !box.contains(e.target) && !(e.target.closest && e.target.closest('.vmic'))) close(); };   // 🎤 বোতামে চাপ দিলে তালিকা বন্ধ নয়
   const choose = function (value) {
     close();
     const changed = value !== sel.value, before = isItem ? window['__' + P + 'LastStockKP'] : null;
     if (changed) { sel.value = value; sel.dispatchEvent(new Event('change', { bubbles: true })); }
-    sel.focus();
+    if (isPhone()) {   // ফোনঃ তালিকার ঘরে ফোকাস দিলে ফোনের নিজের তালিকা খুলে যায় — তাই নয়
+      if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+      if (!isItem || !sel.value) return;   // পার্টিঃ শুধু বসানো; আইটেমঃ হিসাব শেষে পরিমাণের ঘরে
+    } else sel.focus();
     if (!sel.value) return;
     let n = 0;
     const go = function () {   // আইটেমের স্টক/একক হিসাব শেষ হলে (কোন ঘর চালু তা ঠিক হয়) পরের ঘরে
-      if (document.activeElement !== sel) return;   // এর মধ্যে নিজে অন্য ঘরে গেলে আর সরানো নয়
+      if (!isPhone() && document.activeElement !== sel) return;   // এর মধ্যে নিজে অন্য ঘরে গেলে আর সরানো নয়
       if (isItem && changed && window['__' + P + 'LastStockKP'] === before && n++ < 25) return setTimeout(go, 40);
       const nx = nextField(); if (nx) { nx.focus(); try { if (nx.select) nx.select(); } catch (e) {} }
     };
@@ -16517,12 +16525,23 @@ function voucherSelectPickerWire(P, suffix) {
     box.className = 'vpick';
     box.innerHTML = `<input class="vpick-q" type="text" placeholder="${attr(t('খুঁজুন… (↓ ↑ বাছাই, Enter = বসান, Esc = বন্ধ)', 'Search… (↓ ↑ pick, Enter = choose, Esc = close)'))}"><div class="vpick-list"></div>`;
     document.body.appendChild(box);
-    const w = Math.max(r.width, 280), left = Math.min(r.left, window.innerWidth - w - 6);
-    const below = window.innerHeight - r.bottom - 8, above = r.top - 8;
-    const maxH = Math.max(160, Math.min(340, Math.max(below, above)));
-    box.style.cssText = `position:fixed;left:${Math.max(6, left)}px;width:${w}px;z-index:100000;` + (below >= 200 || below >= above ? `top:${r.bottom + 2}px;` : `bottom:${window.innerHeight - r.top + 2}px;`);
     const q = box.querySelector('.vpick-q'), listEl = box.querySelector('.vpick-list');
-    listEl.style.maxHeight = (maxH - 34) + 'px';
+    place = function () {
+      if (!box) return;
+      if (isPhone()) {   // ফোনঃ পর্দার উপরের দিকে পুরো চওড়া — কীবোর্ড খুললেও তালিকা দেখা যায়
+        const vv = window.visualViewport, vh = vv ? vv.height : window.innerHeight, vt = vv ? vv.offsetTop : 0;
+        box.style.cssText = `position:fixed;left:6px;right:6px;top:${Math.round(vt + 6)}px;z-index:100000;`;
+        listEl.style.maxHeight = Math.max(140, Math.round(vh - 6 - 34 - 12)) + 'px';
+        return;
+      }
+      const rr = sel.getBoundingClientRect();
+      const w = Math.max(rr.width, 280), left = Math.min(rr.left, window.innerWidth - w - 6);
+      const below = window.innerHeight - rr.bottom - 8, above = rr.top - 8;
+      const maxH = Math.max(160, Math.min(340, Math.max(below, above)));
+      box.style.cssText = `position:fixed;left:${Math.max(6, left)}px;width:${w}px;z-index:100000;` + (below >= 200 || below >= above ? `top:${rr.bottom + 2}px;` : `bottom:${window.innerHeight - rr.top + 2}px;`);
+      listEl.style.maxHeight = (maxH - 34) + 'px';
+    };
+    place();
     let shown = [], hi = 0;
     const paint = function () {
       const term = q.value.trim().toLowerCase();
@@ -16560,7 +16579,7 @@ function voucherSelectPickerWire(P, suffix) {
   sel.addEventListener('touchend', function (e) {
     if (sel.disabled) return;
     const t1 = e.changedTouches[0]; if (t1 && (Math.abs(t1.clientX - tx) > 10 || Math.abs(t1.clientY - ty) > 10)) return;   // স্ক্রল করছিল — খুলবে না
-    e.preventDefault(); sel.focus(); if (!box) open();
+    e.preventDefault(); if (!box) open();   // ফোনে তালিকার ঘরে ফোকাস নয় (তাহলে ফোনের নিজের তালিকা খুলে যেত)
   }, { passive: false });
   const h = function (e) {
     if (!nodeAlive(sel)) { window.removeEventListener('keydown', h, true); close(); return; } if (!document.body.contains(sel)) return;   // অন্য ট্যাবে সরিয়ে রাখা — কিছু করবে না
@@ -24912,6 +24931,167 @@ document.getElementById('overlayMobile').addEventListener('click', closeMobile);
     seen.forEach(sortEl);
   }).observe(document.documentElement, { childList: true, subtree: true });
   if (document.body) scan(document.body);
+})();
+
+
+/* ===== 🎤 ভয়েস দিয়ে লেখা — যেকোনো লেখার/সংখ্যার ঘরে =====
+   ঘরে কার্সর গেলে ডান পাশে ছোট 🎤 বোতাম আসে। চাপ দিয়ে বাংলায় বলুন — লেখা ঘরে বসে যায়।
+   সংখ্যার ঘরে (পরিমাণ, দর, মূল্য, টাকা) বাংলা কথায় বললেও সংখ্যা হয়ঃ "একশো পঞ্চাশ" → 150, "সাড়ে তিন" → 3.5,
+   "দুই হাজার পাঁচশো" → 2500, "বারো দশমিক পাঁচ" → 12.5। খোঁজার তালিকায় (পার্টি/আইটেম) বললে নাম খুঁজে দেয়।
+   Chrome (অ্যান্ড্রয়েড ও কম্পিউটার) ও Edge-এ কাজ করে, ইন্টারনেট লাগে, প্রথমবার মাইক্রোফোনের অনুমতি চাইবে।
+   যে ব্রাউজারে এই সুবিধা নেই সেখানে বোতাম আসে না (তখন ফোনের কীবোর্ডের 🎤 দিয়েও বলা যায়)। */
+const BN_NUM_WORDS = (function () {
+  const w = ['শূন্য','এক','দুই','তিন','চার','পাঁচ','ছয়','সাত','আট','নয়','দশ','এগারো','বারো','তেরো','চৌদ্দ','পনেরো','ষোলো','সতেরো','আঠারো','উনিশ',
+    'বিশ','একুশ','বাইশ','তেইশ','চব্বিশ','পঁচিশ','ছাব্বিশ','সাতাশ','আটাশ','উনত্রিশ','ত্রিশ','একত্রিশ','বত্রিশ','তেত্রিশ','চৌত্রিশ','পঁয়ত্রিশ','ছত্রিশ','সাঁইত্রিশ','আটত্রিশ','উনচল্লিশ',
+    'চল্লিশ','একচল্লিশ','বিয়াল্লিশ','তেতাল্লিশ','চুয়াল্লিশ','পঁয়তাল্লিশ','ছেচল্লিশ','সাতচল্লিশ','আটচল্লিশ','উনপঞ্চাশ','পঞ্চাশ','একান্ন','বাহান্ন','তিপ্পান্ন','চুয়ান্ন','পঞ্চান্ন','ছাপ্পান্ন','সাতান্ন','আটান্ন','উনষাট',
+    'ষাট','একষট্টি','বাষট্টি','তেষট্টি','চৌষট্টি','পঁয়ষট্টি','ছেষট্টি','সাতষট্টি','আটষট্টি','উনসত্তর','সত্তর','একাত্তর','বাহাত্তর','তিয়াত্তর','চুয়াত্তর','পঁচাত্তর','ছিয়াত্তর','সাতাত্তর','আটাত্তর','উনআশি',
+    'আশি','একাশি','বিরাশি','তিরাশি','চুরাশি','পঁচাশি','ছিয়াশি','সাতাশি','অষ্টাশি','উননব্বই','নব্বই','একানব্বই','বিরানব্বই','তিরানব্বই','চুরানব্বই','পঁচানব্বই','ছিয়ানব্বই','সাতানব্বই','আটানব্বই','নিরানব্বই'];
+  const m = {};
+  const nz = function (x) { return x.normalize('NFC').replace(/ঊ/g, 'উ').replace(/ঁ/g, '').replace(/য়/g, 'য়'); };
+  w.forEach(function (x, i) { m[nz(x)] = i; });
+  // প্রচলিত অন্য বানান / উচ্চারণ
+  [['একটা',1],['একটি',1],['দুটো',2],['দুটি',2],['দুইটা',2],['তিনটা',3],['চারটা',4],['ছয়',6],['ছ',6],['নয়',9],['ষোল',16],['ষোলো',16],['এগার',11],['বার',12],['তের',13],['পনের',15],['সতের',17],['আঠার',18],['শূণ্য',0],['জিরো',0]]
+    .forEach(function (p) { m[nz(p[0])] = p[1]; });
+  return { map: m, nz: nz };
+})();
+
+/** বাংলা/ইংরেজি সংখ্যা বা কথায় বলা সংখ্যা → সংখ্যা (না বুঝলে null) */
+function bnSpokenToNumber(text) {
+  if (text === null || text === undefined) return null;
+  const nz = BN_NUM_WORDS.nz, M = BN_NUM_WORDS.map;
+  const s = nz(String(text)).trim().replace(/[০-৯]/g, function (d) { return String('০১২৩৪৫৬৭৮৯'.indexOf(d)); }).replace(/,/g, '');
+  const plain = s.replace(/\s+/g, '').replace(/(টাকা|কেজি|পিস)$/, '');
+  if (/^-?\d+(\.\d+)?$/.test(plain)) return Number(plain);
+  const MUL = { 'শ': 100, 'শো': 100, 'শত': 100, 'হাজার': 1000, 'লাখ': 100000, 'লক্ষ': 100000, 'কোটি': 10000000 };
+  const SPECIAL = {}; SPECIAL[nz('দেড়')] = 1.5; SPECIAL[nz('আড়াই')] = 2.5; SPECIAL[nz('পোয়া')] = 0.25;
+  const UNIT = { 'টাকা': 1, 'কেজি': 1, 'পিস': 1, 'টা': 1, 'টি': 1, 'খানা': 1 };
+  const numOf = function (tk) {
+    if (/^\d+(\.\d+)?$/.test(tk)) return Number(tk);
+    if (M[tk] !== undefined) return M[tk];
+    if (SPECIAL[tk] !== undefined) return SPECIAL[tk];
+    return null;
+  };
+  // শব্দের সাথে লাগানো গুণক আলাদা — "তিনশো", "দেড়শো", "পাঁচহাজার", "২হাজার" (কিন্তু "দশ", "বিশ" যেমন আছে তেমনই)
+  const toks = [];
+  s.split(/\s+/).filter(Boolean).forEach(function (tk) {
+    if (UNIT[tk]) return;
+    if (numOf(tk) !== null || MUL[tk]) { toks.push(tk); return; }
+    const suf = ['হাজার', 'লাখ', 'লক্ষ', 'কোটি', 'শত', 'শো', 'শ'].find(function (x) { return tk.length > x.length && tk.slice(-x.length) === x && numOf(tk.slice(0, -x.length)) !== null; });
+    if (suf) { toks.push(tk.slice(0, -suf.length), suf); return; }
+    toks.push(tk);
+  });
+  let total = 0, cur = 0, any = false, half = false, dec = null;
+  for (let i = 0; i < toks.length; i++) {
+    const tk = toks[i];
+    if (tk === 'দশমিক' || tk === nz('পয়েন্ট') || tk === 'point' || tk === '.') { dec = ''; continue; }
+    if (tk === nz('সাড়ে')) { half = true; continue; }
+    const n = numOf(tk);
+    if (dec !== null) {   // দশমিকের পরের অঙ্কগুলো একটা একটা করে
+      if (n === null) continue;
+      dec += String(n); any = true; continue;
+    }
+    if (n !== null) { cur += n + (half ? 0.5 : 0); half = false; any = true; continue; }   // "সাড়ে তিন" = ৩.৫, "সাড়ে তিনশো" = ৩৫০
+    if (MUL[tk]) {
+      const m = MUL[tk];
+      if (m === 100) { cur = (cur || 1) * 100; }
+      else { total += (cur || 1) * m; cur = 0; }
+      any = true; continue;
+    }
+    // অচেনা শব্দ — বাদ
+  }
+  if (!any) return null;
+  let v = total + cur;
+  if (half) v += 0.5;
+  if (dec) v = Number(String(Math.floor(v)) + '.' + dec);
+  return v;
+}
+
+(function installVoiceInput() {
+  if (window.__voiceOn) return; window.__voiceOn = true;
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return;   // এই ব্রাউজারে ভয়েস নেই — বোতামও নয়
+  const st = document.createElement('style');
+  st.textContent = `
+    .vmic{position:fixed;z-index:100002;width:26px;height:26px;border-radius:50%;border:0;background:#c27a12;color:#fff;font-size:13px;line-height:26px;text-align:center;padding:0;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.25);display:none;-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
+    .vmic.on{background:#d93025;animation:vmicp 1s infinite;}
+    @keyframes vmicp{0%{box-shadow:0 0 0 0 rgba(217,48,37,.55);}70%{box-shadow:0 0 0 10px rgba(217,48,37,0);}100%{box-shadow:0 0 0 0 rgba(217,48,37,0);}}
+    .vmic-say{position:fixed;z-index:100002;background:#111827;color:#fff;font-size:12px;border-radius:6px;padding:4px 8px;max-width:80vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:none;pointer-events:none;}
+    @media (pointer:coarse){ .vmic{width:30px;height:30px;line-height:30px;font-size:15px;} }`;
+  document.head.appendChild(st);
+  const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'vmic'; btn.textContent = '🎤'; btn.tabIndex = -1;
+  btn.title = 'ভয়েস দিয়ে লিখুন (বাংলায় বলুন)';
+  const say = document.createElement('div'); say.className = 'vmic-say';
+  document.body.appendChild(btn); document.body.appendChild(say);
+  let target = null, rec = null, hideT = 0;
+  const ok = function (el) {
+    if (!el || el.disabled || el.readOnly) return false;
+    if (el.tagName === 'TEXTAREA') return true;
+    if (el.tagName !== 'INPUT') return false;
+    if (el.classList.contains('dmy-in') || el.classList.contains('dmy-shadow') || el.getAttribute('data-novoice') !== null) return false;
+    return ['text', 'search', 'number', 'tel', ''].indexOf((el.getAttribute('type') || '').toLowerCase()) !== -1 && el.type !== 'password';
+  };
+  const place = function () {
+    if (!target || !document.body.contains(target) || target.offsetParent === null) { hide(); return; }
+    const r = target.getBoundingClientRect(), sz = btn.offsetWidth || 26;
+    if (r.bottom < 0 || r.top > window.innerHeight) { btn.style.display = 'none'; return; }
+    btn.style.display = 'block';
+    btn.style.left = Math.round(Math.min(window.innerWidth - sz - 2, r.right - sz - 3)) + 'px';
+    btn.style.top = Math.round(r.top + (r.height - sz) / 2) + 'px';
+    say.style.left = Math.max(4, Math.round(r.left)) + 'px'; say.style.top = Math.round(Math.max(4, r.top - 26)) + 'px';
+  };
+  const hide = function () { if (rec) return; btn.style.display = 'none'; say.style.display = 'none'; target = null; };
+  document.addEventListener('focusin', function (e) { clearTimeout(hideT); if (ok(e.target)) { target = e.target; place(); } else if (!rec) hide(); });
+  document.addEventListener('focusout', function () { clearTimeout(hideT); hideT = setTimeout(function () { if (!rec && (!document.activeElement || document.activeElement !== target)) hide(); }, 150); });
+  window.addEventListener('scroll', function () { if (target) place(); }, true);
+  window.addEventListener('resize', function () { if (target) place(); });
+  // বোতাম চাপলে ঘর থেকে কার্সর সরে না (খোঁজার তালিকাও বন্ধ হয় না)
+  ['pointerdown', 'mousedown', 'touchstart'].forEach(function (ev) { btn.addEventListener(ev, function (e) { e.preventDefault(); e.stopPropagation(); }, { passive: false }); });
+  const apply = function (el, txt) {
+    if (!el) return;
+    let v = String(txt || '').trim();
+    if (!v) return;
+    if (el.type === 'number' || el.getAttribute('inputmode') === 'decimal' || el.getAttribute('inputmode') === 'numeric') {
+      const n = bnSpokenToNumber(v);
+      if (n === null || isNaN(n)) { showToast('সংখ্যা বোঝা যায়নি: "' + v + '" — আবার বলুন', 'error'); return; }
+      el.value = String(+n.toFixed(3));
+    } else {
+      v = v.replace(/[।.]$/, '');
+      const st0 = typeof el.selectionStart === 'number' ? el.selectionStart : el.value.length, en0 = typeof el.selectionEnd === 'number' ? el.selectionEnd : el.value.length;
+      const before = el.value.slice(0, st0), after = el.value.slice(en0);
+      const sp = before && !/\s$/.test(before) ? ' ' : '';
+      el.value = before + sp + v + after;
+      try { const p = (before + sp + v).length; el.setSelectionRange(p, p); } catch (x) {}
+    }
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  const stop = function () { if (rec) { try { rec.stop(); } catch (x) {} } };
+  btn.addEventListener('click', function (e) {
+    e.preventDefault(); e.stopPropagation();
+    if (rec) { stop(); return; }
+    const el = target; if (!el) return;
+    rec = new SR();
+    rec.lang = 'bn-BD'; rec.interimResults = true; rec.maxAlternatives = 1; rec.continuous = false;
+    let finalTxt = '';
+    btn.classList.add('on'); btn.textContent = '⏺'; say.textContent = 'বলুন…'; say.style.display = 'block'; place();
+    rec.onresult = function (ev) {
+      let interim = '';
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        if (ev.results[i].isFinal) finalTxt += ev.results[i][0].transcript; else interim += ev.results[i][0].transcript;
+      }
+      say.textContent = (finalTxt + ' ' + interim).trim() || 'বলুন…';
+    };
+    rec.onerror = function (ev) {
+      const m = { 'not-allowed': 'মাইক্রোফোনের অনুমতি দেওয়া হয়নি — ব্রাউজারের সেটিং থেকে অনুমতি দিন', 'service-not-allowed': 'মাইক্রোফোনের অনুমতি দেওয়া হয়নি', 'no-speech': 'কিছু শোনা যায়নি — আবার চেষ্টা করুন', 'network': 'ভয়েসের জন্য ইন্টারনেট লাগে', 'audio-capture': 'মাইক্রোফোন পাওয়া যায়নি' };
+      if (ev.error !== 'aborted') showToast(m[ev.error] || ('ভয়েস কাজ করেনি: ' + ev.error), 'error');
+    };
+    rec.onend = function () {
+      rec = null; btn.classList.remove('on'); btn.textContent = '🎤'; say.style.display = 'none';
+      if (finalTxt) apply(el, finalTxt);
+      if (document.activeElement === el) { target = el; place(); } else hide();
+    };
+    try { rec.start(); } catch (x) { rec = null; btn.classList.remove('on'); btn.textContent = '🎤'; say.style.display = 'none'; }
+  });
 })();
 </script>
 </body>
