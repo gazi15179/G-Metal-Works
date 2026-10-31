@@ -16038,6 +16038,9 @@ async function voucherDualRefresh(p, kind) {
   if (!$(p + '_QtyKg')) return;
   const im = window['__' + p + 'ItemMap'] || {}, um = window['__' + p + 'UnitMap'] || {};
   const itemId = val(p + '_ItemID'), wh = val(p + '_WarehouseID'), item = im[itemId];
+  // পরপর কয়েকবার আইটেম বদলালে আগের (ধীর) উত্তর যেন পরেরটার উপর না বসে — শুধু সর্বশেষ ডাকের ফল বসবে
+  const tok = (window['__' + p + 'DRTok'] = (window['__' + p + 'DRTok'] || 0) + 1);
+  const stale = function () { return tok !== window['__' + p + 'DRTok']; };
   const uname = item ? ((um[item.UOMID] || {}).UOMName || '') : '';
   const piece = item ? voucherIsPieceUnit(uname) : false;
   window['__' + p + 'Piece'] = piece; window['__' + p + 'KgManual'] = false;
@@ -16047,12 +16050,20 @@ async function voucherDualRefresh(p, kind) {
   $(p + '_LblKg').classList.toggle('vmain', !!item && !piece); $(p + '_LblPcs').classList.toggle('vmain', !!item && piece);
   let kg = 0, pcs = 0, has = false;
   if (item && wh) {
-    try { const r = await supabaseClient.from('current_stock').select('QtyOnHand,QtyPieces').eq('ItemID', itemId).eq('WarehouseID', wh).maybeSingle(); if (r && r.data) { has = true; kg = Number(r.data.QtyOnHand) || 0; pcs = Number(r.data.QtyPieces) || 0; } } catch (e) {}
+    try {
+      // একই আইটেম×গুদামের একাধিক সারি থাকলে maybeSingle ভুল দেয় (কখনো স্টক নেই) — তাই সব সারি এনে যোগ
+      const r = await supabaseClient.from('current_stock').select('QtyOnHand,QtyPieces').eq('ItemID', itemId).eq('WarehouseID', wh);
+      const rows = (r && !r.error && r.data) || [];
+      if (rows.length) { has = true; rows.forEach(function (x) { kg += Number(x.QtyOnHand) || 0; pcs += Number(x.QtyPieces) || 0; }); }
+    } catch (e) {}
+    if (stale()) return;
   }
   const f3 = function (x) { return String(+(Number(x) || 0).toFixed(3)); };
   const txt = (!item || !wh) ? '' : (!has ? t('কোনো স্টক নেই', 'No stock') : f3(kg) + ' ' + t('কেজি', 'kg') + ((pcs || piece) ? ' / ' + f3(pcs) + ' ' + t('পিস', 'pcs') : ''));
   window['__' + p + 'LastStockQty'] = txt; $(p + '_PreviewStockQty').value = txt;
   const avg = (kg > 0 && pcs > 0) ? kg / pcs : 0; window['__' + p + 'AvgKgPc'] = avg;
+  // স্টক জানা মাত্রই বসে (কোন আইটেম ও গুদামের তা লেখা থাকে) — দরের হিসাব (cost) পরে আসে
+  window['__' + p + 'LastStockKP'] = (!item || !wh) ? null : { item: itemId, wh: wh, has: has, kg: kg, pcs: pcs, piece: piece, avg: avg, cost: null };
   let main = 0;   // মূল এককের দর
   if (item) {
     if (kind === 'purchase') {   // পোস্ট করা ক্রয়ের গড় দর (না থাকলে স্ট্যান্ডার্ড কস্ট)
@@ -16060,14 +16071,17 @@ async function voucherDualRefresh(p, kind) {
       try {
         const ls = ((await supabaseClient.from('PI_Lines').select('PIID,Quantity,Amount,NetAmount').eq('ItemID', itemId)).data) || [];
         if (ls.length) {
+          if (stale()) return;
           const hs = ((await supabaseClient.from('PurchaseInvoice').select('PIID,Status').in('PIID', Array.from(new Set(ls.map(function (l) { return l.PIID; }))))).data) || [];
+          if (stale()) return;
           const ok = {}; hs.forEach(function (h) { if (h.Status === 'Posted') ok[h.PIID] = true; });
           let q = 0, v = 0;
           ls.forEach(function (l) { if (ok[l.PIID] && Number(l.Quantity) > 0) { q += Number(l.Quantity); v += (l.NetAmount !== null && l.NetAmount !== undefined && l.NetAmount !== '') ? Number(l.NetAmount) : (Number(l.Amount) || 0); } });
           if (q > 0 && v > 0) main = v / q;
         }
       } catch (e) {}
-    } else { main = Number(item.SalesPrice) || 0; window['__' + p + 'CostRate'] = await itemCostRate(item, piece); }   // বিক্রয়ঃ স্ট্যান্ডার্ড বিক্রয় দর; লাভের জন্য খরচ-দর
+    } else { main = Number(item.SalesPrice) || 0; const cr = await itemCostRate(item, piece); if (stale()) return; window['__' + p + 'CostRate'] = cr; }   // বিক্রয়ঃ স্ট্যান্ডার্ড বিক্রয় দর; লাভের জন্য খরচ-দর
+    if (stale()) return;
   }
   const rKg = piece ? (avg ? main / avg : 0) : main, rPc = piece ? main : (avg ? main * avg : 0);
   $(p + '_AvgRateKg').value = rKg ? rKg.toFixed(2) : ''; $(p + '_AvgRatePc').value = rPc ? rPc.toFixed(2) : '';
@@ -16075,7 +16089,7 @@ async function voucherDualRefresh(p, kind) {
   const hr = $(p + '_Rate'), rk0 = $(p + '_RateKg'), rp0 = $(p + '_RatePc');
   if (hr && rk0 && rp0 && hr.value && !rk0.value && !rp0.value) { if (piece) { rp0.value = hr.value; window['__' + p + 'RateBasis'] = 'pc'; } else { rk0.value = hr.value; window['__' + p + 'RateBasis'] = 'kg'; } }
   // স্টক ঘরের তথ্য — খরচ-দর (CostRate) হিসাব শেষ হওয়ার পরে বসে, যাতে আগের আইটেমের দর না দেখায়
-  window['__' + p + 'LastStockKP'] = (!item || !wh) ? null : { has: has, kg: kg, pcs: pcs, piece: piece, avg: avg, cost: kind === 'purchase' ? main : (Number(window['__' + p + 'CostRate']) || 0) };
+  window['__' + p + 'LastStockKP'] = (!item || !wh) ? null : { item: itemId, wh: wh, has: has, kg: kg, pcs: pcs, piece: piece, avg: avg, cost: kind === 'purchase' ? main : (Number(window['__' + p + 'CostRate']) || 0) };
   voucherDualSync(p);
   if (p === 'sv3' || p === 'pv3') vfsApply(p);   // উপরে পিস/দর ঘর আবার চালু হতে পারে — সেটিং আবার প্রয়োগ
 }
@@ -16912,13 +16926,16 @@ async function vfsLoad(P) {
 /** স্টক ও স্টক দরের ঘর (পিস / কেজি আলাদা) — সেটিং-এ বন্ধ থাকলে ঘর ফাঁকা */
 /** আইটেমের স্টক ও স্টক দর (লেখা হিসেবে) — স্টকের ঘর ও পরিমাণ/দরের ঘরের পপআপ দুটোই এখান থেকে */
 function vfsStockVals(P) {
-  const itemSel = document.getElementById(P + '_ItemID');
-  const kp = (itemSel && !itemSel.value) ? null : window['__' + P + 'LastStockKP'];
+  const itemSel = document.getElementById(P + '_ItemID'), whSel = document.getElementById(P + '_WarehouseID');
+  let kp = (itemSel && !itemSel.value) ? null : window['__' + P + 'LastStockKP'];
+  // অন্য (আগের) আইটেম/গুদামের স্টক হলে দেখানো নয় — "লোড হচ্ছে"
+  if (kp && itemSel && (kp.item !== itemSel.value || (whSel && kp.wh !== whSel.value))) return { kp: null, loading: true, sPc: '', sKg: '', rPcT: '', rKgT: '' };
   const f3 = function (x) { return String(+(Number(x) || 0).toFixed(3)); };
   const o = { kp: kp, sPc: '', sKg: '', rPcT: '', rKgT: '' };
   if (!kp) return o;
   if (!kp.has) o.sKg = t('স্টক নেই', 'No stock');
   else { o.sKg = f3(kp.kg); o.sPc = (kp.pcs || kp.piece) ? f3(kp.pcs) : '—'; }
+  if (kp.cost === null) { o.rateLoading = true; return o; }   // দর এখনো হিসাব হচ্ছে
   const main = Number(kp.cost) || Number(window['__' + P + 'LastStockRate']) || 0;
   const rKg = kp.piece ? (kp.avg ? main / kp.avg : 0) : main, rPc = kp.piece ? main : (kp.avg ? main * kp.avg : 0);
   o.rKgT = rKg ? rKg.toFixed(2) : '—'; o.rPcT = rPc ? rPc.toFixed(2) : ((kp.piece || kp.pcs) ? '—' : '');
@@ -16931,8 +16948,18 @@ function voucherStockTipWire(P) {
   const map = { _QtyPcs: ['sPc', 'স্টক', 'Stock', 'পিস', 'pcs'], _QtyKg: ['sKg', 'স্টক', 'Stock', 'কেজি', 'kg'], _RatePc: ['rPcT', 'স্টক দর', 'Stock rate', '/পিস', '/pc'], _RateKg: ['rKgT', 'স্টক দর', 'Stock rate', '/কেজি', '/kg'] };
   let tip = null, cur = null;
   const hide = function () { if (tip) { tip.remove(); tip = null; } cur = null; };
+  let retryT = 0;
   const show = function (el, suf) {
+    clearTimeout(retryT);
     const m = map[suf], v = vfsStockVals(P);
+    const isRate = suf === '_RatePc' || suf === '_RateKg';
+    if (v.loading || (isRate && v.rateLoading)) {   // সঠিক আইটেমের স্টক/দর আসছে — একটু পরে আবার
+      if (!tip) { tip = document.createElement('div'); tip.className = 'vstk-tip'; document.body.appendChild(tip); }
+      tip.innerHTML = `<span>${escapeHtml(t(m[1], m[2]))}</span><b>${t('লোড হচ্ছে…', 'Loading…')}</b>`;
+      cur = el; const r0 = el.getBoundingClientRect(); tip.style.left = Math.max(4, r0.left) + 'px'; tip.style.top = Math.max(4, r0.top - tip.offsetHeight - 5) + 'px';
+      retryT = setTimeout(function () { if (cur === el && document.activeElement === el) show(el, suf); }, 150);
+      return;
+    }
     if (!v.kp) { hide(); return; }   // আইটেম বাছাই হয়নি
     const val = v[m[0]];
     const txt = !val || val === '—' ? t(m[1] + ' নেই', 'No ' + m[2].toLowerCase()) : (val === t('স্টক নেই', 'No stock') ? val : val + ' ' + t(m[3], m[4]));
@@ -16958,7 +16985,9 @@ function voucherStockTipWire(P) {
 function vfsStockDisplay(P, set) {
   const g = function (id) { return document.getElementById(P + id); };
   const itemSel = g('_ItemID');
-  const kp = (itemSel && !itemSel.value) ? null : window['__' + P + 'LastStockKP'];   // voucherDualRefresh থেকেঃ {has, kg, pcs, piece, avg, cost}; আইটেম খালি হলে স্টক ঘরও খালি
+  let kp = (itemSel && !itemSel.value) ? null : window['__' + P + 'LastStockKP'];   // voucherDualRefresh থেকেঃ {item, wh, has, kg, pcs, piece, avg, cost}; আইটেম খালি হলে স্টক ঘরও খালি
+  const whSel0 = g('_WarehouseID');
+  if (kp && itemSel && (kp.item !== itemSel.value || (whSel0 && kp.wh !== whSel0.value))) kp = null;   // আগের আইটেমের স্টক নয়
   const f3 = function (x) { return String(+(Number(x) || 0).toFixed(3)); };
   let sPc = '', sKg = '', rPcT = '', rKgT = '';
   if (kp) {
