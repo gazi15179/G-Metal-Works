@@ -16432,6 +16432,14 @@ function voucherViewPostedApply(P, kind, dt, id) {
    কোনো সেটিং না থাকলে সব ঘর চালু (আগের মতো)। প্রিন্ট/প্রিন্ট প্রিভিউতে কোনো প্রভাব নেই। ===== */
 /* ক্রয়/বিক্রয় ভাউচার — চিকন শিরোনাম ও উপরের অংশ, ডেস্কটপে উঁচু উইন্ডো (দর/মূল্য পর্যন্ত স্ক্রল ছাড়াই) */
 const SV_COMPACT_CSS = `
+  /* ===== সাইড প্যানেল (ডেমো) — ক্রয়/বিক্রয় ভাউচার ডান পাশ থেকে খোলে, বাঁয়ে তালিকা দেখা যায় ===== */
+  body.vdrawer .modal-overlay:has(#sv3_TabEntryPanel),body.vdrawer .modal-overlay:has(#pv3_TabEntryPanel){justify-content:flex-end !important;align-items:stretch !important;padding:0 !important;background:rgba(10,12,16,.18) !important;}
+  body.vdrawer .modal:not(.modal-max):has(#sv3_TabEntryPanel),body.vdrawer .modal:not(.modal-max):has(#pv3_TabEntryPanel){width:min(640px,100vw) !important;max-width:min(640px,100vw) !important;height:100vh !important;max-height:100vh !important;border-radius:14px 0 0 14px !important;margin:0 !important;box-shadow:-14px 0 34px rgba(0,0,0,.28);animation:vdrIn .22s ease-out;}
+  @keyframes vdrIn{from{transform:translateX(60px);opacity:.3;}to{transform:none;opacity:1;}}
+  .vdrawer-btn{font-size:14px;font-weight:700;display:none !important;}
+  .modal:has(#sv3_TabEntryPanel) .vdrawer-btn,.modal:has(#pv3_TabEntryPanel) .vdrawer-btn{display:inline-flex !important;align-items:center;justify-content:center;}   /* শুধু ক্রয়/বিক্রয় ভাউচারে */
+  body.vdrawer .vdrawer-btn{background:#c27a12 !important;color:#fff !important;border-color:#c27a12 !important;}
+  @media (max-width:760px){ body.vdrawer .modal:not(.modal-max):has(#sv3_TabEntryPanel),body.vdrawer .modal:not(.modal-max):has(#pv3_TabEntryPanel){width:100vw !important;max-width:100vw !important;border-radius:0 !important;} }
   .vstk-tip{position:fixed;z-index:100001;pointer-events:none;background:#1f2937;color:#fff;border-radius:6px;padding:3px 8px;font-size:11.5px;line-height:1.3;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,.25);display:flex;gap:6px;align-items:baseline;}
   .vstk-tip span{color:#fbbf24;font-size:10.5px;font-weight:700;}
   .vstk-tip::after{content:"";position:absolute;left:50%;bottom:-5px;margin-left:-5px;border:5px solid transparent;border-bottom:0;border-top-color:#1f2937;}
@@ -16634,11 +16642,31 @@ function voucherAmountEnterWire(P) {
   window.addEventListener('keydown', hp, true);
 }
 
+/** সাইড প্যানেল / মাঝখানে — উইন্ডোর উপরে ⇥ বোতাম; পছন্দ মনে থাকে (এই ব্রাউজারে) */
+function voucherDrawerWire() {
+  let on = true; try { on = localStorage.getItem('gm_vdrawer') !== '0'; } catch (e) {}
+  document.body.classList.toggle('vdrawer', on);
+  const mx = document.getElementById('modalMaxBtn'); if (!mx || document.getElementById('vDrawerBtn')) return;   // মিনিমাইজ বোতামের আগে
+  const b = document.createElement('button'); b.type = 'button'; b.id = 'vDrawerBtn'; b.className = 'modal-tool-btn vdrawer-btn';
+  const label = function () { const o = document.body.classList.contains('vdrawer'); b.textContent = o ? '⇤' : '⇥'; b.title = o ? 'মাঝখানে দেখান' : 'ডান পাশে সাইড প্যানেল হিসেবে দেখান'; };
+  label();
+  b.addEventListener('click', function () {
+    const o = !document.body.classList.contains('vdrawer');
+    document.body.classList.toggle('vdrawer', o);
+    try { localStorage.setItem('gm_vdrawer', o ? '1' : '0'); } catch (e) {}
+    label();
+    window.dispatchEvent(new Event('resize'));   // ভিতরের মাপ (ফ্রিজ, তালিকা) নতুন করে
+  });
+  const mn = document.getElementById('modalMinBtn');
+  (mn || mx).parentNode.insertBefore(b, mn || mx);
+}
+
 /** ক্রয়/বিক্রয় ভাউচার — মসৃণ কাজঃ
  *  ১) উপরের আটকানো অংশের নিচে ঘর লুকায় না (scroll-padding = আটকানো অংশের উচ্চতা)
  *  ২) পরিমাণ / দর / মূল্য / কমিশনের কোনো ঘরে গেলে পুরো "পরিমান থেকে মূল্য (+)" অংশ একসাথে চোখের সামনে আসে — টানাটানি লাগে না
  *  ৩) সংখ্যার ঘরে মাউস-চাকা ঘোরালে সংখ্যা বদলায় না, পাতা স্ক্রল হয় */
 function voucherSmoothWire(P) {
+  voucherDrawerWire();
   const body = document.getElementById('modalBody'), frz = document.getElementById(P + '_Freeze');
   const panel = document.getElementById(P + '_TabEntryPanel');
   if (!body || !frz || !panel) return;
