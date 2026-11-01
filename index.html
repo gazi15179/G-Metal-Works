@@ -908,7 +908,13 @@ async function runPostingLogic(docType, header, docId) {
     }));
     const dt = header.InvoiceDate || today;
     let moneyP;
-    if (header.SupplierID === 'SUP-CASH') {
+    let exCust = null;   // বিক্রয় ভাউচারের ভিতরে দেওয়া ক্রয় (বিনিময়) — হিসাব মূল গ্রাহকের খাতায়
+    if (header.RefSIID) { try { const r = await supabaseClient.from('SalesInvoice').select('CustomerID').eq('SIID', header.RefSIID).maybeSingle(); exCust = r && r.data ? r.data.CustomerID : null; } catch (e) {} }
+    if (exCust) {
+      moneyP = exCust === 'CUS-CASH'
+        ? (async function () { await postBankCashBookEntry(await cashAccountId(), dt, 'PurchaseInvoice', docId, 0, Number(header.TotalAmount) || 0); })()   // নগদ গ্রাহকঃ ক্যাশ থেকে দেওয়া
+        : postPartyLedgerEntries('Customer', exCust, dt, docId, [{ refModule: 'PurchaseInvoice', debit: 0, credit: Number(header.TotalAmount) || 0 }]);   // গ্রাহকের পাওনা কমে
+    } else if (header.SupplierID === 'SUP-CASH') {
       // নগদ ক্রয় — কোনো দেনা তৈরি হবে না, সরাসরি ক্যাশ অ্যাকাউন্ট থেকে টাকা বের হয়ে যাবে
       moneyP = (async function () { await postBankCashBookEntry(await cashAccountId(), dt, 'PurchaseInvoice', docId, 0, Number(header.TotalAmount) || 0); })();
     } else {
@@ -1005,7 +1011,13 @@ async function runPostingLogic(docType, header, docId) {
     }));
     const dt = header.InvoiceDate || today;
     let moneyP;
-    if (header.CustomerID === 'CUS-CASH') {
+    let exSup = null;   // ক্রয় ভাউচারের ভিতরে দেওয়া বিক্রয় (বিনিময়) — হিসাব মূল সাপ্লায়ারের খাতায়
+    if (header.RefPIID) { try { const r = await supabaseClient.from('PurchaseInvoice').select('SupplierID').eq('PIID', header.RefPIID).maybeSingle(); exSup = r && r.data ? r.data.SupplierID : null; } catch (e) {} }
+    if (exSup) {
+      moneyP = exSup === 'SUP-CASH'
+        ? (async function () { await postBankCashBookEntry(await cashAccountId(), dt, 'SalesInvoice', docId, Number(header.TotalAmount) || 0, 0); })()   // নগদ সাপ্লায়ারঃ ক্যাশে আসে
+        : postPartyLedgerEntries('Supplier', exSup, dt, docId, [{ refModule: 'SalesInvoice', debit: Number(header.TotalAmount) || 0, credit: 0 }]);   // সাপ্লায়ারের দেনা কমে
+    } else if (header.CustomerID === 'CUS-CASH') {
       // নগদ বিক্রয় — কোনো পাওনা তৈরি হবে না, সরাসরি ক্যাশ অ্যাকাউন্টে টাকা জমা হবে
       moneyP = (async function () { await postBankCashBookEntry(await cashAccountId(), dt, 'SalesInvoice', docId, Number(header.TotalAmount) || 0, 0); })();
     } else {
@@ -1444,6 +1456,13 @@ async function runSupabaseAction(action, p) {
       if (LR) {
         const lr = (lrRes && !lrRes.error && lrRes.data) || [];
         for (const r of lr) if (r.Status !== 'Posted' && r.Status !== 'Deleted') await runSupabaseAction('postDocument', { docType: LR[0], docId: r[LR[1]] });
+      }
+      // একই ভাউচারে দেওয়া বিনিময় (বিক্রয়ে ক্রয় / ক্রয়ে বিক্রয়) — মূলের সাথে পোস্ট
+      const LX = vxLinkOf(p.docType);
+      if (LX) {
+        let lx = [];
+        try { const r = await supabaseClient.from(LX[0]).select('*').eq(LX[2], p.docId); lx = (r && !r.error && r.data) || []; } catch (e) {}
+        for (const r of lx) if (r.Status !== 'Posted' && r.Status !== 'Deleted') await runSupabaseAction('postDocument', { docType: LX[0], docId: r[LX[1]] });
       }
       return {};
     }
@@ -15275,6 +15294,7 @@ async function renderPurchaseVoucherPage(content, defaultType) {
       cachedList('Suppliers'), cachedList('Users')
     ]);
     const supMap = {}; suppliers.forEach(function (s) { supMap[s.SupplierID] = s.CompanyName || s.Name; });
+    try { (await cachedList('Customers')).forEach(function (c) { if (!supMap[c.CustomerID]) supMap[c.CustomerID] = c.CompanyName || c.Name; }); } catch (e) {}   // বিক্রয় ভাউচারের বিনিময়-ক্রয়ঃ পার্টি গ্রাহক হতে পারে
     const purMap = {}; users.forEach(function (u) { purMap[u.UserID] = u.FullName; });
 
     const merged = invoices.filter(function (r) { return r.Status !== 'Deleted'; }).map(function (r) {
@@ -15355,6 +15375,7 @@ async function deletePurchaseVoucherRecord(docType, docId) {
     : { sheet:'PurchaseInvoice', idField:'PIID' };
   try {
     await api('delete', { sheet: config.sheet, idField: config.idField, idValue: docId });
+    if (docType === 'PurchaseInvoice') await vxDeleteLinked(docType, docId);   // জোড়া বিনিময় ভাউচারও
     showToast(t('ডিলিট হয়েছে ✅','Deleted ✅'), 'success');
     if (window.__refreshPurchaseVoucherList) await window.__refreshPurchaseVoucherList();
   } catch (err) {
@@ -15367,6 +15388,7 @@ async function deletePostedPurchaseVoucher(docType, docId) {
     ? { sheet:'PurchaseReturn', idField:'PRetID', linesSheet:'PR_Return_Lines', lineIdField:'PRetID' }
     : { sheet:'PurchaseInvoice', idField:'PIID', linesSheet:'PI_Lines', lineIdField:'PIID' };
   await deletePostedVoucherWithAdminAuth(docType, docId, config.sheet, config.idField, config.linesSheet, config.lineIdField, window.__refreshPurchaseVoucherList);
+  if (docType === 'PurchaseInvoice') { try { const { data } = await supabaseClient.from('PurchaseInvoice').select('PIID').eq('PIID', docId).maybeSingle(); if (!data) { await vxDeleteLinked(docType, docId); if (window.__refreshPurchaseVoucherList) await window.__refreshPurchaseVoucherList(); } } catch (e) {} }
 }
 
 /** প্রিভিউ/প্রিন্ট/শেয়ার — একটা প্রিন্ট-উপযোগী ভাউচার নতুন ট্যাবে খুলবে।
@@ -15566,7 +15588,7 @@ async function openPrintableVoucherView(docType, docId, opts) {
   const partyPhone = isCashParty ? (header.WalkInPartyMobile || '') : (party ? (party.Phone || '') : '');
 
   // DB থেকে আসা lines-কে buildVoucherTableBody যে আকারে চায় (qty/rate/commRate ইত্যাদি) সেভাবে সাজানো
-  const shapedLines = lines.map(function (l) {
+  const shapeLine = function (l) {
     const qty = Number(l.Quantity) || 0, rate = Number(l.Rate) || 0, amt = qty * rate;
     const commAmt = Number(l.CommissionAmount) || 0;
     const pieceItem = /পিস|pcs|piece/i.test(unitMap[(itemMap[l.ItemID] || {}).UOMID] || '');
@@ -15578,7 +15600,8 @@ async function openPrintableVoucherView(docType, docId, opts) {
       commRate: Number(l.CommissionRate) || 0, commAmount: commAmt, scrapItemId: l.ScrapItemID || null,
       netAmount: (l.NetAmount !== null && l.NetAmount !== undefined) ? Number(l.NetAmount) : (amt - commAmt)
     };
-  });
+  };
+  const shapedLines = lines.map(shapeLine);
 
   // পূর্বের বকেয়া = এই ভাউচারের লেজার-এন্ট্রির ঠিক আগের ব্যালেন্স (পোস্ট না হলে বর্তমান ব্যালেন্স)
   let prevBalance = 0;
@@ -15591,6 +15614,8 @@ async function openPrintableVoucherView(docType, docId, opts) {
           const lr = isSales ? ['SalesReturn', 'SRID', 'RefSIID'] : ['PurchaseReturn', 'PRetID', 'RefPIID'];
           const r = await supabaseClient.from(lr[0]).select('*').eq(lr[2], docId);
           ((r && !r.error && r.data) || []).forEach(function (x) { ownIds.push(x[lr[1]]); });
+          const lx = vxLinkOf(docType);   // জোড়া বিনিময় ভাউচারও বাদ
+          if (lx) { const r2 = await supabaseClient.from(lx[0]).select('*').eq(lx[2], docId); ((r2 && !r2.error && r2.data) || []).forEach(function (x) { ownIds.push(x[lx[1]]); }); }
         } catch (e) {}
       }
       prevBalance = await partyLedgerJer(pType, header[partyIdField], { upTo: header.InvoiceDate || header.Date, exclude: ownIds });
@@ -15631,6 +15656,15 @@ async function openPrintableVoucherView(docType, docId, opts) {
 
   let hidePrint = {};   // বিক্রয় ভাউচার সেটিং → প্রিন্ট সেটিং (টিক দেওয়া কলাম প্রিন্টে লুকানো)
   if (isSales) { try { const ps = await vfsLoad('sv3'); PRT_HIDE_KEYS.forEach(function (k) { hidePrint[k[0]] = !!ps[k[0]]; }); } catch (e) {} }
+  let xShaped = [];   // একই ভাউচারের বিনিময় (বিক্রয়ে ক্রয় / ক্রয়ে বিক্রয়) — ছাপায় আলাদা অংশে, মোট থেকে বাদ
+  if (!isReturn && !opts.challan) {
+    try {
+      const L = vxLinkOf(docType);
+      const r = await supabaseClient.from(L[0]).select('*').eq(L[2], docId);
+      const xh = ((r && !r.error && r.data) || []).find(function (x) { return x.Status !== 'Deleted'; });
+      if (xh) { const rl = await supabaseClient.from(L[0] === 'PurchaseInvoice' ? 'PI_Lines' : 'SI_Lines').select('*').eq(L[1], xh[L[1]]); xShaped = ((rl && !rl.error && rl.data) || []).map(shapeLine).map(function (x) { x.costRate = x.qty ? x.netAmount / x.qty : 0; return x; }); }   // বিনিময়ের লাইনে লাভ নেই (লাভের ঘর ০)
+    } catch (e) {}
+  }
   const voucherTableBody = buildVoucherBodyScreenPrint({
     hidePrint: hidePrint,
     vatRate: Number(header.VatRate) || 0, vatAmount: Number(header.VatAmount) || 0,
@@ -15644,7 +15678,7 @@ async function openPrintableVoucherView(docType, docId, opts) {
     manualDate: header.SupplierInvoiceDate || header.ManualVoucherDate || '', manualNo: header.SupplierInvoiceNo || header.ManualVoucherNo || '',
     partyLabelBn: partyLabelBn + ' নামঃ', partyName: partyName, partyZone: partyZone, partyAddress: partyAddress, partyPhone: partyPhone,
     mainLines: isReturn ? [] : shapedLines, mainLabel: titleBn, mainTotalLabel: 'মোটঃ ' + (isSales ? 'বিক্রয়ঃ' : 'ক্রয়ঃ'),
-    returnLines: isReturn ? shapedLines : [], returnLabel: titleBn, returnTotalLabel: 'মোটঃ ফেরতঃ',
+    returnLines: isReturn ? shapedLines : xShaped, returnLabel: isReturn ? titleBn : (isSales ? 'ক্রয় (বিনিময়) পণ্যঃ' : 'বিক্রয় (বিনিময়) পণ্যঃ'), returnTotalLabel: isReturn ? 'মোটঃ ফেরতঃ' : (isSales ? 'মোটঃ ক্রয়ঃ' : 'মোটঃ বিক্রয়ঃ'),
     itemMap: itemMap, cashExpenseAmt: Number(header.CashExpenseAmount) || 0, discountAmt: Number(header.DiscountAmount) || 0,
     sign1: isSales ? 'ক্রেতার স্বাঃ' : 'বিক্রেতার স্বাঃ',
     sign3Label: (personLabelBn) + ' স্বাঃ', isDraft: false
@@ -16249,7 +16283,7 @@ function voucherPartySumUpdate(P, kind) {
   const exp = (window['__' + P + 'CashExpense'] && window['__' + P + 'CashExpense'].amount) || 0;
   const vatFn = window['__' + P + 'GetVat'];
   const vat = vatFn ? (Number(vatFn().amount) || 0) : 0;
-  const grand = net(window['__' + P + (S ? 'SaleLines' : 'PurchaseLines')]) + exp - v('_DiscAmount') - net(window['__' + P + 'ReturnLines']) + vat;
+  const grand = net(window['__' + P + (S ? 'SaleLines' : 'PurchaseLines')]) + exp - v('_DiscAmount') - net(window['__' + P + 'ReturnLines']) + vat - net(window['__' + P + 'XLines']);   // বিনিময়ের (ক্রয়/বিক্রয়) টাকা বাদ
   const partyEl = document.getElementById(P + (S ? '_CustomerID' : '_SupplierID'));
   const partyId = partyEl ? partyEl.value : '';
   const isCash = partyId === (S ? 'CUS-CASH' : 'SUP-CASH');
@@ -16433,9 +16467,8 @@ function voucherViewPostedApply(P, kind, dt, id) {
   bar.innerHTML = `<span>✅ ${escapeHtml(id)} — ${t('পোস্ট করা ভাউচার, শুধু দেখা যাচ্ছে', 'posted voucher, view only')}</span><button type="button">✏️ ${t('এডিট করুন', 'Edit')}</button>`;
   bar.style.display = '';
   bar.querySelector('button').addEventListener('click', async function () {
-    if (!(await unpostVoucherWithAdminAuth(dt, id))) return;
     closeModal();
-    await VOUCHER_KINDS[kind].open(dt, id);
+    await editPostedVoucherFromList(dt, id);   // মূল + জোড়া ফেরত + জোড়া বিনিময় একসাথে আনপোস্ট → এডিটে খোলে
   });
 }
 
@@ -16770,6 +16803,7 @@ const SV_TABLE_CSS = `
   .svt td.ps .vps-val{height:24px;}
   .svt .vbtn{display:flex;align-items:center;justify-content:center;width:100%;height:26px;border:0;margin:0;border-radius:0;background:var(--ink-900);color:var(--amber);font-weight:700;font-size:15px;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;}
   .svt .vbtn.vret{background:#7a2e1a;color:#fff;}
+  .svt .vbtn.vxbtn{background:#1f6f5c;color:#fff;}   /* বিনিময় লাইন */
   .svt .vret2{display:flex;align-items:stretch;height:100%;}
   .svt .vret2 .vbtn{flex:1;min-width:0;}
   .svt .vscrap{display:flex;align-items:center;gap:2px;padding:0 3px;font-size:10.5px;font-weight:700;cursor:pointer;white-space:nowrap;background:rgba(120,124,130,.15);user-select:none;-webkit-tap-highlight-color:transparent;}
@@ -16818,6 +16852,8 @@ const SV_PANEL_CSS = `
   .svp tbody tr.edit td{background:#ffe2a8 !important;color:#1b1f24;box-shadow:inset 0 1px 0 #c27a12,inset 0 -1px 0 #c27a12;}
   .svp tbody tr.draft td{background:rgba(194,122,18,.10);font-style:italic;}
   .svp tbody tr.ret td{color:#8a2d14;}
+  .svp tbody tr.xl td{color:#1f6f5c;}
+  .svp tbody tr.sec.xs td{background:rgba(31,111,92,.12);}
   .svp tbody tr.sec td{background:rgba(122,46,26,.12);font-weight:700;text-align:left;}
   .svp tbody tr.tot td{font-weight:700;background:rgba(120,124,130,.14);}
   .svp tbody tr.sum td{font-weight:600;}
@@ -16896,6 +16932,7 @@ function vfsFields(P) {
   if (C.profit) list.push(['profit', 'লাভ', 'Profit', 'in', x(['_ShowProfitCheck'])]);
   list.push(['addLine', C.bn + ' লাইন +', C.en + ' line +', 'in', x([C.addLine])]);
   list.push(['addRet', C.bn + ' ফেরৎ +', C.en + ' return +', 'in', x(['_AddReturnLineBtn'])]);
+  if (VX[P]) list.push(['addX', VX[P].bn + ' লাইন + (বিনিময়)', VX[P].en + ' line + (exchange)', 'in', x(['_AddXLineBtn'])]);
   if (P === 'sv3') list.push(['scrap', 'ফেরৎ → ভাঙ্গাড়ী', 'Return → scrap', 'in', x(['_ScrapCheck'])]);   // খারাপ ফেরত মাল সরাসরি ভাঙ্গাড়ী স্টকে
   return list;
 }
@@ -17200,6 +17237,84 @@ async function renderVoucherFieldSettingsPage(content, P) {
 }
 function renderSalesVoucherSettingsPage(content) { return renderVoucherFieldSettingsPage(content, 'sv3'); }
 
+/* ===== ক্রয়-বিক্রয় এক ভাউচারে (বিনিময়) =====
+   বিক্রয় ভাউচারে "ক্রয় লাইন (+)" — একই পার্টির কাছ থেকে মাল কেনা (যেমন পুরনো অ্যালুমিনিয়াম/ভাঙ্গাড়ী)।
+   ক্রয় ভাউচারে "বিক্রয় লাইন (+)" — একই সাপ্লায়ারের কাছে মাল বিক্রি।
+   এই লাইনগুলো একটা জোড়া ভাউচার হিসেবে সেভ হয় (বিক্রয়ে → PurchaseInvoice + RefSIID; ক্রয়ে → SalesInvoice + RefPIID)।
+   পোস্টে মূল ভাউচারের সাথে একসাথে পোস্ট হয়ঃ স্টক ঠিক দিকে, আর টাকা মূল পার্টির খাতাতেই (পাওনা/দেনা নিজে থেকে কমে)।
+   ভাউচার তালিকা ও রিপোর্টে জোড়া ভাউচারটা আলাদা ক্রয়/বিক্রয় হিসেবেও দেখা যায়; খুললে মূল ভাউচারে নিয়ে যায়। */
+const VX = {
+  sv3: { mainTable: 'SalesInvoice', mainIdf: 'SIID', xTable: 'PurchaseInvoice', xIdf: 'PIID', xLines: 'PI_Lines', xPrefix: 'PI', ref: 'RefSIID', xParty: 'SupplierID', partyType: 'Customer', cashParty: 'CUS-CASH', xCash: 'SUP-CASH', bn: 'ক্রয়', en: 'Purchase', secBn: 'ক্রয় (বিনিময়) পণ্যঃ', secEn: 'Purchased (exchange):', totBn: 'মোটঃ ক্রয়ঃ', totEn: 'Total purchase:' },
+  pv3: { mainTable: 'PurchaseInvoice', mainIdf: 'PIID', xTable: 'SalesInvoice', xIdf: 'SIID', xLines: 'SI_Lines', xPrefix: 'SI', ref: 'RefPIID', xParty: 'CustomerID', partyType: 'Supplier', cashParty: 'SUP-CASH', xCash: 'CUS-CASH', bn: 'বিক্রয়', en: 'Sale', secBn: 'বিক্রয় (বিনিময়) পণ্যঃ', secEn: 'Sold (exchange):', totBn: 'মোটঃ বিক্রয়ঃ', totEn: 'Total sale:' }
+};
+const VX_SQL = 'ALTER TABLE "PurchaseInvoice" ADD COLUMN IF NOT EXISTS "RefSIID" text; ALTER TABLE "SalesInvoice" ADD COLUMN IF NOT EXISTS "RefPIID" text;';
+
+/** এডিটে খোলা মূল ভাউচারের জোড়া (বিনিময়) ভাউচার */
+async function vxLoad(P, mainId, viewPosted) {
+  const C = VX[P];
+  try {
+    const { data, error } = await supabaseClient.from(C.xTable).select('*').eq(C.ref, mainId);
+    if (error) return null;
+    const h = (data || []).find(function (x) { return x.Status !== 'Deleted'; }); if (!h) return null;
+    if (viewPosted && window['__' + P + 'ViewPostedIds']) window['__' + P + 'ViewPostedIds'].push(h[C.xIdf]);
+    const { data: ll } = await supabaseClient.from(C.xLines).select('*').eq(C.xIdf, h[C.xIdf]);
+    return { header: h, lines: ll || [] };
+  } catch (e) { return null; }
+}
+function vxMapLines(P, linked) {
+  if (!linked) return [];
+  const im = window['__' + P + 'ItemMap'] || {};
+  return linked.lines.map(function (l) {
+    const amt = Math.round((Number(l.Quantity) || 0) * (Number(l.Rate) || 0)), commAmt = Number(l.CommissionAmount) || 0;
+    return { itemId: l.ItemID, warehouseId: linked.header.WarehouseID, qty: Number(l.Quantity) || 0, qtyKg: Number(l.QtyKg) || 0, qtyPcs: Number(l.QtyPcs) || 0, rateKg: Number(l.RateKg) || 0, ratePc: Number(l.RatePc) || 0, rateBasis: l.RateBasis || null, rate: Number(l.Rate) || 0,
+      amount: Number(l.Amount) || amt, commRate: Number(l.CommissionRate) || 0, commAmount: commAmt, netAmount: (l.NetAmount !== null && l.NetAmount !== undefined) ? Number(l.NetAmount) : (amt - commAmt),
+      costRate: (l.CostRate !== null && l.CostRate !== undefined) ? (Number(l.CostRate) || 0) : (Number((im[l.ItemID] || {}).StandardCost) || 0) };
+  });
+}
+/** জোড়া ভাউচারের পার্টির ঘরে কী বসবে — একই কোড+নামের অন্য দিকের রেকর্ড (না থাকলে মূল পার্টির আইডি; হিসাব মূল পার্টির খাতাতেই যায়) */
+async function vxCounterparty(P, partyId) {
+  const C = VX[P];
+  if (partyId === C.cashParty) return C.xCash;
+  try { const ids = await partyLedgerIdsFor(C.partyType, partyId); const other = P === 'sv3' ? ids.supp : ids.cust; if (other && other.length) return other[0]; } catch (e) {}
+  return partyId;
+}
+/** সেভ — লাইন থাকলে জোড়া ভাউচার তৈরি/হালনাগাদ, না থাকলে (এডিটে সব মুছলে) জোড়া ভাউচার মোছে */
+async function vxSave(P, o) {
+  const C = VX[P], lines = window['__' + P + 'XLines'] || [], linked = window['__' + P + 'LinkedX'];
+  if (!lines.length) {
+    if (linked) { await supabaseClient.from(C.xLines).delete().eq(C.xIdf, linked.header[C.xIdf]); await supabaseClient.from(C.xTable).delete().eq(C.xIdf, linked.header[C.xIdf]); }
+    return;
+  }
+  if (!o.mainId) throw new Error(t(C.bn + ' লাইন দিতে হলে অন্তত একটা মূল লাইনও লাগবে।', C.en + ' lines need at least one main line.'));
+  const chk = await supabaseClient.from(C.xTable).select(C.ref).limit(1);
+  if (chk && chk.error) throw new Error(t('একই ভাউচারে ' + C.bn + ' লাইন সেভ করতে Supabase-এ একবার এই SQL চালানঃ ', 'Run this SQL in Supabase once: ') + VX_SQL);
+  const wh = lines[0].warehouseId; if (!wh) throw new Error(t('গুদাম আবশ্যক।', 'Warehouse is required.'));
+  const lineData = lines.map(function (l) { return { ItemID: l.itemId, Quantity: l.qty, QtyKg: l.qtyKg || 0, QtyPcs: l.qtyPcs || 0, RateKg: l.rateKg || 0, RatePc: l.ratePc || 0, RateBasis: l.rateBasis || null, Rate: l.rate, Amount: l.amount, CommissionRate: l.commRate || 0, CommissionAmount: l.commAmount || 0, NetAmount: l.netAmount !== undefined ? l.netAmount : l.amount }; });
+  if (P === 'pv3') { const im = window.__pv3ItemMap || {}; lineData.forEach(function (d, i) { d.CostRate = lines[i].costRate || Number((im[d.ItemID] || {}).StandardCost) || 0; }); }   // বিক্রয়ের লাইনে লাভের খরচ-দর
+  const total = lineData.reduce(function (s, l) { return s + (Number(l.NetAmount) || 0); }, 0);
+  const hd = { InvoiceDate: o.date, WarehouseID: wh, TotalAmount: total };
+  hd[C.ref] = o.mainId;
+  hd[C.xParty] = await vxCounterparty(P, o.partyId);
+  if (o.isCash) { hd.WalkInPartyName = o.walkIn.name || null; hd.WalkInPartyAddress = o.walkIn.addr || null; hd.WalkInPartyMobile = o.walkIn.mobile || null; }
+  if (P === 'sv3') hd.PurchaserID = currentUser ? currentUser.UserID : null; else hd.SalespersonID = currentUser ? currentUser.UserID : null;
+  if (linked) await api('updateDocument', { headerSheet: C.xTable, idField: C.xIdf, linesSheet: C.xLines, lineIdField: C.xIdf, idValue: linked.header[C.xIdf], headerData: hd, lines: lineData });
+  else await api('createDocument', { headerSheet: C.xTable, idField: C.xIdf, idPrefix: C.xPrefix, requiredFields: ['WarehouseID'], linesSheet: C.xLines, lineIdField: C.xIdf, headerData: hd, lines: lineData });
+}
+/** মূল ভাউচারের জোড়া (বিনিময়) ভাউচার — [টেবিল, আইডির ঘর, জোড়ার ঘর] */
+function vxLinkOf(type) { return type === 'SalesInvoice' ? ['PurchaseInvoice', 'PIID', 'RefSIID'] : type === 'PurchaseInvoice' ? ['SalesInvoice', 'SIID', 'RefPIID'] : null; }
+/** মূল ভাউচার মুছলে জোড়া ভাউচারও মোছে (পোস্ট করা হলে আগে স্টক/লেজার ফেরত) */
+async function vxDeleteLinked(type, id) {
+  const L = vxLinkOf(type); if (!L) return;
+  try {
+    const { data } = await supabaseClient.from(L[0]).select('*').eq(L[2], id);
+    for (const h of (data || [])) {
+      if (h.Status === 'Posted') await reversePostedDocumentStock(L[0], h[L[1]]);
+      await supabaseClient.from(L[0] === 'PurchaseInvoice' ? 'PI_Lines' : 'SI_Lines').delete().eq(L[1], h[L[1]]);
+      await supabaseClient.from(L[0]).delete().eq(L[1], h[L[1]]);
+    }
+  } catch (e) {}
+}
+
 async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
   window.__pv3FieldSet = null; window.__pv3SchedulePreview = null; window.__pv3LastStockKP = null;   // আগের ফর্মের অবস্থা যেন না লাগে
   const pvSetP = vfsLoad('pv3');   // ক্রয় ভাউচার সেটিং — কোন ঘর দেখা যাবে
@@ -17237,6 +17352,7 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
     existingLines = doc.lines;
     // ফেরত যদি কোনো PurchaseInvoice-এর সাথে জোড়া হয় — পুরো ভাউচার (বিক্রয়/ক্রয় + ফেরত) একই ফর্মে খোলে
     if (existingDocType === 'PurchaseReturn' && existingHeader.RefPIID) return openPurchaseVoucherForm('PurchaseInvoice', existingHeader.RefPIID, navOpts);
+    if (existingDocType === 'PurchaseInvoice' && existingHeader.RefSIID) return openSalesVoucherForm('SalesInvoice', existingHeader.RefSIID, navOpts);   // বিনিময় হিসেবে দেওয়া — মূল ভাউচারে খোলে
     if (existingHeader.Status === 'Posted' && !(navOpts && navOpts.viewPosted)) {
       return editPostedVoucherFromList(existingDocType, existingId);   // এডমিন পাসওয়ার্ড → আনপোস্ট → এডিটে খোলে
     }
@@ -17253,6 +17369,7 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
     } catch (e) {}   // জোড়ার ঘর (36 নম্বর SQL) না থাকলে আগের মতো
   }
 
+  window.__pv3LinkedX = (isEdit && existingDocType === 'PurchaseInvoice') ? await vxLoad('pv3', existingId, pv3ViewPosted) : null;   // একই ভাউচারের বিনিময় (জোড়া)
   const rec = existingHeader || {};
   if (rec.CashExpenseAmount) window.__pv3CashExpense = { amount: Number(rec.CashExpenseAmount) || 0, subAmounts: {} };
 
@@ -17272,6 +17389,7 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
         return { itemId: l.ItemID, warehouseId: pv3RetHdr.WarehouseID, qty: Number(l.Quantity)||0, qtyKg: Number(l.QtyKg)||0, qtyPcs: Number(l.QtyPcs)||0, rateKg: Number(l.RateKg)||0, ratePc: Number(l.RatePc)||0, rateBasis: l.RateBasis || null, rate: Number(l.Rate)||0, amount: amt, commRate: Number(l.CommissionRate)||0, commAmount: commAmt, netAmount: l.NetAmount !== null && l.NetAmount !== undefined ? Number(l.NetAmount) : (amt - commAmt) };
       })
     : [];
+  window.__pv3XLines = vxMapLines('pv3', window.__pv3LinkedX);   // বিনিময়ের লাইন
   window.__pv3LastStockQty = '';
   window.__pv3LastStockRate = '';
 
@@ -17350,10 +17468,11 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
           <td data-f="stdRate"><input id="pv3_AvgRateKg" readonly class="ro vtap" style="display:none;" title="${attr(t('চাপলে এই দর বসবে','Tap to use this rate'))}"></td>
           <td data-f="comm"><input id="pv3_CommRate" type="number" step="any" min="0" inputmode="decimal" placeholder="0" disabled></td>
           <td data-f="comm"><input id="pv3_CommAmount" readonly tabindex="-1" class="ro"></td></tr>
-        <tr class="h"><th colspan="2" data-f="amount">${t('মূল্য','Amount')}</th><th class="i" data-f="addLine">${t('ক্রয় লাইন','Purchase line')}</th><th class="i" data-f="addRet">${t('ক্রয় ফেরৎ','Purchase return')}</th></tr>
-        <tr><td colspan="2" data-f="amount"><input id="pv3_Amount" type="number" step="any" min="0" inputmode="decimal" class="vbold" title="${attr(t('মোট মূল্য লিখলে কেজি ও পিসের দর নিজে বসে','Typing the total fills both rates'))}"></td>
+        <tr class="h"><th data-f="amount">${t('মূল্য','Amount')}</th><th class="i" data-f="addLine">${t('ক্রয় লাইন','Purchase line')}</th><th class="i" data-f="addRet">${t('ক্রয় ফেরৎ','Purchase return')}</th><th class="i" data-f="addX">${t('বিক্রয় লাইন','Sale line')}</th></tr>
+        <tr><td data-f="amount"><input id="pv3_Amount" type="number" step="any" min="0" inputmode="decimal" class="vbold" title="${attr(t('মোট মূল্য লিখলে কেজি ও পিসের দর নিজে বসে','Typing the total fills both rates'))}"></td>
           <td data-f="addLine"><label class="vbtn" title="${attr(t('ক্রয় লাইন যোগ','Add purchase line'))}"><input type="checkbox" id="pv3_ConfirmPurchaseCheck" class="vhide"> (+)</label></td>
-          <td data-f="addRet"><button type="button" id="pv3_AddReturnLineBtn" class="vbtn vret" title="${attr(t('ক্রয় ফেরৎ লাইন যোগ','Add purchase return line'))}">(+)</button></td></tr>
+          <td data-f="addRet"><button type="button" id="pv3_AddReturnLineBtn" class="vbtn vret" title="${attr(t('ক্রয় ফেরৎ লাইন যোগ','Add purchase return line'))}">(+)</button></td>
+          <td data-f="addX"><button type="button" id="pv3_AddXLineBtn" class="vbtn vxbtn" title="${attr(t('বিক্রয় লাইন যোগ (একই পার্টির সাথে বিনিময়)','Add sale line (exchange with the same party)'))}">(+)</button></td></tr>
       </table>
       <div id="pv3_CommResultRow" style="display:none;"><input type="hidden" id="pv3_NetLineAmount"></div>
       <input type="hidden" id="pv3_PreviewStockQty"><input type="hidden" id="pv3_PreviewStockRate">
@@ -17424,6 +17543,9 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
       const hasPurchase = window.__pv3PurchaseLines.length > 0;
       const hasReturn = window.__pv3ReturnLines.length > 0;
       if (!hasPurchase && !hasReturn) throw new Error(t('অন্তত একটা ক্রয় বা ফেরত লাইন যোগ করুন।','Add at least one purchase or return line.'));
+      const hasX = (window.__pv3XLines || []).length > 0;   // বিক্রয় (বিনিময়) লাইন
+      if (hasX && !hasPurchase) throw new Error(t('বিক্রয় লাইন দিতে হলে অন্তত একটা ক্রয় লাইনও লাগবে (শুধু বিক্রয় হলে বিক্রয় ভাউচার ব্যবহার করুন)।','Sale lines need at least one purchase line.'));
+      if (hasX) { const ck = await supabaseClient.from('SalesInvoice').select('RefPIID').limit(1); if (ck && ck.error) throw new Error(t('একই ভাউচারে বিক্রয় লাইন সেভ করতে Supabase-এ একবার এই SQL চালানঃ ', 'Run this SQL in Supabase once: ') + VX_SQL); }
 
       const isCash = supplierId === 'SUP-CASH';
       const common = {
@@ -17507,6 +17629,8 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
         }
       }
 
+      // একই ভাউচারের বিনিময় লাইন — জোড়া ভাউচার হিসেবে (না থাকলে আগের জোড়া মোছে)
+      await vxSave('pv3', { mainId: pv3MainId, partyId: supplierId, date: val('pv3_Date'), isCash: isCash, walkIn: { name: val('pv3_CashName'), addr: val('pv3_CashAddress'), mobile: val('pv3_CashMobile') } });
       showToast(t('সেভ হয়েছে ✅','Saved ✅'), 'success');
       if (window.__refreshPurchaseVoucherList) await window.__refreshPurchaseVoucherList();
       // সেভ হলেঃ নতুন খালি ভাউচার খোলে, নিচে ভাউচার তালিকা (সদ্য সেভ করাটা চিহ্নিত)
@@ -17696,7 +17820,7 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
     balInput.value = t('লোড হচ্ছে...','Loading...');
     // জের = পার্টি লেজারের নিয়মে (গ্রাহক+সাপ্লায়ার দুই দিক, প্রারম্ভিক জের সহ) ভাউচারের তারিখ পর্যন্ত, এই ভাউচার বাদে
     const jerTok = (window.__pv3JerTok = (window.__pv3JerTok || 0) + 1);
-    const ownIds = [existingId, window.__pv3LinkedReturn && window.__pv3LinkedReturn.header ? window.__pv3LinkedReturn.header.PRetID : null].concat(window.__pv3ViewPostedIds || []);
+    const ownIds = [existingId, window.__pv3LinkedReturn && window.__pv3LinkedReturn.header ? window.__pv3LinkedReturn.header.PRetID : null, window.__pv3LinkedX && window.__pv3LinkedX.header ? window.__pv3LinkedX.header.SIID : null].concat(window.__pv3ViewPostedIds || []);
     let balance = 0;
     try { balance = await partyLedgerJer('Supplier', supplierId, { upTo: val('pv3_Date'), exclude: ownIds }); }
     catch (e) { showToast(t('পার্টি জের আনা যায়নি — ', 'Could not load party balance — ') + e.message, 'error'); }
@@ -18028,12 +18152,21 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
     renderRightSummary();
     showToast(upd ? t('লাইন হালনাগাদ হয়েছে ✅','Line updated ✅') : t('ক্রয় ফেরত লাইন যোগ হয়েছে ✅','Purchase return line added ✅'), 'success');
   });
+  document.getElementById('pv3_AddXLineBtn').addEventListener('click', function () {   // বিনিময় লাইন (+)
+    const line = collectCurrentLine();
+    if (!line) return;
+    const upd = pv3PlaceLine('x', line);
+    resetLineEntry();
+    renderRightSummary();
+    showToast(upd ? t('লাইন হালনাগাদ হয়েছে ✅','Line updated ✅') : t('বিক্রয় লাইন (বিনিময়) যোগ হয়েছে ✅','Sale line (exchange) added ✅'), 'success');
+  });
   /* ===== লাইভ প্রিভিউ পেনেল — ভাউচারের সব লাইন টেবিলে; উপরে যা লেখা হচ্ছে তা সাথে সাথে নিচে দেখায়।
      লাইনে এক চাপ = বাছাই, দুই চাপ (ডবল ক্লিক) = লাইনটা উপরের ঘরে এসে এডিট হয়; (+) চাপলে সেই লাইনেই বসে।
      হেডারে "ভাউচার" / "চালান" চাপলে ভাউচার ও চালান তালিকা, "লাইভ প্রিভিউ পেনেল" চাপলে আবার লাইন। ===== */
   window.__pv3Edit = null;           // {k:'sale'|'ret', i} — যে লাইন এডিট হচ্ছে
   let pv3PanelMode = 'preview', pv3PanelTimer = 0, pv3PanelSel = null;
   const pv3El = function (id) { return document.getElementById(id); };
+  const pv3Arr = function (k) { return k === 'sale' ? window.__pv3PurchaseLines : k === 'x' ? (window.__pv3XLines = window.__pv3XLines || []) : window.__pv3ReturnLines; };   // লাইনের ধরন → তালিকা (x = বিনিময়)
   function pv3Fmt(n, dec) {
     n = Number(n) || 0; if (!n) return '';
     return n.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: dec === undefined ? 2 : dec });
@@ -18079,17 +18212,17 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
       return `<tr data-k="${k}" data-i="${i}" class="${cls || ''}${editing ? ' edit' : ''}${pv3PanelSel && pv3PanelSel.k === k && pv3PanelSel.i === i ? ' sel' : ''}">
         <td class="c">${no2}</td><td class="l">${escapeHtml(x.name)}${x.comm ? ` <small>(${t('কমিঃ', 'comm.')} ${pv3Fmt(x.comm)}%)</small>` : ''}</td>
         <td class="r">${pv3Fmt(x.pcs, 3)}</td><td class="r">${pv3Fmt(x.kg, 3)}</td><td class="r">${pv3Rate(x.rp)}</td><td class="r">${pv3Rate(x.rk)}</td>
-        <td class="r b">${pv3Fmt(x.net, 2)}</td>${pf(k === 'ret' ? -x.profit : x.profit)}</tr>`;
+        <td class="r b">${pv3Fmt(x.net, 2)}</td>${pf(k === 'ret' ? -x.profit : k === 'x' ? 0 : x.profit)}</tr>`;
     };
     const sum = function (vs, f) { return vs.reduce(function (s, v) { return s + (Number(v[f]) || 0); }, 0); };
     const totRow = function (label, vs, profit, cls) { return `<tr class="tot ${cls || ''}"><td colspan="2" class="r">${label}</td><td class="r">${pv3Fmt(sum(vs, 'pcs'), 3)}</td><td class="r">${pv3Fmt(sum(vs, 'kg'), 3)}</td><td></td><td></td><td class="r b">${pv3Fmt(sum(vs, 'net'), 2)}</td>${pf(profit)}</tr>`; };
     const lineRow = function (label, value, profit, cls) { return `<tr class="sum ${cls || ''}"><td colspan="6" class="r">${label}</td><td class="r b">${value}</td>${P ? (profit === undefined ? '<td></td>' : pf(profit)) : ''}</tr>`; };
     const sales = window.__pv3PurchaseLines || [], rets = window.__pv3ReturnLines || [];
-    const sv = sales.map(pv3LineView), rv = rets.map(pv3LineView);
+    const sv = sales.map(pv3LineView), rv = rets.map(pv3LineView), xv = pv3Arr('x').map(pv3LineView);
     let body = '';
     sv.forEach(function (v, i) { body += row(v, i + 1, 'sale', i); });
     if (draft && !ed) body += `<tr class="draft"><td class="c">＋</td><td class="l">${escapeHtml(draft.name) || '<i>' + t('নতুন লাইন', 'New line') + '</i>'}</td><td class="r">${pv3Fmt(draft.pcs, 3)}</td><td class="r">${pv3Fmt(draft.kg, 3)}</td><td class="r">${pv3Rate(draft.rp)}</td><td class="r">${pv3Rate(draft.rk)}</td><td class="r b">${pv3Fmt(draft.net, 2)}</td>${pf(draft.profit)}</tr>`;
-    if (!sv.length && !rv.length && !draft) body += `<tr class="empty"><td colspan="${cols}">${t('উপরে আইটেম, পরিমাণ ও দর লিখলে এখানে দেখা যাবে', 'Lines appear here as you type above')}</td></tr>`;
+    if (!sv.length && !rv.length && !xv.length && !draft) body += `<tr class="empty"><td colspan="${cols}">${t('উপরে আইটেম, পরিমাণ ও দর লিখলে এখানে দেখা যাবে', 'Lines appear here as you type above')}</td></tr>`;
     const saleProfit = sum(sv, 'profit'), retProfit = sum(rv, 'profit');
     if (sv.length) body += totRow(t('মোটঃ ক্রয়ঃ', 'Total purchase:'), sv, saleProfit);
     if (rv.length) {
@@ -18097,12 +18230,17 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
       rv.forEach(function (v, i) { body += row(v, i + 1, 'ret', i, 'ret'); });
       body += totRow(t('মোটঃ ফেরতঃ', 'Total returns:'), rv, -retProfit, 'ret');
     }
-    if (sv.length || rv.length) {
+    if (xv.length) {   // একই পার্টির সাথে বিনিময় (বিক্রয়ে ক্রয় / ক্রয়ে বিক্রয়) — মোট থেকে বাদ
+      body += `<tr class="sec xs"><td colspan="${cols}">${t(VX['pv3'].secBn, VX['pv3'].secEn)}</td></tr>`;
+      xv.forEach(function (v, i) { body += row(v, i + 1, 'x', i, 'xl'); });
+      body += totRow(t(VX['pv3'].totBn, VX['pv3'].totEn), xv, 0, 'xl');
+    }
+    if (sv.length || rv.length || xv.length) {
       voucherPartySumUpdate('pv3', 'purchase');
       const c = window.__pv3PsCalc || {}, set = window.__pv3FieldSet || {};
       const exp = (window.__pv3CashExpense && window.__pv3CashExpense.amount) || 0, disc = Number(val('pv3_DiscAmount')) || 0;
       const vat = window.__pv3GetVat ? (Number(window.__pv3GetVat().amount) || 0) : 0;
-      const netTotal = sum(sv, 'net') + exp - disc - sum(rv, 'net');
+      const netTotal = sum(sv, 'net') + exp - disc - sum(rv, 'net') - sum(xv, 'net');   // বিনিময় বাদ
       const drcr = function (v) { const r = Math.round(v * 100) / 100; return pv3Fmt(Math.abs(r), 2) + (r ? ' ' + (r > 0 ? t('ডেঃ', 'Dr') : t('ক্রেঃ', 'Cr')) : '0'); };
       if (exp) body += lineRow(t('খরচ যোগঃ (+)', 'Expense (+):'), pv3Fmt(exp, 2));
       if (disc) body += lineRow(t('ডিসকাউন্টঃ (−)', 'Discount (−):'), '− ' + pv3Fmt(disc, 2), -disc);
@@ -18123,22 +18261,21 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
   /** (+) চাপলে — এডিট চললে লাইনটা আগের জায়গায় বসে, নইলে নতুন লাইন হিসেবে শেষে */
   function pv3PlaceLine(k, line) {
     const ed = window.__pv3Edit;
-    const sales = window.__pv3PurchaseLines, rets = window.__pv3ReturnLines;
     if (ed) {
-      const from = ed.k === 'sale' ? sales : rets;
+      const from = pv3Arr(ed.k);
       if (ed.k === k) from.splice(ed.i, 1, line);
-      else { from.splice(ed.i, 1); (k === 'sale' ? sales : rets).push(line); }
+      else { from.splice(ed.i, 1); pv3Arr(k).push(line); }
       window.__pv3Edit = null; pv3PanelSel = null;
       return true;
     }
-    (k === 'sale' ? sales : rets).push(line);
+    pv3Arr(k).push(line);
     return false;
   }
 
   /** ডবল ক্লিক — লাইনটা উপরের ঘরে বসানো (আইটেম, পরিমাণ, দর, কমিশন) */
   async function pv3LoadLine(k, i) {
     if (window.__pv3ViewPostedIds) { showToast(t('পোস্ট করা ভাউচার — এডিট করতে উপরের ✏️ এডিট চাপুন।', 'Posted voucher — press ✏️ Edit above first.'), 'error'); return; }
-    const l = (k === 'sale' ? window.__pv3PurchaseLines : window.__pv3ReturnLines)[i]; if (!l) return;
+    const l = pv3Arr(k)[i]; if (!l) return;
     if (!window.__pv3Edit && pv3DraftView() && !confirm(t('উপরে লেখা নতুন লাইনটা বাদ দিয়ে এই লাইন এডিট করবেন?', 'Discard the line being typed and edit this one?'))) return;
     window.__pv3Edit = { k: k, i: i };
     resetLineEntry();
@@ -18194,7 +18331,7 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
         const ed = window.__pv3Edit; if (!ed) return;
         if (pe.getAttribute('data-pe') === 'del') {
           if (!confirm(t('এই লাইনটা মুছে ফেলবেন?', 'Delete this line?'))) return;
-          (ed.k === 'sale' ? window.__pv3PurchaseLines : window.__pv3ReturnLines).splice(ed.i, 1);
+          pv3Arr(ed.k).splice(ed.i, 1);
         }
         window.__pv3Edit = null; pv3PanelSel = null; resetLineEntry(); renderRightSummary(); pv3PanelRender();
         return;
@@ -18348,6 +18485,7 @@ async function renderSalesVoucherPage(content, defaultType) {
       cachedList('Customers'), cachedList('Users')
     ]);
     const custMap = {}; customers.forEach(function (c) { custMap[c.CustomerID] = c.CompanyName || c.Name; });
+    try { (await cachedList('Suppliers')).forEach(function (x) { if (!custMap[x.SupplierID]) custMap[x.SupplierID] = x.CompanyName || x.Name; }); } catch (e) {}   // ক্রয় ভাউচারের বিনিময়-বিক্রয়ঃ পার্টি সাপ্লায়ার হতে পারে
     const slpMap = {}; users.forEach(function (u) { slpMap[u.UserID] = u.FullName; });
 
     const merged = invoices.filter(function (r) { return r.Status !== 'Deleted'; }).map(function (r) {
@@ -18428,6 +18566,7 @@ async function deleteSalesVoucherRecord(docType, docId) {
     : { sheet:'SalesInvoice', idField:'SIID' };
   try {
     await api('delete', { sheet: config.sheet, idField: config.idField, idValue: docId });
+    if (docType === 'SalesInvoice') await vxDeleteLinked(docType, docId);   // জোড়া বিনিময় ভাউচারও
     showToast(t('ডিলিট হয়েছে ✅','Deleted ✅'), 'success');
     if (window.__refreshSalesVoucherList) await window.__refreshSalesVoucherList();
   } catch (err) {
@@ -18440,6 +18579,7 @@ async function deletePostedSalesVoucher(docType, docId) {
     ? { sheet:'SalesReturn', idField:'SRID', linesSheet:'SR_Lines', lineIdField:'SRID' }
     : { sheet:'SalesInvoice', idField:'SIID', linesSheet:'SI_Lines', lineIdField:'SIID' };
   await deletePostedVoucherWithAdminAuth(docType, docId, config.sheet, config.idField, config.linesSheet, config.lineIdField, window.__refreshSalesVoucherList);
+  if (docType === 'SalesInvoice') { try { const { data } = await supabaseClient.from('SalesInvoice').select('SIID').eq('SIID', docId).maybeSingle(); if (!data) { await vxDeleteLinked(docType, docId); if (window.__refreshSalesVoucherList) await window.__refreshSalesVoucherList(); } } catch (e) {} }
 }
 
 async function openSalesVoucherForm(defaultType, existingId, navOpts) {
@@ -18481,6 +18621,7 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
     existingLines = doc.lines;
     // ফেরত যদি কোনো SalesInvoice-এর সাথে জোড়া হয় — পুরো ভাউচার (বিক্রয়/ক্রয় + ফেরত) একই ফর্মে খোলে
     if (existingDocType === 'SalesReturn' && existingHeader.RefSIID) return openSalesVoucherForm('SalesInvoice', existingHeader.RefSIID, navOpts);
+    if (existingDocType === 'SalesInvoice' && existingHeader.RefPIID) return openPurchaseVoucherForm('PurchaseInvoice', existingHeader.RefPIID, navOpts);   // বিনিময় হিসেবে দেওয়া — মূল ভাউচারে খোলে
     if (existingHeader.Status === 'Posted' && !(navOpts && navOpts.viewPosted)) {
       return editPostedVoucherFromList(existingDocType, existingId);   // এডমিন পাসওয়ার্ড → আনপোস্ট → এডিটে খোলে
     }
@@ -18497,6 +18638,7 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
     } catch (e) {}   // জোড়ার ঘর (36 নম্বর SQL) না থাকলে আগের মতো
   }
 
+  window.__sv3LinkedX = (isEdit && existingDocType === 'SalesInvoice') ? await vxLoad('sv3', existingId, sv3ViewPosted) : null;   // একই ভাউচারের বিনিময় (জোড়া)
   const rec = existingHeader || {};
   if (rec.CashExpenseAmount) window.__sv3CashExpense = { amount: Number(rec.CashExpenseAmount) || 0, subAmounts: {} };
 
@@ -18521,6 +18663,7 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
         return { itemId: l.ItemID, warehouseId: sv3RetHdr.WarehouseID, qty: Number(l.Quantity)||0, qtyKg: Number(l.QtyKg)||0, qtyPcs: Number(l.QtyPcs)||0, rateKg: Number(l.RateKg)||0, ratePc: Number(l.RatePc)||0, rateBasis: l.RateBasis || null, rate: Number(l.Rate)||0, amount: amt, commRate: Number(l.CommissionRate)||0, commAmount: commAmt, netAmount: l.NetAmount !== null && l.NetAmount !== undefined ? Number(l.NetAmount) : (amt - commAmt), costRate: sv3CostRateOf(l), scrapItemId: l.ScrapItemID || null, scrapKg: Number(l.ScrapKg) || 0 };
       })
     : [];
+  window.__sv3XLines = vxMapLines('sv3', window.__sv3LinkedX);   // বিনিময়ের লাইন
   window.__sv3LastStockQty = '';
   window.__sv3LastStockRate = '';
   window.__sv3LastStockKP = null;
@@ -18600,10 +18743,11 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
           <td data-f="stdRate"><input id="sv3_AvgRateKg" readonly class="ro vtap" style="display:none;" title="${attr(t('চাপলে এই দর বসবে','Tap to use this rate'))}"></td>
           <td data-f="comm"><input id="sv3_CommRate" type="number" step="any" min="0" inputmode="decimal" placeholder="0" disabled></td>
           <td data-f="comm"><input id="sv3_CommAmount" readonly tabindex="-1" class="ro"></td></tr>
-        <tr class="h"><th colspan="2" data-f="amount">${t('মূল্য','Amount')}</th><th class="i" data-f="addLine">${t('বিক্রয় লাইন','Sale line')}</th><th class="i" data-f="addRet">${t('বিক্রয় ফেরৎ','Sale return')}</th></tr>
-        <tr><td colspan="2" data-f="amount"><input id="sv3_Amount" type="number" step="any" min="0" inputmode="decimal" class="vbold" title="${attr(t('মোট মূল্য লিখলে কেজি ও পিসের দর নিজে বসে','Typing the total fills both rates'))}"></td>
+        <tr class="h"><th data-f="amount">${t('মূল্য','Amount')}</th><th class="i" data-f="addLine">${t('বিক্রয় লাইন','Sale line')}</th><th class="i" data-f="addRet">${t('বিক্রয় ফেরৎ','Sale return')}</th><th class="i" data-f="addX">${t('ক্রয় লাইন','Purchase line')}</th></tr>
+        <tr><td data-f="amount"><input id="sv3_Amount" type="number" step="any" min="0" inputmode="decimal" class="vbold" title="${attr(t('মোট মূল্য লিখলে কেজি ও পিসের দর নিজে বসে','Typing the total fills both rates'))}"></td>
           <td data-f="addLine"><label class="vbtn" title="${attr(t('বিক্রয় লাইন যোগ','Add sale line'))}"><input type="checkbox" id="sv3_ConfirmSaleCheck" class="vhide"> (+)</label></td>
-          <td data-f="addRet"><div class="vret2"><label class="vscrap" title="${attr(t('টিক দিলে এই ফেরত মাল ভাঙ্গাড়ী স্টকে যাবে (কেজি)','Tick: this returned item goes to scrap stock (kg)'))}"><input type="checkbox" id="sv3_ScrapCheck">${t('ভাঙ্গাড়ী','Scrap')}</label><button type="button" id="sv3_AddReturnLineBtn" class="vbtn vret" title="${attr(t('বিক্রয় ফেরৎ লাইন যোগ','Add sale return line'))}">(+)</button></div></td></tr>
+          <td data-f="addRet"><div class="vret2"><label class="vscrap" title="${attr(t('টিক দিলে এই ফেরত মাল ভাঙ্গাড়ী স্টকে যাবে (কেজি)','Tick: this returned item goes to scrap stock (kg)'))}"><input type="checkbox" id="sv3_ScrapCheck">${t('ভাঙ্গাড়ী','Scrap')}</label><button type="button" id="sv3_AddReturnLineBtn" class="vbtn vret" title="${attr(t('বিক্রয় ফেরৎ লাইন যোগ','Add sale return line'))}">(+)</button></div></td>
+          <td data-f="addX"><button type="button" id="sv3_AddXLineBtn" class="vbtn vxbtn" title="${attr(t('ক্রয় লাইন যোগ (একই পার্টির সাথে বিনিময়)','Add purchase line (exchange with the same party)'))}">(+)</button></td></tr>
       </table>
       <div id="sv3_CommResultRow" style="display:none;"><input type="hidden" id="sv3_NetLineAmount"></div>
       <input type="hidden" id="sv3_PreviewStockQty"><input type="hidden" id="sv3_PreviewStockRate">
@@ -18674,6 +18818,9 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
       const hasSale = window.__sv3SaleLines.length > 0;
       const hasReturn = window.__sv3ReturnLines.length > 0;
       if (!hasSale && !hasReturn) throw new Error(t('অন্তত একটা বিক্রয় বা ফেরত লাইন যোগ করুন।','Add at least one sale or return line.'));
+      const hasX = (window.__sv3XLines || []).length > 0;   // ক্রয় (বিনিময়) লাইন
+      if (hasX && !hasSale) throw new Error(t('ক্রয় লাইন দিতে হলে অন্তত একটা বিক্রয় লাইনও লাগবে (শুধু ক্রয় হলে ক্রয় ভাউচার ব্যবহার করুন)।','Purchase lines need at least one sale line.'));
+      if (hasX) { const ck = await supabaseClient.from('PurchaseInvoice').select('RefSIID').limit(1); if (ck && ck.error) throw new Error(t('একই ভাউচারে ক্রয় লাইন সেভ করতে Supabase-এ একবার এই SQL চালানঃ ', 'Run this SQL in Supabase once: ') + VX_SQL); }
 
       const isCash = customerId === 'CUS-CASH';
       const common = {
@@ -18751,6 +18898,8 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
         }
       }
 
+      // একই ভাউচারের বিনিময় লাইন — জোড়া ভাউচার হিসেবে (না থাকলে আগের জোড়া মোছে)
+      await vxSave('sv3', { mainId: sv3MainId, partyId: customerId, date: val('sv3_Date'), isCash: isCash, walkIn: { name: val('sv3_CashName'), addr: val('sv3_CashAddress'), mobile: val('sv3_CashMobile') } });
       showToast(t('সেভ হয়েছে ✅','Saved ✅'), 'success');
       if (window.__refreshSalesVoucherList) await window.__refreshSalesVoucherList();
       // সেভ হলেঃ নতুন খালি ভাউচার খোলে, নিচে ভাউচার তালিকা (সদ্য সেভ করাটা চিহ্নিত)
@@ -18938,7 +19087,7 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
     balInput.value = t('লোড হচ্ছে...','Loading...');
     // জের = পার্টি লেজারের নিয়মে (গ্রাহক+সাপ্লায়ার দুই দিক, প্রারম্ভিক জের সহ) ভাউচারের তারিখ পর্যন্ত, এই ভাউচার বাদে
     const jerTok = (window.__sv3JerTok = (window.__sv3JerTok || 0) + 1);
-    const ownIds = [existingId, window.__sv3LinkedReturn && window.__sv3LinkedReturn.header ? window.__sv3LinkedReturn.header.SRID : null].concat(window.__sv3ViewPostedIds || []);
+    const ownIds = [existingId, window.__sv3LinkedReturn && window.__sv3LinkedReturn.header ? window.__sv3LinkedReturn.header.SRID : null, window.__sv3LinkedX && window.__sv3LinkedX.header ? window.__sv3LinkedX.header.PIID : null].concat(window.__sv3ViewPostedIds || []);
     let balance = 0;
     try { balance = await partyLedgerJer('Customer', customerId, { upTo: val('sv3_Date'), exclude: ownIds }); }
     catch (e) { showToast(t('পার্টি জের আনা যায়নি — ', 'Could not load party balance — ') + e.message, 'error'); }
@@ -19274,12 +19423,21 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
     showToast(upd ? t('লাইন হালনাগাদ হয়েছে ✅','Line updated ✅') : t('বিক্রয় ফেরত লাইন যোগ হয়েছে ✅','Sale return line added ✅'), 'success');
   });
 
+  document.getElementById('sv3_AddXLineBtn').addEventListener('click', function () {   // বিনিময় লাইন (+)
+    const line = collectCurrentLine();
+    if (!line) return;
+    const upd = sv3PlaceLine('x', line);
+    resetLineEntry();
+    renderRightSummary();
+    showToast(upd ? t('লাইন হালনাগাদ হয়েছে ✅','Line updated ✅') : t('ক্রয় লাইন (বিনিময়) যোগ হয়েছে ✅','Purchase line (exchange) added ✅'), 'success');
+  });
   /* ===== লাইভ প্রিভিউ পেনেল — ভাউচারের সব লাইন টেবিলে; উপরে যা লেখা হচ্ছে তা সাথে সাথে নিচে দেখায়।
      লাইনে এক চাপ = বাছাই, দুই চাপ (ডবল ক্লিক) = লাইনটা উপরের ঘরে এসে এডিট হয়; (+) চাপলে সেই লাইনেই বসে।
      হেডারে "ভাউচার" / "চালান" চাপলে ভাউচার ও চালান তালিকা, "লাইভ প্রিভিউ পেনেল" চাপলে আবার লাইন। ===== */
   window.__sv3Edit = null;           // {k:'sale'|'ret', i} — যে লাইন এডিট হচ্ছে
   let sv3PanelMode = 'preview', sv3PanelTimer = 0, sv3PanelSel = null;
   const sv3El = function (id) { return document.getElementById(id); };
+  const sv3Arr = function (k) { return k === 'sale' ? window.__sv3SaleLines : k === 'x' ? (window.__sv3XLines = window.__sv3XLines || []) : window.__sv3ReturnLines; };   // লাইনের ধরন → তালিকা (x = বিনিময়)
   function sv3Fmt(n, dec) {
     n = Number(n) || 0; if (!n) return '';
     return n.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: dec === undefined ? 2 : dec });
@@ -19329,17 +19487,17 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
       return `<tr data-k="${k}" data-i="${i}" class="${cls || ''}${editing ? ' edit' : ''}${sv3PanelSel && sv3PanelSel.k === k && sv3PanelSel.i === i ? ' sel' : ''}">
         <td class="c">${no2}</td><td class="l">${escapeHtml(x.name)}${x.comm ? ` <small>(${t('কমিঃ', 'comm.')} ${sv3Fmt(x.comm)}%)</small>` : ''}${x.scrapKg ? ` <small class="scr">♻ ${t('ভাঙ্গাড়ী', 'scrap')}${x.scrapKg > 0 ? ' ' + sv3Fmt(x.scrapKg, 3) + ' ' + t('কেজি', 'kg') : ''}</small>` : ''}</td>
         <td class="r">${sv3Fmt(x.pcs, 3)}</td><td class="r">${sv3Fmt(x.kg, 3)}</td><td class="r">${sv3Rate(x.rp)}</td><td class="r">${sv3Rate(x.rk)}</td>
-        <td class="r b">${sv3Fmt(x.net, 2)}</td>${pf(k === 'ret' ? -x.profit : x.profit)}</tr>`;
+        <td class="r b">${sv3Fmt(x.net, 2)}</td>${pf(k === 'ret' ? -x.profit : k === 'x' ? 0 : x.profit)}</tr>`;
     };
     const sum = function (vs, f) { return vs.reduce(function (s, v) { return s + (Number(v[f]) || 0); }, 0); };
     const totRow = function (label, vs, profit, cls) { return `<tr class="tot ${cls || ''}"><td colspan="2" class="r">${label}</td><td class="r">${sv3Fmt(sum(vs, 'pcs'), 3)}</td><td class="r">${sv3Fmt(sum(vs, 'kg'), 3)}</td><td></td><td></td><td class="r b">${sv3Fmt(sum(vs, 'net'), 2)}</td>${pf(profit)}</tr>`; };
     const lineRow = function (label, value, profit, cls) { return `<tr class="sum ${cls || ''}"><td colspan="6" class="r">${label}</td><td class="r b">${value}</td>${P ? (profit === undefined ? '<td></td>' : pf(profit)) : ''}</tr>`; };
     const sales = window.__sv3SaleLines || [], rets = window.__sv3ReturnLines || [];
-    const sv = sales.map(sv3LineView), rv = rets.map(sv3LineView);
+    const sv = sales.map(sv3LineView), rv = rets.map(sv3LineView), xv = sv3Arr('x').map(sv3LineView);
     let body = '';
     sv.forEach(function (v, i) { body += row(v, i + 1, 'sale', i); });
     if (draft && !ed) body += `<tr class="draft"><td class="c">＋</td><td class="l">${escapeHtml(draft.name) || '<i>' + t('নতুন লাইন', 'New line') + '</i>'}${draft.scrapKg ? ` <small class="scr">♻ ${t('ভাঙ্গাড়ী', 'scrap')}</small>` : ''}</td><td class="r">${sv3Fmt(draft.pcs, 3)}</td><td class="r">${sv3Fmt(draft.kg, 3)}</td><td class="r">${sv3Rate(draft.rp)}</td><td class="r">${sv3Rate(draft.rk)}</td><td class="r b">${sv3Fmt(draft.net, 2)}</td>${pf(draft.profit)}</tr>`;
-    if (!sv.length && !rv.length && !draft) body += `<tr class="empty"><td colspan="${cols}">${t('উপরে আইটেম, পরিমাণ ও দর লিখলে এখানে দেখা যাবে', 'Lines appear here as you type above')}</td></tr>`;
+    if (!sv.length && !rv.length && !xv.length && !draft) body += `<tr class="empty"><td colspan="${cols}">${t('উপরে আইটেম, পরিমাণ ও দর লিখলে এখানে দেখা যাবে', 'Lines appear here as you type above')}</td></tr>`;
     const saleProfit = sum(sv, 'profit'), retProfit = sum(rv, 'profit');
     if (sv.length) body += totRow(t('মোটঃ বিক্রয়ঃ', 'Total sales:'), sv, saleProfit);
     if (rv.length) {
@@ -19347,12 +19505,17 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
       rv.forEach(function (v, i) { body += row(v, i + 1, 'ret', i, 'ret'); });
       body += totRow(t('মোটঃ ফেরতঃ', 'Total returns:'), rv, -retProfit, 'ret');
     }
-    if (sv.length || rv.length) {
+    if (xv.length) {   // একই পার্টির সাথে বিনিময় (বিক্রয়ে ক্রয় / ক্রয়ে বিক্রয়) — মোট থেকে বাদ
+      body += `<tr class="sec xs"><td colspan="${cols}">${t(VX['sv3'].secBn, VX['sv3'].secEn)}</td></tr>`;
+      xv.forEach(function (v, i) { body += row(v, i + 1, 'x', i, 'xl'); });
+      body += totRow(t(VX['sv3'].totBn, VX['sv3'].totEn), xv, 0, 'xl');
+    }
+    if (sv.length || rv.length || xv.length) {
       voucherPartySumUpdate('sv3', 'sales');
       const c = window.__sv3PsCalc || {}, set = window.__sv3FieldSet || {};
       const exp = (window.__sv3CashExpense && window.__sv3CashExpense.amount) || 0, disc = Number(val('sv3_DiscAmount')) || 0;
       const vat = window.__sv3GetVat ? (Number(window.__sv3GetVat().amount) || 0) : 0;
-      const netTotal = sum(sv, 'net') + exp - disc - sum(rv, 'net');
+      const netTotal = sum(sv, 'net') + exp - disc - sum(rv, 'net') - sum(xv, 'net');   // বিনিময় বাদ
       const drcr = function (v) { const r = Math.round(v * 100) / 100; return sv3Fmt(Math.abs(r), 2) + (r ? ' ' + (r > 0 ? t('ডেঃ', 'Dr') : t('ক্রেঃ', 'Cr')) : '0'); };
       if (exp) body += lineRow(t('খরচ যোগঃ (+)', 'Expense (+):'), sv3Fmt(exp, 2));
       if (disc) body += lineRow(t('ডিসকাউন্টঃ (−)', 'Discount (−):'), '− ' + sv3Fmt(disc, 2), -disc);
@@ -19373,22 +19536,21 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
   /** (+) চাপলে — এডিট চললে লাইনটা আগের জায়গায় বসে, নইলে নতুন লাইন হিসেবে শেষে */
   function sv3PlaceLine(k, line) {
     const ed = window.__sv3Edit;
-    const sales = window.__sv3SaleLines, rets = window.__sv3ReturnLines;
     if (ed) {
-      const from = ed.k === 'sale' ? sales : rets;
+      const from = sv3Arr(ed.k);
       if (ed.k === k) from.splice(ed.i, 1, line);
-      else { from.splice(ed.i, 1); (k === 'sale' ? sales : rets).push(line); }
+      else { from.splice(ed.i, 1); sv3Arr(k).push(line); }
       window.__sv3Edit = null; sv3PanelSel = null;
       return true;
     }
-    (k === 'sale' ? sales : rets).push(line);
+    sv3Arr(k).push(line);
     return false;
   }
 
   /** ডবল ক্লিক — লাইনটা উপরের ঘরে বসানো (আইটেম, পরিমাণ, দর, কমিশন) */
   async function sv3LoadLine(k, i) {
     if (window.__sv3ViewPostedIds) { showToast(t('পোস্ট করা ভাউচার — এডিট করতে উপরের ✏️ এডিট চাপুন।', 'Posted voucher — press ✏️ Edit above first.'), 'error'); return; }
-    const l = (k === 'sale' ? window.__sv3SaleLines : window.__sv3ReturnLines)[i]; if (!l) return;
+    const l = sv3Arr(k)[i]; if (!l) return;
     if (!window.__sv3Edit && sv3DraftView() && !confirm(t('উপরে লেখা নতুন লাইনটা বাদ দিয়ে এই লাইন এডিট করবেন?', 'Discard the line being typed and edit this one?'))) return;
     window.__sv3Edit = { k: k, i: i };
     resetLineEntry();
@@ -19445,7 +19607,7 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
         const ed = window.__sv3Edit; if (!ed) return;
         if (pe.getAttribute('data-pe') === 'del') {
           if (!confirm(t('এই লাইনটা মুছে ফেলবেন?', 'Delete this line?'))) return;
-          (ed.k === 'sale' ? window.__sv3SaleLines : window.__sv3ReturnLines).splice(ed.i, 1);
+          sv3Arr(ed.k).splice(ed.i, 1);
         }
         window.__sv3Edit = null; sv3PanelSel = null; resetLineEntry(); renderRightSummary(); sv3PanelRender();
         return;
@@ -20166,7 +20328,7 @@ function stockCardDocType(l) { const m = String(l.RefModule || l.TransactionType
 /** পোস্ট করা ভাউচার আনপোস্ট (এডমিন + পাসওয়ার্ড): স্টক, পার্টি লেজার ও ক্যাশ/ব্যাংকের এন্ট্রি ফেরত, ভাউচার খসড়া */
 /** তালিকা থেকে পোস্ট করা ক্রয়/বিক্রয় ভাউচার এডিটঃ এডমিন পাসওয়ার্ডে আনপোস্ট → পুরো ভাউচার এন্ট্রি-ফর্মে → এডিট করে আবার পোস্ট */
 async function editPostedVoucherFromList(type, id) {
-  const LINK = { SalesReturn: ['SRID', 'RefSIID', 'SalesInvoice'], PurchaseReturn: ['PRetID', 'RefPIID', 'PurchaseInvoice'] };
+  const LINK = { SalesReturn: ['SRID', 'RefSIID', 'SalesInvoice'], PurchaseReturn: ['PRetID', 'RefPIID', 'PurchaseInvoice'], PurchaseInvoice: ['PIID', 'RefSIID', 'SalesInvoice'], SalesInvoice: ['SIID', 'RefPIID', 'PurchaseInvoice'] };   // জোড়া ফেরত/বিনিময় → মূল ভাউচার
   if (LINK[type]) {   // জোড়া ফেরত — মূল ভাউচার ধরে একসাথে
     const L = LINK[type];
     try { const { data } = await supabaseClient.from(type).select('*').eq(L[0], id).maybeSingle(); if (data && data[L[1]]) { id = data[L[1]]; type = L[2]; } } catch (e) {}
@@ -20180,6 +20342,13 @@ async function editPostedVoucherFromList(type, id) {
     try {
       const { data: lr } = await supabaseClient.from(R[0]).select('*').eq(R[2], id);
       for (const r of (lr || [])) if (r.Status === 'Posted') { await reversePostedDocumentStock(R[0], r[R[1]]); await supabaseClient.from(R[0]).update({ Status: 'Draft' }).eq(R[1], r[R[1]]); }
+    } catch (e) {}
+  }
+  const RX = vxLinkOf(type);   // জোড়া বিনিময় ভাউচারও আনপোস্ট
+  if (RX) {
+    try {
+      const { data: lx } = await supabaseClient.from(RX[0]).select('*').eq(RX[2], id);
+      for (const r of (lx || [])) if (r.Status === 'Posted') { await reversePostedDocumentStock(RX[0], r[RX[1]]); await supabaseClient.from(RX[0]).update({ Status: 'Draft' }).eq(RX[1], r[RX[1]]); }
     } catch (e) {}
   }
   listCache = {};
