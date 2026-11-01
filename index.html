@@ -12618,6 +12618,18 @@ async function renderProdDailyPage(content) {
       return `<div class="pdl-itm"><span class="pdl-itn">${bnNo(i + 1)}</span>${inner}${!lk && L.it.length > 1 ? `<button type="button" class="pdl-hx pdl-itx" data-ix="${L.key}|${i}" title="${attr(t('এই আইটেম সরান', 'Remove this item'))}">✕</button>` : ''}</div>`;
     }).join('')}${lk ? '' : `<button type="button" class="pdl-hadd pdl-ita" data-iadd="${L.key}" title="${attr(t('এই লাইনে আরেকটা তৈরী আইটেম', 'Another finished item in this line'))}">＋</button>`}</div></td>`;
   }
+  /** লাইনে একটাই তৈরী আইটেম থাকলেঃ ১ পিস ওজন নিজে = তৈরী পণ্য কেজি ÷ পিস (হাতে লিখলে সেটাই থাকে; খালি করলে আবার নিজে)।
+   *  আইটেমের পিস খালি থাকলে তৈরী পণ্যের পিস বসে — তাতে মোট ওজন = তৈরী পণ্য কেজি, হিসাব মিলে যায়। ফিরতি মান = বদলেছে কিনা */
+  function autoUnit(L) {
+    if (!L || L.it.length !== 1) return false;
+    const x = L.it[0]; if (x.uOv) return false;
+    const k = fgk(L), p = L.fgpOv ? n(L.v.fgp) : (n(x.p) || n(L.v.fgp));
+    if (!(k > 0) || !(p > 0)) return false;
+    x.u = String(+(k / p).toFixed(6));
+    if (!n(x.p)) x.p = String(p);
+    x.kOv = false;
+    return true;
+  }
   function lineItemRemove(L, i) {
     if (!L || locked(L) || L.it.length <= 1) return;
     if (itemHasData(L.it[i]) && !confirm(t('এই আইটেমে লেখা আছে — সরাবেন?', 'This item has entries — remove?'))) return;
@@ -12635,7 +12647,7 @@ async function renderProdDailyPage(content) {
   function itemsPcs(L) { return L.it.reduce(function (s2, x) { return s2 + n(x.p); }, 0); }
   function fgp(L) { return L.fgpOv ? n(L.v.fgp) : itemsPcs(L); }   // পিস নিজে = সব আইটেমের পিস; হাতে বদলানো যায়
   // আইটেমের মোট ওজন নিজে = ১ পিসের ওজন × মোট পিস; হাতে লিখলে সেটাই
-  function itemKg(x) { return x.kOv ? n(x.k) : n(x.u) * n(x.p); }
+  function itemKg(x) { return x.kOv ? n(x.k) : Math.round(n(x.u) * n(x.p) * 1000) / 1000; }   // গ্রাম পর্যন্ত (৩ দশমিক)
   function itemsKg(L) { return L.it.reduce(function (s2, x) { return s2 + itemKg(x); }, 0); }
   function hasAny(L) { return NUM.some(function (k) { return n(L.v[k]) !== 0; }) || L.it.some(function (x) { return itemKg(x) || n(x.p); }); }
   function warnOf(L) { const s = itemsKg(L); return s > 0 && Math.abs(s - fgk(L)) > 0.0005; }
@@ -13036,13 +13048,14 @@ async function renderProdDailyPage(content) {
       NUM.forEach(function (k) { L.v[k] = x[COL[k]]; });
       const fl = dpFGList(x);   // FG1–FG3 + বাড়তি আইটেম
       L.hadExtra = fl.length > 3;
-      L.it = fl.map(function (f) { const it = { id: f.id || '', u: f.u || '', p: f.p, k: f.k, kOv: false }; it.kOv = Math.abs(n(it.k) - n(it.u) * n(it.p)) > 0.0005; return it; });   // ১ পিস × পিস থেকে আলাদা হলে হাতে লেখা মোট ওজন
+      L.it = fl.map(function (f) { const it = { id: f.id || '', u: f.u || '', p: f.p, k: f.k, kOv: false }; it.kOv = Math.abs(n(it.k) - n(it.u) * n(it.p)) > 0.0005; it.uOv = !!n(it.u); return it; });   // ১ পিস × পিস থেকে আলাদা হলে হাতে লেখা মোট ওজন
       L.fgkOv = Math.abs(n(x.FGQty) - autoFgk(L)) > 0.0005;
       L.fgpOv = Math.abs(n(x.FGPcs) - itemsPcs(L)) > 0.0005;
       st.lines.push(L);
     });
     // কলাম কয়টা — আগের বাছাই, অথবা কোনো লাইনে যতগুলো আইটেম লেখা আছে (যেটা বেশি)
-    st.lines.forEach(function (L) { let last = 0; L.it.forEach(function (x, i) { if (itemHasData(x)) last = i + 1; }); L.it.length = Math.max(1, last); });   // শেষের খালি আইটেম বাদ
+    st.lines.forEach(function (L) { let last = 0; L.it.forEach(function (x, i) { if (itemHasData(x)) last = i + 1; }); L.it.length = Math.max(1, last);
+      if (L.it.length === 1 && n(L.it[0].u) && n(L.v.fgk) && n(L.it[0].p) && Math.abs(n(L.it[0].u) * n(L.it[0].p) - n(L.v.fgk)) < 0.001) L.it[0].uOv = false; });   // কেজি÷পিস থেকে আসা ওজন = নিজে   // শেষের খালি আইটেম বাদ
     await loadTeam();
     render();
   }
@@ -13131,7 +13144,7 @@ async function renderProdDailyPage(content) {
     const f = el.getAttribute('data-f');
     if (f) { L.v[f] = el.value; if (f === 'fgk') { L.fgkOv = el.value !== ''; el.classList.toggle('ov', L.fgkOv); } if (f === 'fgp') { L.fgpOv = el.value !== ''; el.classList.toggle('ov', L.fgpOv); } }
     else if (el.hasAttribute('data-ik')) { const x = L.it[Number(el.getAttribute('data-ik'))]; x.k = el.value; x.kOv = el.value !== ''; el.classList.toggle('ov', x.kOv); }
-    else if (el.hasAttribute('data-iu')) L.it[Number(el.getAttribute('data-iu'))].u = el.value;
+    else if (el.hasAttribute('data-iu')) { const x = L.it[Number(el.getAttribute('data-iu'))]; x.u = el.value; x.uOv = el.value !== ''; el.classList.toggle('ov', x.uOv); }
     else if (el.hasAttribute('data-ip')) L.it[Number(el.getAttribute('data-ip'))].p = el.value;
     else if (el.hasAttribute('data-ii')) L.it[Number(el.getAttribute('data-ii'))].id = el.value;
     else return;
@@ -13141,6 +13154,12 @@ async function renderProdDailyPage(content) {
     const ii = el.hasAttribute('data-iu') ? el.getAttribute('data-iu') : el.hasAttribute('data-ip') ? el.getAttribute('data-ip') : null;
     if (ii !== null && !L.it[Number(ii)].kOv) { const kk = tr.querySelector(`[data-ik="${ii}"]`); if (kk) kk.value = show(itemKg(L.it[Number(ii)])); }   // মোট ওজন = ১ পিস × পিস
     if (!L.fgpOv && el.hasAttribute('data-ip')) { const pp = tr.querySelector('[data-f="fgp"]'); if (pp) pp.value = show(fgp(L), 0); }
+    if ((f || el.hasAttribute('data-ip')) && autoUnit(L)) {   // এক আইটেমঃ ১ পিস ওজন = কেজি ÷ পিস
+      const x = L.it[0], u = tr.querySelector('[data-iu="0"]'), ip = tr.querySelector('[data-ip="0"]'), ik = tr.querySelector('[data-ik="0"]');
+      if (u && u !== el) { u.value = show(x.u, 4); u.title = t('১ পিস ওজন নিজে = তৈরী পণ্য কেজি ÷ পিস (', '1 pc weight = finished kg ÷ pcs (') + x.u + t(' কেজি) — হাতে লিখলে সেটাই থাকবে', ' kg) — type to override'); }
+      if (ip && ip !== el && !ip.value) ip.value = show(x.p, 0);
+      if (ik) { ik.value = show(itemKg(x)); ik.classList.remove('ov'); }
+    }
     const eqc = tr.querySelector('[data-eq]'); if (eqc) eqc.outerHTML = eqCell(L);
     const fq = tr.querySelector('[data-f="fgk"]').closest('td'), w = warnOf(L);
     fq.classList.toggle('warn', w);
@@ -13163,6 +13182,7 @@ async function renderProdDailyPage(content) {
       if ((el.hasAttribute('data-tamt') || el.hasAttribute('data-tcamt')) && el.value === '') refreshTeamRow(L);   // খালি = আবার হিসাবের টাকা
       return;
     }
+    if (e.target.hasAttribute && e.target.hasAttribute('data-iu') && e.target.value === '') { const L0 = byKey(e.target.getAttribute('data-k')); if (L0 && autoUnit(L0)) refreshLine(L0); }
     const el = e.target;
     if (el.hasAttribute('data-ii')) { el.dispatchEvent(new Event('input', { bubbles: true })); return; }
     if (el.getAttribute('data-f') === 'fgk' && el.value === '') { const L = byKey(el.getAttribute('data-k')); if (L) { L.fgkOv = false; el.value = show(autoFgk(L)); } }
