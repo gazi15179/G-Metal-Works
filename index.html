@@ -476,7 +476,7 @@ const MODULES = [
   ]},
   {key:'purchase', bn:'ক্রয়', en:'Purchase', sub:[
     {key:'pr', bn:'ক্রয় অনুরোধ', en:'Purchase Requisition'},{key:'po', bn:'ক্রয় আদেশ', en:'Purchase Order'},
-    {key:'grn', bn:'পণ্য গ্রহণ নোট (GRN)', en:'Goods Receive Note'},{key:'pi', bn:'ক্রয় চালান (ইনভয়েস)', en:'Purchase Invoice'},
+    {key:'grn', bn:'পণ্য গ্রহণ নোট (GRN)', en:'Goods Receive Note'},{key:'pi', bn:'ক্রয় ইনভয়েস', en:'Purchase Invoice'},
     {key:'pret', bn:'ক্রয় ফেরত', en:'Purchase Return'},{key:'pvoucherList', bn:'ভাউচার তালিকা', en:'Voucher List'},
     {key:'pvSettings', bn:'ক্রয় ভাউচার সেটিং', en:'Purchase Voucher Settings'},
   ]},
@@ -487,7 +487,7 @@ const MODULES = [
   ]},
   {key:'sales', bn:'বিক্রয়', en:'Sales', sub:[
     {key:'so', bn:'বিক্রয় আদেশ', en:'Sales Order'},{key:'dc', bn:'ডেলিভারি চালান', en:'Delivery Challan'},
-    {key:'si', bn:'বিক্রয় চালান (ইনভয়েস)', en:'Sales Invoice'},{key:'sr', bn:'বিক্রয় ফেরত', en:'Sales Return'},
+    {key:'si', bn:'বিক্রয় ইনভয়েস', en:'Sales Invoice'},{key:'sr', bn:'বিক্রয় ফেরত', en:'Sales Return'},
     {key:'custLedger', bn:'গ্রাহক লেজার', en:'Customer Ledger'},
     {key:'svSettings', bn:'বিক্রয় ভাউচার সেটিং', en:'Sales Voucher Settings'},
   ]},
@@ -899,7 +899,7 @@ async function runPostingLogic(docType, header, docId) {
   }
 
   if (docType === 'PurchaseInvoice') {
-    if (!header.WarehouseID) throw new Error('এই ক্রয় চালানে কোনো গুদাম উল্লেখ নেই।');
+    if (!header.WarehouseID) throw new Error('এই ক্রয় ইনভয়েসে কোনো গুদাম উল্লেখ নেই।');
     const { data: lines, error } = await supabaseClient.from('PI_Lines').select('*').eq('PIID', docId);
     if (error) throw new Error(error.message);
     // স্টক আর টাকার হিসাব একসাথে চলে (দ্রুত)
@@ -1002,7 +1002,7 @@ async function runPostingLogic(docType, header, docId) {
   }
 
   if (docType === 'SalesInvoice') {
-    if (!header.WarehouseID) throw new Error('এই বিক্রয় চালানে কোনো গুদাম উল্লেখ নেই।');
+    if (!header.WarehouseID) throw new Error('এই বিক্রয় ইনভয়েসে কোনো গুদাম উল্লেখ নেই।');
     const { data: lines, error } = await supabaseClient.from('SI_Lines').select('*').eq('SIID', docId);
     if (error) throw new Error(error.message);
     // স্টক আর টাকার হিসাব (পার্টি লেজার / ক্যাশ-ব্যাংক বই) একসাথে চলে — আলাদা টেবিল, একে অপরের উপর নির্ভর করে না (দ্রুত)
@@ -2003,7 +2003,7 @@ async function renderDashboard(content) {
 
       <div class="db-kpis">
         <div class="db-k g" data-go="si"><div class="l"><span>💰 ${t('আজকের বিক্রয়','Sales today')}</span><span>${salesToday.length}${t('টি','')}</span></div><div class="v">${money(sum(salesToday, 'TotalAmount'))}</div><div class="s">${t('এই মাসে ','This month ')}${money(salesMonth)}</div></div>
-        <div class="db-k o" data-go="pi"><div class="l"><span>🛒 ${t('আজকের ক্রয়','Purchases today')}</span><span>${purchToday.length}${t('টি','')}</span></div><div class="v">${money(sum(purchToday, 'TotalAmount'))}</div><div class="s">${t('ক্রয় চালান','Purchase invoices')}</div></div>
+        <div class="db-k o" data-go="pi"><div class="l"><span>🛒 ${t('আজকের ক্রয়','Purchases today')}</span><span>${purchToday.length}${t('টি','')}</span></div><div class="v">${money(sum(purchToday, 'TotalAmount'))}</div><div class="s">${t('ক্রয় ইনভয়েস','Purchase invoices')}</div></div>
         <div class="db-k b" data-go="bankBook"><div class="l"><span>💵 ${t('ক্যাশ ব্যালেন্স','Cash balance')}</span></div><div class="v">${money(cashBal)}</div><div class="s">${t('ব্যাংকে ','Bank ')}${money(bankBal)}</div></div>
         <div class="db-k r" data-go="salaryIssue"><div class="l"><span>👷 ${t('বকেয়া বেতন','Salary due')}</span><span>${dueList.length}${t(' জন',' ppl')}</span></div><div class="v">${money(dueTotal)}</div><div class="s">${t('সেলারী ভাউচার − ইস্যু','Vouchers − issues')}</div></div>
       </div>
@@ -3859,7 +3859,7 @@ const DOC_CONFIGS = {
     pageKey: 'pi', moduleBn: 'ক্রয়', moduleEn: 'Purchase',
     headerSheet: 'PurchaseInvoice', idField: 'PIID', idPrefix: 'PI',
     linesSheet: 'PI_Lines', lineIdField: 'PIID',
-    titleBn: 'ক্রয় চালান (ইনভয়েস)', titleEn: 'Purchase Invoice', subBn: 'সাপ্লায়ারের প্রকৃত বিল — GRN থেকে আলাদা, কারণ দাম/ট্যাক্স ভিন্ন হতে পারে', subEn: "Supplier's actual bill — separate from GRN since price/tax may differ",
+    titleBn: 'ক্রয় ইনভয়েস', titleEn: 'Purchase Invoice', subBn: 'সাপ্লায়ারের প্রকৃত বিল — GRN থেকে আলাদা, কারণ দাম/ট্যাক্স ভিন্ন হতে পারে', subEn: "Supplier's actual bill — separate from GRN since price/tax may differ",
     headerFields: [
       { key:'SupplierID', label:'সাপ্লায়ার', type:'select-fk', fkSheet:'Suppliers', fkIdField:'SupplierID', fkLabel:'Name', required:true },
       { key:'GRNID', label:'GRN রেফারেন্স (ঐচ্ছিক)', type:'select-fk', fkSheet:'GRN', fkIdField:'GRNID', fkLabel:'GRNID' },
@@ -3991,7 +3991,7 @@ const DOC_CONFIGS = {
     pageKey: 'si', moduleBn: 'বিক্রয়', moduleEn: 'Sales',
     headerSheet: 'SalesInvoice', idField: 'SIID', idPrefix: 'SI',
     linesSheet: 'SI_Lines', lineIdField: 'SIID',
-    titleBn: 'বিক্রয় চালান (ইনভয়েস)', titleEn: 'Sales Invoice', subBn: 'গ্রাহকের প্রকৃত বিল — Delivery Challan থেকে আলাদা', subEn: "Customer's actual bill — separate from Delivery Challan",
+    titleBn: 'বিক্রয় ইনভয়েস', titleEn: 'Sales Invoice', subBn: 'গ্রাহকের প্রকৃত বিল — Delivery Challan থেকে আলাদা', subEn: "Customer's actual bill — separate from Delivery Challan",
     headerFields: [
       { key:'CustomerID', label:'গ্রাহক', type:'select-fk', fkSheet:'Customers', fkIdField:'CustomerID', fkLabel:'Name', required:true },
       { key:'DCID', label:'Delivery Challan রেফারেন্স', type:'select-fk', fkSheet:'DeliveryChallan', fkIdField:'DCID', fkLabel:'DCID', required:true },
@@ -19935,7 +19935,7 @@ async function postDocumentRecord(docType, docId) {
    • "মূল একক" = যে এককে আইটেম কেনা-বেচা হয় (আইটেমের একক); মূল্য সেই এককের দরে, ঘরে মোটা করে দেখানো
    • দরঃ সর্বশেষ পোস্ট করা প্রসেসিং (প্রস্তুত পণ্যের কেজি-দর ও পিস-দর) → না থাকলে সর্বশেষ পোস্ট করা ক্রয় → না থাকলে স্ট্যান্ডার্ড কস্ট;
      একটা দর না থাকলে গড় ওজন (কেজি ÷ পিস) দিয়ে অন্যটা থেকে
-   • মাইনাস ব্যালান্স লাল; পোস্ট না করা ক্রয় চালান/প্রসেসিং থাকলে উপরে সতর্কবার্তা
+   • মাইনাস ব্যালান্স লাল; পোস্ট না করা ক্রয় ইনভয়েস/প্রসেসিং থাকলে উপরে সতর্কবার্তা
    ============================================================ */
 async function stockOverviewData() {
   const [items, warehouses, units, ledger] = await Promise.all([cachedList('Items'), cachedList('Warehouses'), cachedList('UOM'), api('list', { sheet: 'StockLedger' })]);
@@ -20015,7 +20015,7 @@ function stockOverviewTableHtml(rows, fromDate, toDate, forPrint) {
     const v = R.val(kg, pc), bad = isBal && (neg(kg) || neg(pc));
     const cell = function (x, main) { return `<td class="r ${g} ${main ? 'mu' : ''} ${isBal && neg(x) ? 'neg' : ''}">${q3(x)}</td>`; };
     const cell1 = function (x, main) { return `<td class="r ${g} ${g === 'gi' ? 'gstart' : ''} ${main ? 'mu' : ''} ${isBal && neg(x) ? 'neg' : ''}">${q3(x)}</td>`; };
-    return cell1(kg, !R.piece) + cell(pc, R.piece) + `<td class="r ${g}">${m2(R.r.kg)}</td><td class="r ${g}">${m2(R.r.pc)}</td><td class="r ${g} gend ${bad ? 'neg' : ''}"><b>${v ? v.toFixed(2) : '0.00'}</b>${bad && !forPrint ? ` <span title="${attr(t('স্টক মাইনাস — বিক্রি/খরচ বেশি হয়েছে, অথবা ক্রয় চালান/প্রসেসিং এখনো পোস্ট হয়নি', 'Negative stock — more sold/used than received, or a purchase/processing is not posted yet'))}">⚠️</span>` : ''}</td>`;
+    return cell1(kg, !R.piece) + cell(pc, R.piece) + `<td class="r ${g}">${m2(R.r.kg)}</td><td class="r ${g}">${m2(R.r.pc)}</td><td class="r ${g} gend ${bad ? 'neg' : ''}"><b>${v ? v.toFixed(2) : '0.00'}</b>${bad && !forPrint ? ` <span title="${attr(t('স্টক মাইনাস — বিক্রি/খরচ বেশি হয়েছে, অথবা ক্রয় ইনভয়েস/প্রসেসিং এখনো পোস্ট হয়নি', 'Negative stock — more sold/used than received, or a purchase/processing is not posted yet'))}">⚠️</span>` : ''}</td>`;
   };
   const sub = function (g) { return `<th class="${g} ${g === 'gi' ? 'gstart' : ''}">${t('কেজি', 'kg')}</th><th class="${g}">${t('পিস', 'pcs')}</th><th class="${g}">${t('দর/কেজি', 'rate/kg')}</th><th class="${g}">${t('দর/পিস', 'rate/pc')}</th><th class="${g} gend">${t('মূল্য', 'value')}</th>`; };
   let tIn = 0, tOut = 0, tBal = 0, tPf = 0;
@@ -20276,7 +20276,7 @@ async function renderStockOverview(content) {
   window.__stockOverviewLedger = D.ledger;
   window.__stockOverviewData = D;
   const warn = [];
-  if (D.drafts.pi) warn.push(D.drafts.pi + t('টা ক্রয় চালান', ' purchase invoice(s)'));
+  if (D.drafts.pi) warn.push(D.drafts.pi + t('টা ক্রয় ইনভয়েস', ' purchase invoice(s)'));
   if (D.drafts.pv) warn.push(D.drafts.pv + t('টা প্রসেসিং ভাউচার', ' processing voucher(s)'));
   document.getElementById('so_Warn').innerHTML = warn.length ? `<div class="so-warn">⚠️ ${warn.join(t(' আর ', ' and '))} ${t('এখনো পোস্ট হয়নি — এগুলোর স্টক এখানে যোগ হয়নি। মাইনাস দেখালে আগে এগুলো পোস্ট করুন।', 'not posted yet — their stock is not counted here. Post them first if you see negatives.')}</div>` : '';
   function renderReport(fromDate, toDate) {
@@ -20314,9 +20314,9 @@ async function renderStockOverview(content) {
    • নিচেঃ পোস্ট না হওয়া (খসড়া) ভাউচার যেগুলোতে এই আইটেম আছে — 💾 পোস্ট করলেই স্টকে
    ============================================================ */
 const STOCK_CARD_TYPES = {
-  PurchaseInvoice: { bn: 'ক্রয় চালান', table: 'PurchaseInvoice', idf: 'PIID', kind: 'purchase' },
+  PurchaseInvoice: { bn: 'ক্রয় ইনভয়েস', table: 'PurchaseInvoice', idf: 'PIID', kind: 'purchase' },
   PurchaseReturn: { bn: 'ক্রয় ফেরত', table: 'PurchaseReturn', idf: 'PRetID', kind: 'purchase' },
-  SalesInvoice: { bn: 'বিক্রয় চালান', table: 'SalesInvoice', idf: 'SIID', kind: 'sales' },
+  SalesInvoice: { bn: 'বিক্রয় ইনভয়েস', table: 'SalesInvoice', idf: 'SIID', kind: 'sales' },
   SalesReturn: { bn: 'বিক্রয় ফেরত', table: 'SalesReturn', idf: 'SRID', kind: 'sales' },
   ProcessingVoucher: { bn: 'প্রসেসিং কষ্টিং', table: 'ProcessingVoucher', idf: 'ProcessingID', kind: 'processing' },
   MaterialIssue: { bn: 'মালামাল ইস্যু', table: 'MaterialIssue', idf: 'MIID', kind: 'doc', page: 'materialIssue' },
@@ -21941,9 +21941,9 @@ function vgsTypes() {
   };
   return [
     fromDoc('pr', 'purchase', 'PurchaseRequisition'), fromDoc('po', 'purchase', 'PurchaseOrder'), fromDoc('grn', 'purchase', 'GRN'),
-    fromDoc('pi', 'purchase', 'PurchaseInvoice', 'ক্রয় চালান'), fromDoc('pret', 'purchase', 'PurchaseReturn', 'ক্রয় ফেরত', { lineSum: ['NetAmount'], lineFn: 'return' }),
+    fromDoc('pi', 'purchase', 'PurchaseInvoice', 'ক্রয় ইনভয়েস'), fromDoc('pret', 'purchase', 'PurchaseReturn', 'ক্রয় ফেরত', { lineSum: ['NetAmount'], lineFn: 'return' }),
     fromDoc('so', 'sales', 'SalesOrder'), fromDoc('dc', 'sales', 'DeliveryChallan'),
-    fromDoc('si', 'sales', 'SalesInvoice', 'বিক্রয় চালান'), fromDoc('sr', 'sales', 'SalesReturn', 'বিক্রয় ফেরত', { lineSum: ['NetAmount'], lineFn: 'return' }),
+    fromDoc('si', 'sales', 'SalesInvoice', 'বিক্রয় ইনভয়েস'), fromDoc('sr', 'sales', 'SalesReturn', 'বিক্রয় ফেরত', { lineSum: ['NetAmount'], lineFn: 'return' }),
     fromDoc('materialIssue', 'inv', 'MaterialIssue'), fromDoc('stockTransfer', 'inv', 'StockTransfer'), fromDoc('stockAdjust', 'inv', 'StockAdjustment'),
     { key: 'ProcessingVoucher', mod: 'prod', bn: 'প্রসেসিং কষ্টিং', table: 'ProcessingVoucher', idf: 'ProcessingID', date: 'Date', amount: 'TotalValue', page: 'processing' },
     fromDoc('pmi', 'prod', 'ProductionMaterialIssue'), fromDoc('fgr', 'prod', 'FinishedGoodsReceive'),
