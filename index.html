@@ -18495,12 +18495,30 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
 async function renderSalesVoucherPage(content, defaultType) {
   defaultType = defaultType || 'SalesInvoice';
   content.innerHTML = `
-    <div class="page-head"><div>
+    <style>
+      /* ফ্রিজঃ শিরোনাম + "নতুন যোগ করুন" উপরে আটকে থাকে; তালিকা নিজের জায়গায় স্ক্রল হয়, কলামের হেডারও আটকে থাকে */
+      .sv-freeze-head{position:sticky;top:var(--sv-top,0px);z-index:30;background:var(--bg);margin:0 -4px;padding:8px 4px 10px;}
+      .sv-freeze-list{max-height:calc(100vh - var(--sv-top,0px) - 150px);min-height:220px;overflow:auto;-webkit-overflow-scrolling:touch;}
+      .sv-freeze-list thead th{position:sticky;top:0;z-index:5;background:var(--surface);box-shadow:0 1px 0 var(--border);}
+      @media (max-width:760px){ .sv-freeze-list{max-height:calc(100vh - var(--sv-top,0px) - 170px);} }
+    </style>
+    <div class="page-head sv-freeze-head" id="svHead"><div>
         <h1 class="i18n" data-bn="বিক্রয় ভাউচার" data-en="Sales Voucher">${t('বিক্রয় ভাউচার','Sales Voucher')}</h1>
         <p class="i18n" data-bn="বিক্রয় ও বিক্রয় ফেরত — একই জায়গা থেকে" data-en="Sales and sales return — from one place">${t('বিক্রয় ও বিক্রয় ফেরত — একই জায়গা থেকে','Sales and sales return — from one place')}</p>
       </div>
       <button class="btn btn-primary i18n" style="width:auto;" id="svAddBtn" data-bn="+ নতুন যোগ করুন" data-en="+ Add New">${t('+ নতুন যোগ করুন','+ Add New')}</button></div>
-    <div class="panel"><div id="svTableWrap"></div></div>`;
+    <div class="panel" style="padding:0;"><div id="svTableWrap" class="sv-freeze-list"></div></div>`;
+  // উপরের বার (টপবার + ট্যাব) যত উঁচু, ফ্রিজ করা শিরোনাম ঠিক তার নিচে বসে
+  (function () {
+    const top = function () {
+      let h = 0; const tb = document.querySelector('header.topbar, .topbar'), tabs = document.getElementById('tabBar');
+      if (tb && /sticky|fixed/.test(getComputedStyle(tb).position)) h += tb.offsetHeight;
+      if (tabs && /sticky|fixed/.test(getComputedStyle(tabs).position) && tabs.offsetHeight) h += tabs.offsetHeight;
+      const hd = document.getElementById('svHead'); if (hd) hd.style.setProperty('--sv-top', h + 'px');
+      const ls = document.getElementById('svTableWrap'); if (ls) ls.style.setProperty('--sv-top', h + 'px');
+    };
+    top(); setTimeout(top, 300); window.addEventListener('resize', top);
+  })();
 
   async function loadList() {
     const [invoices, returns, customers, users] = await Promise.all([
