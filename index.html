@@ -20190,22 +20190,40 @@ async function renderStockOverview(content) {
   const dNow = new Date(), today = dNow.getFullYear() + '-' + String(dNow.getMonth() + 1).padStart(2, '0') + '-' + String(dNow.getDate()).padStart(2, '0');
   const monthStart = await getFiscalYearStart(today);   // "হইতে" ডিফল্টঃ অর্থবছরের শুরু (01-07-2026)
   content.innerHTML = `
-    <style>${STOCK_OV_CSS} ${STOCK_OV_FREEZE_CSS} ${DMY_CSS} .so-dates label{font-size:11.5px;} .so-warn{background:#fff3e0;border:1px solid #f0b46a;color:#7a4300;border-radius:8px;padding:9px 12px;font-size:12.5px;margin-bottom:10px;} .so-legend{font-size:11.5px;color:var(--text-muted);margin-top:6px;} .so-all{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);cursor:pointer;white-space:nowrap;} .so-all input{width:16px;height:16px;margin:0;accent-color:#1f7a4d;} @media (max-width:760px){ .so-legend{font-size:10.5px;} }</style>
-    <div class="page-head"><div>
-        <h1 class="i18n" data-bn="স্টক ওভারভিউ" data-en="Stock Overview">${t('স্টক ওভারভিউ', 'Stock Overview')}</h1>
-        <p>${t('নির্বাচিত সময়ের স্টক ইন/আউট এবং সামগ্রিক স্টক ব্যালান্স — কেজি ও পিস আলাদা', 'Stock in/out for the period and overall balance — kg and pcs separately')}</p>
+    <style>${STOCK_OV_CSS} ${STOCK_OV_FREEZE_CSS} ${DMY_CSS} ${RPT_SIDE_CSS}
+      #pageContent:has(.so-page){max-width:none !important;}
+      .so-page .so-warn{background:#fff3e0;border:1px solid #f0b46a;color:#7a4300;border-radius:8px;padding:6px 10px;font-size:12px;margin-bottom:6px;}
+      .so-page .so-legend{font-size:11px;color:var(--text-muted);margin-top:5px;line-height:1.5;}
+      .so-page .so-sub{font-size:11.5px;color:var(--text-muted);}
+      .so-page .so-all{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#3d5a6c;padding:5px 8px;border:1px solid #c9dce8;border-radius:8px;background:#fff;cursor:pointer;margin-top:2px;}
+      .so-page .so-all input{width:16px;height:16px;margin:0;accent-color:#1f7a4d;}
+      .so-page #stockOverviewWrap{border:1px solid var(--border);}
+      @media (max-width:760px){ .so-page .so-legend{font-size:10.5px;} .so-page .so-sub{display:none;} .so-page .so-all{grid-column:1 / -1;} }
+    </style>
+    <div class="so-page">
+      <div class="sr-head"><h1 class="i18n" data-bn="স্টক ওভারভিউ" data-en="Stock Overview">${t('স্টক ওভারভিউ', 'Stock Overview')}</h1><span class="so-sub">${t('নির্বাচিত সময়ের স্টক ইন/আউট এবং সামগ্রিক স্টক ব্যালান্স — কেজি ও পিস আলাদা', 'Stock in/out for the period and overall balance — kg and pcs separately')}</span></div>
+      <div class="sr-layout">
+       <aside class="sr-side" id="soSide">
+        <button type="button" class="sr-tog" id="soTog" title="${attr(t('অপশন লুকান/দেখান', 'Hide/show options'))}">‹</button>
+        <div class="sr-side-h" data-lbl="${attr(t('অপশন', 'Options'))}"><span>🔎 ${t('অপশন', 'Options')}</span></div>
+        <div class="sr-bar" id="soBar">
+          <div class="field"><label>${t('তারিখ হইতে', 'Date from')}</label>${dmyDateField('so_DateFrom', monthStart)}</div>
+          <div class="field"><label>${t('তারিখ পর্যন্ত', 'Date to')}</label>${dmyDateField('so_DateTo', today)}</div>
+          <label class="so-all" title="${attr(t('আইটেম মাস্টারে টিক ছাড়া আইটেমগুলোও দেখাও (ধূসর)', 'Also show items unticked in Item Master (grey)'))}"><input type="checkbox" id="so_ShowAll"${window.__soShowAll ? ' checked' : ''}> ${t('সব আইটেম', 'All items')}</label>
+          <div class="sr-btns"><button type="button" class="btn btn-primary" id="so_ApplyBtn">🔄 ${t('প্রয়োগ করুন', 'Apply')}</button><button type="button" class="btn btn-outline" id="so_PrintBtn">🖨️ ${t('A4 প্রিন্ট', 'A4 Print')}</button></div>
+        </div>
+       </aside>
+       <div class="sr-main panel">
+        <div id="so_Warn"></div>
+        <div class="sr-scroll" id="stockOverviewWrap"><div class="empty-state">${t('লোড হচ্ছে...', 'Loading...')}</div></div>
+        <div class="so-legend">${t('মূল একক = যে এককে আইটেম কেনা-বেচা হয়; মূল্য সেই এককের দরে, পরিমাণ মোটা করে দেখানো। দরঃ সর্বশেষ পোস্ট করা প্রসেসিং বা ক্রয় থেকে (না থাকলে স্ট্যান্ডার্ড কস্ট) — এককের ঘরে মাউস রাখলে উৎস দেখায়। লাল = মাইনাস ব্যালান্স। শুধু আইটেম মাস্টারে টিক দেওয়া আইটেম দেখায় — বাকিগুলো দেখতে "সব আইটেম"।', 'Main unit = the unit it is traded in; value uses that unit’s rate (bold). Rates come from the latest posted processing or purchase (else standard cost). Red = negative balance.')}</div>
+       </div>
       </div>
-      <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;">
-        <div class="field so-dates" style="margin:0;"><label>${t('তারিখ হইতে', 'Date from')}</label>${dmyDateField('so_DateFrom', monthStart)}</div>
-        <div class="field so-dates" style="margin:0;"><label>${t('তারিখ পর্যন্ত', 'Date to')}</label>${dmyDateField('so_DateTo', today)}</div>
-        <button class="btn btn-primary" style="width:auto;" id="so_ApplyBtn">${t('প্রয়োগ করুন', 'Apply')}</button>
-        <label class="so-all" title="${attr(t('আইটেম মাস্টারে টিক ছাড়া আইটেমগুলোও দেখাও (ধূসর)', 'Also show items unticked in Item Master (grey)'))}"><input type="checkbox" id="so_ShowAll"${window.__soShowAll ? ' checked' : ''}> ${t('সব আইটেম', 'All items')}</label>
-        <button class="btn btn-outline" style="width:auto;" id="so_PrintBtn">🖨️ ${t('A4 প্রিন্ট', 'A4 Print')}</button>
-      </div>
-    </div>
-    <div id="so_Warn"></div>
-    <div class="panel"><div id="stockOverviewWrap"><div class="empty-state">${t('লোড হচ্ছে...', 'Loading...')}</div></div>
-      <div class="so-legend">${t('মূল একক = যে এককে আইটেম কেনা-বেচা হয়; মূল্য সেই এককের দরে, পরিমাণ মোটা করে দেখানো। দরঃ সর্বশেষ পোস্ট করা প্রসেসিং বা ক্রয় থেকে (না থাকলে স্ট্যান্ডার্ড কস্ট) — এককের ঘরে মাউস রাখলে উৎস দেখায়। লাল = মাইনাস ব্যালান্স। শুধু আইটেম মাস্টারে টিক দেওয়া আইটেম দেখায় — বাকিগুলো দেখতে "সব আইটেম"।', 'Main unit = the unit it is traded in; value uses that unit’s rate (bold). Rates come from the latest posted processing or purchase (else standard cost). Red = negative balance.')}</div></div>`;
+    </div>`;
+  // বাম প্যানেল (গুটানো যায়) + হেডার ফ্রিজঃ তালিকা পর্দার বাকি উচ্চতা জুড়ে নিজের ভেতরে স্ক্রল করে, দুই সারির মাথা উপরে আটকে থাকে
+  const soFit = function () { const m = document.querySelector('.so-page .sr-main'); if (m) fitReportScroll(m); };
+  const soSide = wireReportSide(document.getElementById('soSide'), document.getElementById('soTog'), 'soSideCollapsed', soFit);
+  if (!window.__soPageFitBound) { window.__soPageFitBound = true; window.addEventListener('resize', soFit); }
   const [D, soHidden] = await Promise.all([stockOverviewData(), salesItemHiddenLoad()]);
   window.__soSalesHidden = soHidden;   // আইটেম মাস্টারে টিক না থাকা আইটেম — এখানে ও বিক্রয় ভাউচারে দেখাবে না
   window.__stockOverviewLedger = D.ledger;
@@ -20221,6 +20239,7 @@ async function renderStockOverview(content) {
     // দ্বিতীয় হেডার-সারি ঠিক প্রথম সারির নিচে স্থির — প্রথম সারির আসল উচ্চতা মেপে (কম্পিউটার/মোবাইল দুটোতেই মেলে)
     const fitHead = function () { const h1 = wrap.querySelector('.so-tbl thead tr.h1'); if (!h1) return; const hh = Math.round(h1.getBoundingClientRect().height); wrap.querySelectorAll('.so-tbl thead tr.h2 th').forEach(function (th) { th.style.top = hh + 'px'; }); };
     fitHead(); requestAnimationFrame(fitHead);
+    soFit(); requestAnimationFrame(soFit);
     if (!window.__soFitWired) { window.__soFitWired = true; window.addEventListener('resize', function () { const w2 = document.getElementById('stockOverviewWrap'); if (w2) { const h1 = w2.querySelector('.so-tbl thead tr.h1'); if (h1) { const hh = Math.round(h1.getBoundingClientRect().height); w2.querySelectorAll('.so-tbl thead tr.h2 th').forEach(function (th) { th.style.top = hh + 'px'; }); } } }); }
   }
   renderReport(monthStart, today);
@@ -20237,7 +20256,7 @@ async function renderStockOverview(content) {
     });
   });
   document.getElementById('so_ApplyBtn').addEventListener('click', function () {
-    if ((document.getElementById('so_DateFrom').value && !dmyIso('so_DateFrom')) || (document.getElementById('so_DateTo').value && !dmyIso('so_DateTo'))) { showToast(t('তারিখ দিন-মাস-বছর আকারে দিন, যেমন 01-10-2026', 'Enter dates as dd-mm-yyyy, e.g. 01-10-2026'), 'error'); return; } renderReport(dmyIso('so_DateFrom') || monthStart, dmyIso('so_DateTo') || today); });
+    if ((document.getElementById('so_DateFrom').value && !dmyIso('so_DateFrom')) || (document.getElementById('so_DateTo').value && !dmyIso('so_DateTo'))) { showToast(t('তারিখ দিন-মাস-বছর আকারে দিন, যেমন 01-10-2026', 'Enter dates as dd-mm-yyyy, e.g. 01-10-2026'), 'error'); return; } renderReport(dmyIso('so_DateFrom') || monthStart, dmyIso('so_DateTo') || today); soSide.collapse(); });
   document.getElementById('so_ShowAll').addEventListener('change', function () { window.__soShowAll = this.checked; renderReport(dmyIso('so_DateFrom') || monthStart, dmyIso('so_DateTo') || today); });
   document.getElementById('so_PrintBtn').addEventListener('click', function () { openStockReportPrintView(dmyIso('so_DateFrom') || monthStart, dmyIso('so_DateTo') || today); });
 }
