@@ -22028,7 +22028,8 @@ async function renderNetWorthReport(content) {
       .nw .nw-card.neg{background:#fdeef0;border-color:#f1b5bf;} .nw .nw-card.pos{background:#eaf7ef;border-color:#a9dcbb;}
       .nw table.nw-t{width:100%;border-collapse:collapse;font-size:11px;}
       .nw table.nw-t th,.nw table.nw-t td{padding:4px 8px;border-bottom:1px solid var(--border);text-align:center;}
-      .nw table.nw-t th{background:#eef1f5;font-weight:700;position:sticky;top:0;z-index:1;}
+      .nw table.nw-t th{background:#eef1f5;font-weight:700;position:sticky;top:0;z-index:3;box-shadow:0 1px 0 var(--border);}
+      .nw #nwScroll{border:0;}
       .nw table.nw-t td.lb{text-align:left;}
       .nw tr.nw-sec td{background:#1f2937;color:#ffd27a;font-weight:700;text-align:left;}
       .nw tr.nw-line{cursor:pointer;} .nw tr.nw-line:hover td{background:#fff8e6;} .nw tr.nw-line td.lb{font-weight:600;}
@@ -22059,14 +22060,16 @@ async function renderNetWorthReport(content) {
        </aside>
        <div class="sr-main panel">
         <div class="nw-cards" id="nwCards"></div>
-        <div class="pvl-wrap"><table class="nw-t" id="nwTbl"><thead id="nwHead"></thead><tbody id="nwBody"><tr><td colspan="5">${t('লোড হচ্ছে...', 'Loading...')}</td></tr></tbody></table></div>
+        <div class="sr-scroll" id="nwScroll"><table class="nw-t" id="nwTbl"><thead id="nwHead"></thead><tbody id="nwBody"><tr><td colspan="5">${t('লোড হচ্ছে...', 'Loading...')}</td></tr></tbody></table></div>
         <div class="nw-help">${t('ডেবিট = ব্যবসার যা আছে বা পাবে (সম্পদ), ক্রেডিট = ব্যবসার যা দিতে হবে (দায়)। ব্যালান্স = ওপর থেকে চলমান জের — শেষ সারিতে নিট অবস্থা। নিট অবস্থা = সব সম্পদ − সব দায় (নিজের বিনিয়োগ ধরা হয়নি)। ঋণাত্মক = ঘাটতিঃ সব সম্পদ বেচে সব দেনা শোধ করলেও এত টাকা কম পড়বে। "স্থায়ী সম্পদ বাদে" = মেশিন না বেচে হাতের টাকা, পাওনা আর মজুদ দিয়ে দেনা শোধের অবস্থা। অঙ্কগুলো সফটওয়্যারের নিজের হিসাব থেকেঃ পার্টি লেজার, ব্যাংক ও নগদ বই, লোন মডিউল, স্টক ওভারভিউর দর, সেলারী ভাউচার − ইস্যু, খরচ খাত লেজার — শুধু পোস্ট করা ভাউচার। সারিতে চাপলে ভেতরের নাম দেখা যায়।', 'Net position = all assets − all liabilities (owner investment excluded). Negative = deficit. Tap a line to see names.')}</div>
        </div>
       </div>
     </div>`;
   const $ = function (id) { return document.getElementById(id); };
   wireDmyFields(content);
-  const side = wireReportSide($('nwSide'), $('nwTog'), 'nwSideCollapsed', function () {});
+  const side = wireReportSide($('nwSide'), $('nwTog'), 'nwSideCollapsed', function () { fitReportScroll(content); });
+  // হেডার ফ্রিজঃ তালিকা পর্দার বাকি উচ্চতা জুড়ে নিজের ভেতরে স্ক্রল করে, মাথা উপরে আটকে থাকে (লাভ-ক্ষতির মতো)
+  if (!window.__nwFitBound) { window.__nwFitBound = true; window.addEventListener('resize', function () { const c = document.getElementById('nwTbl'); if (c) fitReportScroll(c.closest('.sr-main')); }); }
   wireSequentialKeyNav($('nwBar'));
   const lbl = function (v) { return v < -0.004 ? t('ঘাটতি (লোকসানে)', 'Deficit') : v > 0.004 ? t('উদ্বৃত্ত', 'Surplus') : t('সমান', 'Even'); };
   const sgn = function (v) { const r = Math.round((Number(v) || 0) * 100) / 100; return (r < 0 ? '−' : '') + fmt(Math.abs(r)); };
@@ -22118,6 +22121,7 @@ async function renderNetWorthReport(content) {
       tot('nw-net ' + (B.net < 0 ? 'neg' : 'pos'), t('সর্বমোট — নিট অবস্থা', 'Grand total — net position'), tDr, tCr, B.net, netSt(B.net), C ? C.net : 0) +
       `<tr class="nw-sub"><td class="lb">${t('স্থায়ী সম্পদ বাদে নিট অবস্থা', 'Net excluding fixed assets')}</td><td></td><td></td><td>${bal(B.netNoFA)}<span class="nw-stm">${netSt(B.netNoFA)}</span></td><td class="nw-stc">${netSt(B.netNoFA)}</td>${cc(C ? C.netNoFA : 0, B.netNoFA)}</tr>`;
     const cTxt = function (then, now) { return C ? `<div style="font-size:10.5px;margin-top:2px;">${escapeHtml(isoToDmy(st.cmp))}: ৳${sgn(then)} · ${chg(then, now)}</div>` : ''; };
+    setTimeout(function () { fitReportScroll(content); }, 0);
     $('nwCards').innerHTML = `<div class="nw-card"><small>${t('মোট সম্পদ (ডেবিট)', 'Total assets (Dr)')}</small><b>৳${fmt(B.tA)}</b>${cTxt(C && C.tA, B.tA)}</div><div class="nw-card"><small>${t('মোট দায় (ক্রেডিট)', 'Total liabilities (Cr)')}</small><b>৳${fmt(B.tL)}</b>${C ? `<div style="font-size:10.5px;margin-top:2px;">${escapeHtml(isoToDmy(st.cmp))}: ৳${fmt(C.tL)} · ${chg(-C.tL, -B.tL)}</div>` : ''}</div>
       <div class="nw-card ${B.net < 0 ? 'neg' : 'pos'}"><small>${t('নিট অবস্থা', 'Net position')} — ${escapeHtml(lbl(B.net))}</small><b>৳${sgn(B.net)}</b>${cTxt(C && C.net, B.net)}</div>
       <div class="nw-card ${B.netNoFA < 0 ? 'neg' : 'pos'}"><small>${t('স্থায়ী সম্পদ বাদে', 'Excl. fixed assets')}</small><b>৳${sgn(B.netNoFA)}</b>${cTxt(C && C.netNoFA, B.netNoFA)}</div>`;
