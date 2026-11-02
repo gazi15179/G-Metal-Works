@@ -9179,7 +9179,7 @@ async function renderBankCashBook(content) {
       .sr-tbl.bb-tbl tr.nil td{color:#888;font-style:italic;}
       .sr-tbl.bb-tbl td.neg,.sr-tbl.bb-tbl td.neg b{color:#c0392b;}
       .sr-tbl.bb-tbl td.dt{white-space:nowrap;} .sr-tbl.bb-tbl td.sl{width:28px;color:var(--text-muted);}
-      .sr-tbl.bb-tbl td.nm{min-width:170px;white-space:normal;line-height:1.2 !important;}
+      .sr-tbl.bb-tbl td.nm{min-width:170px;white-space:normal;line-height:1.2 !important;text-align:left !important;padding-left:8px !important;}
       .sr-tbl.bb-tbl td.nm small{color:var(--text-muted);font-size:10px;}
       .sr-tbl.bb-tbl td.act{white-space:nowrap;}
       .sr-tbl.bb-tbl tbody tr.tx{cursor:pointer;} .sr-tbl.bb-tbl tbody tr.tx.sel td{outline:1.5px solid #2563eb;outline-offset:-1.5px;}
@@ -9188,7 +9188,7 @@ async function renderBankCashBook(content) {
         .bb-sum{gap:3px;} .bb-sum div{flex-direction:column;align-items:center;gap:0;padding:2px 4px;} .bb-sum small{font-size:10px;} .bb-sum b{font-size:12px;}
         .sr-tbl.bb-tbl td.bb-dk{display:none;} .sr-tbl.bb-tbl td.bb-mb{display:table-cell;}
         .sr-tbl.bb-tbl td{font-size:10px;padding:1px 3px !important;} .sr-tbl.bb-tbl th{font-size:10px;padding:3px 3px !important;}
-        .sr-tbl.bb-tbl td.nm{min-width:74px;max-width:110px;} .sr-tbl.bb-tbl td.nm small{display:block;font-size:9px;line-height:1.1;}
+        .sr-tbl.bb-tbl td.nm{min-width:74px;max-width:110px;padding-left:3px !important;} .sr-tbl.bb-tbl td.nm small{display:block;font-size:9px;line-height:1.1;}
         .sr-tbl.bb-tbl td.nm small::before{content:'' !important;}
         .sr-tbl.bb-tbl td.sl{width:14px;padding:1px 1px !important;}
         .sr-tbl.bb-tbl .bb-act{display:none;}   /* মোবাইলে অ্যাকশন কলাম লুকানো — দুই চাপেই ভাউচার খোলে, টেবিল পর্দায় ধরে */
@@ -9387,7 +9387,7 @@ async function renderBankCashBook(content) {
     const rows = P.parts.map(function (p) {
       const body = p.c.shown.map(function (x, i) {
         const d = rowDesc(x.r);
-        return `<tr><td class="c">${i + 1}</td><td class="c">${escapeHtml(formatShortDate(d10(x.r.Date)))}</td><td class="c">${escapeHtml(x.r.RefID || '')}</td><td>${escapeHtml(d.type)}${d.who ? ' — ' + escapeHtml(d.who) : ''}</td><td class="n">${amt(x.r.Debit, 1)}</td><td class="n">${amt(x.r.Credit, 1)}</td><td class="n">${money(x.bal, 1)}</td></tr>`;
+        return `<tr><td class="c">${i + 1}</td><td class="c">${escapeHtml(formatShortDate(d10(x.r.Date)))}</td><td class="c">${escapeHtml(x.r.RefID || '')}</td><td style="text-align:left;">${escapeHtml(d.type)}${d.who ? ' — ' + escapeHtml(d.who) : ''}</td><td class="n">${amt(x.r.Debit, 1)}</td><td class="n">${amt(x.r.Credit, 1)}</td><td class="n">${money(x.bal, 1)}</td></tr>`;
       }).join('');
       return `<tr><td colspan="7" style="background:#1f2937;color:#ffd27a;font-weight:700;">${isCash(p.a) ? 'নগদ' : 'ব্যাংক'} — ${escapeHtml(p.a.AccountName)}</td></tr>
         <tr><td></td><td class="c">${escapeHtml(formatShortDate(P.from === '0000-00-00' ? '' : P.from))}</td><td colspan="4"><i>প্রারম্ভিক জের</i></td><td class="n"><b>${money(p.c.opening, 1)}</b></td></tr>
