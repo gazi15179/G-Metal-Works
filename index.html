@@ -7408,7 +7408,7 @@ async function renderFixedAssetPage(content) {
       <div class="vg2" id="fa_Form">
         <div class="field"><label>${t('ক্রয়ের তারিখ', 'Purchase date')}</label><input type="date" id="fa_Date" value="${ownToday()}"></div>
         <div class="field"><label>${t('খাত', 'Category')}</label><select id="fa_Cat">${catOpts()}</select></div>
-        <div class="field vfull"><label>${t('সম্পদের নাম / বিবরণ', 'Asset name / description')}</label><input id="fa_Name" autocomplete="off" placeholder="${attr(t('যেমনঃ স্পিনার মেশিন ১৮ ইঞ্চি', 'e.g. 18-inch spinner'))}"></div>
+        <div class="field vfull"><label>${t('সম্পদের নাম', 'Asset name')}</label><input id="fa_Name" autocomplete="off" list="fa_NameList" placeholder="${attr(t('তালিকা থেকে বাছাই করুন বা নতুন নাম লিখুন', 'Pick from the list or type a new name'))}"><datalist id="fa_NameList"></datalist></div>
         <div class="field"><label>${t('পরিমাণ', 'Qty')}</label><input id="fa_Qty" type="number" step="any" min="0" inputmode="decimal" value="1"></div>
         <div class="field"><label>${t('ক্রয়মূল্য (মোট)', 'Cost (total)')}</label><input id="fa_Cost" type="number" step="any" min="0" inputmode="decimal"></div>
         <div class="field"><label>${t('প্রদান — ক্যাশ/ব্যাংক', 'Paid from')}</label><select id="fa_Acc"><option value="">${t('আগে প্রদান করা (ক্যাশ বইয়ে যাবে না)', 'Paid earlier (not in cash book)')}</option>${accs.map(function (a) { return `<option value="${attr(a.BankAccID)}">${escapeHtml(a.AccountName)}</option>`; }).join('')}</select></div>
@@ -7480,6 +7480,8 @@ async function renderFixedAssetPage(content) {
   async function save(andPost) {
     const cost = Number($('fa_Cost').value) || 0;
     if (!$('fa_Name').value.trim()) { showToast(t('সম্পদের নাম দিন।', 'Enter the asset name.'), 'error'); $('fa_Name').focus(); return; }
+    $('fa_Name').value = $('fa_Name').value.trim().replace(/\s+/g, ' ');
+    { const typed = $('fa_Name').value, hit = rows.find(function (r) { return bnKey(r.AssetName) === bnKey(typed); }); if (hit) $('fa_Name').value = String(hit.AssetName).trim(); }   // একই নাম ভিন্ন ফাঁকায় লিখলে রেজিস্টারের নামটাই
     if (!(cost > 0)) { showToast(t('ক্রয়মূল্য দিন।', 'Enter the cost.'), 'error'); $('fa_Cost').focus(); return; }
     const c = cats.find(function (x) { return x.CatID === $('fa_Cat').value; }) || {};
     const rec = { Date: $('fa_Date').value, CategoryID: c.__fallback ? null : (c.CatID || null), Category: c.Name || '', AssetName: $('fa_Name').value.trim(), Qty: Number($('fa_Qty').value) || 1, Cost: cost, BankCashAccID: $('fa_Acc').value || null, DepRate: Number($('fa_Dep').value) || 0, Note: $('fa_Note').value.trim() };
@@ -7499,7 +7501,11 @@ async function renderFixedAssetPage(content) {
   $('fa_CancelBtn').addEventListener('click', resetForm);
 
   // ===== রেজিস্টার =====
-  async function load() { try { rows = await ownList(cfg); } catch (e) { $('fa_List').innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; return; } renderCats(); render(); }
+  function fillNameList() {   // রেজিস্টারে থাকা সব সম্পদের নাম — বাংলা বর্ণক্রমে ড্রপডাউন
+    const names = Array.from(new Set(rows.map(function (r) { return String(r.AssetName || '').trim(); }).filter(Boolean))).sort(function (a, b) { return a.localeCompare(b, 'bn', { numeric: true }); });
+    $('fa_NameList').innerHTML = names.map(function (n) { return `<option value="${attr(n)}"></option>`; }).join('');
+  }
+  async function load() { try { rows = await ownList(cfg); } catch (e) { $('fa_List').innerHTML = `<div class="empty-state">${escapeHtml(e.message)}</div>`; return; } fillNameList(); renderCats(); render(); }
   function render() {
     const to = $('fa_To').value || ownToday(), cat = $('fa_CatFilter').value, stF = $('fa_StFilter').value;
     const shown = rows.filter(function (r) {
