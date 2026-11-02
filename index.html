@@ -12433,7 +12433,7 @@ async function renderProdDailyPage(content) {
   function lineItemAdd(L) {
     if (!L || locked(L)) return;
     L.it.push({ id: '', u: '', p: '', k: '', kOv: false }); L.dirty = true; refreshLine(L);
-    const sel = $('pdlWrap').querySelector(`tr[data-k="${L.key}"] [data-ii="${L.it.length - 1}"]`); if (sel) sel.focus();
+    const sel = $('pdlWrap').querySelector(`${st.drawerKey === L.key ? '.pdl-dtbl ' : ''}tr[data-k="${L.key}"] [data-ii="${L.it.length - 1}"]`); if (sel) sel.focus();
   }
   function byKey(k) { return st.lines.find(function (l) { return l.key === k; }); }
   function locked(L) { return (L.saved || !!L.procId) && !L.edit; }   // প্রসেসিং-এ ব্যবহৃত লাইনও এডমিন ✏️ চাপলে খোলে
@@ -12452,9 +12452,38 @@ async function renderProdDailyPage(content) {
   content.innerHTML = `
     <style>
       .pdl-bar{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin-bottom:10px;}
+      /* হেডার স্থির — টপবার ও ট্যাবের ঠিক নিচে */
+      html:has(.pdl-stick),body:has(.pdl-stick){overflow-x:clip !important;}   /* মোবাইলে overflow-x:hidden হেডার স্থির নষ্ট করে — clip একই কাজ করে কিন্তু স্থির থাকে */
+      .pdl-stick{position:sticky;top:var(--pdl-top,0px);z-index:40;background:var(--surface);margin:-14px -14px 8px;padding:12px 14px 2px;border-radius:12px 12px 0 0;box-shadow:0 1px 0 var(--border);}
+      .pdl-title{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px;} .pdl-title h1{font-size:20px;margin:0;} .pdl-title span{font-size:12px;color:var(--text-muted);}
+      /* সাইড প্যানেল (ড্রয়ার) — একটা লাইন ফর্মের মতো */
+      .pdl-dbg{position:fixed;inset:0;background:rgba(15,20,30,.38);z-index:1200;}
+      .pdl-drawer{position:fixed;top:0;right:0;bottom:0;width:min(440px,100vw);background:var(--surface);z-index:1201;display:flex;flex-direction:column;box-shadow:-8px 0 24px rgba(0,0,0,.18);animation:pdlIn .18s ease-out;}
+      @keyframes pdlIn{from{transform:translateX(40px);}to{transform:none;}}
+      .pdl-dh{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--border);font-weight:700;}
+      .pdl-dh small{font-weight:400;color:var(--text-muted);} .pdl-dh .x{margin-left:auto;border:1px solid var(--border);background:var(--surface);border-radius:8px;width:32px;height:32px;cursor:pointer;font-size:15px;}
+      .pdl-dbody{flex:1;overflow:auto;padding:10px 12px;-webkit-overflow-scrolling:touch;}
+      .pdl-dfoot{display:flex;gap:8px;padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--border);}
+      .pdl-dfoot .btn{flex:1;width:auto;height:36px;padding:0 8px;font-size:12.5px;}
+      .pdl-dtbl{min-width:0 !important;width:100%;} .pdl-dtbl,.pdl-dtbl tbody{display:block;}
+      .pdl-dtbl tr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px 10px;}
+      .pdl-dtbl tr td{display:block;border:0 !important;padding:0 !important;background:transparent !important;text-align:left;white-space:normal;position:static !important;}
+      .pdl-dtbl td::before{display:block;font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:2px;}
+      .pdl-dtbl td:nth-child(1){display:none;}
+      .pdl-dtbl td:nth-child(2)::before{content:"${t('সার্কেল (কেজি)', 'Circle (kg)')}";} .pdl-dtbl td:nth-child(3)::before{content:"${t('কাটিং (কেজি)', 'Cutting (kg)')}";}
+      .pdl-dtbl td:nth-child(4)::before{content:"${t('ভাঙ্গাড়ী (কেজি)', 'Scrap (kg)')}";} .pdl-dtbl td:nth-child(5)::before{content:"${t('অপচয় (কেজি)', 'Wastage (kg)')}";}
+      .pdl-dtbl td:nth-child(6)::before{content:"${t('তৈরী পণ্য (কেজি)', 'Finished (kg)')}";} .pdl-dtbl td:nth-child(7)::before{content:"${t('তৈরী পণ্য (পিস)', 'Finished (pcs)')}";}
+      .pdl-dtbl td:nth-child(8){grid-column:1 / -1;} .pdl-dtbl td:nth-child(8)::before{content:"${t('তৈরী আইটেম (১ পিস ওজন · মোট পিস · মোট ওজন)', 'Finished items (1 pc wt · pcs · total kg)')}";}
+      .pdl-dtbl td:nth-child(9){grid-column:1 / -1;text-align:left;border:1px dashed var(--border) !important;border-radius:8px;padding:6px 10px !important;} .pdl-dtbl td:nth-child(9)::before{content:"= ${t('সব পণ্যের সমন্বয়', 'all items')}";}
+      .pdl-dtbl td:nth-child(10){grid-column:1 / -1;display:flex;gap:6px;flex-wrap:wrap;} .pdl-dtbl td:nth-child(10) .pdl-ico{padding:6px 12px;font-size:15px;}
+      .pdl-dtbl input,.pdl-dtbl select{width:100% !important;height:36px !important;font-size:15px !important;max-width:none !important;}
+      .pdl-dtbl .pdl-itrow{flex-direction:column;align-items:stretch;gap:8px;} .pdl-dtbl .pdl-itm{min-width:0;padding:6px 26px 6px 18px;border:1px solid var(--border) !important;border-radius:8px;}
+      .pdl-dtbl .pdl-itm .pair{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;} .pdl-dtbl .pdl-itm .pair input{width:100% !important;min-width:0;} .pdl-dtbl td::before{text-align:left;} .pdl-dtbl td.eq{text-align:left !important;} .pdl-dtbl [data-act="panel"]{display:none;} .pdl-dtbl .pdl-itx{top:6px;right:4px;font-size:15px;} .pdl-dtbl .pdl-itn{top:8px;left:5px;}
+      .pdl-dtbl .pdl-ita{align-self:flex-start;margin:0;padding:4px 14px;font-size:13px;}
+      .pdl-tbl tr[data-k] td.sl{cursor:pointer;}
       .pdl-bar .field{margin:0;} .pdl-bar .field label{font-size:11px;font-weight:600;display:block;}
       .pdl-sum{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;margin:6px 0 10px;}
-      .pdl-scroll{overflow:auto;max-height:calc(100vh - 300px);border:1px solid var(--border);border-radius:10px;}
+      .pdl-scroll{overflow:auto;max-height:calc(100vh - var(--pdl-top,0px) - var(--pdl-head-h,200px) - 70px);min-height:240px;border:1px solid var(--border);border-radius:10px;}   /* হেডার + তালিকা এক পর্দায় */
       .pdl-tbl{border-collapse:separate;border-spacing:0;min-width:960px;width:100%;}
       .pdl-tbl th,.pdl-tbl td{border-bottom:1px solid var(--border);border-right:1px solid var(--border);padding:4px 5px;background:var(--surface);text-align:center;font-size:12px;white-space:nowrap;}
       .pdl-tbl thead tr.h1 th{position:sticky;top:0;z-index:3;background:var(--bg);font-weight:700;white-space:normal;line-height:1.25;font-size:11.5px;padding:5px 4px;}
@@ -12485,7 +12514,7 @@ async function renderProdDailyPage(content) {
     .pdl-tag{display:inline-block;font-size:10px;background:#e8eefc;color:#2f4fa8;border-radius:5px;padding:1px 5px;margin-left:2px;}
       .pdl-ico{border:1px solid var(--border);background:var(--surface);border-radius:6px;padding:2px 5px;font-size:12px;cursor:pointer;margin:0 1px;line-height:1.2;}
       .pdl-ico:disabled{opacity:.35;cursor:default;}
-      .pdl-views{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+      .pdl-views{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;} .pdl-views .pdl-tbtn{width:auto;height:30px;padding:0 12px;font-size:12.5px;}
       .pdl-vbtn{border:1px solid var(--border);background:var(--surface);border-radius:8px;padding:4px 10px;font-size:12.5px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;}
       .pdl-vbtn.on{background:var(--text);color:#fff;border-color:var(--text);}
       .pdl-team td.tw select{min-width:112px;max-width:136px;height:26px;font-size:11.5px;}
@@ -12508,27 +12537,33 @@ async function renderProdDailyPage(content) {
         .pdl-team .fgi{width:auto;min-width:118px;max-width:150px;font-size:11px;}
         .pdl-tbl .sl{width:36px;min-width:36px;padding:3px 2px;}
         .pdl-team .sl .slc{display:block;}
-        .pdl-scroll{max-height:74vh;}
+        .pdl-scroll{max-height:calc(100vh - var(--pdl-top,0px) - var(--pdl-head-h,200px) - 40px);min-height:300px;}
         .pdl-views .pdl-vbtn{font-size:12px;padding:4px 8px;}
+        .pdl-title span{display:none;} .pdl-title h1{font-size:16px;} .pdl-stick{padding:6px 10px 0;margin:-14px -14px 6px;} .pdl-title{margin-bottom:4px;}
+        .pdl-panel{overflow:visible !important;}   /* মোবাইলে প্যানেলের স্ক্রল বন্ধ, নইলে হেডার স্থির থাকে না */
+        .pdl-views{gap:5px;margin-bottom:5px;} .pdl-views .pdl-tbtn{height:28px;padding:0 8px;font-size:11.5px;}
+        .pdl-bar{gap:5px;margin-bottom:4px;} .pdl-bar .field label{font-size:10px;} .pdl-bar input[type=date]{height:28px;font-size:12.5px;}
+        .pdl-bar .btn{height:30px;padding:0 10px;font-size:12px;} .pdl-sum{gap:8px;font-size:11px;margin:2px 0 6px;}
       }
     </style>
-    <div class="page-head"><div><h1>${t('দৈনিক উৎপাদন','Daily Production')}</h1>
-      <p>${t('সার্কেল থেকে প্রতিদিন কী তৈরি হলো — এই তালিকা দিয়েই প্রসেসিং ভাউচার তৈরি হয়','What was made from the circle each day — processing vouchers are built from this list')}</p></div></div>
-    <div class="panel" style="padding:14px;">
+    <div class="panel pdl-panel" style="padding:14px;">
+      <div class="pdl-stick" id="pdlStick">
+      <div class="pdl-title"><h1>${t('দৈনিক উৎপাদন','Daily Production')}</h1><span>${t('সার্কেল থেকে প্রতিদিন কী তৈরি হলো — এই তালিকা দিয়েই প্রসেসিং ভাউচার তৈরি হয়','What was made from the circle each day — processing vouchers are built from this list')}</span></div>
       <div class="pdl-views">
         <button type="button" class="pdl-vbtn on" data-view="dp" title="${attr(t('দৈনিক উৎপাদন দেখুন','View daily production'))}">👁️ ${t('দৈনিক উৎপাদন','Daily production')}</button>
-        <button type="button" class="pdl-vbtn" data-view="team" style="margin-left:auto;" title="${attr(t('দৈনিক উৎপাদন ও দল দেখুন','View daily production & team'))}">👁️ ${t('দৈনিক উৎপাদন ও দল','Daily production & team')}</button>
+        <button type="button" class="pdl-vbtn" data-view="team" title="${attr(t('দৈনিক উৎপাদন ও দল দেখুন','View daily production & team'))}">👁️ ${t('দৈনিক উৎপাদন ও দল','Daily production & team')}</button>
+        <button type="button" class="btn pdl-tbtn" id="pdlMakeProc" style="width:auto;" title="${attr(t('এই তারিখগুলোর দৈনিক উৎপাদন, মজুরি ও খরচ দিয়ে প্রসেসিং ভাউচার','Processing voucher from these dates’ production, wages and costs'))}">⚙️ ${t('প্রসেসিং ভাউচার তৈরী','Create processing voucher')}</button>
+        <button type="button" class="btn pdl-tbtn" id="pdlGoSalary" style="width:auto;" title="${attr(t('২য় অংশের মজুরি সেলারী ভাউচারে নিজে আসে','Wages from part 2 come into the salary voucher automatically'))}">💵 ${t('সেলারী ভাউচার','Salary voucher')}</button>
       </div>
       <div class="pdl-bar">
         <div class="field"><label>${t('আজকের উৎপাদনঃ','Today’s production:')}</label><input type="date" id="pdlDate" value="${st.date}"></div>
         <div class="field"><label>${t('উৎপাদনঃ','Production:')}</label><div style="display:flex;gap:6px;align-items:center;"><input type="date" id="pdlFrom" value="${st.from}" title="${attr(t('হইতে','from'))}"><span>—</span><input type="date" id="pdlTo" value="${st.to}" title="${attr(t('পর্যন্ত','to'))}"></div></div>
         <button type="button" class="btn" id="pdlAdd" style="width:auto;">＋ ${t('লাইন যোগ','Add line')}</button>
-        <button type="button" class="btn btn-primary" id="pdlSaveAll" style="width:auto;">💾 ${t('সেভ','Save')}</button>
-        <button type="button" class="btn" id="pdlMakeProc" style="width:auto;" title="${attr(t('এই তারিখগুলোর দৈনিক উৎপাদন, মজুরি ও খরচ দিয়ে প্রসেসিং ভাউচার','Processing voucher from these dates’ production, wages and costs'))}">⚙️ ${t('প্রসেসিং ভাউচার তৈরী','Create processing voucher')}</button>
         <button type="button" class="btn" id="pdlFreeze" style="width:auto;" title="${attr(t('বাঁয়ের কলাম (ক্রঃ, তৈরী আইটেম, সার্কেল) স্ক্রল করলেও স্থির থাকবে কিনা','Keep the left columns fixed while scrolling'))}">📌 ${t('ফ্রিজ','Freeze')}</button>
-        <button type="button" class="btn" id="pdlGoSalary" style="width:auto;" title="${attr(t('২য় অংশের মজুরি সেলারী ভাউচারে নিজে আসে','Wages from part 2 come into the salary voucher automatically'))}">💵 ${t('সেলারী ভাউচার','Salary voucher')}</button>
+        <button type="button" class="btn btn-primary" id="pdlSaveAll" style="width:auto;">💾 ${t('সেভ','Save')}</button>
       </div>
       <div class="pdl-sum" id="pdlSum"></div>
+      </div>
       <div class="pdl-scroll" id="pdlWrap"><div class="empty-state">${t('লোড হচ্ছে...','Loading...')}</div></div>
       <div id="pdlHelp" style="font-size:11.5px;color:var(--text-muted);margin-top:8px;">${t('"আজকের উৎপাদনঃ"-এ যে দিন বাছাই, "＋ লাইন যোগ" সেই দিনে লাইন যোগ করে; নতুন লাইনে আগের লাইনের আইটেম নিজে বসে (বদলানো যায়)। তৈরী পণ্য কেজি নিজে বসে = সার্কেল − কাটিং − ভাঙ্গাড়ী − অপচয়, পিস নিজে বসে = সব আইটেমের পিসের যোগ — দুটোই হাতে বদলানো যায় (কমলা = হাতে লেখা)। কোন সার্কেল, সেটা প্রসেসিং ভাউচারে "কাঁচামাল আইটেম"-এ বাছাই হয়। প্রতিটা আইটেমের নিচে ১ পিসের ওজন ও মোট পিস দিলে মোট ওজন নিজে বসে (হাতে বদলানো যায়)। "=" কলামে সব পণ্যের যোগফল তৈরী পণ্য পরিমাণের সাথে মেলে কিনা দেখায় (✓ মিলেছে / ✗ কত বাকি বা বেশি)। সেভ করা লাইন লক — ✏️ চাপলে এডিট। প্রসেসিং ভাউচারে ব্যবহার হওয়া লাইনে ভাউচার নম্বর দেখায় — এডমিন পাসওয়ার্ড দিয়ে ✏️ এডিট করা যায়; পরে প্রসেসিং কষ্টিং-এ ভাউচারটা এডিট করে মিলিয়ে নিন।','"＋ Add line" adds a line on the day picked in "Today’s production"; a new line copies the previous line’s items (changeable). Finished kg fills itself = circle − cutting − scrap − wastage and pcs = sum of the three items’ pcs — both can be typed over (orange). Which circle is picked as the raw material item in the processing voucher. Under each item, enter the weight of 1 piece and the pieces — total weight fills itself (can be typed over). The "=" column checks the three items against the finished qty. Saved lines are locked — press ✏️ to edit. Lines used in a processing voucher show its number and cannot be changed.')}</div>
     </div>`;
@@ -12561,13 +12596,13 @@ async function renderProdDailyPage(content) {
   function lineHtml(L) {
     const ico = function (act, icon, title, dis) { return `<button type="button" class="pdl-ico" data-act="${act}" data-k="${L.key}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
     const warn = warnOf(L);
-    return `<tr data-k="${L.key}" class="${L.procId && !L.edit ? 'used' : L.dirty ? 'dirty' : L.saved ? 'saved' : ''}">
-      <td class="sl">${L.serial}</td>
+    return `<tr data-k="${L.key}" class="${L.procId && !L.edit ? 'used' : L.dirty ? 'dirty' : L.saved ? 'saved' : ''}" ondblclick="window.__pdlOpenDrawer && window.__pdlOpenDrawer('${L.key}')">
+      <td class="sl" data-dopen="${L.key}" title="${attr(t('সাইড প্যানেলে খুলুন', 'Open in side panel'))}">${L.serial}</td>
       <td>${numCell(L, 'raw')}</td><td>${numCell(L, 'cut')}</td><td>${numCell(L, 'scrap')}</td><td>${numCell(L, 'waste')}</td>
       <td class="${warn ? 'warn' : ''}" title="${warn ? attr(t('সব আইটেমের মোট ', 'Items total ') + show(itemsKg(L)) + t(' কেজি — মিলছে না', ' kg — does not match')) : ''}">${numCell(L, 'fgk')}</td>
       <td>${numCell(L, 'fgp')}</td>
       ${itemsCell(L)}${eqCell(L)}
-      <td style="white-space:nowrap;">${ico('view', '👁️', t('দেখুন', 'View'), !hasAny(L))}${ico('edit', '✏️', L.procId ? t('এডিট (এডমিন — প্রসেসিং ভাউচারে ব্যবহৃত লাইন)', 'Edit (admin — line used in a processing voucher)') : t('এডিট', 'Edit'), !L.saved || L.edit)}${ico('save', '💾', t('সেভ', 'Save'), !L.dirty)}${ico('del', '🗑️', t('মুছুন', 'Delete'), !!L.procId)}${L.procId ? `<span class="pdl-tag" title="${attr(t('এই লাইন প্রসেসিং ভাউচারে ব্যবহার হয়েছে', 'Used in a processing voucher'))}">${escapeHtml(L.procId)}</span>` : ''}</td>
+      <td style="white-space:nowrap;">${ico('panel', '📋', t('সাইড প্যানেলে খুলুন (মোবাইলে সহজ)', 'Open in side panel'), false)}${ico('view', '👁️', t('দেখুন', 'View'), !hasAny(L))}${ico('edit', '✏️', L.procId ? t('এডিট (এডমিন — প্রসেসিং ভাউচারে ব্যবহৃত লাইন)', 'Edit (admin — line used in a processing voucher)') : t('এডিট', 'Edit'), !L.saved || L.edit)}${ico('save', '💾', t('সেভ', 'Save'), !L.dirty)}${ico('del', '🗑️', t('মুছুন', 'Delete'), !!L.procId)}${L.procId ? `<span class="pdl-tag" title="${attr(t('এই লাইন প্রসেসিং ভাউচারে ব্যবহার হয়েছে', 'Used in a processing voucher'))}">${escapeHtml(L.procId)}</span>` : ''}</td>
     </tr>`;
   }
   function sumOf(list) {
@@ -12600,6 +12635,7 @@ async function renderProdDailyPage(content) {
       body += ls.map(lineHtml).join('');
       if (multi) body += `<tr class="sub"><td class="sl">${t('দিনের মোট', 'Day')}</td>${sumCells(sumOf(ls))}</tr>`;
     });
+    setTimeout(drawerMount, 0);   // সাইড প্যানেল খোলা থাকলে আবার বসে
     if (!list.length) body = `<tr><td class="sl"></td><td colspan="9"><div class="empty-state" style="padding:16px;">${t('এই তারিখে কোনো লাইন নেই — "＋ লাইন যোগ" চাপুন।', 'No lines for these dates — press "＋ Add line".')}</div></td></tr>`;
     $('pdlWrap').innerHTML = `<table class="pdl-tbl"><thead>
         <tr class="h1"><th class="sl">${t('ক্রঃ', 'No.')}</th>${H('সার্কেল', 'Circle', '(কেজি)', '(kg)')}${H('কাটিং', 'Cutting', '(কেজি)', '(kg)')}${H('ভাঙ্গাড়ী', 'Scrap', '(কেজি)', '(kg)')}${H('অপচয়', 'Wastage', '(কেজি)', '(kg)')}
@@ -12609,10 +12645,32 @@ async function renderProdDailyPage(content) {
     renderSum();
   }
   function refreshLine(L) {
-    const tr = $('pdlWrap').querySelector(`tr[data-k="${L.key}"]`);
+    const tr = $('pdlWrap').querySelector(`table.pdl-tbl:not(.pdl-dtbl) tr[data-k="${L.key}"]`);
     if (tr) tr.outerHTML = lineHtml(L);
+    const dtr = $('pdlWrap').querySelector(`.pdl-dtbl tr[data-k="${L.key}"]`);   // সাইড প্যানেলে খোলা থাকলে সেখানেও
+    if (dtr) dtr.outerHTML = lineHtml(L);
     renderSum();
   }
+  // ---------- সাইড প্যানেলঃ একটা লাইন ফর্মের মতো (মোবাইলে সহজ) ----------
+  // সারির ক্রঃ-তে চাপ / 📋 / সারিতে দুই চাপ → খোলে; ভিতরের ঘরগুলো টেবিলের মতোই কাজ করে (একই হিসাব), তাই দুই জায়গাই সাথে সাথে মেলে
+  function drawerMount() {
+    const old = $('pdlWrap').querySelectorAll('.pdl-dbg,.pdl-drawer'); old.forEach(function (x) { x.remove(); });
+    if (!st.drawerKey || st.view === 'team') return;
+    const L = byKey(st.drawerKey); if (!L) { st.drawerKey = null; return; }
+    const list = sorted(), idx = list.indexOf(L);
+    const box = document.createElement('div');
+    box.innerHTML = `<div class="pdl-dbg" data-dclose="1"></div><aside class="pdl-drawer" role="dialog">
+      <div class="pdl-dh">${t('লাইন ক্রঃ ', 'Line ')}${L.serial} <small>${escapeHtml(formatShortDate(L.date))}${L.procId ? ' · ' + escapeHtml(L.procId) : ''}</small><button type="button" class="x" data-dclose="1" title="${attr(t('বন্ধ', 'Close'))}">✕</button></div>
+      <div class="pdl-dbody"><table class="pdl-tbl pdl-dtbl"><tbody>${lineHtml(L)}</tbody></table></div>
+      <div class="pdl-dfoot"><button type="button" class="btn" data-dnav="-1" ${idx <= 0 ? 'disabled' : ''}>◀ ${t('আগের', 'Prev')}</button><button type="button" class="btn" data-dnew="1">＋ ${t('নতুন লাইন', 'New line')}</button><button type="button" class="btn" data-dnav="1" ${idx >= list.length - 1 ? 'disabled' : ''}>${t('পরের', 'Next')} ▶</button></div></aside>`;
+    while (box.firstChild) $('pdlWrap').appendChild(box.firstChild);
+  }
+  function openDrawer(key, focusSel) {
+    st.drawerKey = key; drawerMount();
+    const f = $('pdlWrap').querySelector('.pdl-dtbl ' + (focusSel || '[data-f="raw"]:not([disabled])')); if (f && window.innerWidth > 768) f.focus();
+  }
+  function closeDrawer() { st.drawerKey = null; drawerMount(); }
+  window.__pdlOpenDrawer = function (k) { openDrawer(k); };
 
 
   // ============ ২য় অংশঃ দৈনিক উৎপাদন ও দল — প্রতিটা লাইনের (ক্রঃ) কর্মচারী, মজুরি ও খরচ ============
@@ -12870,6 +12928,7 @@ async function renderProdDailyPage(content) {
     L.dirty = true;
     st.lines.push(L);
     render();
+    if (st.drawerKey || window.innerWidth <= 768) { openDrawer(L.key); return; }   // মোবাইলে নতুন লাইন সাইড প্যানেলে খোলে
     const f = $('pdlWrap').querySelector(`tr[data-k="${L.key}"] [data-f="raw"]`); if (f) f.focus();
   }
 
@@ -12987,7 +13046,21 @@ async function renderProdDailyPage(content) {
     if (el.getAttribute('data-f') === 'fgp' && el.value === '') { const L = byKey(el.getAttribute('data-k')); if (L) { L.fgpOv = false; el.value = show(fgp(L), 0); } }
     if (el.hasAttribute('data-ik') && el.value === '') { const L = byKey(el.getAttribute('data-k')); if (L) { const x = L.it[Number(el.getAttribute('data-ik'))]; x.kOv = false; el.value = show(itemKg(x)); const tr = el.closest('tr'), eqc = tr.querySelector('[data-eq]'); if (eqc) eqc.outerHTML = eqCell(L); renderSum(); } }
   });
+  const syncMain = function (e) {
+    if (st.view === 'team' || !e.target.closest || !e.target.closest('.pdl-dtbl')) return;
+    const tr = e.target.closest('tr[data-k]'), L = tr && byKey(tr.getAttribute('data-k')); if (!L) return;
+    const m = $('pdlWrap').querySelector(`table.pdl-tbl:not(.pdl-dtbl) tr[data-k="${L.key}"]`); if (m) m.outerHTML = lineHtml(L);
+  };
+  wrap.addEventListener('input', syncMain); wrap.addEventListener('change', syncMain);
   wrap.addEventListener('click', async function (e) {
+    if (st.view !== 'team') {
+      const dc = e.target.closest('[data-dclose]'), dn = e.target.closest('[data-dnav]'), dw = e.target.closest('[data-dnew]');
+      const op = e.target.closest('[data-act="panel"]') || (e.target.closest('td.sl[data-dopen]') && !e.target.closest('.pdl-dtbl') ? e.target.closest('td.sl[data-dopen]') : null);
+      if (dc) { closeDrawer(); return; }
+      if (dn) { const list = sorted(), i = list.indexOf(byKey(st.drawerKey)), nx = list[i + Number(dn.getAttribute('data-dnav'))]; if (nx) openDrawer(nx.key); return; }
+      if (dw) { await addLine(); return; }
+      if (op) { e.stopPropagation(); openDrawer(op.getAttribute('data-k') || op.getAttribute('data-dopen')); return; }
+    }
     const sr = e.target.closest('[data-tsetrate]');
     if (sr) {
       if (sr.disabled) return;
@@ -13071,6 +13144,17 @@ async function renderProdDailyPage(content) {
     if (L && last === L && L.date === st.date) addLine();
   });
   $('pdlAdd').addEventListener('click', addLine);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && st.drawerKey && document.body.contains($('pdlWrap')) && !e.target.closest('.pdl-dtbl')) closeDrawer(); });
+  // স্থির হেডার — টপবার ও ট্যাবের উচ্চতা অনুযায়ী
+  (function () {
+    const top = function () { const tb = document.querySelector('header.topbar, .topbar'), tabs = document.getElementById('tabBar'); let h = 0;
+      if (tb && /sticky|fixed/.test(getComputedStyle(tb).position)) h += tb.offsetHeight;
+      if (tabs && /sticky|fixed/.test(getComputedStyle(tabs).position) && tabs.offsetHeight) h += tabs.offsetHeight;
+      const sk = $('pdlStick'), pn = sk && sk.parentElement; if (!sk) return;
+      pn.style.setProperty('--pdl-top', h + 'px'); pn.style.setProperty('--pdl-head-h', sk.offsetHeight + 'px'); };
+    top(); setTimeout(top, 300); window.addEventListener('resize', top);
+    if (window.ResizeObserver) { try { new ResizeObserver(top).observe($('pdlStick')); } catch (e) {} }
+  })();
   $('pdlSaveAll').addEventListener('click', function () { if (st.view === 'team') saveTeam(null); else saveLines(st.lines); });
   $('pdlMakeProc').addEventListener('click', makeProcessing);
   // 📌 ফ্রিজ চালু/বন্ধ — পছন্দ এই ব্রাউজারে মনে থাকে
@@ -18292,6 +18376,7 @@ async function renderSalesVoucherPage(content, defaultType) {
   content.innerHTML = `
     <style>
       /* ফ্রিজঃ শিরোনাম + "নতুন যোগ করুন" উপরে আটকে থাকে; তালিকা নিজের জায়গায় স্ক্রল হয়, কলামের হেডারও আটকে থাকে */
+      html:has(.sv-freeze-head),body:has(.sv-freeze-head){overflow-x:clip !important;}
       .sv-freeze-head{position:sticky;top:var(--sv-top,0px);z-index:30;background:var(--bg);margin:0 -4px;padding:8px 4px 10px;}
       .sv-freeze-list{max-height:calc(100vh - var(--sv-top,0px) - 150px);min-height:220px;overflow:auto;-webkit-overflow-scrolling:touch;}
       .sv-freeze-list thead th{position:sticky;top:0;z-index:5;background:var(--surface);box-shadow:0 1px 0 var(--border);}
