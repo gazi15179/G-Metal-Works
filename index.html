@@ -119,6 +119,10 @@ button{font-family:inherit;}
 .submenu a{display:block;padding:8px 18px 8px 52px;font-size:12.8px;color:#9aa2ae;border-left:3px solid transparent;cursor:pointer;}
 .submenu a:hover{color:#fff;background:rgba(255,255,255,.04);}
 .submenu a.active{color:var(--amber);border-left-color:var(--amber);}
+.sub-grp-h{display:flex;align-items:center;gap:6px;padding:8px 18px 6px 40px;font-size:12.8px;font-weight:700;color:#d6dce5;cursor:pointer;user-select:none;}
+.sub-grp-h:hover{color:#fff;} .sub-grp-h .gch{font-size:11px;color:var(--amber);transition:transform .15s ease;display:inline-block;}
+.sub-grp.closed .gch{transform:rotate(-90deg);} .sub-grp.closed .sub-grp-b{display:none;}
+.sub-grp-b a{padding-left:62px;font-size:12.4px;}
 .sidebar.collapsed .submenu{display:none;}
 .sidebar-foot{border-top:1px solid var(--steel-line);padding:12px 18px;font-size:11px;color:#616876;flex-shrink:0;}
 .sidebar.collapsed .sidebar-foot{display:none;}
@@ -449,6 +453,7 @@ const ICONS = {
   accounts:'<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M8 15h4"/>',
   assets:'<path d="M3 21h18"/><path d="M5 21V9l7-5 7 5v12"/><path d="M9 21v-6h6v6"/><path d="M9 11h6"/>',
   loan:'<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 10v4M18 10v4"/>',
+  otherIncome:'<rect x="2" y="7" width="20" height="13" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><path d="M12 10v7M9 14l3 3 3-3"/>',
   hr:'<circle cx="9" cy="7" r="3"/><path d="M2 20a7 7 0 0 1 14 0"/><path d="M17 8a3 3 0 1 1 0 6"/><path d="M23 20a6 6 0 0 0-6-6"/>',
   reports:'<path d="M4 20V10M12 20V4M20 20v-7"/>',
   settings:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'
@@ -504,6 +509,14 @@ const MODULES = [
     {key:'pv', bn:'পেমেন্ট ভাউচার', en:'Payment Voucher'},{key:'payvSettings', bn:'পেমেন্ট ভাউচার সেটিং', en:'Payment Voucher Settings'},{key:'rv', bn:'কালেকশন ভাউচার', en:'Collection Voucher'},{key:'recvSettings', bn:'কালেকশন ভাউচার সেটিং', en:'Collection Voucher Settings'},{key:'ev', bn:'এক্সপেন্স ভাউচার', en:'Expense Voucher'},{key:'evSettings', bn:'এক্সপেন্স ভাউচার সেটিং', en:'Expense Voucher Settings'},{key:'icv', bn:'রিসিপ্ট ভাউচার', en:'Receipt Voucher'},{key:'icvSettings', bn:'রিসিপ্ট ভাউচার সেটিং', en:'Receipt Voucher Settings'},{key:'costLedger', bn:'খরচ খাত লেজার', en:'Cost Head Ledger'},{key:'ownerCapital', bn:'মালিকের মূলধন', en:'Owner Capital'},
     {key:'bankBook', bn:'ব্যাংক ও নগদ বই', en:'Bank & Cash Book'},{key:'cashHandover', bn:'ক্যাশ হস্তান্তর', en:'Cash Handover'},{key:'userCash', bn:'ইউজার ক্যাশ হিসাব', en:'User Cash Account'},{key:'trialBalance', bn:'ট্রায়াল ব্যালেন্স', en:'Trial Balance'},
   ]},
+  {key:'otherIncome', bn:'অন্যান্য আয়', en:'Other Income', sub:[   // grp = সাবমেনুর ভেতরে আলাদা আয়ের ভাগ (পরে নতুন আয়ের নাম এভাবে যোগ হবে)
+    {key:'shopList', bn:'দোকান তালিকা', en:'Shop List', grp:['দোকান ভাড়া','Shop Rent']},
+    {key:'shopTenants', bn:'ভাড়াটিয়া ও চুক্তি', en:'Tenants & Agreements', grp:['দোকান ভাড়া','Shop Rent']},
+    {key:'shopCharge', bn:'মাসিক ভাড়া ধার্য', en:'Monthly Rent Charge', grp:['দোকান ভাড়া','Shop Rent']},
+    {key:'shopTxn', bn:'ভাড়া আদায় ও জামানত', en:'Rent & Deposit Voucher', grp:['দোকান ভাড়া','Shop Rent']},
+    {key:'shopLedger', bn:'ভাড়াটিয়া লেজার', en:'Tenant Ledger', grp:['দোকান ভাড়া','Shop Rent']},
+    {key:'shopReport', bn:'ভাড়া রিপোর্ট ও বকেয়া তালিকা', en:'Rent Report & Dues', grp:['দোকান ভাড়া','Shop Rent']},
+  ]},
   {key:'assets', bn:'স্থায়ী সম্পদ', en:'Fixed Assets', sub:[
     {key:'assetPurchase', bn:'এ্যাসেট ক্রয়', en:'Asset Purchase'},{key:'assetSale', bn:'এ্যাসেট বিক্রয়', en:'Asset Sale'},
     {key:'fixedAssets', bn:'এ্যাসেট রেজিস্টার', en:'Asset Register'},
@@ -540,7 +553,7 @@ const READY_PAGES = ['dashboard','salaryLedger','cashHandover','userCash','svSet
   'stockOverview','goodsReceive','materialIssue','stockTransfer','stockAdjust','stockLedger',
   'so','dc','si','sr','custLedger',
   'bom','processing','processingOld','prodDaily','procCosting','pOrder','pmi','fgr',
-  'coa','bankCash','jv','cv','pv','rv','ownerCapital','loans','loanList','loanTxn','loanLedger','loanReport','assetPurchase','assetSale','fixedAssets','bankBook','trialBalance',
+  'coa','bankCash','jv','cv','pv','rv','ownerCapital','loans','loanList','loanTxn','loanLedger','loanReport','shopList','shopTenants','shopCharge','shopTxn','shopLedger','shopReport','assetPurchase','assetSale','fixedAssets','bankBook','trialBalance',
   'empCategories','empInfo','workRoles','sizeRates','attendance','dailyProduction','leave','payroll','salaryIssue','payHeads','hrReports','payslip',
   'invReport','salesReport','prodReport','finReport','plReport','partyBalance','vgSummary','netWorth',
   'general','langSettings','companySettings','backup'];
@@ -571,6 +584,7 @@ const ACT_TABLE_BN = {
   MaterialIssue:'মালামাল ইস্যু', StockTransfer:'স্টক ট্রান্সফার', StockAdjustment:'স্টক সমন্বয়', ProcessingVoucher:'প্রসেসিং কষ্টিং',
   DailyProduction:'দৈনিক উৎপাদন', TeamProduction:'দৈনিক উৎপাদন ও দল', Payroll:'সেলারী ভাউচার', SalaryIssue:'সেলারী ইস্যু',
   Attendance:'হাজিরা', DailyBonus:'বোনাস', SizeRates:'সাইজ রেট', WorkRoles:'কাজের ধরন', PayHeads:'পে-হেড',
+  Shop:'দোকান', ShopTenant:'ভাড়াটিয়া', ShopTxn:'দোকান ভাড়া ভাউচার', ShopRentChange:'ভাড়ার হার পরিবর্তন',
   Loan:'লোন', LoanTxn:'লোন ভাউচার', LoanTxnType:'লোন ভাউচারের ধরন', LoanPerson:'চলতি (দায় ও দেনা) পার্টি', LoanVoucher:'চলতি (দায় ও দেনা) ভাউচার',
   FixedAsset:'স্থায়ী সম্পদ', AssetMaster:'সম্পদ মাস্টার', AssetCategory:'সম্পদ ক্যাটাগরি', AssetPurchase:'সম্পদ ক্রয়', AssetSale:'সম্পদ বিক্রয়',
   items:'আইটেম মাস্টার', customers:'কাস্টমার', suppliers:'সাপ্লায়ার', warehouses:'গুদাম', zones:'জোন', categories:'ক্যাটাগরি',
@@ -1679,9 +1693,18 @@ function buildSidebar() {
         <span class="nav-label i18n" data-bn="${m.bn}" data-en="${m.en}">${m.bn}</span>
         <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
       </div>
-      <div class="submenu">
-        ${m.sub.map(function(s){ return `<a data-page="${s.key}" data-bn="${s.bn}" data-en="${s.en}" data-mbn="${m.bn}" data-men="${m.en}">${s.bn}</a>`; }).join('')}
+      <div class="submenu">${(function () {   // grp থাকলে ভেতরে আলাদা ভাগ (যেমনঃ অন্যান্য আয় → দোকান ভাড়া), চাপলে খোলে/বন্ধ হয়
+        let h = '', g = null;
+        m.sub.forEach(function (s) {
+          const gk = s.grp ? s.grp[0] : null;
+          if (gk !== g) { if (g) h += '</div></div>'; if (gk) h += `<div class="sub-grp"><div class="sub-grp-h"><span class="gch">▾</span><span data-bn="${s.grp[0]}" data-en="${s.grp[1]}">${currentLang === 'en' ? s.grp[1] : s.grp[0]}</span></div><div class="sub-grp-b">`; g = gk; }
+          h += `<a data-page="${s.key}" data-bn="${s.bn}" data-en="${s.en}" data-mbn="${m.bn}" data-men="${m.en}">${s.bn}</a>`;
+        });
+        if (g) h += '</div></div>';
+        return h;
+      })()}
       </div>`;
+    li.querySelectorAll('.sub-grp-h').forEach(function (gh) { gh.addEventListener('click', function () { gh.parentNode.classList.toggle('closed'); }); });
     const link = li.querySelector('.nav-link');
     link.addEventListener('click', function () {
       const wasOpen = li.classList.contains('open');
@@ -1832,6 +1855,12 @@ async function navigateTo(pageKey, moduleLabel, pageLabel, opts) {
     else if (pageKey === 'loanTxn') await renderGmwLoanTxn(content);
     else if (pageKey === 'loanLedger') await renderGmwLoanLedger(content);
     else if (pageKey === 'loanReport') await renderGmwLoanReport(content);
+    else if (pageKey === 'shopList') await renderShopList(content);   // দোকান ভাড়া
+    else if (pageKey === 'shopTenants') await renderShopTenants(content);
+    else if (pageKey === 'shopCharge') await renderShopRentCharge(content);
+    else if (pageKey === 'shopTxn') await renderShopRentTxn(content);
+    else if (pageKey === 'shopLedger') await renderShopLedger(content);
+    else if (pageKey === 'shopReport') await renderShopRentReport(content);
     else if (pageKey === 'fixedAssets' || pageKey === 'assetNames') await renderFixedAssetPage(content);
     else if (pageKey === 'assetPurchase') await renderAssetPurchasePage(content);
     else if (pageKey === 'assetSale') await renderAssetSalePage(content);
@@ -2232,7 +2261,7 @@ async function renderRoles(content) {
         ${mods.map(function (m) {
           return `<div class="re-mod"><div class="re-mh"><b>${escapeHtml(t(m.bn, m.en))}</b>${readOnly ? '' : `<select data-mod="${attr(m.key)}"><option value="">${t('— পুরো মডিউল —','— whole module —')}</option>${opt(-1)}</select>`}</div>
             ${m.sub.map(function (s) { if (s.key === 'roles' || s.key === 'userManagement') return `<div class="re-row"><span>${escapeHtml(t(s.bn, s.en))}</span><span style="font-size:12px;color:var(--text-muted);">${t('শুধু অ্যাডমিন','Admin only')}</span></div>`;
-              return `<div class="re-row"><span>${escapeHtml(t(s.bn, s.en))}</span><select data-pg="${attr(s.key)}" ${readOnly ? 'disabled' : ''}>${opt(st.pages[s.key])}</select></div>`; }).join('')}</div>`;
+              return `<div class="re-row"><span>${s.grp ? escapeHtml(t(s.grp[0], s.grp[1])) + ' › ' : ''}${escapeHtml(t(s.bn, s.en))}</span><select data-pg="${attr(s.key)}" ${readOnly ? 'disabled' : ''}>${opt(st.pages[s.key])}</select></div>`; }).join('')}</div>`;
         }).join('')}`}`;
     }
     openModal({
@@ -7603,7 +7632,7 @@ const BOOK_REF_LABEL = {
   SalesInvoice: 'নগদ বিক্রয়', 'SalesInvoice-Receipt': 'বিক্রয়ে টাকা গ্রহণ', SalesReturn: 'নগদ বিক্রয় ফেরত',
   PurchaseInvoice: 'নগদ ক্রয়', 'PurchaseInvoice-Payment': 'ক্রয়ে টাকা প্রদান', PurchaseReturn: 'নগদ ক্রয় ফেরত',
   PaymentVoucher: 'পেমেন্ট ভাউচার', ReceiptVoucher: 'কালেকশন ভাউচার', ExpenseVoucher: 'এক্সপেন্স ভাউচার (খরচ)', IncomeVoucher: 'রিসিপ্ট ভাউচার (অন্যান্য আয়)', 'IncomeVoucher-Receipt': 'রিসিপ্ট ভাউচারে (বাকির) নগদ গ্রহণ', ContraVoucher: 'কনট্রা (অ্যাকাউন্ট বদল)',
-  CapitalVoucher: 'মালিকের মূলধন', LoanVoucher: 'চলতি (দায় ও দেনা)', LoanTxn: 'লোন (সিসি/এনজিও/হ্যান্ড)', FixedAsset: 'স্থায়ী সম্পদ', AssetPurchase: 'এ্যাসেট ক্রয়', AssetSale: 'এ্যাসেট বিক্রয়',
+  CapitalVoucher: 'মালিকের মূলধন', LoanVoucher: 'চলতি (দায় ও দেনা)', LoanTxn: 'লোন (সিসি/এনজিও/হ্যান্ড)', ShopTxn: 'দোকান ভাড়া / জামানত', FixedAsset: 'স্থায়ী সম্পদ', AssetPurchase: 'এ্যাসেট ক্রয়', AssetSale: 'এ্যাসেট বিক্রয়',
   SalaryIssue: 'সেলারী ইস্যু (বেতন প্রদান)', 'SalaryIssue-Reversal': 'সেলারী ইস্যু বাতিল (টাকা ফেরত)'
 };
 function bookRefLabel(m) {
@@ -9147,6 +9176,1114 @@ async function renderGmwLoanReport(content) {
   });
   render();
   if (sel) { const h = $('glr_Out').querySelector('h4'); if (h) h.scrollIntoView({ behavior: 'smooth' }); }
+}
+
+/* ============================================================
+   দোকান ভাড়া (GMW) — সাইডবার → দোকান ভাড়া
+   • দোকান তালিকাঃ দোকান নং, অবস্থান, সাইজ, নির্ধারিত ভাড়া — কোনটা খালি, কোনটায় কে
+   • ভাড়াটিয়া ও চুক্তিঃ নাম, মোবাইল, চুক্তির তারিখ, মাসিক ভাড়া, জামানত (চুক্তি) + শুরুর বকেয়া/জামানত
+   • মাসিক ভাড়া ধার্যঃ মাস বাছাই → প্রত্যেক ভাড়াটিয়ার আলাদা টিক (টাকা বদলানো যায়) → পাওনা হিসাবে লেজারে
+   • ভাড়া আদায় ও জামানতঃ ভাড়া আদায় · জামানত গ্রহণ · ফেরত · জামানত থেকে সমন্বয় · মওকুফ · অন্যান্য পাওনা
+     খসড়া/পোস্ট; পোস্টে নগদ/ব্যাংক বইয়ে যায় (RefModule 'ShopTxn')
+   • লেজার (সাইড প্যানেল)ঃ তারিখ · রিসিট/ভাউঃ নং · ভাউচার ধরন · বিবরণ · জমা · খরচ · ব্যালান্স
+     ভাড়ার হিসাবঃ খরচ = ভাড়া ধার্য/পাওনা (বকেয়া বাড়ে) · জমা = ভাড়াটিয়া দিলো/মওকুফ/সমন্বয় (বকেয়া কমে)
+     জামানতের হিসাবঃ জমা = জামানত পেলাম · খরচ = ফেরত/ভাড়ায় সমন্বয় · ব্যালান্স = হাতে থাকা জামানত
+   টেবিলঃ Shop · ShopTenant · ShopTxn (48 নম্বর SQL)
+   ============================================================ */
+const SHR_TYPES = {
+  RentCollect: { bn: 'ভাড়া আদায়', en: 'Rent collected', r: -1, j: 0, cash: 1, cls: 'gl-rc', hint: 'ভাড়াটিয়া ভাড়ার টাকা দিলো — বকেয়া কমবে (লেজারে জমা), নগদ/ব্যাংক বইয়ে টাকা ঢুকবে' },
+  DepReceive:  { bn: 'জামানত গ্রহণ', en: 'Deposit received', r: 0, j: 1, cash: 1, cls: 'gl-sv', hint: 'জামানতের টাকা পেলাম — জামানত জমা বাড়বে (জামানতের লেজারে জমা), নগদ/ব্যাংকে ঢুকবে' },
+  RentDue:     { bn: 'ভাড়া ধার্য', en: 'Rent charged', r: 1, j: 0, cash: 0, cls: 'gl-in', hint: 'মাসের ভাড়া পাওনা হিসাবে উঠবে — বকেয়া বাড়বে (লেজারে খরচ)। সবার একসাথে "মাসিক ভাড়া ধার্য" পেজে টিক দিয়ে করুন' },
+  OtherDue:    { bn: 'অন্যান্য পাওনা', en: 'Other charge', r: 1, j: 0, cash: 0, cls: 'gl-in', hint: 'বিদ্যুৎ/পানি/সার্ভিস চার্জ ইত্যাদি — ভাড়ার বকেয়ার সাথে যোগ হবে (খরচ)' },
+  RentWaive:   { bn: 'ভাড়া মওকুফ/ছাড়', en: 'Rent waived', r: -1, j: 0, cash: 0, cls: 'gl-cu', hint: 'ভাড়ার কিছু অংশ ছেড়ে দিলাম — বকেয়া কমবে (জমা), কোনো টাকা আসবে না' },
+  DepAdjust:   { bn: 'জামানত থেকে ভাড়া সমন্বয়', en: 'Rent adjusted from deposit', r: -1, j: -1, cash: 0, cls: 'gl-rp', hint: 'বকেয়া ভাড়া জামানত থেকে কেটে নিলাম — ভাড়ার বকেয়া কমবে, জামানত জমাও কমবে; নগদ লাগে না' },
+  DepRefund:   { bn: 'জামানত ফেরত', en: 'Deposit refunded', r: 0, j: -1, cash: -1, cls: 'gl-rp', hint: 'ভাড়াটিয়াকে জামানত ফেরত দিলাম — জামানত জমা কমবে (খরচ), নগদ/ব্যাংক থেকে টাকা যাবে' },
+  RentOpen:    { bn: 'প্রারম্ভিক বকেয়া ভাড়া', en: 'Opening rent due', r: 1, j: 0, cash: 0, cls: 'gl-op', hint: 'সফটওয়্যার শুরুর আগের বকেয়া ভাড়া — বকেয়া বাড়বে (খরচ)' },
+  DepOpen:     { bn: 'প্রারম্ভিক জামানত জমা', en: 'Opening deposit', r: 0, j: 1, cash: 0, cls: 'gl-op', hint: 'সফটওয়্যার শুরুর আগে নেওয়া জামানত (এখন হাতে আছে) — নগদ বইয়ে যাবে না' }
+};
+const SHR_MONTHS = ['জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন', 'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'];
+const SHR_SQL = 'দোকান ভাড়ার টেবিল নেই — আগে Supabase-এ 48 নম্বর SQL চালান।';
+const SHR_RC_SQL = 'ভাড়া পরিবর্তনের টেবিল নেই — আগে Supabase-এ 49 নম্বর SQL চালান।';
+const SHR_MONTH_TYPES = ['RentDue', 'RentCollect', 'RentWaive', 'DepAdjust', 'OtherDue'];
+const SHR_CSS = `
+  .shr-chk{width:18px !important;height:18px !important;margin:0;cursor:pointer;vertical-align:middle;}
+  .shr-amt{width:96px !important;height:26px !important;padding:2px 6px !important;font-size:12px !important;text-align:right;box-sizing:border-box;}
+  .gl-tbl tr.shr-done td{background:#ecfdf3;} .gl-tbl tr.shr-done td .shr-amt{background:transparent;border-color:transparent;}
+  .gl-tbl tr.shr-off td{color:#9aa2ad;}
+  .shr-bar{display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin:0 0 8px;} .shr-bar .field{margin:0;min-width:140px;}
+  .shr-bar select,.shr-bar .dmy-in{height:34px;}
+  .shr-tag{display:inline-block;border-radius:6px;padding:0 6px;font-size:10.5px;font-weight:700;line-height:17px;}
+  .shr-tag.ok{background:#dcfce7;color:#166534;} .shr-tag.no{background:#fee2e2;color:#991b1b;} .shr-tag.dr{background:#fef3c7;color:#92400e;} .shr-tag.mt{background:#e5e7eb;color:#374151;}
+  .shr-um{font-size:10.5px;color:#b42318;white-space:normal;}
+  .shr-rc{font-size:10px;color:#9a3412;font-weight:700;white-space:nowrap;}
+  .shr-rcbox{margin-top:12px;border:1px dashed #e3b75c;background:#fffaf0;border-radius:10px;padding:8px 10px;}
+  .shr-rcbox h5{margin:0 0 6px;font-size:13px;}`;
+const shrNoTable = function (m) { return /does not exist|schema cache|relation|Could not find the table/i.test(m || ''); };
+function shrErr(m) { return shrNoTable(m) ? SHR_SQL : m; }
+function shrMonthBn(ym) { const m = /^(\d{4})-(\d{2})$/.exec(String(ym || '')); return m ? SHR_MONTHS[Number(m[2]) - 1] + '-' + m[1] : ''; }
+function shrYm(iso) { return String(iso || '').slice(0, 7); }
+function shrAddMonth(ym, k) { const p = String(ym).split('-').map(Number); const tm = p[1] - 1 + k; const y = p[0] + Math.floor(tm / 12), m = ((tm % 12) + 12) % 12; return y + '-' + String(m + 1).padStart(2, '0'); }
+function shrMonthEnd(ym) { const p = String(ym).split('-').map(Number); return ym + '-' + String(new Date(p[0], p[1], 0).getDate()).padStart(2, '0'); }
+/** মাসের ড্রপডাউন — নতুন থেকে পুরনো (৩ মাস আগামী … ৪৮ মাস আগে) */
+function shrMonthOpts(sel, blank) {
+  const cur = shrYm(ownToday()), list = [];
+  for (let k = 3; k >= -48; k--) list.push(shrAddMonth(cur, k));
+  if (sel && list.indexOf(sel) < 0) { list.push(sel); list.sort().reverse(); }
+  return (blank ? `<option value="">${escapeHtml(blank)}</option>` : '') + list.map(function (m) { return `<option value="${m}">${escapeHtml(shrMonthBn(m))}</option>`; }).join('');
+}
+function shrMarkDirty() { window.__shrDirty = Date.now(); }
+
+async function shrLoadAll() {
+  let r;
+  try { r = await Promise.all([selectAllRows('Shop'), selectAllRows('ShopTenant'), selectAllRows('ShopTxn')]); }
+  catch (e) { throw new Error(shrErr(e.message)); }
+  delete listCache.BankCashAccounts;
+  const accs = (await cachedList('BankCashAccounts')).filter(function (a) { return a.Status !== 'Deleted'; });
+  const shops = r[0].filter(function (s) { return s.Status !== 'Deleted'; }).sort(function (a, b) { return String(a.ShopNo || '').localeCompare(String(b.ShopNo || ''), 'bn', { numeric: true }); });
+  const shopMap = {}; shops.forEach(function (s) { shopMap[s.ShopID] = s; });
+  const tens = r[1].filter(function (x) { return x.Status !== 'Deleted'; });
+  const txns = r[2].filter(function (x) { return x.Status !== 'Deleted'; });
+  let rc = [], rcOk = true;   // ভাড়া বাড়া/কমার ইতিহাস — 49 নম্বর SQL-এর আগেও বাকি সব চলে
+  try { rc = (await selectAllRows('ShopRentChange')).filter(function (c) { return c.Status !== 'Deleted'; }); } catch (e) { rcOk = false; }
+  return { shops: shops, shopMap: shopMap, tens: tens, txns: txns, accs: accs, rc: rc, rcOk: rcOk };
+}
+/** কোনো মাসের ভাড়ার হার — শুরুর ভাড়া (ShopTenant.MonthlyRent), তারপর ওই মাস পর্যন্ত সর্বশেষ পরিবর্তন */
+function shrRentFor(D, tn, ym) {
+  let r = glN(tn && tn.MonthlyRent), best = '';
+  (D.rc || []).forEach(function (c) { if (tn && c.TenantID === tn.TenantID && c.FromMonth && c.FromMonth <= ym && c.FromMonth >= best) { best = c.FromMonth; r = glN(c.MonthlyRent); } });
+  return r;
+}
+function shrCurRent(D, tn) { return shrRentFor(D, tn, shrYm(ownToday())); }
+function shrRcList(D, tid) { return (D.rc || []).filter(function (c) { return c.TenantID === tid; }).sort(function (a, b) { return String(a.FromMonth).localeCompare(String(b.FromMonth)); }); }
+/** হার বদলালে — আগেই ধার্য করা মাসের ভাড়া নতুন হারের সাথে না মিললে দেখিয়ে জিজ্ঞেস করে ঠিক করা */
+async function shrFixCharges(D, tid, fromYm) {
+  const tn = D.tens.find(function (x) { return x.TenantID === tid; }); if (!tn) return false;
+  const bad = D.txns.filter(function (x) { return x.TenantID === tid && x.Type === 'RentDue' && x.Month && x.Month >= (fromYm || '') && Math.abs(glN(x.Amount) - shrRentFor(D, tn, x.Month)) > 0.004; })
+    .sort(function (a, b) { return String(a.Month).localeCompare(String(b.Month)); });
+  if (!bad.length) return false;
+  const lines = bad.map(function (x) { return shrMonthBn(x.Month) + ': ৳' + glMoney(x.Amount) + ' → ৳' + glMoney(shrRentFor(D, tn, x.Month)); }).join('\n');
+  if (!confirm(t('আগেই ধার্য করা ', 'Already charged ') + bad.length + t('টি মাসের ভাড়া নতুন হারের সাথে মিলছে নাঃ\n', ' month(s) differ from the new rate:\n') + lines + t('\n\nনতুন হারে ঠিক করবেন? ("Cancel" চাপলে আগের টাকাই থাকবে)', '\n\nUpdate them to the new rate?'))) return false;
+  if (bad.some(function (x) { return x.Status === 'Posted'; }) && !(await voucherAskAdmin(t('পোস্ট করা ভাড়া ধার্য বদলাতে এডমিন পাসওয়ার্ড দিন:', 'Admin password to change posted rent charges:')))) return false;
+  for (const x of bad) {
+    const { error } = await supabaseClient.from('ShopTxn').update({ Amount: shrRentFor(D, tn, x.Month) }).eq('TxnID', x.TxnID);
+    if (error) throw new Error(error.message);
+  }
+  shrMarkDirty();
+  showToast(bad.length + t('টি মাসের ভাড়া নতুন হারে ঠিক হয়েছে ✅', ' month(s) updated ✅'), 'success');
+  return true;
+}
+function shrShopNo(D, tn) { const s = tn && D.shopMap[tn.ShopID]; return s ? String(s.ShopNo || '') : ''; }
+function shrTenLabel(D, tn) { const no = shrShopNo(D, tn); return (no ? t('দোকান ', 'Shop ') + no + ' — ' : '') + ((tn && tn.Name) || ''); }
+function shrByName(list) { return list.slice().sort(function (a, b) { return String(a.Name || '').localeCompare(String(b.Name || ''), 'bn'); }); }
+function shrByShop(D, list) { return list.slice().sort(function (a, b) { return shrShopNo(D, a).localeCompare(shrShopNo(D, b), 'bn', { numeric: true }) || String(a.Name || '').localeCompare(String(b.Name || ''), 'bn'); }); }
+function shrAccName(D, id) { const a = D.accs.find(function (x) { return x.BankAccID === id; }); return a ? a.AccountName : (id || '—'); }
+function shrCashAcc(D) { const c = D.accs.find(function (a) { return a.Type === 'Cash' || /নগদ|cash|ক্যাশ/i.test(a.AccountName || ''); }); return c ? c.BankAccID : ''; }
+/** একজন ভাড়াটিয়ার পোস্ট করা লেনদেন (to পর্যন্ত, তারিখের ক্রমে) */
+function shrTxs(D, tid, to) {
+  return D.txns.filter(function (x) { return x.TenantID === tid && x.Status === 'Posted' && glD10(x.Date) <= to; })
+    .sort(function (a, b) { return glD10(a.Date).localeCompare(glD10(b.Date)) || String(a.TxnID).localeCompare(String(b.TxnID), undefined, { numeric: true }); });
+}
+/** লেজারঃ R = ভাড়ার হিসাব (ব্যালান্স = বকেয়া), J = জামানতের হিসাব (ব্যালান্স = হাতে জামানত) */
+function shrLedger(tn, D, from, to) {
+  const mk = function () { return { open: 0, close: 0, rows: [], T: { jama: 0, khoroch: 0 }, by: {} }; };
+  const R = mk(), J = mk(); let rb = 0, jb = 0;
+  shrTxs(D, tn.TenantID, to).forEach(function (x) {
+    const k = SHR_TYPES[x.Type]; if (!k) return;
+    const a = glN(x.Amount), d = glD10(x.Date), inR = d >= from;
+    if (k.r) {
+      rb += k.r * a;
+      if (!inR) R.open = rb;
+      else { const row = { date: d, x: x, jama: k.r < 0 ? a : 0, khoroch: k.r > 0 ? a : 0, bal: rb }; R.rows.push(row); R.T.jama += row.jama; R.T.khoroch += row.khoroch; R.by[x.Type] = (R.by[x.Type] || 0) + a; }
+    }
+    if (k.j) {
+      jb += k.j * a;
+      if (!inR) J.open = jb;
+      else { const row = { date: d, x: x, jama: k.j > 0 ? a : 0, khoroch: k.j < 0 ? a : 0, bal: jb }; J.rows.push(row); J.T.jama += row.jama; J.T.khoroch += row.khoroch; J.by[x.Type] = (J.by[x.Type] || 0) + a; }
+    }
+  });
+  R.close = rb; J.close = jb;
+  return { R: R, J: J };
+}
+/** কোন কোন মাসের ভাড়া বাকি — আদায়/মওকুফ/সমন্বয় আগে পুরনো পাওনায় যায় (FIFO) */
+function shrUnpaid(tn, D, asOf) {
+  const bk = []; let cr = 0;
+  shrTxs(D, tn.TenantID, asOf).forEach(function (x) {
+    const k = SHR_TYPES[x.Type]; if (!k || !k.r) return; const a = glN(x.Amount);
+    if (k.r > 0) bk.push({ m: x.Type === 'RentOpen' ? '' : (x.Month || shrYm(x.Date)), amt: a, type: x.Type }); else cr += a;
+  });
+  const out = [];
+  bk.forEach(function (b) { const p = Math.min(cr, b.amt); cr -= p; const left = glR2(b.amt - p); if (left > 0.004) out.push({ m: b.m, left: left, type: b.type }); });
+  return out;
+}
+function shrUnpaidTxt(list) {
+  if (!list.length) return '';
+  const lb = function (u) { return u.type === 'RentOpen' ? 'পুরনো বকেয়া' : (u.type === 'OtherDue' ? 'অন্যান্য ' : '') + shrMonthBn(u.m); };
+  const s = list.slice(0, 4).map(lb).join(', ');
+  return s + (list.length > 4 ? ' … (' + list.length + 'টি)' : '');
+}
+/** টাকাটা কোন কোন বকেয়া মাসে গেল (FIFO) — বিবরণে বসে, যেমনঃ "পুরনো বকেয়া, অক্টোবর-2026 (আংশিক)" */
+function shrCoverNote(unpaid, amt) {
+  let left = glN(amt); const out = [];
+  unpaid.forEach(function (u) {
+    if (left <= 0.004) return; const p = Math.min(left, u.left); left -= p;
+    out.push((u.type === 'RentOpen' ? 'পুরনো বকেয়া' : (u.type === 'OtherDue' ? 'অন্যান্য ' : '') + shrMonthBn(u.m)) + (p < u.left - 0.004 ? ' (আংশিক)' : ''));
+  });
+  let s = out.length ? out.join(', ') + ' — ভাড়া' : '';
+  if (left > 0.004) s += (s ? ' + ' : '') + 'অগ্রিম ৳' + glMoney(left);
+  return s;
+}
+/** একজন ভাড়াটিয়ার অবস্থা — asOf তারিখ পর্যন্ত (শুধু পোস্ট করা) */
+function shrState(tn, D, asOf) {
+  const L = shrLedger(tn, D, '0000-00-00', asOf), dep = glN(tn.DepositAmount);
+  const un = shrUnpaid(tn, D, asOf);
+  return { due: L.R.close, held: L.J.close, dep: dep, depBaki: Math.max(0, glR2(dep - L.J.close)), unpaid: un, unpaidN: un.filter(function (u) { return u.type === 'RentDue'; }).length,
+    drafts: D.txns.filter(function (x) { return x.TenantID === tn.TenantID && x.Status !== 'Posted'; }).length };
+}
+/** মাসের জন্য ভাড়া ধার্য হয়েছে কি না (খসড়া/পোস্ট যে কোনোটা) */
+function shrChargeOf(D, tid, ym) { return D.txns.find(function (x) { return x.TenantID === tid && x.Type === 'RentDue' && x.Month === ym; }) || null; }
+
+async function shrPostTxn(x) {
+  const k = SHR_TYPES[x.Type] || {}, a = glN(x.Amount);
+  if (k.cash && x.BankCashAccID && a) await postBankCashBookEntry(x.BankCashAccID, glD10(x.Date), 'ShopTxn', x.TxnID, k.cash > 0 ? a : 0, k.cash < 0 ? a : 0);
+  const { error } = await supabaseClient.from('ShopTxn').update({ Status: 'Posted' }).eq('TxnID', x.TxnID);
+  if (error) throw new Error(error.message);
+  shrMarkDirty();
+}
+async function shrUnpostTxn(id) {
+  if (!(await voucherAskAdmin(t('পোস্ট করা ভাড়ার ভাউচার বদলাতে এডমিন পাসওয়ার্ড দিন:', 'Admin password to change a posted rent voucher:')))) return false;
+  await reversePostedDocumentStock('ShopTxn', id);   // নগদ/ব্যাংক বইয়ের এন্ট্রি মুছে ব্যালান্স ঠিক
+  const { error } = await supabaseClient.from('ShopTxn').update({ Status: 'Draft' }).eq('TxnID', id);
+  if (error) throw new Error(error.message);
+  shrMarkDirty();
+  return true;
+}
+async function shrDeleteTxn(id) {
+  const { data: x } = await supabaseClient.from('ShopTxn').select('*').eq('TxnID', id).maybeSingle();
+  const posted = !x || x.Status === 'Posted';
+  if (posted && !(await voucherAskAdmin(t('পোস্ট করা ভাড়ার ভাউচার মুছতে এডমিন পাসওয়ার্ড দিন:', 'Admin password to delete a posted rent voucher:')))) return false;
+  if (!confirm(t('মুছবেনঃ ', 'Delete: ') + id + (posted ? t(' — নগদ/ব্যাংক বইয়ের এন্ট্রিও মুছবে।', ' — its cash/bank entries are removed too.') : '') + t(' ফেরানো যাবে না।', ' Cannot be undone.'))) return false;
+  if (posted) await reversePostedDocumentStock('ShopTxn', id);
+  const { error } = await supabaseClient.from('ShopTxn').delete().eq('TxnID', id);
+  if (error) throw new Error(error.message);
+  shrMarkDirty();
+  return true;
+}
+async function shrTxnPrint(id) {
+  const D = await shrLoadAll();
+  const x = D.txns.find(function (r) { return r.TxnID === id; }); if (!x) { showToast(t('ভাউচার পাওয়া যায়নি।', 'Voucher not found.'), 'error'); return; }
+  const tn = D.tens.find(function (r) { return r.TenantID === x.TenantID; }) || { TenantID: x.TenantID, Name: x.TenantID };
+  const k = SHR_TYPES[x.Type] || { bn: x.Type, cash: 0 }, sh = D.shopMap[tn.ShopID] || {};
+  const pairs = [['ভাউচার নং', '<b>' + escapeHtml(x.TxnID) + '</b>']];
+  if (x.ReceiptNo) pairs.push(['রিসিট নং', escapeHtml(x.ReceiptNo)]);
+  pairs.push(['তারিখ', escapeHtml(formatShortDate(glD10(x.Date)))], ['দোকান নং', '<b>' + escapeHtml(sh.ShopNo || '') + '</b>' + (sh.Location ? ' — ' + escapeHtml(sh.Location) : '')],
+    ['ভাড়াটিয়া', '<b>' + escapeHtml(tn.Name || '') + '</b>' + (tn.Mobile ? ' (' + escapeHtml(tn.Mobile) + ')' : '')], ['ভাউচার ধরন', '<b>' + escapeHtml(k.bn) + '</b>']);
+  if (x.Month) pairs.push(['মাস', escapeHtml(shrMonthBn(x.Month))]);
+  pairs.push(['টাকার পরিমাণ', '<b style="font-size:15px;">৳' + glMoney(x.Amount) + '</b>']);
+  if (k.cash && x.BankCashAccID) pairs.push([k.cash > 0 ? 'টাকা জমা হলো' : 'টাকা দেওয়া হলো', escapeHtml(shrAccName(D, x.BankCashAccID))]);
+  if (x.Status === 'Posted') {
+    const S = shrState(tn, D, glD10(x.Date));
+    pairs.push(['বকেয়া ভাড়া (এই তারিখে)', '<b>৳' + glMoney(S.due) + '</b>' + (S.unpaid.length ? '<br><small>' + escapeHtml(shrUnpaidTxt(S.unpaid)) + '</small>' : '')]);
+    pairs.push(['জামানত জমা (এই তারিখে)', '৳' + glMoney(S.held) + (S.depBaki ? ' · বাকি ৳' + glMoney(S.depBaki) : '')]);
+  }
+  pairs.push(['বিবরণ', escapeHtml(x.Note || '')]); pairs.push(['অবস্থা', x.Status === 'Posted' ? 'পোস্ট করা' : 'খসড়া']);
+  const title = x.Type === 'RentCollect' ? 'ভাড়া আদায় রিসিট' : x.Type === 'DepReceive' ? 'জামানত গ্রহণ রিসিট' : 'দোকান ভাড়া — ' + k.bn;
+  await ownPrint({ idf: 'TxnID' }, x, title, pairs);
+}
+function shrErrPage(content, title, msg) { content.innerHTML = `<div class="page-head"><div><h1>${escapeHtml(title)}</h1></div></div><div class="panel"><div class="empty-state">${escapeHtml(msg)}</div></div>`; }
+/** অন্য পেজে লেনদেন হলে — এই পেজে ফিরলে নতুন করে আনা */
+function shrWatch(content, getAt, reload) { window.addEventListener('resize', function () { if (!content.isConnected) return; if ((window.__shrDirty || 0) > getAt()) reload(); }); }
+function shrGo(page, label) { navigateTo(page, t('অন্যান্য আয়', 'Other Income'), label); }
+
+/* ---------- দোকান ভাড়া → দোকান তালিকা ---------- */
+async function renderShopList(content) {
+  let D; const TT = t('দোকান তালিকা', 'Shop List');
+  try { D = await shrLoadAll(); } catch (e) { shrErrPage(content, TT, e.message); return; }
+  let editId = null, selId = '', loadedAt = Date.now();
+  const today = glToday();
+  content.innerHTML = `<style>${DMY_CSS}${VOUCHER_GRID_CSS}${OWN_CSS}${GL_CSS}${SHR_CSS}</style>
+    <div class="page-head"><div><h1>${TT}</h1><p>${t('প্রতিটি দোকান ঘর — নম্বর, অবস্থান, নির্ধারিত ভাড়া; কোনটা খালি, কোনটায় কে আছে', 'Each shop — number, location, set rent; vacant or occupied')}</p></div></div>
+    <div class="own-cards" id="shs_Cards"></div>
+    <div class="panel"><h4 id="shs_FormTitle" style="margin:0 0 10px;font-size:14px;">${t('নতুন দোকান', 'New shop')}</h4>
+      <div class="vg2" id="shs_Form">
+        <div class="field"><label class="vmain">${t('দোকান নং', 'Shop no.')}</label><input id="shs_No" autocomplete="off" placeholder="${attr(t('যেমনঃ ০১ / A-3', 'e.g. 01'))}"></div>
+        <div class="field"><label>${t('মার্কেট / অবস্থান', 'Market / location')}</label><input id="shs_Loc" autocomplete="off"></div>
+        <div class="field"><label>${t('সাইজ / বর্ণনা', 'Size / description')}</label><input id="shs_Size" autocomplete="off" placeholder="${attr(t('যেমনঃ ১০×১২ ফুট', 'e.g. 10x12 ft'))}"></div>
+        <div class="field"><label>${t('নির্ধারিত মাসিক ভাড়া (৳)', 'Set monthly rent (৳)')}</label><input id="shs_Rent" type="number" step="any" min="0" inputmode="decimal"></div>
+        <div class="field"><label>${t('অবস্থা', 'Status')}</label><select id="shs_Status"><option value="Active">${t('চালু', 'Active')}</option><option value="Closed">${t('বন্ধ / ভাড়া হবে না', 'Closed')}</option></select></div>
+        <div class="field"><label>${t('নোট', 'Note')}</label><input id="shs_Note" autocomplete="off"></div>
+      </div>
+      <div class="own-btns"><button type="button" class="btn btn-primary" id="shs_SaveBtn">💾 ${t('সেভ', 'Save')}</button><button type="button" class="btn btn-outline" id="shs_CancelBtn" style="display:none;">${t('এডিট বাতিল', 'Cancel edit')}</button></div>
+    </div>
+    <div class="panel"><h4 style="margin:0 0 8px;font-size:14px;">${t('দোকানের তালিকা', 'Shops')} <small style="font-weight:400;color:var(--text-muted);">${t('— এক ট্যাপে বাছাই, দুই ট্যাপে এডিট', '— tap to select, double-tap to edit')}</small></h4>
+      <div class="own-wrap" id="shs_List"></div></div>`;
+  const $ = function (id) { return document.getElementById(id); };
+  wireSequentialKeyNav($('shs_Form'));
+  const curTen = function (sid) { return D.tens.find(function (x) { return x.ShopID === sid && x.Status === 'Active'; }) || null; };
+  function resetForm() {
+    editId = null; $('shs_FormTitle').textContent = t('নতুন দোকান', 'New shop');
+    ['shs_No', 'shs_Loc', 'shs_Size', 'shs_Rent', 'shs_Note'].forEach(function (id) { $(id).value = ''; }); $('shs_Status').value = 'Active';
+    $('shs_CancelBtn').style.display = 'none'; renderList();
+  }
+  function openEdit(id) {
+    const s = D.shopMap[id]; if (!s) return;
+    editId = id; selId = id; $('shs_FormTitle').textContent = t('এডিটঃ ', 'Edit: ') + (s.ShopNo || id);
+    $('shs_No').value = s.ShopNo || ''; $('shs_Loc').value = s.Location || ''; $('shs_Size').value = s.Size || ''; $('shs_Rent').value = s.DefaultRent || ''; $('shs_Status').value = s.Status === 'Closed' ? 'Closed' : 'Active'; $('shs_Note').value = s.Note || '';
+    $('shs_CancelBtn').style.display = ''; renderList(); window.scrollTo({ top: 0, behavior: 'smooth' }); $('shs_No').focus();
+  }
+  function renderList() {
+    let occ = 0, vac = 0, rent = 0, due = 0;
+    const body = D.shops.map(function (s, i) {
+      const tn = curTen(s.ShopID), st = tn ? shrState(tn, D, today) : null, closed = s.Status === 'Closed';
+      if (tn) { occ++; rent += shrCurRent(D, tn); due += st.due; } else if (!closed) vac++;
+      const ic = function (act, icon, title, dis) { return `<button type="button" class="own-ic" data-sh="${act}" data-id="${attr(s.ShopID)}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
+      const used = D.tens.some(function (x) { return x.ShopID === s.ShopID; });
+      return `<tr data-id="${attr(s.ShopID)}" class="${closed ? 'gl-closed' : ''} ${selId === s.ShopID ? 'sel' : ''}"><td>${i + 1}</td><td><b>${escapeHtml(s.ShopNo || '')}</b></td><td class="l gl-hide-m">${escapeHtml(s.Location || '')}${s.Size ? `<br><small>${escapeHtml(s.Size)}</small>` : ''}</td>
+        <td class="r">${s.DefaultRent ? glMoney(s.DefaultRent) : '—'}</td>
+        <td class="l">${tn ? `<b>${escapeHtml(tn.Name || '')}</b>${tn.Mobile ? `<br><small>${escapeHtml(tn.Mobile)}</small>` : ''}` : closed ? `<span class="shr-tag mt">${t('বন্ধ', 'Closed')}</span>` : `<span class="shr-tag dr">${t('খালি', 'Vacant')}</span>`}</td>
+        <td class="r">${tn ? glMoney(shrCurRent(D, tn)) : '—'}</td><td class="r">${st ? `<b class="${st.due > 0.004 ? 'gl-neg' : ''}">${glMoney(st.due)}</b>` : '—'}</td>
+        <td style="white-space:nowrap;">${ic('view', '👁️', t('বর্তমান ভাড়াটিয়ার লেজার', 'Current tenant ledger'), !tn)}${ic('edit', '✏️', t('এডিট', 'Edit'))}${ic('del', '🗑️', used ? t('ভাড়াটিয়া আছে — মোছা যাবে না (চাইলে "বন্ধ" করুন)', 'Has tenants — cannot delete') : t('ডিলিট', 'Delete'), used)}${ic('save', '💾', t('সেভ (এডিট চলাকালে)', 'Save (while editing)'), editId !== s.ShopID)}<span class="gl-hide-m">${ic('ten', tn ? '👤' : '➕', tn ? t('ভাড়াটিয়ার তথ্য', 'Tenant') : t('ভাড়াটিয়া যোগ করুন', 'Add tenant'))}</span></td></tr>`;
+    }).join('');
+    $('shs_Cards').innerHTML = `<div class="own-card"><small>🏬 ${t('মোট দোকান', 'Total shops')}</small><b>${D.shops.length}</b></div><div class="own-card"><small>👤 ${t('ভাড়া দেওয়া', 'Occupied')}</small><b>${occ}</b></div>
+      <div class="own-card" style="${vac ? 'background:#fff6e0;border-color:#e3b75c;' : ''}"><small>🔑 ${t('খালি দোকান', 'Vacant')}</small><b>${vac}</b></div><div class="own-card"><small>${t('মাসিক মোট ভাড়া', 'Monthly rent total')}</small><b>৳${glMoney(rent)}</b></div><div class="own-card hl"><small>${t('মোট বকেয়া ভাড়া', 'Total rent due')}</small><b>৳${glMoney(due)}</b></div>`;
+    if (!D.shops.length) { $('shs_List').innerHTML = `<div class="empty-state">${t('এখনো কোনো দোকান যোগ করা হয়নি — উপরের ফর্মে দোকান যোগ করুন।', 'No shops yet — add one above.')}</div>`; return; }
+    $('shs_List').innerHTML = `<table class="own-tbl gl-tbl"><thead><tr><th>${t('ক্রঃ', 'Sl')}</th><th>${t('দোকান নং', 'Shop')}</th><th class="gl-hide-m">${t('অবস্থান', 'Location')}</th><th>${t('নির্ধারিত ভাড়া', 'Set rent')}</th><th>${t('বর্তমান ভাড়াটিয়া', 'Tenant')}</th><th>${t('মাসিক ভাড়া', 'Rent')}</th><th>${t('বকেয়া', 'Due')}</th><th></th></tr></thead><tbody>${body}</tbody></table>`;
+  }
+  async function save() {
+    const no = $('shs_No').value.trim();
+    if (!no) { showToast(t('দোকান নং দিন।', 'Enter the shop number.'), 'error'); $('shs_No').focus(); return; }
+    if (D.shops.some(function (s) { return bnKey(s.ShopNo) === bnKey(no) && s.ShopID !== editId; })) { showToast(t('এই নম্বরের দোকান আগেই আছে।', 'This shop number already exists.'), 'error'); $('shs_No').focus(); return; }
+    const rv = $('shs_Rent').value;
+    if (rv !== '' && Number(rv) < 0) { showToast(t('ভাড়া মাইনাস হয় না।', 'Rent cannot be negative.'), 'error'); return; }
+    const rec = { ShopNo: no, Location: $('shs_Loc').value.trim(), Size: $('shs_Size').value.trim(), DefaultRent: rv === '' ? null : Number(rv), Status: $('shs_Status').value, Note: $('shs_Note').value.trim() };
+    $('shs_SaveBtn').disabled = true;
+    try {
+      let row;
+      if (editId) { const { data, error } = await supabaseClient.from('Shop').update(rec).eq('ShopID', editId).select().single(); if (error) throw new Error(shrErr(error.message)); row = data; }
+      else { const { data, error } = await supabaseClient.from('Shop').insert(Object.assign({ CreatedBy: (currentUser && currentUser.Email) || '' }, rec)).select().single(); if (error) throw new Error(shrErr(error.message)); row = data; }
+      showToast(t('সেভ হয়েছে ✅ দোকান ', 'Saved ✅ Shop ') + row.ShopNo, 'success'); shrMarkDirty();
+      D = await shrLoadAll(); loadedAt = Date.now(); selId = row.ShopID; resetForm(); $('shs_No').focus();
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { $('shs_SaveBtn').disabled = false; }
+  }
+  $('shs_SaveBtn').addEventListener('click', save);
+  $('shs_CancelBtn').addEventListener('click', resetForm);
+  let lastTap = { id: '', at: 0 };
+  $('shs_List').addEventListener('click', async function (e) {
+    const b = e.target.closest('[data-sh]');
+    if (!b) {
+      const tr = e.target.closest('tr[data-id]'); if (!tr) return;
+      const id = tr.getAttribute('data-id'), now = Date.now();
+      if (lastTap.id === id && now - lastTap.at < 450) { lastTap = { id: '', at: 0 }; openEdit(id); return; }
+      lastTap = { id: id, at: now }; selId = id; content.querySelectorAll('#shs_List tr.sel').forEach(function (r) { r.classList.remove('sel'); }); tr.classList.add('sel'); return;
+    }
+    if (b.disabled || b.__busy) return; b.__busy = true;
+    const id = b.getAttribute('data-id'), act = b.getAttribute('data-sh'), tn = curTen(id);
+    try {
+      if (act === 'view' && tn) { window.__shrLedgerTen = tn.TenantID; shrGo('shopLedger', t('ভাড়াটিয়া লেজার', 'Tenant Ledger')); }
+      else if (act === 'ten') { if (tn) window.__shrTenEdit = tn.TenantID; else window.__shrTenShop = id; shrGo('shopTenants', t('ভাড়াটিয়া ও চুক্তি', 'Tenants & Agreements')); }
+      else if (act === 'edit') openEdit(id);
+      else if (act === 'save') await save();
+      else if (act === 'del') {
+        if (D.tens.some(function (x) { return x.ShopID === id; })) { showToast(t('ভাড়াটিয়া আছে — মোছা যাবে না।', 'Has tenants — cannot delete.'), 'error'); return; }
+        if (!confirm(t('দোকানটি মুছবেনঃ ', 'Delete shop: ') + ((D.shopMap[id] || {}).ShopNo || id) + '?')) return;
+        const { error } = await supabaseClient.from('Shop').update({ Status: 'Deleted' }).eq('ShopID', id); if (error) throw new Error(error.message);
+        showToast(t('মুছে ফেলা হয়েছে ✅', 'Deleted ✅'), 'success'); shrMarkDirty(); D = await shrLoadAll(); loadedAt = Date.now(); if (editId === id) resetForm(); else renderList();
+      }
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { b.__busy = false; }
+  });
+  resetForm();
+  shrWatch(content, function () { return loadedAt; }, async function () { try { D = await shrLoadAll(); loadedAt = Date.now(); renderList(); } catch (e) {} });
+}
+
+/* ---------- দোকান ভাড়া → ভাড়াটিয়া ও চুক্তি ---------- */
+async function renderShopTenants(content) {
+  let D; const TT = t('ভাড়াটিয়া ও চুক্তি', 'Tenants & Agreements');
+  try { D = await shrLoadAll(); } catch (e) { shrErrPage(content, TT, e.message); return; }
+  let editId = null, selId = '', loadedAt = Date.now();
+  const today = glToday();
+  content.innerHTML = `<style>${DMY_CSS}${VOUCHER_GRID_CSS}${OWN_CSS}${GL_CSS}${SHR_CSS}</style>
+    <div class="page-head"><div><h1>${TT}</h1><p>${t('ভাড়াটিয়ার তথ্য, দোকান, মাসিক ভাড়া ও জামানতের চুক্তি — এখনকার বকেয়া ও জামানত সহ', 'Tenant details, shop, monthly rent and deposit — with current dues')}</p></div></div>
+    <div class="own-cards" id="sht_Cards"></div>
+    ${D.shops.length ? '' : `<div class="panel"><div class="empty-state">${t('আগে "দোকান তালিকা" পেজে দোকান যোগ করুন।', 'Add shops in "Shop List" first.')}</div></div>`}
+    <div class="panel" ${D.shops.length ? '' : 'style="display:none;"'}><h4 id="sht_FormTitle" style="margin:0 0 10px;font-size:14px;">${t('নতুন ভাড়াটিয়া', 'New tenant')}</h4>
+      <div class="vg2" id="sht_Form">
+        <div class="field"><label class="vmain">${t('দোকান', 'Shop')}</label><select id="sht_Shop"></select></div>
+        <div class="field"><label class="vmain">${t('ভাড়াটিয়ার নাম', 'Tenant name')}</label><input id="sht_Name" autocomplete="off"></div>
+        <div class="field"><label>${t('পিতা/স্বামীর নাম', "Father's/husband's name")}</label><input id="sht_Father" autocomplete="off"></div>
+        <div class="field"><label>${t('মোবাইল', 'Mobile')}</label><input id="sht_Mobile" inputmode="tel" autocomplete="off"></div>
+        <div class="field"><label>${t('জাতীয় পরিচয়পত্র নং', 'NID no.')}</label><input id="sht_Nid" inputmode="numeric" autocomplete="off"></div>
+        <div class="field"><label>${t('ঠিকানা', 'Address')}</label><input id="sht_Addr" autocomplete="off"></div>
+        <div class="field"><label>${t('ব্যবসার নাম', 'Business name')}</label><input id="sht_Biz" autocomplete="off"></div>
+        <div class="field"><label class="vmain">${t('চুক্তি শুরু (ভাড়া শুরু)', 'Agreement start')}</label>${dmyDateField('sht_Start', today)}</div>
+        <div class="field"><label>${t('চুক্তি শেষ / ছেড়ে দেওয়ার তারিখ', 'Agreement end / left on')}</label>${dmyDateField('sht_End', '')}</div>
+        <div class="field"><label class="vmain" id="sht_RentL">${t('মাসিক ভাড়া — শুরুর (৳)', 'Monthly rent — starting (৳)')}</label><input id="sht_Rent" type="number" step="any" min="0" inputmode="decimal"></div>
+        <div class="field"><label>${t('জামানত — চুক্তির টাকা (৳)', 'Deposit — agreed (৳)')}</label><input id="sht_Dep" type="number" step="any" min="0" inputmode="decimal"></div>
+        <div class="field"><label>${t('ভাড়া দেওয়ার শেষ তারিখ (মাসের কত তারিখ)', 'Rent due day of month')}</label><input id="sht_Day" type="number" step="1" min="1" max="31" inputmode="numeric" placeholder="10"></div>
+        <div class="field sht-new"><label>${t('প্রারম্ভিক বকেয়া ভাড়া (৳) — সফটওয়্যার শুরুর আগের', 'Opening rent due (৳)')}</label><input id="sht_OpenDue" type="number" step="any" min="0" inputmode="decimal"></div>
+        <div class="field sht-new"><label>${t('প্রারম্ভিক জামানত জমা (৳) — আগে নেওয়া', 'Opening deposit held (৳)')}</label><input id="sht_OpenDep" type="number" step="any" min="0" inputmode="decimal"></div>
+        <div class="field sht-new"><label>${t('প্রারম্ভিকের তারিখ', 'Opening date')}</label>${dmyDateField('sht_OpenDate', today)}</div>
+        <div class="field"><label>${t('অবস্থা', 'Status')}</label><select id="sht_Status"><option value="Active">${t('চালু (দোকানে আছে)', 'Active')}</option><option value="Left">${t('ছেড়ে দিয়েছে', 'Left')}</option></select></div>
+        <div class="field vfull"><label>${t('নোট', 'Note')}</label><input id="sht_Note" autocomplete="off"></div>
+      </div>
+      <div class="own-btns"><button type="button" class="btn btn-primary" id="sht_SaveBtn">💾 ${t('সেভ', 'Save')}</button><button type="button" class="btn btn-outline" id="sht_CancelBtn" style="display:none;">${t('এডিট বাতিল', 'Cancel edit')}</button></div>
+      <div class="shr-rcbox" id="sht_RC" style="display:none;">
+        <h5>↕️ ${t('ভাড়া বাড়া / কমা — কোন মাস থেকে নতুন হার', 'Rent increase / decrease — new rate from a month')}</h5>
+        <div class="gl-info" id="sht_RcInfo"></div>
+        <div class="vg2" id="sht_RcForm">
+          <div class="field"><label class="vmain">${t('নতুন মাসিক ভাড়া (৳)', 'New monthly rent (৳)')}</label><input id="sht_RcAmt" type="number" step="any" min="0" inputmode="decimal"></div>
+          <div class="field"><label class="vmain">${t('কোন মাস থেকে', 'From month')}</label><select id="sht_RcMonth"></select></div>
+          <div class="field vfull"><label>${t('কারণ / নোট', 'Reason / note')}</label><input id="sht_RcNote" autocomplete="off" placeholder="${attr(t('যেমনঃ চুক্তি নবায়ন, ১০% বৃদ্ধি', 'e.g. renewal, 10% increase'))}"></div>
+        </div>
+        <div class="own-btns" style="margin-top:6px;"><button type="button" class="btn btn-primary" id="sht_RcSave">💾 ${t('হার পরিবর্তন সেভ', 'Save rate change')}</button><button type="button" class="btn btn-outline" id="sht_RcCancel" style="display:none;">${t('বাতিল', 'Cancel')}</button></div>
+        <div class="own-wrap" id="sht_RcList" style="margin-top:8px;max-height:none;"></div>
+      </div>
+    </div>
+    <div class="panel"><h4 style="margin:0 0 8px;font-size:14px;">${t('ভাড়াটিয়ার তালিকা', 'Tenants')} <small style="font-weight:400;color:var(--text-muted);">${t('— এক ট্যাপে বাছাই, দুই ট্যাপে এডিট', '— tap to select, double-tap to edit')}</small></h4>
+      <div class="own-wrap" id="sht_List"></div></div>`;
+  const $ = function (id) { return document.getElementById(id); };
+  wireDmyFields(content);
+  wireSequentialKeyNav($('sht_Form'));
+  wireSequentialKeyNav($('sht_RcForm'));
+  let rcEditId = null;
+  function rcReset() {
+    rcEditId = null; $('sht_RcAmt').value = ''; $('sht_RcNote').value = ''; $('sht_RcCancel').style.display = 'none'; $('sht_RcSave').textContent = '💾 ' + t('হার পরিবর্তন সেভ', 'Save rate change');
+    const nx = shrAddMonth(shrYm(today), 1); $('sht_RcMonth').innerHTML = shrMonthOpts(nx); $('sht_RcMonth').value = nx;
+  }
+  function renderRc() {
+    const x = editId && D.tens.find(function (r) { return r.TenantID === editId; });
+    $('sht_RC').style.display = x ? '' : 'none'; if (!x) return;
+    const cur = shrCurRent(D, x), nxt = shrRentFor(D, x, shrAddMonth(shrYm(today), 1));
+    $('sht_RcInfo').innerHTML = `<div><small>${t('শুরুর ভাড়া', 'Starting rent')}</small><b>৳${glMoney(x.MonthlyRent)}</b></div><div class="warn"><small>${t('এখনকার ভাড়া (এই মাস)', 'Current rent')}</small><b>৳${glMoney(cur)}</b></div>` + (Math.abs(nxt - cur) > 0.004 ? `<div><small>${t('আগামী মাস থেকে', 'From next month')}</small><b>৳${glMoney(nxt)}</b></div>` : '');
+    if (!D.rcOk) { $('sht_RcList').innerHTML = `<div class="empty-state">${SHR_RC_SQL}</div>`; return; }
+    const hist = [{ base: true, FromMonth: shrYm(x.StartDate), MonthlyRent: x.MonthlyRent, Note: t('চুক্তির শুরুর ভাড়া', 'Starting rent') }].concat(shrRcList(D, x.TenantID));
+    let prev = null;
+    const body = hist.map(function (c, i) {
+      const r = glN(c.MonthlyRent), diff = prev === null ? null : r - prev; prev = r;
+      const ic = function (a, icon, title, dis) { return `<button type="button" class="own-ic" data-rc="${a}" data-id="${attr(c.base ? '' : c.ChangeID)}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
+      const nCh = c.base ? 0 : D.txns.filter(function (z) { return z.TenantID === x.TenantID && z.Type === 'RentDue' && z.Month >= c.FromMonth; }).length;
+      return `<tr class="${c.base ? 'gl-op' : diff > 0 ? 'gl-in' : 'gl-rc'} ${rcEditId && rcEditId === c.ChangeID ? 'sel' : ''}"><td>${i + 1}</td><td><b>${escapeHtml(shrMonthBn(c.FromMonth) || '—')}</b>${c.base ? '' : t(' থেকে', ' on')}</td><td class="r"><b>${glMoney(r)}</b></td>
+        <td class="r">${diff === null ? '—' : `<span class="${diff > 0 ? 'gl-neg' : 'gl-pos'}">${diff > 0 ? '↑ +' : '↓ −'}${glMoney(Math.abs(diff))}</span>`}</td><td class="l">${escapeHtml(c.Note || '')}${nCh ? `<br><small>${nCh}${t('টি মাস ধার্য হয়েছে এর পরে', ' charged months after')}</small>` : ''}</td>
+        <td style="white-space:nowrap;">${ic('view', '👁️', t('এই হারে ধার্য মাসগুলো লেজারে', 'Open ledger'))}${ic('edit', '✏️', c.base ? t('শুরুর ভাড়া উপরের ফর্মে বদলান', 'Change starting rent above') : t('এডিট', 'Edit'))}${ic('del', '🗑️', t('ডিলিট', 'Delete'), c.base)}${ic('save', '💾', t('সেভ (এডিট চলাকালে)', 'Save (while editing)'), c.base || rcEditId !== c.ChangeID)}</td></tr>`;
+    }).join('');
+    $('sht_RcList').innerHTML = `<table class="own-tbl gl-tbl"><thead><tr><th>${t('ক্রঃ', 'Sl')}</th><th>${t('কোন মাস থেকে', 'From month')}</th><th>${t('মাসিক ভাড়া', 'Monthly rent')}</th><th>${t('বাড়া / কমা', 'Change')}</th><th>${t('কারণ / নোট', 'Note')}</th><th></th></tr></thead><tbody>${body}</tbody></table>`;
+  }
+  async function saveRc() {
+    const x = editId && D.tens.find(function (r) { return r.TenantID === editId; }); if (!x) return;
+    if (!D.rcOk) { showToast(SHR_RC_SQL, 'error'); return; }
+    const amt = glR2($('sht_RcAmt').value), m = $('sht_RcMonth').value;
+    if (!(amt > 0)) { showToast(t('নতুন মাসিক ভাড়া দিন।', 'Enter the new monthly rent.'), 'error'); $('sht_RcAmt').focus(); return; }
+    if (!m) { showToast(t('কোন মাস থেকে — বাছাই করুন।', 'Choose the month.'), 'error'); $('sht_RcMonth').focus(); return; }
+    if (x.StartDate && m <= shrYm(x.StartDate)) { showToast(t('চুক্তির শুরুর মাস বা তার আগে হার বদলানো যাবে না — শুরুর ভাড়া উপরের ফর্মে বদলান।', 'For the starting month, change the starting rent above.'), 'error'); return; }
+    const same = shrRcList(D, x.TenantID).find(function (c) { return c.FromMonth === m && c.ChangeID !== rcEditId; });
+    if (same && !confirm(shrMonthBn(m) + t(' থেকে আগেই একটা হার আছে (৳', ' already has a rate (৳') + glMoney(same.MonthlyRent) + t(')। সেটা বদলে নতুনটা রাখবেন?', '). Replace it?'))) return;
+    const before = shrRentFor(D, x, m);
+    if (!rcEditId && !same && Math.abs(before - amt) < 0.005) { showToast(t('এই মাসে ভাড়া আগেও ৳', 'The rent for this month is already ৳') + glMoney(amt) + t(' — কিছু বদলায়নি।', ' — nothing changes.'), 'error'); return; }
+    const old = rcEditId ? shrRcList(D, x.TenantID).find(function (c) { return c.ChangeID === rcEditId; }) : null;
+    const rec = { TenantID: x.TenantID, FromMonth: m, MonthlyRent: amt, Note: $('sht_RcNote').value.trim() };
+    $('sht_RcSave').disabled = true;
+    try {
+      if (same) { const { error } = await supabaseClient.from('ShopRentChange').delete().eq('ChangeID', same.ChangeID); if (error) throw new Error(error.message); }
+      if (rcEditId) { const { error } = await supabaseClient.from('ShopRentChange').update(rec).eq('ChangeID', rcEditId); if (error) throw new Error(error.message); }
+      else { const { error } = await supabaseClient.from('ShopRentChange').insert(Object.assign({ Status: 'Active', CreatedBy: (currentUser && currentUser.Email) || '' }, rec)); if (error) throw new Error(shrNoTable(error.message) ? SHR_RC_SQL : error.message); }
+      shrMarkDirty();
+      showToast(t('ভাড়ার হার সেভ হয়েছে ✅ ', 'Rate saved ✅ ') + shrMonthBn(m) + t(' থেকে ৳', ' → ৳') + glMoney(amt), 'success');
+      D = await shrLoadAll(); loadedAt = Date.now();
+      const from = old && old.FromMonth < m ? old.FromMonth : m;
+      if (await shrFixCharges(D, x.TenantID, from)) { D = await shrLoadAll(); loadedAt = Date.now(); }
+      rcReset(); renderRc(); renderList();
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { $('sht_RcSave').disabled = false; }
+  }
+  function editRc(id) {
+    const c = (D.rc || []).find(function (r) { return r.ChangeID === id; }); if (!c) return;
+    rcEditId = id; $('sht_RcMonth').innerHTML = shrMonthOpts(c.FromMonth); $('sht_RcMonth').value = c.FromMonth; $('sht_RcAmt').value = glN(c.MonthlyRent); $('sht_RcNote').value = c.Note || '';
+    $('sht_RcCancel').style.display = ''; $('sht_RcSave').textContent = '💾 ' + t('পরিবর্তন সেভ', 'Save change'); renderRc(); $('sht_RcAmt').focus();
+  }
+  async function delRc(id) {
+    const c = (D.rc || []).find(function (r) { return r.ChangeID === id; }); if (!c) return;
+    if (!confirm(shrMonthBn(c.FromMonth) + t(' থেকে ৳', ' rate ৳') + glMoney(c.MonthlyRent) + t(' হারটি মুছবেন? এর পরের মাসগুলোতে আগের হার চলবে।', ' — delete? Earlier rate applies after.'))) return;
+    const { error } = await supabaseClient.from('ShopRentChange').delete().eq('ChangeID', id); if (error) throw new Error(error.message);
+    shrMarkDirty(); showToast(t('মুছে ফেলা হয়েছে ✅', 'Deleted ✅'), 'success');
+    D = await shrLoadAll(); loadedAt = Date.now();
+    if (await shrFixCharges(D, c.TenantID, c.FromMonth)) { D = await shrLoadAll(); loadedAt = Date.now(); }
+    if (rcEditId === id) rcReset(); renderRc(); renderList();
+  }
+  $('sht_RcSave').addEventListener('click', saveRc);
+  $('sht_RcCancel').addEventListener('click', function () { rcReset(); renderRc(); });
+  $('sht_RcList').addEventListener('click', async function (e) {
+    const b = e.target.closest('[data-rc]'); if (!b || b.disabled || b.__busy) return; b.__busy = true;
+    const id = b.getAttribute('data-id'), a = b.getAttribute('data-rc');
+    try {
+      if (a === 'view') { window.__shrLedgerTen = editId; shrGo('shopLedger', t('ভাড়াটিয়া লেজার', 'Tenant Ledger')); }
+      else if (a === 'edit') { if (id) editRc(id); else { $('sht_Rent').focus(); $('sht_Rent').select(); } }
+      else if (a === 'del') await delRc(id);
+      else if (a === 'save') await saveRc();
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { b.__busy = false; }
+  });
+  const occBy = function (sid) { return D.tens.find(function (x) { return x.ShopID === sid && x.Status === 'Active' && x.TenantID !== editId; }) || null; };
+  function fillShops(sel) {
+    $('sht_Shop').innerHTML = `<option value="">${t('— দোকান বাছাই করুন —', '— choose shop —')}</option>` + D.shops.filter(function (s) { return s.Status !== 'Closed' || s.ShopID === sel; }).map(function (s) {
+      const o = occBy(s.ShopID); return `<option value="${attr(s.ShopID)}">${t('দোকান ', 'Shop ')}${escapeHtml(s.ShopNo || '')}${s.Location ? ' — ' + escapeHtml(s.Location) : ''} (${o ? escapeHtml(o.Name || '') : t('খালি', 'vacant')})</option>`; }).join('');
+    $('sht_Shop').value = sel || '';
+  }
+  function resetForm() {
+    editId = null; $('sht_FormTitle').textContent = t('নতুন ভাড়াটিয়া', 'New tenant');
+    ['sht_Name', 'sht_Father', 'sht_Mobile', 'sht_Nid', 'sht_Addr', 'sht_Biz', 'sht_Rent', 'sht_Dep', 'sht_Day', 'sht_OpenDue', 'sht_OpenDep', 'sht_Note'].forEach(function (id) { $(id).value = ''; });
+    $('sht_Start').value = isoToDmy(today); $('sht_End').value = ''; $('sht_OpenDate').value = isoToDmy(today); $('sht_Status').value = 'Active';
+    content.querySelectorAll('.sht-new').forEach(function (el) { el.style.display = ''; });
+    fillShops(''); $('sht_CancelBtn').style.display = 'none'; $('sht_RentL').textContent = t('মাসিক ভাড়া — শুরুর (৳)', 'Monthly rent — starting (৳)'); rcReset(); renderRc(); renderList();
+  }
+  function openEdit(id) {
+    const x = D.tens.find(function (r) { return r.TenantID === id; }); if (!x) return;
+    editId = id; selId = id; $('sht_FormTitle').textContent = t('এডিটঃ ', 'Edit: ') + (x.Name || id);
+    fillShops(x.ShopID);
+    $('sht_Name').value = x.Name || ''; $('sht_Father').value = x.FatherName || ''; $('sht_Mobile').value = x.Mobile || ''; $('sht_Nid').value = x.NID || ''; $('sht_Addr').value = x.Address || ''; $('sht_Biz').value = x.BusinessName || '';
+    $('sht_Start').value = isoToDmy(x.StartDate); $('sht_End').value = isoToDmy(x.EndDate); $('sht_Rent').value = x.MonthlyRent || ''; $('sht_Dep').value = x.DepositAmount || ''; $('sht_Day').value = x.DueDay || '';
+    $('sht_Status').value = x.Status === 'Left' ? 'Left' : 'Active'; $('sht_Note').value = x.Note || '';
+    content.querySelectorAll('.sht-new').forEach(function (el) { el.style.display = 'none'; });   // শুরুর বকেয়া/জামানত পরে ভাউচারে বদলাবেন
+    const nRc = shrRcList(D, id).length; $('sht_RentL').textContent = t('মাসিক ভাড়া — শুরুর (৳)', 'Monthly rent — starting (৳)') + (nRc ? t(' · এখন ৳', ' · now ৳') + glMoney(shrCurRent(D, x)) : '');
+    $('sht_CancelBtn').style.display = ''; rcReset(); renderRc(); renderList(); window.scrollTo({ top: 0, behavior: 'smooth' }); $('sht_Name').focus();
+  }
+  function renderList() {
+    const S = {}; D.tens.forEach(function (x) { S[x.TenantID] = shrState(x, D, today); });
+    const act = D.tens.filter(function (x) { return x.Status === 'Active'; });
+    const sum = function (f) { return act.reduce(function (s, x) { return s + f(x); }, 0); };
+    const occ = {}; act.forEach(function (x) { occ[x.ShopID] = 1; });
+    const vac = D.shops.filter(function (s) { return s.Status !== 'Closed' && !occ[s.ShopID]; }).length;
+    const leftDue = D.tens.filter(function (x) { return x.Status !== 'Active'; }).reduce(function (s, x) { return s + Math.max(0, S[x.TenantID].due); }, 0);
+    $('sht_Cards').innerHTML = `<div class="own-card"><small>👤 ${t('চালু ভাড়াটিয়া', 'Active tenants')}</small><b>${act.length}</b></div><div class="own-card" style="${vac ? 'background:#fff6e0;border-color:#e3b75c;' : ''}"><small>🔑 ${t('খালি দোকান', 'Vacant shops')}</small><b>${vac}</b></div>
+      <div class="own-card"><small>${t('মাসিক মোট ভাড়া (এখনকার হার)', 'Monthly rent total (current)')}</small><b>৳${glMoney(sum(function (x) { return shrCurRent(D, x); }))}</b></div>
+      <div class="own-card hl"><small>${t('মোট বকেয়া ভাড়া', 'Total rent due')}</small><b>৳${glMoney(sum(function (x) { return S[x.TenantID].due; }) + leftDue)}</b></div>
+      <div class="own-card"><small>🔒 ${t('হাতে জামানত', 'Deposits held')}</small><b>৳${glMoney(D.tens.reduce(function (s, x) { return s + S[x.TenantID].held; }, 0))}</b></div>
+      <div class="own-card"><small>${t('জামানত বাকি', 'Deposit pending')}</small><b>৳${glMoney(sum(function (x) { return S[x.TenantID].depBaki; }))}</b></div>`;
+    if (!D.tens.length) { $('sht_List').innerHTML = `<div class="empty-state">${t('এখনো কোনো ভাড়াটিয়া নেই — উপরের ফর্মে যোগ করুন।', 'No tenants yet — add one above.')}</div>`; return; }
+    let sl = 0;
+    const sec = function (key, title, list) {
+      if (!list.length) return '';
+      let sDue = 0, sHeld = 0, sRent = 0;
+      const rows = shrByShop(D, list).map(function (x) {
+        const s = S[x.TenantID], cr = shrCurRent(D, x); sDue += s.due; sHeld += s.held; sRent += cr;
+        const ic = function (a, icon, title2, dis) { return `<button type="button" class="own-ic" data-st="${a}" data-id="${attr(x.TenantID)}" title="${attr(title2)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
+        const used = D.txns.some(function (r) { return r.TenantID === x.TenantID; });
+        return `<tr data-id="${attr(x.TenantID)}" class="${key === 'Left' ? 'gl-closed' : ''} ${selId === x.TenantID ? 'sel' : ''}"><td>${++sl}</td><td><b>${escapeHtml(shrShopNo(D, x))}</b></td>
+          <td class="l"><b>${escapeHtml(x.Name || '')}</b>${x.Mobile ? `<br><small>${escapeHtml(x.Mobile)}</small>` : ''}</td><td class="gl-hide-m">${escapeHtml(formatShortDate(glD10(x.StartDate)))}${x.EndDate ? '<br><small>' + escapeHtml(formatShortDate(glD10(x.EndDate))) + '</small>' : ''}</td>
+          <td class="r"><b>${glMoney(cr)}</b>${Math.abs(cr - glN(x.MonthlyRent)) > 0.004 ? `<br><small class="shr-rc">${cr > glN(x.MonthlyRent) ? '↑' : '↓'} ${t('শুরু ', 'start ')}${glMoney(x.MonthlyRent)}</small>` : ''}</td><td class="r gl-hide-m">${glMoney(s.held)}${s.dep ? `<br><small>${t('চুক্তি ', 'agreed ')}${glMoney(s.dep)}${s.depBaki ? ' · <span class="gl-neg">' + t('বাকি ', 'due ') + glMoney(s.depBaki) + '</span>' : ''}</small>` : ''}</td>
+          <td class="r"><b class="${s.due > 0.004 ? 'gl-neg' : s.due < -0.004 ? 'gl-pos' : ''}">${glMoney(s.due)}</b>${s.unpaid.length ? `<br><span class="shr-um">${escapeHtml(shrUnpaidTxt(s.unpaid))}</span>` : ''}${s.drafts ? `<br><small>${s.drafts} ${t('খসড়া', 'draft')}</small>` : ''}</td>
+          <td style="white-space:nowrap;">${ic('view', '👁️', t('লেজার দেখুন', 'View ledger'))}${ic('edit', '✏️', t('এডিট', 'Edit'))}${ic('del', '🗑️', used ? t('লেনদেন আছে — মোছা যাবে না (চাইলে "ছেড়ে দিয়েছে" করুন)', 'Has entries — cannot delete') : t('ডিলিট', 'Delete'), used)}${ic('save', '💾', t('সেভ (এডিট চলাকালে)', 'Save (while editing)'), editId !== x.TenantID)}<span class="gl-hide-m">${ic('txn', '➕', t('ভাড়া আদায় / জামানত', 'Collect rent / deposit'))}</span></td></tr>`;
+      }).join('');
+      return `<tr class="gl-sec"><td colspan="8">${title} (${list.length}${t('জন', '')})</td></tr>${rows}<tr class="gl-sub"><td></td><td colspan="3" class="l">${t('মোট', 'Total')}</td><td class="r">${glMoney(sRent)}</td><td class="r gl-hide-m">${glMoney(sHeld)}</td><td class="r">${glMoney(sDue)}</td><td></td></tr>`;
+    };
+    $('sht_List').innerHTML = `<table class="own-tbl gl-tbl"><thead><tr><th>${t('ক্রঃ', 'Sl')}</th><th>${t('দোকান', 'Shop')}</th><th>${t('ভাড়াটিয়া', 'Tenant')}</th><th class="gl-hide-m">${t('চুক্তি', 'Agreement')}</th><th>${t('মাসিক ভাড়া', 'Rent')}</th><th class="gl-hide-m">${t('জামানত জমা', 'Deposit held')}</th><th>${t('বকেয়া ভাড়া', 'Rent due')}</th><th></th></tr></thead>
+      <tbody>${sec('Active', '👤 ' + t('চালু ভাড়াটিয়া', 'Active tenants'), act)}${sec('Left', '🚪 ' + t('ছেড়ে দিয়েছে', 'Left'), D.tens.filter(function (x) { return x.Status !== 'Active'; }))}</tbody></table>`;
+  }
+  async function save() {
+    const sid = $('sht_Shop').value, name = $('sht_Name').value.trim(), start = dmyIso('sht_Start');
+    if (!sid) { showToast(t('দোকান বাছাই করুন।', 'Choose a shop.'), 'error'); $('sht_Shop').focus(); return; }
+    if (!name) { showToast(t('ভাড়াটিয়ার নাম দিন।', 'Enter the tenant name.'), 'error'); $('sht_Name').focus(); return; }
+    if (!start) { showToast(t('চুক্তি শুরুর তারিখ দিন (দিন-মাস-বছর)।', 'Enter the start date.'), 'error'); $('sht_Start').focus(); return; }
+    const bad = ['sht_End', 'sht_OpenDate'].find(function (id) { return $(id).value && !dmyIso(id); });
+    if (bad) { showToast(t('তারিখ ঠিক নেই (দিন-মাস-বছর)।', 'Invalid date (dd-mm-yyyy).'), 'error'); $(bad).focus(); return; }
+    const rent = glN($('sht_Rent').value), dep = glN($('sht_Dep').value), day = $('sht_Day').value === '' ? null : Math.round(Number($('sht_Day').value));
+    if (!(rent > 0)) { showToast(t('মাসিক ভাড়া দিন।', 'Enter the monthly rent.'), 'error'); $('sht_Rent').focus(); return; }
+    if (dep < 0 || glN($('sht_OpenDue').value) < 0 || glN($('sht_OpenDep').value) < 0) { showToast(t('মাইনাস টাকা দেওয়া যাবে না।', 'Amounts cannot be negative.'), 'error'); return; }
+    if (day !== null && (day < 1 || day > 31)) { showToast(t('মাসের তারিখ ১ থেকে ৩১ এর মধ্যে দিন।', 'Day must be 1–31.'), 'error'); $('sht_Day').focus(); return; }
+    const status = $('sht_Status').value;
+    if (status === 'Active') { const o = occBy(sid); if (o && !confirm(t('এই দোকানে এখন ', 'This shop already has ') + (o.Name || '') + t(' আছেন (চালু)। তবুও সেভ করবেন?', ' (active). Save anyway?'))) return; }
+    const rec = { ShopID: sid, Name: name, FatherName: $('sht_Father').value.trim(), Mobile: $('sht_Mobile').value.trim(), NID: $('sht_Nid').value.trim(), Address: $('sht_Addr').value.trim(), BusinessName: $('sht_Biz').value.trim(),
+      StartDate: start, EndDate: dmyIso('sht_End') || null, MonthlyRent: rent, DepositAmount: dep, DueDay: day, Status: status, Note: $('sht_Note').value.trim() };
+    $('sht_SaveBtn').disabled = true;
+    try {
+      let row;
+      let rentFixFrom = null;
+      if (editId) {
+        const old = D.tens.find(function (r) { return r.TenantID === editId; }) || {};
+        const { data, error } = await supabaseClient.from('ShopTenant').update(rec).eq('TenantID', editId).select().single(); if (error) throw new Error(shrErr(error.message)); row = data;
+        if (Math.abs(glN(old.MonthlyRent) - rent) > 0.004 || glD10(old.StartDate) !== start) rentFixFrom = '';   // শুরুর ভাড়া/তারিখ বদলেছে — ধার্য করা মাসগুলো মিলিয়ে দেখা
+      }
+      else {
+        const { data, error } = await supabaseClient.from('ShopTenant').insert(Object.assign({ CreatedBy: (currentUser && currentUser.Email) || '' }, rec)).select().single(); if (error) throw new Error(shrErr(error.message)); row = data;
+        const od = dmyIso('sht_OpenDate') || today, by = (currentUser && currentUser.Email) || '', open = [];
+        if (glN($('sht_OpenDue').value) > 0) open.push({ TenantID: row.TenantID, ShopID: sid, Date: od, Type: 'RentOpen', Amount: glN($('sht_OpenDue').value), Note: t('সফটওয়্যার শুরুর আগের বকেয়া ভাড়া', 'Opening rent due'), Status: 'Posted', CreatedBy: by });
+        if (glN($('sht_OpenDep').value) > 0) open.push({ TenantID: row.TenantID, ShopID: sid, Date: od, Type: 'DepOpen', Amount: glN($('sht_OpenDep').value), Note: t('আগে নেওয়া জামানত', 'Opening deposit'), Status: 'Posted', CreatedBy: by });
+        if (open.length) { const r2 = await supabaseClient.from('ShopTxn').insert(open); if (r2.error) throw new Error(t('ভাড়াটিয়া সেভ হয়েছে, কিন্তু প্রারম্ভিক এন্ট্রি হয়নিঃ ', 'Tenant saved, but opening entries failed: ') + r2.error.message); }
+      }
+      shrMarkDirty();
+      showToast(t('সেভ হয়েছে ✅ ', 'Saved ✅ ') + row.Name + ' (' + row.TenantID + ')', 'success');
+      D = await shrLoadAll(); loadedAt = Date.now();
+      if (rentFixFrom !== null && await shrFixCharges(D, row.TenantID, rentFixFrom)) { D = await shrLoadAll(); loadedAt = Date.now(); }
+      selId = row.TenantID; resetForm(); $('sht_Shop').focus();
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { $('sht_SaveBtn').disabled = false; }
+  }
+  $('sht_Shop').addEventListener('change', function () { const s = D.shopMap[$('sht_Shop').value]; if (s && !editId && $('sht_Rent').value === '' && glN(s.DefaultRent)) $('sht_Rent').value = glN(s.DefaultRent); });
+  $('sht_SaveBtn').addEventListener('click', save);
+  $('sht_CancelBtn').addEventListener('click', resetForm);
+  let lastTap = { id: '', at: 0 };
+  $('sht_List').addEventListener('click', async function (e) {
+    const b = e.target.closest('[data-st]');
+    if (!b) {
+      const tr = e.target.closest('tr[data-id]'); if (!tr) return;
+      const id = tr.getAttribute('data-id'), now = Date.now();
+      if (lastTap.id === id && now - lastTap.at < 450) { lastTap = { id: '', at: 0 }; openEdit(id); return; }
+      lastTap = { id: id, at: now }; selId = id; content.querySelectorAll('#sht_List tr.sel').forEach(function (r) { r.classList.remove('sel'); }); tr.classList.add('sel'); return;
+    }
+    if (b.disabled || b.__busy) return; b.__busy = true;
+    const id = b.getAttribute('data-id'), act = b.getAttribute('data-st');
+    try {
+      if (act === 'view') { window.__shrLedgerTen = id; shrGo('shopLedger', t('ভাড়াটিয়া লেজার', 'Tenant Ledger')); }
+      else if (act === 'txn') { window.__shrTxnTen = id; shrGo('shopTxn', t('ভাড়া আদায় ও জামানত', 'Rent & Deposit Voucher')); }
+      else if (act === 'edit') openEdit(id);
+      else if (act === 'save') await save();
+      else if (act === 'del') {
+        if (D.txns.some(function (r) { return r.TenantID === id; })) { showToast(t('লেনদেন আছে — মোছা যাবে না।', 'Has entries — cannot delete.'), 'error'); return; }
+        if (!confirm(t('ভাড়াটিয়া মুছবেনঃ ', 'Delete tenant: ') + ((D.tens.find(function (x) { return x.TenantID === id; }) || {}).Name || id) + '?')) return;
+        const { error } = await supabaseClient.from('ShopTenant').update({ Status: 'Deleted' }).eq('TenantID', id); if (error) throw new Error(error.message);
+        showToast(t('মুছে ফেলা হয়েছে ✅', 'Deleted ✅'), 'success'); shrMarkDirty(); D = await shrLoadAll(); loadedAt = Date.now(); if (editId === id) resetForm(); else renderList();
+      }
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { b.__busy = false; }
+  });
+  resetForm();
+  if (window.__shrTenEdit) { const id = window.__shrTenEdit; window.__shrTenEdit = null; openEdit(id); }
+  else if (window.__shrTenShop) { const sid = window.__shrTenShop; window.__shrTenShop = null; fillShops(sid); $('sht_Shop').dispatchEvent(new Event('change')); $('sht_Name').focus(); }
+  shrWatch(content, function () { return loadedAt; }, async function () { try { D = await shrLoadAll(); loadedAt = Date.now(); fillShops($('sht_Shop').value); renderList(); } catch (e) {} });
+}
+
+/* ---------- দোকান ভাড়া → মাসিক ভাড়া ধার্য (প্রত্যেকের আলাদা টিক) ---------- */
+async function renderShopRentCharge(content) {
+  let D; const TT = t('মাসিক ভাড়া ধার্য', 'Monthly Rent Charge');
+  try { D = await shrLoadAll(); } catch (e) { shrErrPage(content, TT, e.message); return; }
+  let loadedAt = Date.now(); const ticks = {}, amts = {}, touched = {};   // মাস বদলালে টিক/টাকা নতুন করে
+  const cur = shrYm(glToday());
+  content.innerHTML = `<style>${DMY_CSS}${VOUCHER_GRID_CSS}${OWN_CSS}${GL_CSS}${SHR_CSS}</style>
+    <div class="page-head"><div><h1>${TT}</h1><p>${t('মাস বাছাই করুন → যাদের ভাড়া ধার্য করবেন তাদের টিক দিন (টাকা বদলানো যায়) → "ধার্য করুন"। ধার্য করা ভাড়া লেজারে পাওনা (খরচ) হিসাবে উঠবে; একই মাস দুইবার উঠবে না।', 'Pick a month → tick each tenant to charge (amount editable) → Charge. One charge per tenant per month.')}</p></div></div>
+    <div class="own-cards" id="shc_Cards"></div>
+    <div class="panel">
+      <div class="shr-bar" id="shc_Bar">
+        <div class="field"><label class="vmain">${t('মাস', 'Month')}</label><select id="shc_Month">${shrMonthOpts(cur)}</select></div>
+        <div class="field"><label>${t('ধার্যের তারিখ', 'Charge date')}</label>${dmyDateField('shc_Date', cur + '-01')}</div>
+        <div class="field"><label>&nbsp;</label><div style="display:flex;gap:6px;"><button type="button" class="btn btn-outline" id="shc_All" style="width:auto;min-height:34px;">☑ ${t('সব টিক', 'Tick all')}</button><button type="button" class="btn btn-outline" id="shc_None" style="width:auto;min-height:34px;">☐ ${t('টিক তুলুন', 'Untick')}</button></div></div>
+      </div>
+      <div class="own-wrap" id="shc_List"></div>
+      <div class="own-btns"><button type="button" class="btn btn-primary" id="shc_Go">✅ ${t('টিক দেওয়া ভাড়া ধার্য করুন', 'Charge ticked rents')}</button></div>
+      <div class="gl-hint" style="margin-top:6px;">${t('সবুজ সারি = এই মাসের ভাড়া আগেই ধার্য হয়েছে (👁️ দেখুন, 🗑️ ভুল হলে মুছুন — এডমিন পাসওয়ার্ড লাগবে)। ভাড়ার ঘরে Enter চাপলে পরের ঘরে যায়।', 'Green = already charged this month. Enter moves to the next amount.')}</div>
+    </div>`;
+  const $ = function (id) { return document.getElementById(id); };
+  wireDmyFields(content);
+  const ym = function () { return $('shc_Month').value; };
+  function eligible() {
+    const m = ym(), ms = m + '-01', me = shrMonthEnd(m);
+    return shrByShop(D, D.tens.filter(function (x) {
+      if (x.StartDate && glD10(x.StartDate) > me) return false;
+      if (x.Status === 'Active') return !x.EndDate || glD10(x.EndDate) >= ms;
+      return !!shrChargeOf(D, x.TenantID, m) || (!!x.EndDate && glD10(x.EndDate) >= ms);   // ছেড়ে দিলেও শেষ মাসের ভাড়া
+    }));
+  }
+  function render() {
+    const m = ym(), list = eligible(), date = dmyIso('shc_Date') || (m + '-01');
+    if (!list.length) { $('shc_List').innerHTML = `<div class="empty-state">${D.tens.length ? t('এই মাসে চালু কোনো ভাড়াটিয়া নেই।', 'No active tenants in this month.') : t('আগে "ভাড়াটিয়া ও চুক্তি" পেজে ভাড়াটিয়া যোগ করুন।', 'Add tenants first.')}</div>`; $('shc_Cards').innerHTML = ''; return; }
+    let nDone = 0, sDone = 0, nTick = 0, sTick = 0;
+    const body = list.map(function (x, i) {
+      const ch = shrChargeOf(D, x.TenantID, m), st = shrState(x, D, date), key = m + '|' + x.TenantID;
+      if (ch) { nDone++; sDone += glN(ch.Amount); }
+      if (!(key in ticks)) ticks[key] = !ch && x.Status === 'Active';
+      const rate = shrRentFor(D, x, m), prevRate = x.StartDate && shrYm(x.StartDate) < m ? shrRentFor(D, x, shrAddMonth(m, -1)) : rate;
+      if (!(key in amts)) amts[key] = rate;
+      const on = !ch && ticks[key]; if (on) { nTick++; sTick += glN(amts[key]); }
+      const ic = function (a, icon, title, dis) { return `<button type="button" class="own-ic" data-sc="${a}" data-id="${attr(ch ? ch.TxnID : '')}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
+      return `<tr data-tid="${attr(x.TenantID)}" class="${ch ? 'shr-done' : on ? '' : 'shr-off'}"><td><input type="checkbox" class="shr-chk" data-k="${attr(key)}" ${ch || on ? 'checked' : ''} ${ch ? 'disabled' : ''}></td><td>${i + 1}</td><td><b>${escapeHtml(shrShopNo(D, x))}</b></td>
+        <td class="l"><b>${escapeHtml(x.Name || '')}</b>${x.Status !== 'Active' ? ' <small>(' + t('ছেড়ে দিয়েছে', 'left') + ')</small>' : ''}</td>
+        <td class="r">${ch ? `<b>${glMoney(ch.Amount)}</b>${Math.abs(glN(ch.Amount) - rate) > 0.004 ? `<br><small class="shr-rc">${t('হার ', 'rate ')}${glMoney(rate)}</small>` : ''}` : `<input type="number" class="shr-amt" data-k="${attr(key)}" step="any" min="0" inputmode="decimal" value="${attr(amts[key])}">`}${Math.abs(prevRate - rate) > 0.004 ? `<br><small class="shr-rc">${rate > prevRate ? '↑' : '↓'} ${t('নতুন হার ', 'new rate ')}${glMoney(prevRate)} → ${glMoney(rate)}</small>` : !ch && Math.abs(glN(amts[key]) - rate) > 0.004 ? `<br><small class="shr-rc">${t('হার ', 'rate ')}${glMoney(rate)}</small>` : ''}</td>
+        <td class="r gl-hide-m"><span class="${st.due > 0.004 ? 'gl-neg' : ''}">${glMoney(st.due)}</span>${st.unpaid.length ? `<br><span class="shr-um">${escapeHtml(shrUnpaidTxt(st.unpaid))}</span>` : ''}</td>
+        <td>${ch ? `<span class="shr-tag ${ch.Status === 'Posted' ? 'ok' : 'dr'}">${ch.Status === 'Posted' ? '✅ ' + t('ধার্য', 'charged') : t('খসড়া', 'draft')}</span><br><small>${escapeHtml(ch.TxnID)}</small>` : `<span class="shr-tag no">${t('ধার্য হয়নি', 'not charged')}</span>`}</td>
+        <td style="white-space:nowrap;">${ic('view', '👁️', t('দেখুন / প্রিন্ট', 'View'), !ch)}${ic('del', '🗑️', t('এই মাসের ধার্য মুছুন', 'Delete this charge'), !ch)}</td></tr>`;
+    }).join('');
+    $('shc_List').innerHTML = `<table class="own-tbl gl-tbl"><thead><tr><th>✔</th><th>${t('ক্রঃ', 'Sl')}</th><th>${t('দোকান', 'Shop')}</th><th>${t('ভাড়াটিয়া', 'Tenant')}</th><th>${t('ভাড়া (৳)', 'Rent (৳)')}</th><th class="gl-hide-m">${t('এখনকার বকেয়া', 'Current due')}</th><th>${t('অবস্থা', 'Status')}</th><th></th></tr></thead>
+      <tbody>${body}</tbody><tfoot><tr><td></td><td colspan="3" class="l">${t('টিক দেওয়া ', 'Ticked ')}${nTick}${t('জন', '')}</td><td class="r">${glMoney(sTick)}</td><td class="gl-hide-m"></td><td colspan="2">${t('ধার্য হয়েছে ', 'charged ')}${nDone}${t('জন', '')} · ৳${glMoney(sDone)}</td></tr></tfoot></table>`;
+    $('shc_Cards').innerHTML = `<div class="own-card"><small>📅 ${t('মাস', 'Month')}</small><b>${escapeHtml(shrMonthBn(m))}</b></div><div class="own-card"><small>👤 ${t('ভাড়াটিয়া', 'Tenants')}</small><b>${list.length}</b></div>
+      <div class="own-card" style="background:#ecfdf3;border-color:#b7e2c4;"><small>✅ ${t('ধার্য হয়েছে', 'Charged')}</small><b>${nDone} · ৳${glMoney(sDone)}</b></div><div class="own-card hl"><small>☑ ${t('এখন ধার্য হবে', 'To charge now')}</small><b>${nTick} · ৳${glMoney(sTick)}</b></div>`;
+    $('shc_Go').textContent = '✅ ' + t('টিক দেওয়া ভাড়া ধার্য করুন', 'Charge ticked rents') + (nTick ? ' (' + nTick + t('জন · ৳', ' · ৳') + glMoney(sTick) + ')' : '');
+    $('shc_Go').disabled = !nTick;
+    wireSequentialKeyNav($('shc_List'));
+  }
+  const refreshFoot = function () { const pos = $('shc_List').scrollTop, ae = document.activeElement, k = ae && ae.classList && ae.classList.contains('shr-amt') ? ae.getAttribute('data-k') : null; render(); $('shc_List').scrollTop = pos; if (k) { const el = $('shc_List').querySelector(`.shr-amt[data-k="${CSS.escape(k)}"]`); if (el) el.focus(); } };
+  $('shc_List').addEventListener('change', function (e) {
+    const c = e.target.closest('.shr-chk'); if (c) { ticks[c.getAttribute('data-k')] = c.checked; refreshFoot(); return; }
+    const a = e.target.closest('.shr-amt'); if (a) { amts[a.getAttribute('data-k')] = glN(a.value); touched[a.getAttribute('data-k')] = 1; const k = a.getAttribute('data-k'); if (glN(a.value) > 0) ticks[k] = true; refreshFoot(); }
+  });
+  $('shc_List').addEventListener('click', async function (e) {
+    const b = e.target.closest('[data-sc]'); if (!b || b.disabled || b.__busy) return; b.__busy = true;
+    try {
+      const id = b.getAttribute('data-id');
+      if (b.getAttribute('data-sc') === 'view') await shrTxnPrint(id);
+      else if (await shrDeleteTxn(id)) { showToast(t('মুছে ফেলা হয়েছে ✅', 'Deleted ✅'), 'success'); D = await shrLoadAll(); loadedAt = Date.now(); render(); }
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { b.__busy = false; }
+  });
+  $('shc_Month').addEventListener('change', function () { $('shc_Date').value = isoToDmy(ym() + '-01'); render(); });
+  $('shc_Date').addEventListener('change', render);
+  $('shc_All').addEventListener('click', function () { eligible().forEach(function (x) { ticks[ym() + '|' + x.TenantID] = true; }); render(); });
+  $('shc_None').addEventListener('click', function () { eligible().forEach(function (x) { ticks[ym() + '|' + x.TenantID] = false; }); render(); });
+  $('shc_Go').addEventListener('click', async function () {
+    const m = ym(), date = dmyIso('shc_Date');
+    if (!date) { showToast(t('ধার্যের তারিখ ঠিক নেই (দিন-মাস-বছর)।', 'Invalid charge date.'), 'error'); $('shc_Date').focus(); return; }
+    // ইনপুটে টাইপ করা কিন্তু change হয়নি এমন টাকাও ধরা
+    $('shc_List').querySelectorAll('.shr-amt').forEach(function (a) { amts[a.getAttribute('data-k')] = glN(a.value); });
+    const by = (currentUser && currentUser.Email) || '';
+    const rows = eligible().filter(function (x) { return ticks[m + '|' + x.TenantID] && !shrChargeOf(D, x.TenantID, m); }).map(function (x) {
+      return { TenantID: x.TenantID, ShopID: x.ShopID, Date: date, Type: 'RentDue', Month: m, Amount: glR2(amts[m + '|' + x.TenantID]), Note: shrMonthBn(m) + t(' মাসের ভাড়া', ' rent'), Status: 'Posted', CreatedBy: by };
+    });
+    if (!rows.length) { showToast(t('কাউকে টিক দেওয়া হয়নি।', 'Nobody is ticked.'), 'error'); return; }
+    const zero = rows.filter(function (r) { return !(r.Amount > 0); });
+    if (zero.length) { showToast(t('টিক দেওয়া সারিতে ভাড়ার টাকা দিন (শূন্য হতে পারে না)।', 'Enter the rent for every ticked row.'), 'error'); return; }
+    const total = rows.reduce(function (s, r) { return s + r.Amount; }, 0);
+    if (!confirm(shrMonthBn(m) + t(' মাসের ভাড়া ধার্য হবেঃ ', ' rent will be charged: ') + rows.length + t('জন · মোট ৳', ' tenants · total ৳') + glMoney(total) + t('। চালিয়ে যাবেন?', '. Continue?'))) return;
+    const btn = $('shc_Go'); btn.disabled = true;
+    try {
+      // আবার দেখে নেওয়া — অন্য কেউ এর মধ্যে ধার্য করে থাকলে দুইবার যেন না হয়
+      const ck = await supabaseClient.from('ShopTxn').select('TenantID').eq('Type', 'RentDue').eq('Month', m).in('TenantID', rows.map(function (r) { return r.TenantID; }));
+      if (ck.error) throw new Error(shrErr(ck.error.message));
+      const done = {}; (ck.data || []).forEach(function (r) { done[r.TenantID] = 1; });
+      const go = rows.filter(function (r) { return !done[r.TenantID]; });
+      if (go.length) { const { error } = await supabaseClient.from('ShopTxn').insert(go); if (error) throw new Error(shrErr(error.message)); }
+      shrMarkDirty();
+      showToast(t('ভাড়া ধার্য হয়েছে ✅ ', 'Rent charged ✅ ') + go.length + t('জন · ৳', ' · ৳') + glMoney(go.reduce(function (s, r) { return s + r.Amount; }, 0)) + (go.length < rows.length ? t(' (কয়েকজনের আগেই ধার্য ছিল)', ' (some were already charged)') : ''), 'success');
+      D = await shrLoadAll(); loadedAt = Date.now(); render();
+    } catch (err) { showToast(err.message, 'error'); render(); }
+  });
+  render();
+  shrWatch(content, function () { return loadedAt; }, async function () { try { D = await shrLoadAll(); loadedAt = Date.now(); Object.keys(amts).forEach(function (k) { if (!touched[k]) delete amts[k]; }); render(); } catch (e) {} });   // হার বদলালে হাতে না-বদলানো টাকা নতুন হারে
+}
+
+/* ---------- দোকান ভাড়া → ভাড়া আদায় ও জামানত (ভাউচার) ---------- */
+async function renderShopRentTxn(content) {
+  let D; const TT = t('ভাড়া আদায় ও জামানত', 'Rent & Deposit Voucher');
+  try { D = await shrLoadAll(); } catch (e) { shrErrPage(content, TT, e.message); return; }
+  const today = glToday(), fy = await getFiscalYearStart(today);
+  let editId = null, selId = '', loadedAt = Date.now();
+  const tenOpts = function (keep) {
+    return shrByName(D.tens.filter(function (x) { return x.Status === 'Active' || x.TenantID === keep || shrState(x, D, today).due > 0.004 || shrState(x, D, today).held > 0.004; }))
+      .map(function (x) { return `<option value="${attr(x.TenantID)}">${escapeHtml(x.Name || '')} — ${t('দোকান ', 'shop ')}${escapeHtml(shrShopNo(D, x))}${x.Status !== 'Active' ? ' (' + t('ছেড়ে দিয়েছে', 'left') + ')' : ''}</option>`; }).join('');
+  };
+  content.innerHTML = `<style>${DMY_CSS}${VOUCHER_GRID_CSS}${OWN_CSS}${GL_CSS}${SHR_CSS}</style>
+    <div class="page-head"><div><h1>${TT}</h1><p>${t('ভাড়া আদায় · জামানত গ্রহণ · জামানত ফেরত · জামানত থেকে সমন্বয় · মওকুফ · অন্যান্য পাওনা — পোস্ট করলে নগদ/ব্যাংক বইয়ে যায়', 'Collect rent · deposits · refunds · adjustments — posting goes to the cash/bank book')}</p></div></div>
+    ${D.tens.length ? '' : `<div class="panel"><div class="empty-state">${t('আগে "ভাড়াটিয়া ও চুক্তি" পেজে ভাড়াটিয়া যোগ করুন।', 'Add tenants first.')}</div></div>`}
+    <div class="panel" ${D.tens.length ? '' : 'style="display:none;"'}><h4 id="shv_FormTitle" style="margin:0 0 10px;font-size:14px;">${t('নতুন ভাউচার', 'New voucher')}</h4>
+      <div class="gl-info" id="shv_Info"></div>
+      <div class="vg2" id="shv_Form">
+        <div class="field"><label>${t('তারিখ', 'Date')}</label>${dmyDateField('shv_Date', today)}</div>
+        <div class="field"><label class="vmain">${t('ভাড়াটিয়া', 'Tenant')}</label><select id="shv_Ten"><option value="">${t('— ভাড়াটিয়া বাছাই করুন —', '— choose tenant —')}</option>${tenOpts()}</select></div>
+        <div class="field vfull"><label>${t('ভাউচার ধরন', 'Voucher type')}</label><select id="shv_Type">${Object.keys(SHR_TYPES).map(function (k) { return `<option value="${k}">${escapeHtml(t(SHR_TYPES[k].bn, SHR_TYPES[k].en))}</option>`; }).join('')}</select><div class="gl-hint" id="shv_Hint"></div></div>
+        <div class="field" id="shv_MF"><label>${t('কোন মাসের', 'For month')}</label><select id="shv_Month">${shrMonthOpts('', t('— মাস (ঐচ্ছিক) —', '— month (optional) —'))}</select></div>
+        <div class="field"><label class="vmain">${t('টাকার পরিমাণ (৳)', 'Amount (৳)')}</label><input id="shv_Amt" type="number" step="any" min="0" inputmode="decimal"></div>
+        <div class="field" id="shv_AF"><label id="shv_AL">${t('টাকা কোথায় এলো', 'Received into')}</label><select id="shv_Acc"></select></div>
+        <div class="field"><label>${t('রিসিট নং (বই থেকে)', 'Receipt no. (book)')}</label><input id="shv_Rcpt" autocomplete="off"></div>
+        <div class="field vfull"><label>${t('বিবরণ / নোট', 'Particulars / note')}</label><input id="shv_Note" autocomplete="off"></div>
+      </div>
+      <div class="own-btns"><button type="button" class="btn btn-outline" id="shv_SaveBtn">💾 ${t('সেভ (খসড়া)', 'Save (draft)')}</button><button type="button" class="btn btn-primary" id="shv_PostBtn">✅ ${t('সেভ + পোস্ট', 'Save + post')}</button><button type="button" class="btn btn-outline" id="shv_CancelBtn" style="display:none;">${t('এডিট বাতিল', 'Cancel edit')}</button><button type="button" class="btn btn-outline" id="shv_Ledger">📒 ${t('লেজার', 'Ledger')}</button></div>
+    </div>
+    <div class="panel"><h4 style="margin:0 0 8px;font-size:14px;">${t('ভাউচারের তালিকা', 'Vouchers')} <small style="font-weight:400;color:var(--text-muted);">${t('— এক ট্যাপে বাছাই, দুই ট্যাপে এডিট', '— tap to select, double-tap to edit')}</small></h4>
+      <div class="own-filter"><div class="field"><label>${t('তারিখ হইতে', 'From')}</label>${dmyDateField('shv_From', fy)}</div><div class="field"><label>${t('তারিখ পর্যন্ত', 'To')}</label>${dmyDateField('shv_To', today)}</div>
+        <div class="field"><label>${t('ভাড়াটিয়া', 'Tenant')}</label><select id="shv_TFilter"><option value="">${t('সব', 'All')}</option>${shrByName(D.tens).map(function (x) { return `<option value="${attr(x.TenantID)}">${escapeHtml(x.Name || '')} — ${escapeHtml(shrShopNo(D, x))}</option>`; }).join('')}</select></div>
+        <div class="field"><label>${t('ধরন', 'Type')}</label><select id="shv_YFilter"><option value="">${t('সব (ধার্য ছাড়া)', 'All (except charges)')}</option><option value="*">${t('সব ধরন', 'All types')}</option>${Object.keys(SHR_TYPES).map(function (k) { return `<option value="${k}">${escapeHtml(SHR_TYPES[k].bn)}</option>`; }).join('')}</select></div></div>
+      <div class="own-wrap" id="shv_List"></div></div>`;
+  const $ = function (id) { return document.getElementById(id); };
+  wireDmyFields(content);
+  wireSequentialKeyNav($('shv_Form'));
+  const tenOf = function () { return D.tens.find(function (x) { return x.TenantID === $('shv_Ten').value; }) || null; };
+  const shown = function (id) { return $(id).style.display !== 'none'; };
+  function applyType() {
+    const ty = $('shv_Type').value, k = SHR_TYPES[ty], tn = tenOf();
+    $('shv_Hint').textContent = k.hint;
+    $('shv_MF').style.display = SHR_MONTH_TYPES.indexOf(ty) >= 0 ? '' : 'none';
+    $('shv_AF').style.display = k.cash ? '' : 'none';
+    $('shv_AL').textContent = k.cash > 0 ? t('টাকা কোথায় এলো (নগদ/ব্যাংক)', 'Received into') : t('কোথা থেকে দিলাম (নগদ/ব্যাংক)', 'Paid from');
+    const keep = $('shv_Acc').value;
+    $('shv_Acc').innerHTML = `<option value="">${t('— (নগদ বইয়ে যাবে না)', '— (not in cash book)')}</option>` + D.accs.map(function (a) { return `<option value="${attr(a.BankAccID)}">${escapeHtml(a.AccountName)}</option>`; }).join('');
+    $('shv_Acc').value = keep; if (k.cash && !$('shv_Acc').value && !editId) $('shv_Acc').value = shrCashAcc(D);
+    if (!editId && tn) {   // কোন মাস — বকেয়ার সবচেয়ে পুরনো মাস নিজে বসে (বদলানো যায়)
+      const S = shrState(tn, D, dmyIso('shv_Date') || today);
+      if (ty === 'RentDue') { const nx = (function () { let m = shrYm(dmyIso('shv_Date') || today); for (let g = 0; g < 24 && shrChargeOf(D, tn.TenantID, m); g++) m = shrAddMonth(m, 1); return m; })(); $('shv_Month').value = nx; }
+      else if (ty === 'RentCollect' || ty === 'DepAdjust' || ty === 'RentWaive') { const u = S.unpaid.find(function (x) { return x.type === 'RentDue'; }); $('shv_Month').value = u ? u.m : ''; }
+      else if (ty === 'OtherDue') $('shv_Month').value = shrYm(dmyIso('shv_Date') || today);
+      else $('shv_Month').value = '';
+      const ph = ty === 'RentCollect' ? Math.max(0, S.due) : ty === 'DepReceive' ? S.depBaki : ty === 'DepRefund' ? Math.max(0, S.held) : ty === 'DepAdjust' ? Math.max(0, Math.min(S.due, S.held)) : ty === 'RentDue' ? shrRentFor(D, tn, $('shv_Month').value || shrYm(today)) : 0;
+      $('shv_Amt').placeholder = ph ? glMoney(ph) : '';
+      if (ty === 'RentDue' && $('shv_Amt').value === '') $('shv_Amt').value = shrRentFor(D, tn, $('shv_Month').value || shrYm(today)) || '';
+    }
+    showInfo();
+  }
+  function showInfo() {
+    const tn = tenOf(); if (!tn) { $('shv_Info').innerHTML = ''; return; }
+    const S = shrState(tn, D, today), sh = D.shopMap[tn.ShopID] || {}, c = [];
+    c.push(`<div><small>${t('দোকান', 'Shop')}</small><b>${escapeHtml(sh.ShopNo || '—')}</b></div>`, `<div><small>${t('মাসিক ভাড়া (এখন)', 'Monthly rent (now)')}</small><b>৳${glMoney(shrCurRent(D, tn))}</b></div>`);
+    { const nx = shrRentFor(D, tn, shrAddMonth(shrYm(today), 1)), cr = shrCurRent(D, tn); if (Math.abs(nx - cr) > 0.004) c.push(`<div class="warn"><small>${t('আগামী মাস থেকে', 'From next month')}</small><b>৳${glMoney(nx)}</b></div>`); }
+    c.push(`<div class="${S.due > 0.004 ? 'bad' : ''}"><small>${S.due < -0.004 ? t('অগ্রিম ভাড়া', 'Advance') : t('বকেয়া ভাড়া', 'Rent due')}</small><b>৳${glMoney(Math.abs(S.due))}</b></div>`);
+    if (S.unpaid.length) c.push(`<div class="warn" style="grid-column:span 2;"><small>${t('বকেয়া মাস', 'Unpaid months')}</small><b style="font-size:11.5px;white-space:normal;">${escapeHtml(shrUnpaidTxt(S.unpaid))}</b></div>`);
+    c.push(`<div><small>${t('জামানত চুক্তি', 'Deposit agreed')}</small><b>৳${glMoney(S.dep)}</b></div>`, `<div><small>${t('জামানত জমা', 'Deposit held')}</small><b>৳${glMoney(S.held)}</b></div>`);
+    if (S.depBaki) c.push(`<div class="warn"><small>${t('জামানত বাকি', 'Deposit pending')}</small><b>৳${glMoney(S.depBaki)}</b></div>`);
+    if (S.drafts) c.push(`<div class="warn"><small>${t('খসড়া (পোস্ট হয়নি)', 'Drafts')}</small><b>${S.drafts}</b></div>`);
+    $('shv_Info').innerHTML = c.join('');
+  }
+  function resetForm(keepTen) {
+    editId = null; $('shv_FormTitle').textContent = t('নতুন ভাউচার', 'New voucher');
+    const tv = keepTen ? $('shv_Ten').value : ''; $('shv_Ten').innerHTML = `<option value="">${t('— ভাড়াটিয়া বাছাই করুন —', '— choose tenant —')}</option>` + tenOpts(); $('shv_Ten').value = tv;
+    ['shv_Amt', 'shv_Rcpt', 'shv_Note'].forEach(function (id) { $(id).value = ''; }); $('shv_Acc').value = '';
+    $('shv_Date').value = isoToDmy(today); $('shv_Type').value = 'RentCollect'; $('shv_CancelBtn').style.display = 'none'; applyType(); renderList();
+  }
+  async function openEdit(id) {
+    let x = D.txns.find(function (r) { return r.TxnID === id; }); if (!x) { showToast(t('ভাউচার পাওয়া যায়নি।', 'Voucher not found.'), 'error'); return; }
+    if (x.Status === 'Posted') { if (!(await shrUnpostTxn(id))) return; D = await shrLoadAll(); loadedAt = Date.now(); x = D.txns.find(function (r) { return r.TxnID === id; }); if (!x) return; }
+    editId = id; selId = id;
+    $('shv_FormTitle').textContent = t('এডিটঃ ', 'Edit: ') + id;
+    $('shv_Ten').innerHTML = `<option value="">${t('— ভাড়াটিয়া বাছাই করুন —', '— choose tenant —')}</option>` + tenOpts(x.TenantID); $('shv_Ten').value = x.TenantID;
+    $('shv_Date').value = isoToDmy(glD10(x.Date)); $('shv_Type').value = SHR_TYPES[x.Type] ? x.Type : 'RentCollect';
+    $('shv_Amt').value = glN(x.Amount) || ''; $('shv_Rcpt').value = x.ReceiptNo || ''; $('shv_Note').value = x.Note || '';
+    applyType();
+    if (x.Month && !$('shv_Month').querySelector(`option[value="${x.Month}"]`)) $('shv_Month').innerHTML = shrMonthOpts(x.Month, t('— মাস (ঐচ্ছিক) —', '— month (optional) —'));
+    $('shv_Month').value = x.Month || ''; $('shv_Acc').value = x.BankCashAccID || '';
+    $('shv_CancelBtn').style.display = ''; renderList(); window.scrollTo({ top: 0, behavior: 'smooth' }); $('shv_Amt').focus();
+  }
+  function renderList() {
+    const from = dmyIso('shv_From') || '0000-00-00', to = dmyIso('shv_To') || '9999-12-31', tf = $('shv_TFilter').value, yf = $('shv_YFilter').value;
+    const tmap = {}; D.tens.forEach(function (x) { tmap[x.TenantID] = x; });
+    const rows = D.txns.filter(function (x) { const d = glD10(x.Date); return d >= from && d <= to && (!tf || x.TenantID === tf) && (yf === '*' || (yf ? x.Type === yf : x.Type !== 'RentDue')); })
+      .sort(function (a, b) { return glD10(a.Date).localeCompare(glD10(b.Date)) || String(a.TxnID).localeCompare(String(b.TxnID), undefined, { numeric: true }); });
+    if (!rows.length) { $('shv_List').innerHTML = `<div class="empty-state">${t('এই সময়ে কোনো ভাউচার নেই।', 'No vouchers in this period.')}</div>`; return; }
+    const T = { coll: 0, dep: 0, ref: 0, cin: 0, cout: 0 };
+    const body = rows.map(function (x, i) {
+      const tn = tmap[x.TenantID] || { Name: x.TenantID }, k = SHR_TYPES[x.Type] || { bn: x.Type, cls: '', cash: 0 }, posted = x.Status === 'Posted', a = glN(x.Amount);
+      if (posted) { if (x.Type === 'RentCollect') T.coll += a; if (x.Type === 'DepReceive') T.dep += a; if (x.Type === 'DepRefund') T.ref += a; if (k.cash > 0 && x.BankCashAccID) T.cin += a; if (k.cash < 0 && x.BankCashAccID) T.cout += a; }
+      const ic = function (act, icon, title, dis) { return `<button type="button" class="own-ic" data-sv="${act}" data-id="${attr(x.TxnID)}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
+      return `<tr data-id="${attr(x.TxnID)}" class="${posted ? k.cls : 'draft'} ${selId === x.TxnID ? 'sel' : ''}"><td>${i + 1}</td><td>${escapeHtml(formatShortDate(glD10(x.Date)))}</td><td><b>${escapeHtml(x.TxnID)}</b>${x.ReceiptNo ? `<br><small>${t('রিসিট ', 'rcpt ')}${escapeHtml(x.ReceiptNo)}</small>` : ''}</td>
+        <td class="l"><b>${escapeHtml(tn.Name || '')}</b><br><small>${t('দোকান ', 'shop ')}${escapeHtml(shrShopNo(D, tn))}</small></td><td class="l">${escapeHtml(k.bn)}${x.Month ? ` <small>(${escapeHtml(shrMonthBn(x.Month))})</small>` : ''}${x.Note ? `<br><small>${escapeHtml(x.Note)}</small>` : ''}</td>
+        <td class="r"><b>${glMoney(a)}</b></td><td class="l gl-hide-m">${k.cash && x.BankCashAccID ? (k.cash > 0 ? '⬇ ' : '⬆ ') + escapeHtml(shrAccName(D, x.BankCashAccID)) : '—'}</td>
+        <td>${posted ? `<span class="badge active">${t('পোস্ট', 'Posted')}</span>` : `<span class="badge draft">${t('খসড়া', 'Draft')}</span>`}</td>
+        <td style="white-space:nowrap;">${ic('view', '👁️', t('দেখুন / প্রিন্ট (রিসিট)', 'View / print'))}${ic('edit', '✏️', posted ? t('এডিট (এডমিন — আগে আনপোস্ট)', 'Edit (admin)') : t('এডিট', 'Edit'))}${ic('del', '🗑️', t('ডিলিট', 'Delete'))}${ic('post', posted ? '✅' : '💾', posted ? t('পোস্ট হয়ে গেছে', 'Posted') : t('পোস্ট করুন', 'Post'), posted)}</td></tr>`;
+    }).join('');
+    $('shv_List').innerHTML = `<table class="own-tbl gl-tbl"><thead><tr><th>${t('ক্রঃ', 'Sl')}</th><th>${t('তারিখ', 'Date')}</th><th>${t('ভাউঃ / রিসিট নং', 'No. / receipt')}</th><th>${t('ভাড়াটিয়া', 'Tenant')}</th><th>${t('ভাউচার ধরন / বিবরণ', 'Type / particulars')}</th><th>${t('টাকা', 'Amount')}</th><th class="gl-hide-m">${t('নগদ/ব্যাংক', 'Cash/bank')}</th><th>${t('অবস্থা', 'Status')}</th><th></th></tr></thead>
+      <tbody>${body}</tbody><tfoot><tr><td></td><td colspan="8" class="l" style="white-space:normal;">${t('মোট (পোস্ট করা) — ভাড়া আদায় ৳', 'Total (posted) — rent collected ৳')}${glMoney(T.coll)} · ${t('জামানত গ্রহণ ৳', 'deposits ৳')}${glMoney(T.dep)} · ${t('জামানত ফেরত ৳', 'refunds ৳')}${glMoney(T.ref)} · ${t('নগদ/ব্যাংকে এলো ৳', 'cash in ৳')}${glMoney(T.cin)}${T.cout ? ' · ' + t('গেল ৳', 'out ৳') + glMoney(T.cout) : ''}</td></tr></tfoot></table>`;
+  }
+  async function save(andPost) {
+    const tn = tenOf(); if (!tn) { showToast(t('ভাড়াটিয়া বাছাই করুন।', 'Choose a tenant.'), 'error'); $('shv_Ten').focus(); return; }
+    const date = dmyIso('shv_Date'); if (!date) { showToast(t('তারিখ ঠিক নেই (দিন-মাস-বছর)।', 'Invalid date.'), 'error'); $('shv_Date').focus(); return; }
+    const ty = $('shv_Type').value, k = SHR_TYPES[ty], amt = glR2($('shv_Amt').value);
+    if (!(amt > 0)) { showToast(t('টাকার পরিমাণ দিন।', 'Enter the amount.'), 'error'); $('shv_Amt').focus(); return; }
+    const month = shown('shv_MF') ? ($('shv_Month').value || null) : null;
+    if (ty === 'RentDue') {
+      if (!month) { showToast(t('কোন মাসের ভাড়া — মাস বাছাই করুন।', 'Choose the month.'), 'error'); $('shv_Month').focus(); return; }
+      const dup = D.txns.find(function (x) { return x.TenantID === tn.TenantID && x.Type === 'RentDue' && x.Month === month && x.TxnID !== editId; });
+      if (dup) { showToast(shrMonthBn(month) + t(' মাসের ভাড়া আগেই ধার্য হয়েছে (', ' rent is already charged (') + dup.TxnID + ').', 'error'); return; }
+    }
+    const S = shrState(tn, D, date);
+    if ((ty === 'DepRefund' || ty === 'DepAdjust') && amt > S.held + 0.004 && !confirm(t('টাকা হাতে থাকা জামানতের (৳', 'Amount exceeds the deposit held (৳') + glMoney(S.held) + t(') চেয়ে বেশি। তবুও সেভ করবেন?', '). Save anyway?'))) return;
+    if ((ty === 'DepAdjust' || ty === 'RentWaive') && amt > S.due + 0.004 && !confirm(t('টাকা বকেয়া ভাড়ার (৳', 'Amount exceeds the rent due (৳') + glMoney(S.due) + t(') চেয়ে বেশি। তবুও সেভ করবেন?', '). Save anyway?'))) return;
+    if (ty === 'RentCollect' && amt > Math.max(0, S.due) + 0.004 && !confirm(t('টাকা বকেয়া ভাড়ার (৳', 'Amount exceeds the rent due (৳') + glMoney(Math.max(0, S.due)) + t(') চেয়ে বেশি — বাড়তি টাকা অগ্রিম ভাড়া হিসেবে থাকবে। সেভ করবেন?', ') — the extra stays as advance rent. Save?'))) return;
+    const acc = k.cash ? ($('shv_Acc').value || null) : null;
+    if (k.cash && !acc && !confirm(t('নগদ/ব্যাংক অ্যাকাউন্ট বাছাই করা হয়নি — টাকা নগদ বইয়ে যাবে না। তবুও সেভ করবেন?', 'No cash/bank account — it will not go to the cash book. Save anyway?'))) return;
+    let note = $('shv_Note').value.trim();
+    if (/( — ভাড়া| মাসের ভাড়া|অগ্রিম ৳[\d,.]+)$/.test(note) && /বকেয়া|ভাড়া|অগ্রিম/.test(note) && /^(পুরনো বকেয়া|অন্যান্য |অগ্রিম ৳|জানুয়ারি|ফেব্রুয়ারি|মার্চ|এপ্রিল|মে|জুন|জুলাই|আগস্ট|সেপ্টেম্বর|অক্টোবর|নভেম্বর|ডিসেম্বর)/.test(note)) note = '';   // আগের নিজে-বসানো বিবরণ — টাকা বদলালে নতুন করে
+    const rec = { TenantID: tn.TenantID, ShopID: tn.ShopID, Date: date, Type: ty, Month: month, Amount: amt, BankCashAccID: acc, ReceiptNo: $('shv_Rcpt').value.trim(), Note: note || (ty === 'RentCollect' || ty === 'RentWaive' || ty === 'DepAdjust' ? shrCoverNote(S.unpaid, amt) : month && ty === 'RentDue' ? shrMonthBn(month) + t(' মাসের ভাড়া', ' rent') : '') };
+    const btns = [$('shv_SaveBtn'), $('shv_PostBtn')]; btns.forEach(function (b) { b.disabled = true; });
+    try {
+      let row;
+      if (editId) { const { data, error } = await supabaseClient.from('ShopTxn').update(rec).eq('TxnID', editId).select().single(); if (error) throw new Error(shrErr(error.message)); row = data; }
+      else { const { data, error } = await supabaseClient.from('ShopTxn').insert(Object.assign({ Status: 'Draft', CreatedBy: (currentUser && currentUser.Email) || '' }, rec)).select().single(); if (error) throw new Error(shrErr(error.message)); row = data; }
+      if (andPost) await shrPostTxn(row);
+      shrMarkDirty();
+      showToast((andPost ? t('পোস্ট হয়েছে ✅ ', 'Posted ✅ ') : t('সেভ হয়েছে ✅ ', 'Saved ✅ ')) + row.TxnID, 'success');
+      D = await shrLoadAll(); loadedAt = Date.now(); selId = row.TxnID; resetForm(true); $('shv_Amt').focus();
+      if (andPost && (row.Type === 'RentCollect' || row.Type === 'DepReceive') && confirm(t('রিসিট প্রিন্ট করবেন?', 'Print the receipt?'))) await shrTxnPrint(row.TxnID);
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { btns.forEach(function (b) { b.disabled = false; }); }
+  }
+  $('shv_Ten').addEventListener('change', function () { if (!editId) $('shv_Amt').value = ''; applyType(); });
+  $('shv_Type').addEventListener('change', function () { if (!editId) $('shv_Amt').value = ''; applyType(); });
+  $('shv_Date').addEventListener('change', function () { if (!editId) applyType(); });
+  $('shv_Month').addEventListener('change', function () {   // ভাড়া ধার্যঃ মাস বদলালে ওই মাসের হার বসে
+    const tn = tenOf(); if (!tn || $('shv_Type').value !== 'RentDue' || !$('shv_Month').value) return;
+    const r = shrRentFor(D, tn, $('shv_Month').value); $('shv_Amt').placeholder = glMoney(r); if (!editId) $('shv_Amt').value = r || '';
+  });
+  $('shv_SaveBtn').addEventListener('click', function () { save(false); });
+  $('shv_PostBtn').addEventListener('click', function () { save(true); });
+  $('shv_CancelBtn').addEventListener('click', function () { resetForm(true); });
+  $('shv_Ledger').addEventListener('click', function () { window.__shrLedgerTen = $('shv_Ten').value || ''; shrGo('shopLedger', t('ভাড়াটিয়া লেজার', 'Tenant Ledger')); });
+  ['shv_From', 'shv_To', 'shv_TFilter', 'shv_YFilter'].forEach(function (id) { $(id).addEventListener('change', renderList); });
+  let lastTap = { id: '', at: 0 };
+  $('shv_List').addEventListener('click', async function (e) {
+    const b = e.target.closest('[data-sv]');
+    if (!b) {
+      const tr = e.target.closest('tr[data-id]'); if (!tr) return;
+      const id = tr.getAttribute('data-id'), now = Date.now();
+      if (lastTap.id === id && now - lastTap.at < 450) { lastTap = { id: '', at: 0 }; try { await openEdit(id); } catch (err) { showToast(err.message, 'error'); } return; }
+      lastTap = { id: id, at: now }; selId = id; content.querySelectorAll('#shv_List tr.sel').forEach(function (r) { r.classList.remove('sel'); }); tr.classList.add('sel'); return;
+    }
+    if (b.disabled || b.__busy) return; b.__busy = true;
+    const id = b.getAttribute('data-id'), act = b.getAttribute('data-sv');
+    try {
+      if (act === 'view') await shrTxnPrint(id);
+      else if (act === 'edit') await openEdit(id);
+      else if (act === 'del') { if (await shrDeleteTxn(id)) { showToast(t('মুছে ফেলা হয়েছে ✅', 'Deleted ✅'), 'success'); D = await shrLoadAll(); loadedAt = Date.now(); if (editId === id) resetForm(true); else { showInfo(); renderList(); } } }
+      else if (act === 'post') {
+        const x = D.txns.find(function (r) { return r.TxnID === id; }); if (!x) return;
+        if (!confirm(t('পোস্ট করবেনঃ ', 'Post: ') + id + '?')) return;
+        await shrPostTxn(x); showToast(t('পোস্ট হয়েছে ✅', 'Posted ✅'), 'success'); D = await shrLoadAll(); loadedAt = Date.now(); showInfo(); renderList();
+      }
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { b.__busy = false; }
+  });
+  resetForm(false);
+  if (window.__shrTxnTen) { const id = window.__shrTxnTen; window.__shrTxnTen = null; $('shv_Ten').value = id; applyType(); $('shv_Amt').focus(); }
+  if (window.__shrEditId) { const id = window.__shrEditId; window.__shrEditId = null; try { await openEdit(id); } catch (err) { showToast(err.message, 'error'); } }
+  shrWatch(content, function () { return loadedAt; }, async function () { try { D = await shrLoadAll(); loadedAt = Date.now(); if (!editId) { const tv = $('shv_Ten').value; $('shv_Ten').innerHTML = `<option value="">${t('— ভাড়াটিয়া বাছাই করুন —', '— choose tenant —')}</option>` + tenOpts(); $('shv_Ten').value = tv; } showInfo(); renderList(); } catch (e) {} });
+}
+
+/* ---------- দোকান ভাড়া → ভাড়াটিয়া লেজার (সাইড প্যানেল · ফ্রিজ হেডার · A4 প্রিন্ট) ----------
+   কলামঃ ক্রঃ · তারিখ · রিসিট/ভাউঃ নং · ভাউচার ধরন · বিবরণ · জমা · খরচ · ব্যালান্স · (👁️ ✏️ 🗑️ 💾)
+   ভাড়ার হিসাব (ব্যালান্স = বকেয়া) ও জামানতের হিসাব (ব্যালান্স = হাতে জামানত) আলাদা টেবিলে */
+async function renderShopLedger(content) {
+  const today = glToday(), fy = await getFiscalYearStart(today);
+  let D = null, sel = window.__shrLedgerTen || '', loadedAt = 0, lastPrint = null; window.__shrLedgerTen = null;
+  content.innerHTML = `<style>${DMY_CSS}${RPT_SIDE_CSS}${SHR_CSS}
+      .shl-sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:5px;margin-bottom:6px;}
+      .shl-sum div{border:1px solid var(--border);border-radius:8px;padding:3px 8px;background:var(--surface);display:flex;flex-direction:column;align-items:center;min-width:0;}
+      .shl-sum small{font-size:10.5px;font-weight:600;color:var(--text-muted);white-space:nowrap;} .shl-sum b{font-size:13px;color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap;}
+      .shl-sum .op{background:#f3f4f6;} .shl-sum .ch{background:#fdf0ef;border-color:#efc2bc;} .shl-sum .co{background:#ecfdf3;border-color:#b7e2c4;} .shl-sum .wv{background:#f6f0ff;border-color:#cfc2f2;}
+      .shl-sum .dp{background:#ecfeff;border-color:#a5e3ee;} .shl-sum .due{background:#1f2937;border-color:#1f2937;} .shl-sum .due small{color:#cbd5e1;} .shl-sum .due b{color:#ffd27a;}
+      .shl-tens{margin-top:8px;border-top:1px dashed #b9cfdd;padding-top:6px;grid-column:1 / -1;} .shl-tens h4{font-size:11px;font-weight:700;color:#2f6f8f;margin:0 0 4px;}
+      .shl-tn{display:flex;justify-content:space-between;gap:6px;align-items:baseline;width:100%;border:1px solid #c9dce8;background:#fff;border-radius:7px;padding:3px 8px;margin:0 0 3px;font-size:11.5px;cursor:pointer;font-family:inherit;color:var(--text);text-align:left;}
+      .shl-tn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .shl-tn b{font-variant-numeric:tabular-nums;white-space:nowrap;} .shl-tn.on{background:#1f2937;color:#ffd27a;border-color:#1f2937;}
+      .sr-tbl.shl-tbl tr.ln td{background:#1a2029 !important;color:#f2a33c;font-weight:700 !important;padding:2px 8px !important;text-align:left;}
+      .sr-tbl.shl-tbl tr.op td{background:#fafafa;font-style:italic;color:#555;}
+      .sr-tbl.shl-tbl tr.cl td{background:#eef0f3;font-weight:700 !important;border-bottom:1.5px solid #9aa2ad !important;}
+      .sr-tbl.shl-tbl tr.nil td{color:#888;font-style:italic;}
+      .sr-tbl.shl-tbl tr.gl-rc td{background:#ecfdf3;} .sr-tbl.shl-tbl tr.gl-rp td{background:#eef4ff;} .sr-tbl.shl-tbl tr.gl-in td{background:#fdf0ef;} .sr-tbl.shl-tbl tr.gl-op td{background:#f3f4f6;} .sr-tbl.shl-tbl tr.gl-cu td{background:#f6f0ff;} .sr-tbl.shl-tbl tr.gl-sv td{background:#ecfeff;}
+      .sr-tbl.shl-tbl tbody tr.tx{cursor:pointer;} .sr-tbl.shl-tbl tbody tr.tx.sel td{outline:1.5px solid #2563eb;outline-offset:-1.5px;}
+      .sr-tbl.shl-tbl td.nm{min-width:150px;white-space:normal;line-height:1.2 !important;text-align:left;} .sr-tbl.shl-tbl td.nm small{display:block;color:var(--text-muted);font-size:10px;} .sr-tbl.shl-tbl td.nm small::before{content:'' !important;}
+      .sr-tbl.shl-tbl td.neg,.sr-tbl.shl-tbl td.neg b{color:#c0392b;}
+      .sr-tbl.shl-tbl tfoot tr.ft2 td{background:#fff6e0;font-weight:600;white-space:normal;text-align:left;}
+      .sr-tbl.shl-tbl .shl-mb{display:none;}
+      .shl-h{font-size:12.5px;font-weight:700;margin:10px 0 4px;}
+      @media (max-width:760px){
+        .shl-sum{grid-template-columns:repeat(3,minmax(0,1fr));gap:3px;} .shl-sum small{font-size:9.5px;} .shl-sum b{font-size:11.5px;}
+        .sr-tbl.shl-tbl .shl-dk{display:none;} .sr-tbl.shl-tbl .shl-mb{display:table-cell;} .sr-tbl.shl-tbl .shl-act{display:none;}
+        .sr-tbl.shl-tbl td{font-size:10px;padding:1px 3px !important;white-space:nowrap;} .sr-tbl.shl-tbl th{font-size:10px;padding:3px 3px !important;white-space:normal !important;}
+        .sr-tbl.shl-tbl td.nm{min-width:96px;max-width:150px;white-space:normal;} .sr-tbl.shl-tbl td.nm small{font-size:9px;line-height:1.1;}
+      }
+    </style>
+    <div class="sr-head"><h1>${t('ভাড়াটিয়া লেজার', 'Tenant Ledger')}</h1></div>
+    <div class="sr-layout">
+     <aside class="sr-side" id="shlSide">
+      <button type="button" class="sr-tog" id="shlTog" title="${attr(t('প্যানেল লুকান/দেখান', 'Hide/show panel'))}">‹</button>
+      <div class="sr-side-h" data-lbl="${attr(t('ফিল্টার', 'Filters'))}"><span>🔎 ${t('ফিল্টার', 'Filters')}</span></div>
+      <div class="sr-bar" id="shlBar">
+        <div class="field"><label>${t('ভাড়াটিয়া', 'Tenant')}</label><select id="shl_Ten"><option value="">${t('সব ভাড়াটিয়া', 'All tenants')}</option></select></div>
+        <div class="field"><label>${t('হিসাব', 'Account')}</label><select id="shl_Acc"><option value="RJ">${t('ভাড়া + জামানত', 'Rent + deposit')}</option><option value="R">${t('শুধু ভাড়া', 'Rent only')}</option><option value="J">${t('শুধু জামানত', 'Deposit only')}</option></select></div>
+        <div class="field"><label>${t('তারিখ হইতে', 'From')}</label>${dmyDateField('shl_From', fy)}</div>
+        <div class="field"><label>${t('তারিখ পর্যন্ত', 'To')}</label>${dmyDateField('shl_To', today)}</div>
+        <div class="field"><label>${t('অবস্থা', 'Status')}</label><select id="shl_St"><option value="">${t('সব', 'All')}</option><option value="Active">${t('চালু', 'Active')}</option><option value="Left">${t('ছেড়ে দিয়েছে', 'Left')}</option></select></div>
+        <div class="sr-btns" style="grid-column:1 / -1;"><button type="button" class="btn btn-primary" id="shl_Show">🔄 ${t('দেখাও', 'Show')}</button><button type="button" class="btn btn-outline" id="shl_Print">🖨️ ${t('প্রিন্ট', 'Print')}</button></div>
+        <div class="sr-btns" style="grid-column:1 / -1;"><button type="button" class="btn btn-outline" id="shl_New">＋ ${t('নতুন ভাউচার', 'New voucher')}</button></div>
+        <div class="shl-tens" id="shl_Tens"></div>
+      </div>
+     </aside>
+     <div class="sr-main panel">
+      <div class="shl-sum" id="shl_Sum"></div>
+      <div id="shl_Wrap"><div class="sr-hint">${t('লোড হচ্ছে…', 'Loading…')}</div></div>
+      <div class="sr-note" id="shl_Note"></div>
+     </div>
+    </div>`;
+  wireDmyFields(content);
+  const $ = function (id) { return document.getElementById(id); };
+  const isMob = function () { return window.matchMedia('(max-width:760px)').matches; };
+  const fit = function () { fitReportScroll(content); };
+  const side = wireReportSide($('shlSide'), $('shlTog'), 'shlSideCollapsed', fit);
+  wireSequentialKeyNav($('shlBar'));
+  const fmt = function (v, pr) { v = Math.abs(glN(v)); const d = (!pr && isMob() && Math.abs(v - Math.round(v)) < 0.005) ? 0 : 2; return v.toLocaleString('en-IN', { minimumFractionDigits: d, maximumFractionDigits: d }); };
+  const money = function (v, pr) { v = glN(v); return (v < -0.005 ? '−' : '') + fmt(v, pr); };
+  const amt = function (v, pr) { return glN(v) ? fmt(v, pr) : '—'; };
+  const range = function () { return { from: dmyIso('shl_From') || '0000-00-00', to: dmyIso('shl_To') || '9999-12-31' }; };
+  const tensF = function () { const st = $('shl_St').value; return shrByShop(D, D.tens.filter(function (x) { return !st || (st === 'Active' ? x.Status === 'Active' : x.Status !== 'Active'); })); };
+  function fillTens() {
+    const cur = sel, ls = shrByName(tensF());
+    $('shl_Ten').innerHTML = `<option value="">${t('সব ভাড়াটিয়া', 'All tenants')}</option>` + ls.map(function (x) { return `<option value="${attr(x.TenantID)}">${escapeHtml(x.Name || '')} — ${escapeHtml(shrShopNo(D, x))}${x.Status !== 'Active' ? ' (' + t('ছেড়ে দিয়েছে', 'left') + ')' : ''}</option>`; }).join('');
+    $('shl_Ten').value = ls.some(function (x) { return x.TenantID === cur; }) ? cur : ''; sel = $('shl_Ten').value;
+  }
+  async function load() {
+    try { D = await shrLoadAll(); } catch (e) { $('shl_Wrap').innerHTML = `<div class="sr-hint">${escapeHtml(e.message)}</div>`; return; }
+    loadedAt = Date.now(); if (!$('shl_Wrap')) return;
+    if (sel) { const x = D.tens.find(function (r) { return r.TenantID === sel; }); if (x && $('shl_St').value && $('shl_St').value !== (x.Status === 'Active' ? 'Active' : 'Left')) $('shl_St').value = ''; }
+    fillTens(); render();
+  }
+  const descOf = function (r) { const x = r.x, k = SHR_TYPES[x.Type] || { bn: x.Type }; const m = x.Month ? shrMonthBn(x.Month) : ''; return { type: k.bn, desc: [x.Note || (m ? m : ''), x.Note && m && x.Note.indexOf(m) < 0 ? m : ''].filter(Boolean).join(' · '), no: x.TxnID, rc: x.ReceiptNo || '', cls: (SHR_TYPES[x.Type] || {}).cls || '' }; };
+  function render() {
+    if (!D || !$('shl_Wrap')) return;
+    const R = range(); if (R.from > R.to) { showToast(t('"হইতে" তারিখ "পর্যন্ত" তারিখের পরে হতে পারে না।', '"From" cannot be after "To".'), 'error'); return; }
+    const acc = $('shl_Acc').value, ls = tensF(), list = ls.filter(function (x) { return !sel || x.TenantID === sel; });
+    // সাইড প্যানেলঃ ভাড়াটিয়াওয়ারি বকেয়া (পর্যন্ত তারিখে)
+    let allDue = 0;
+    const btns = shrByName(ls).map(function (x) { const c = shrLedger(x, D, R.to, R.to).R.close; allDue += c; return `<button type="button" class="shl-tn ${sel === x.TenantID ? 'on' : ''}" data-tn="${attr(x.TenantID)}"><span>${escapeHtml(x.Name || '')} · ${escapeHtml(shrShopNo(D, x))}</span><b class="${c > 0.004 ? 'gl-neg' : ''}">${money(c)}</b></button>`; }).join('');
+    $('shl_Tens').innerHTML = `<h4>${t('ভাড়াটিয়াওয়ারি বকেয়া ভাড়া', 'Rent due by tenant')}</h4><button type="button" class="shl-tn ${sel ? '' : 'on'}" data-tn=""><span>∑ ${t('সব ভাড়াটিয়া', 'All tenants')}</span><b>${money(allDue)}</b></button>${btns || `<div class="sr-note">${t('কোনো ভাড়াটিয়া নেই', 'No tenants')}</div>`}`;
+    const G = { rOpen: 0, rClose: 0, charge: 0, coll: 0, waive: 0, adj: 0, jOpen: 0, jClose: 0, jIn: 0, jOut: 0, rJ: 0, rK: 0, jJ: 0, jK: 0, nR: 0, nJ: 0, dep: 0 };
+    const ic = function (a, icon, title, id, dis) { return `<button type="button" class="sr-ic" data-sl="${a}" data-id="${attr(id)}" title="${attr(title)}" ${dis ? 'disabled' : ''}>${icon}</button>`; };
+    const span = function (desk, mob, inner) { return `<td class="shl-dk" colspan="${desk}">${inner}</td><td class="shl-mb" colspan="${mob}">${inner}</td>`; };
+    const parts = []; let rHtml = '', jHtml = '';
+    const rowsHtml = function (L) {
+      return L.rows.map(function (r, i) {
+        const d = descOf(r);
+        return `<tr class="tx ${d.cls}" data-id="${attr(r.x.TxnID)}"><td>${i + 1}</td><td>${escapeHtml(formatShortDate(r.date))}</td>
+          <td class="shl-dk"><b>${escapeHtml(d.no)}</b>${d.rc ? `<br><small>${t('রিসিট ', 'rcpt ')}${escapeHtml(d.rc)}</small>` : ''}</td><td class="shl-dk">${escapeHtml(d.type)}</td><td class="nm shl-dk">${escapeHtml(d.desc || '—')}</td>
+          <td class="shl-mb nm"><b>${escapeHtml(d.type)}</b><small>${escapeHtml(d.no)}${d.rc ? ' · ' + t('রিসিট ', 'rcpt ') + escapeHtml(d.rc) : ''}${d.desc ? ' · ' + escapeHtml(d.desc) : ''}</small></td>
+          <td class="n">${amt(r.jama)}</td><td class="n">${amt(r.khoroch)}</td><td class="n ${r.bal < -0.005 ? 'neg' : ''}"><b>${money(r.bal)}</b></td>
+          <td class="shl-act" style="white-space:nowrap;">${ic('view', '👁️', t('দেখুন / প্রিন্ট', 'View / print'), r.x.TxnID)}${ic('edit', '✏️', t('এডিট (এডমিন — আগে আনপোস্ট হবে)', 'Edit (admin)'), r.x.TxnID)}${ic('del', '🗑️', t('ডিলিট', 'Delete'), r.x.TxnID)}${ic('post', '✅', t('পোস্ট হয়ে গেছে', 'Posted'), r.x.TxnID, true)}</td></tr>`;
+      }).join('');
+    };
+    list.forEach(function (x) {
+      const L = shrLedger(x, D, R.from, R.to), st = shrState(x, D, R.to), sh = D.shopMap[x.ShopID] || {};
+      const hasR = L.R.rows.length || Math.abs(L.R.open) > 0.004, hasJ = L.J.rows.length || Math.abs(L.J.open) > 0.004;
+      if (!sel && !hasR && !hasJ) return;
+      G.rOpen += L.R.open; G.rClose += L.R.close; G.charge += (L.R.by.RentDue || 0) + (L.R.by.OtherDue || 0) + (L.R.by.RentOpen || 0); G.coll += L.R.by.RentCollect || 0; G.waive += L.R.by.RentWaive || 0; G.adj += L.R.by.DepAdjust || 0;
+      G.jOpen += L.J.open; G.jClose += L.J.close; G.jIn += L.J.T.jama; G.jOut += L.J.T.khoroch; G.rJ += L.R.T.jama; G.rK += L.R.T.khoroch; G.jJ += L.J.T.jama; G.jK += L.J.T.khoroch; G.nR += L.R.rows.length; G.nJ += L.J.rows.length; G.dep += st.depBaki;
+      const head = '🏬 ' + t('দোকান ', 'Shop ') + escapeHtml(sh.ShopNo || '') + ' — ' + escapeHtml(x.Name || '') + (x.Mobile ? ' (' + escapeHtml(x.Mobile) + ')' : '') + ' · ' + t('মাসিক ভাড়া ', 'rent ') + fmt(shrRentFor(D, x, shrYm(R.to)));
+      if (acc !== 'J' && (sel || hasR)) {
+        rHtml += `<tr class="ln">${span(9, 6, head + (st.unpaid.length ? ` · <span style="color:#fca5a5;">${t('বকেয়াঃ ', 'unpaid: ')}${escapeHtml(shrUnpaidTxt(st.unpaid))}</span>` : ''))}</tr>
+          <tr class="op"><td></td><td>${escapeHtml(R.from === '0000-00-00' ? '' : formatShortDate(R.from))}</td>${span(5, 3, t('প্রারম্ভিক জের (আগের বকেয়া ভাড়া)', 'Opening (previous rent due)'))}<td class="n ${L.R.open < -0.005 ? 'neg' : ''}"><b>${money(L.R.open)}</b></td><td class="shl-act"></td></tr>
+          ${rowsHtml(L.R) || `<tr class="nil">${span(9, 6, t('এই সময়ে ভাড়ার কোনো লেনদেন নেই।', 'No rent entries in this period.'))}</tr>`}
+          ${sel ? '' : `<tr class="cl"><td colspan="2">${t('মোট', 'Total')}</td>${span(3, 1, '(' + L.R.rows.length + t('টা)', ')'))}<td class="n">${fmt(L.R.T.jama)}</td><td class="n">${fmt(L.R.T.khoroch)}</td><td class="n ${L.R.close < -0.005 ? 'neg' : ''}">${money(L.R.close)}</td><td class="shl-act"></td></tr>`}`;
+      }
+      if (acc !== 'R' && (sel || hasJ)) {
+        jHtml += `<tr class="ln">${span(9, 6, head + ' · ' + t('জামানত চুক্তি ', 'deposit agreed ') + fmt(st.dep) + (st.depBaki ? ' · ' + t('বাকি ', 'pending ') + fmt(st.depBaki) : ''))}</tr>
+          <tr class="op"><td></td><td>${escapeHtml(R.from === '0000-00-00' ? '' : formatShortDate(R.from))}</td>${span(5, 3, t('প্রারম্ভিক জের (আগের জামানত জমা)', 'Opening (deposit held)'))}<td class="n"><b>${money(L.J.open)}</b></td><td class="shl-act"></td></tr>
+          ${rowsHtml(L.J) || `<tr class="nil">${span(9, 6, t('এই সময়ে জামানতের কোনো লেনদেন নেই।', 'No deposit entries in this period.'))}</tr>`}
+          ${sel ? '' : `<tr class="cl"><td colspan="2">${t('মোট', 'Total')}</td>${span(3, 1, '(' + L.J.rows.length + t('টা)', ')'))}<td class="n">${fmt(L.J.T.jama)}</td><td class="n">${fmt(L.J.T.khoroch)}</td><td class="n">${money(L.J.close)}</td><td class="shl-act"></td></tr>`}`;
+      }
+      parts.push({ x: x, L: L, st: st, sh: sh });
+    });
+    const cards = [];
+    if (acc !== 'J') cards.push(['op', t('প্রারম্ভিক বকেয়া', 'Opening due'), G.rOpen], ['ch', t('ভাড়া ধার্য', 'Charged'), G.charge], ['co', t('ভাড়া আদায়', 'Collected'), G.coll], ['wv', t('মওকুফ+সমন্বয়', 'Waived+adjusted'), G.waive + G.adj], ['due', t('বকেয়া ভাড়া', 'Rent due'), G.rClose]);
+    if (acc !== 'R') cards.push(['dp', t('জামানত জমা', 'Deposit held'), G.jClose], ['op', t('জামানত বাকি', 'Deposit pending'), G.dep]);
+    $('shl_Sum').innerHTML = cards.map(function (c) { return `<div class="${c[0]}"><small>${c[1]}</small><b>৳${money(c[2])}</b></div>`; }).join('');
+    const drafts = D.txns.filter(function (x) { return x.Status !== 'Posted' && list.some(function (r) { return r.TenantID === x.TenantID; }); }).length;
+    $('shl_Note').textContent = t('ভাড়ার হিসাবঃ খরচ = ভাড়া ধার্য/পাওনা (বকেয়া বাড়ে), জমা = ভাড়াটিয়া দিলো/মওকুফ/জামানত থেকে সমন্বয় (বকেয়া কমে)। জামানতের হিসাবঃ জমা = জামানত পেলাম, খরচ = ফেরত/সমন্বয়। এক চাপে সারি বাছাই, দুই চাপে ভাউচার খোলে।', 'Rent: out = charged, in = paid. Deposit: in = received, out = refunded/adjusted. Tap once to select, twice to open.') + (drafts ? ' ⚠️ ' + drafts + t('টা খসড়া ভাউচার পোস্ট হয়নি — লেজারে ধরা হয়নি।', ' draft vouchers not posted — not in the ledger.') : '');
+    lastPrint = { R: R, parts: parts, G: G, acc: acc };
+    if (!rHtml && !jHtml) { $('shl_Wrap').innerHTML = `<div class="sr-hint">${D.tens.length ? t('এই সময়ে কোনো লেনদেন নেই।', 'No entries in this period.') : t('আগে "ভাড়াটিয়া ও চুক্তি" পেজে ভাড়াটিয়া যোগ করুন।', 'Add tenants first.')}</div>`; return; }
+    const thead = function (bal) { return `<thead><tr><th>${t('ক্রঃ', 'Sl')}</th><th>${t('তারিখ', 'Date')}</th><th class="shl-dk">${t('ভাউঃ / রিসিট নং', 'V. No / receipt')}</th><th class="shl-dk">${t('ভাউচার ধরন', 'Voucher type')}</th><th class="shl-dk">${t('বিবরণ', 'Particulars')}</th><th class="shl-mb">${t('ধরন / নম্বর / বিবরণ', 'Type / No / Particulars')}</th><th>${t('জমা', 'In')}</th><th>${t('খরচ', 'Out')}</th><th>${bal}</th><th class="shl-act"></th></tr></thead>`; };
+    let html = '';
+    if (rHtml) html += `${acc === 'RJ' ? `<div class="shl-h">🧾 ${t('ভাড়ার হিসাব — ব্যালান্স = বকেয়া ভাড়া (মাইনাস = অগ্রিম)', 'Rent account — balance = rent due')}</div>` : ''}<div class="sr-scroll"><table class="sr-tbl shl-tbl">${thead(t('ব্যালান্স (বকেয়া)', 'Balance (due)'))}<tbody>${rHtml}</tbody>
+      <tfoot><tr><td colspan="2">${sel ? t('মোট', 'Total') : t('সর্বমোট', 'Grand total')}</td>${span(3, 1, '(' + G.nR + t('টা)', ')'))}<td class="n">${fmt(G.rJ)}</td><td class="n">${fmt(G.rK)}</td><td class="n ${G.rClose < -0.005 ? 'neg' : ''}">${money(G.rClose)}</td><td class="shl-act"></td></tr>
+      <tr class="ft2">${span(9, 6, t('এই সময়ে — ভাড়া ধার্য ৳', 'This period — charged ৳') + fmt(G.charge) + t(' · আদায় ৳', ' · collected ৳') + fmt(G.coll) + t(' · মওকুফ ৳', ' · waived ৳') + fmt(G.waive) + t(' · জামানত থেকে সমন্বয় ৳', ' · from deposit ৳') + fmt(G.adj) + t(' · বকেয়া ৳', ' · due ৳') + money(G.rClose))}</tr></tfoot></table></div>`;
+    if (jHtml) html += `${acc === 'RJ' ? `<div class="shl-h">🔒 ${t('জামানতের হিসাব — ব্যালান্স = হাতে থাকা জামানত (ভাড়াটিয়ার পাওনা)', 'Deposit account — balance = deposit held')}</div>` : ''}<div class="sr-scroll" style="${rHtml ? 'max-height:none;' : ''}"><table class="sr-tbl shl-tbl">${thead(t('ব্যালান্স (জামানত)', 'Balance (deposit)'))}<tbody>${jHtml}</tbody>
+      <tfoot><tr><td colspan="2">${sel ? t('মোট', 'Total') : t('সর্বমোট', 'Grand total')}</td>${span(3, 1, '(' + G.nJ + t('টা)', ')'))}<td class="n">${fmt(G.jJ)}</td><td class="n">${fmt(G.jK)}</td><td class="n">${money(G.jClose)}</td><td class="shl-act"></td></tr></tfoot></table></div>`;
+    $('shl_Wrap').innerHTML = html;
+    fit();
+  }
+  function printLedger() {
+    const P = lastPrint; if (!P || !P.parts.length) { showToast(t('প্রিন্ট করার মতো তথ্য নেই।', 'Nothing to print.'), 'error'); return; }
+    const tbl = function (key, title, balLbl) {
+      const rows = P.parts.map(function (p) {
+        const L = p.L[key]; if (!sel && !L.rows.length && Math.abs(L.open) < 0.005) return '';
+        const body = L.rows.map(function (r, i) { const d = descOf(r); return `<tr><td>${i + 1}</td><td>${escapeHtml(formatShortDate(r.date))}</td><td>${escapeHtml(d.no)}${d.rc ? '<br><small>রিসিট ' + escapeHtml(d.rc) + '</small>' : ''}</td><td>${escapeHtml(d.type)}</td><td style="text-align:left;">${escapeHtml(d.desc || '')}</td><td>${amt(r.jama, 1)}</td><td>${amt(r.khoroch, 1)}</td><td><b>${money(r.bal, 1)}</b></td></tr>`; }).join('');
+        return `<tr class="pb-zh"><td colspan="8">দোকান ${escapeHtml(p.sh.ShopNo || '')} — ${escapeHtml(p.x.Name || '')}${p.x.Mobile ? ' (' + escapeHtml(p.x.Mobile) + ')' : ''} · মাসিক ভাড়া ${fmt(shrRentFor(D, p.x, shrYm(P.R.to === '9999-12-31' ? today : P.R.to)), 1)}</td></tr>
+          <tr><td></td><td>${escapeHtml(P.R.from === '0000-00-00' ? '' : formatShortDate(P.R.from))}</td><td colspan="5" style="text-align:left;"><i>প্রারম্ভিক জের</i></td><td><b>${money(L.open, 1)}</b></td></tr>
+          ${body || '<tr><td colspan="8"><i>এই সময়ে কোনো লেনদেন নেই।</i></td></tr>'}
+          <tr class="pb-sub"><td colspan="5" style="text-align:left;">মোট (${L.rows.length}টা)${key === 'R' && p.st.unpaid.length ? ' — বকেয়াঃ ' + escapeHtml(shrUnpaidTxt(p.st.unpaid)) : ''}</td><td>${fmt(L.T.jama, 1)}</td><td>${fmt(L.T.khoroch, 1)}</td><td>${money(L.close, 1)}</td></tr>`;
+      }).join('');
+      if (!rows) return '';
+      return `<h4 style="margin:8px 0 4px;font-size:12px;">${title}</h4><table><thead><tr><th>ক্রঃ</th><th>তারিখ</th><th>ভাউঃ / রিসিট নং</th><th>ভাউচার ধরন</th><th>বিবরণ</th><th>জমা</th><th>খরচ</th><th>${balLbl}</th></tr></thead><tbody>${rows}</tbody></table>`;
+    };
+    const G = P.G, x = sel && D.tens.find(function (r) { return r.TenantID === sel; });
+    const summary = [];
+    if (P.acc !== 'J') summary.push(['প্রারম্ভিক বকেয়া', '৳' + money(G.rOpen, 1)], ['ভাড়া ধার্য', '৳' + money(G.charge, 1)], ['ভাড়া আদায়', '৳' + money(G.coll, 1)], ['মওকুফ+সমন্বয়', '৳' + money(G.waive + G.adj, 1)], ['বকেয়া ভাড়া', '৳' + money(G.rClose, 1)]);
+    if (P.acc !== 'R') summary.push(['জামানত জমা', '৳' + money(G.jClose, 1)], ['জামানত বাকি', '৳' + money(G.dep, 1)]);
+    printReportA4({ title: 'ভাড়াটিয়া লেজার', period: (P.R.from === '0000-00-00' ? '' : formatShortDate(P.R.from) + ' হইতে ') + (P.R.to === '9999-12-31' ? 'আজ' : formatShortDate(P.R.to)) + ' পর্যন্ত',
+      filters: x ? 'দোকান ' + shrShopNo(D, x) + ' — ' + x.Name : 'সব ভাড়াটিয়া', summary: summary,
+      html: (P.acc !== 'J' ? tbl('R', 'ভাড়ার হিসাব (ব্যালান্স = বকেয়া ভাড়া)', 'বকেয়া') : '') + (P.acc !== 'R' ? tbl('J', 'জামানতের হিসাব (ব্যালান্স = হাতে জামানত)', 'জামানত') : '') });
+  }
+  async function openRow(id, act) {
+    if (act === 'view') return shrTxnPrint(id);
+    if (act === 'edit') { window.__shrEditId = id; return shrGo('shopTxn', t('ভাড়া আদায় ও জামানত', 'Rent & Deposit Voucher')); }
+    if (act === 'del') { if (await shrDeleteTxn(id)) { showToast(t('মুছে ফেলা হয়েছে ✅', 'Deleted ✅'), 'success'); await load(); } }
+  }
+  $('shl_Show').addEventListener('click', async function () { const b = this; if (b.__busy) return; b.__busy = true; b.disabled = true; try { await load(); side.collapse(); } finally { b.__busy = false; b.disabled = false; } });
+  $('shl_Print').addEventListener('click', printLedger);
+  $('shl_New').addEventListener('click', function () { window.__shrTxnTen = sel || null; shrGo('shopTxn', t('ভাড়া আদায় ও জামানত', 'Rent & Deposit Voucher')); });
+  $('shl_Ten').addEventListener('change', function () { sel = $('shl_Ten').value; render(); });
+  $('shl_St').addEventListener('change', function () { fillTens(); render(); });
+  $('shl_Acc').addEventListener('change', render);
+  ['shl_From', 'shl_To'].forEach(function (id) { $(id).addEventListener('change', function () { if (dmyIso(id)) render(); }); });
+  $('shl_Tens').addEventListener('click', function (e) { const b = e.target.closest('[data-tn]'); if (!b) return; sel = b.getAttribute('data-tn'); $('shl_Ten').value = sel; render(); side.collapse(); });
+  let lastTap = { id: '', at: 0 };
+  $('shl_Wrap').addEventListener('click', async function (e) {
+    const b = e.target.closest('[data-sl]');
+    if (b) { if (b.disabled || b.__busy) return; b.__busy = true; try { await openRow(b.getAttribute('data-id'), b.getAttribute('data-sl')); } catch (err) { showToast(err.message, 'error'); } finally { b.__busy = false; } return; }
+    const tr = e.target.closest('tr.tx'); if (!tr) return;
+    const id = tr.getAttribute('data-id'), now = Date.now();
+    if (lastTap.id === id && now - lastTap.at < 450) { lastTap = { id: '', at: 0 }; try { await openRow(id, 'edit'); } catch (err) { showToast(err.message, 'error'); } return; }
+    lastTap = { id: id, at: now }; content.querySelectorAll('#shl_Wrap tr.sel').forEach(function (r) { r.classList.remove('sel'); }); tr.classList.add('sel');
+  });
+  shrWatch(content, function () { return loadedAt; }, load);
+  await load();
+}
+
+/* ---------- দোকান ভাড়া → ভাড়া রিপোর্ট (সব ভাড়াটিয়ার সারসংক্ষেপ · বকেয়া মাস · A4) ---------- */
+async function renderShopRentReport(content) {
+  let D; const TT = t('ভাড়া রিপোর্ট ও বকেয়া তালিকা', 'Rent Report & Dues');
+  try { D = await shrLoadAll(); } catch (e) { shrErrPage(content, TT, e.message); return; }
+  const today = glToday(), fy = await getFiscalYearStart(today);
+  let loadedAt = Date.now(), selId = '';
+  content.innerHTML = `<style>${DMY_CSS}${OWN_CSS}${GL_CSS}${SHR_CSS}</style>
+    <div class="page-head"><div><h1>${TT}</h1><p>${t('সব ভাড়াটিয়ার ভাড়া ধার্য, আদায়, বকেয়া মাস ও জামানত — দুই ট্যাপে বা 👁️ দিয়ে লেজার', 'All tenants — charged, collected, unpaid months and deposits')}</p></div></div>
+    <div class="own-cards" id="shr_Cards"></div>
+    <div class="panel">
+      <div class="own-filter"><div class="field"><label>${t('তারিখ হইতে', 'From')}</label>${dmyDateField('shr_From', fy)}</div><div class="field"><label>${t('তারিখ পর্যন্ত', 'To')}</label>${dmyDateField('shr_To', today)}</div>
+        <div class="field"><label>${t('দেখাও', 'Show')}</label><select id="shr_St"><option value="Active">${t('চালু ভাড়াটিয়া', 'Active tenants')}</option><option value="">${t('সব ভাড়াটিয়া', 'All tenants')}</option><option value="Due">${t('শুধু বকেয়া আছে যাদের', 'Only with dues')}</option><option value="Left">${t('ছেড়ে দিয়েছে', 'Left')}</option></select></div>
+        <div class="field"><label>&nbsp;</label><button type="button" class="btn btn-outline" id="shr_Print" style="width:auto;">🖨️ ${t('প্রিন্ট (A4)', 'Print (A4)')}</button></div></div>
+      <div class="own-wrap" id="shr_Out"></div></div>`;
+  const $ = function (id) { return document.getElementById(id); };
+  wireDmyFields(content);
+  const range = function () { return { from: dmyIso('shr_From') || '0000-00-00', to: dmyIso('shr_To') || today }; };
+  function rowsData() {
+    const R = range(), st = $('shr_St').value;
+    return shrByShop(D, D.tens).map(function (x) {
+      const L = shrLedger(x, D, R.from, R.to), S = shrState(x, D, R.to);
+      return { x: x, rate: shrRentFor(D, x, shrYm(R.to)), open: L.R.open, charge: (L.R.by.RentDue || 0) + (L.R.by.OtherDue || 0) + (L.R.by.RentOpen || 0), coll: L.R.by.RentCollect || 0, wa: (L.R.by.RentWaive || 0) + (L.R.by.DepAdjust || 0), close: L.R.close, S: S };
+    }).filter(function (r) { return st === 'Active' ? r.x.Status === 'Active' : st === 'Left' ? r.x.Status !== 'Active' : st === 'Due' ? r.close > 0.004 : true; });
+  }
+  function tableHtml(forPrint) {
+    const rows = rowsData(); if (!rows.length) return `<div class="empty-state">${t('কোনো ভাড়াটিয়া নেই।', 'No tenants.')}</div>`;
+    const G = { open: 0, charge: 0, coll: 0, wa: 0, close: 0, held: 0, baki: 0, rent: 0 };
+    const body = rows.map(function (r, i) {
+      G.open += r.open; G.charge += r.charge; G.coll += r.coll; G.wa += r.wa; G.close += r.close; G.held += r.S.held; G.baki += r.S.depBaki; G.rent += r.rate;
+      return `<tr data-id="${attr(r.x.TenantID)}" class="${!forPrint && selId === r.x.TenantID ? 'sel' : ''} ${r.x.Status !== 'Active' ? 'gl-closed' : ''}"><td>${i + 1}</td><td><b>${escapeHtml(shrShopNo(D, r.x))}</b></td><td class="l"><b>${escapeHtml(r.x.Name || '')}</b>${r.x.Mobile ? `<br><small>${escapeHtml(r.x.Mobile)}</small>` : ''}</td>
+        <td class="r">${glMoney(r.rate)}</td><td class="r">${glMoney(r.open)}</td><td class="r">${glMoney(r.charge)}</td><td class="r">${glMoney(r.coll)}</td><td class="r">${glMoney(r.wa)}</td>
+        <td class="r"><b class="${!forPrint && r.close > 0.004 ? 'gl-neg' : ''}">${glMoney(r.close)}</b></td><td class="l" style="white-space:normal;min-width:110px;"><span class="${forPrint ? '' : 'shr-um'}">${escapeHtml(shrUnpaidTxt(r.S.unpaid)) || '—'}</span></td>
+        <td class="r">${glMoney(r.S.held)}${r.S.depBaki ? `<br><small>${t('বাকি ', 'due ')}${glMoney(r.S.depBaki)}</small>` : ''}</td>${forPrint ? '' : `<td><button type="button" class="own-ic" data-sr="${attr(r.x.TenantID)}" title="${attr(t('লেজার', 'Ledger'))}">👁️</button></td>`}</tr>`;
+    }).join('');
+    if (!forPrint) $('shr_Cards').innerHTML = `<div class="own-card"><small>${t('মাসিক মোট ভাড়া', 'Monthly rent')}</small><b>৳${glMoney(G.rent)}</b></div><div class="own-card"><small>${t('ভাড়া ধার্য', 'Charged')}</small><b>৳${glMoney(G.charge)}</b></div>
+      <div class="own-card" style="background:#ecfdf3;border-color:#b7e2c4;"><small>${t('ভাড়া আদায়', 'Collected')}</small><b>৳${glMoney(G.coll)}</b></div><div class="own-card hl"><small>${t('বকেয়া ভাড়া', 'Rent due')}</small><b>৳${glMoney(G.close)}</b></div>
+      <div class="own-card"><small>🔒 ${t('হাতে জামানত', 'Deposits held')}</small><b>৳${glMoney(G.held)}</b></div><div class="own-card"><small>${t('জামানত বাকি', 'Deposit pending')}</small><b>৳${glMoney(G.baki)}</b></div>`;
+    return `<table class="${forPrint ? '' : 'own-tbl gl-tbl'}"><thead><tr><th>${t('ক্রঃ', 'Sl')}</th><th>${t('দোকান', 'Shop')}</th><th>${t('ভাড়াটিয়া', 'Tenant')}</th><th>${t('মাসিক ভাড়া', 'Rent')}</th><th>${t('প্রারম্ভিক বকেয়া', 'Opening due')}</th><th>${t('ধার্য (+)', 'Charged (+)')}</th><th>${t('আদায় (−)', 'Collected (−)')}</th><th>${t('মওকুফ/সমন্বয় (−)', 'Waived/adj. (−)')}</th><th>${t('বকেয়া ভাড়া', 'Rent due')}</th><th>${t('বকেয়া মাস', 'Unpaid months')}</th><th>${t('জামানত জমা', 'Deposit held')}</th>${forPrint ? '' : '<th></th>'}</tr></thead>
+      <tbody>${body}</tbody><tfoot><tr><td></td><td colspan="2" class="l">${t('সর্বমোট', 'Grand total')} (${rows.length}${t('জন', '')})</td><td class="r">${glMoney(G.rent)}</td><td class="r">${glMoney(G.open)}</td><td class="r">${glMoney(G.charge)}</td><td class="r">${glMoney(G.coll)}</td><td class="r">${glMoney(G.wa)}</td><td class="r">${glMoney(G.close)}</td><td></td><td class="r">${glMoney(G.held)}</td>${forPrint ? '' : '<td></td>'}</tr></tfoot></table>`;
+  }
+  function render() { $('shr_Out').innerHTML = tableHtml(false); }
+  ['shr_From', 'shr_To', 'shr_St'].forEach(function (id) { $(id).addEventListener('change', render); });
+  const openLedger = function (id) { window.__shrLedgerTen = id; shrGo('shopLedger', t('ভাড়াটিয়া লেজার', 'Tenant Ledger')); };
+  let lastTap = { id: '', at: 0 };
+  $('shr_Out').addEventListener('click', function (e) {
+    const b = e.target.closest('[data-sr]'); if (b) { openLedger(b.getAttribute('data-sr')); return; }
+    const tr = e.target.closest('tr[data-id]'); if (!tr) return;
+    const id = tr.getAttribute('data-id'), now = Date.now();
+    if (lastTap.id === id && now - lastTap.at < 450) { lastTap = { id: '', at: 0 }; openLedger(id); return; }
+    lastTap = { id: id, at: now }; selId = id; content.querySelectorAll('#shr_Out tr.sel').forEach(function (r) { r.classList.remove('sel'); }); tr.classList.add('sel');
+  });
+  $('shr_Print').addEventListener('click', function () {
+    const R = range(), stl = $('shr_St');
+    printReportA4({ title: 'দোকান ভাড়া রিপোর্ট ও বকেয়া তালিকা', period: (R.from === '0000-00-00' ? '' : formatShortDate(R.from) + ' হইতে ') + formatShortDate(R.to) + ' পর্যন্ত', filters: stl.options[stl.selectedIndex].text, html: tableHtml(true) });
+  });
+  render();
+  shrWatch(content, function () { return loadedAt; }, async function () { try { D = await shrLoadAll(); loadedAt = Date.now(); render(); } catch (e) {} });
 }
 
 /* ============================================================
@@ -20774,6 +21911,7 @@ const VOUCHER_REGISTRY = {
   CollectionVoucher: { bn: 'কালেকশন (পুরনো)', table: 'CollectionVoucher', idf: ['CollectionID', 'ColID', 'CollID', 'VoucherID', 'ID'], lines: [], kind: 'legacy' },
   LoanVoucher: { bn: 'চলতি (দায় ও দেনা)', table: 'LoanVoucher', idf: 'LoanID', lines: [], kind: 'loan' },
   LoanTxn: { bn: 'লোন', table: 'LoanTxn', idf: 'TxnID', lines: [], kind: 'gmwloan' },
+  ShopTxn: { bn: 'দোকান ভাড়া', table: 'ShopTxn', idf: 'TxnID', lines: [], kind: 'shoprent' },
 };
 function voucherBaseType(refModule) { return String(refModule || '').replace(/-(Payment|Receipt|Reversal|RM|FG|ByProduct|In|Out|Discount)$/, ''); }
 async function voucherFetchHeader(base, id) {
@@ -20800,6 +21938,7 @@ async function voucherView(base, id) {
   if (R.kind === 'asset') return assetVoucherPrint(base, id);
   if (R.kind === 'loan') return loanVoucherPrint(id);
   if (R.kind === 'gmwloan') return glTxnPrint(id);
+  if (R.kind === 'shoprent') return shrTxnPrint(id);
   if (R && R.kind === 'head') { const HK = HV_KINDS[R.hv]; closeModal(); window['__' + HK.P + 'EditId'] = id; return navigateTo(HK.page, t('হিসাব', 'Accounts'), t(HK.bn, HK.en)); }   // এক্সপেন্স/রিসিপ্ট — নিজের পেজে উপরের ঘরে
   if (R.kind === 'simple') { const h = await voucherFetchHeader(base, id); if (!h) { showToast(t('ভাউচারটা পাওয়া যায়নি — 🗑️ দিয়ে লেজার থেকে মুছে ফেলতে পারেন।', 'Voucher not found — you can remove it from the ledger with 🗑️.'), 'error'); return; } window.__activeSimpleVoucherConfig = SIMPLE_VOUCHER_CONFIGS[R.cfg]; return openSimpleVoucherForm(h); }
 }
@@ -20812,6 +21951,7 @@ async function voucherEdit(base, id, posted) {
   if (R.kind === 'asset') { closeModal(); window.__assetEditId = { base: base, id: id }; return navigateTo(ASSET_VCFG[base].page, t('হিসাব', 'Accounts'), ASSET_VCFG[base].bn); }
   if (R.kind === 'loan') { closeModal(); window.__loanEditId = id; return navigateTo('loans', t('লোন', 'Loans'), t('চলতি (দায় ও দেনা)', 'Current (dues & debts)')); }
   if (R.kind === 'gmwloan') { closeModal(); window.__glEditId = id; return navigateTo('loanTxn', t('লোন', 'Loans'), t('লোন ভাউচার', 'Loan Voucher')); }
+  if (R.kind === 'shoprent') { closeModal(); window.__shrEditId = id; return navigateTo('shopTxn', t('অন্যান্য আয়', 'Other Income'), t('ভাড়া আদায় ও জামানত', 'Rent & Deposit Voucher')); }
   const h = await voucherFetchHeader(base, id);
   if (!h) { showToast(t('ভাউচারটা পাওয়া যায়নি — 🗑️ দিয়ে লেজার থেকে মুছে ফেলতে পারেন।', 'Voucher not found — remove it with 🗑️.'), 'error'); return false; }
   if (h.Status === 'Posted') {
@@ -20836,6 +21976,7 @@ async function voucherPost(base, id) {
   if (R.kind === 'asset') return assetVoucherPost(base, id);
   if (R.kind === 'loan') { if (!confirm(t('পোস্ট করবেনঃ ', 'Post: ') + id + '?')) return false; await postLoanVoucher(id); return true; }
   if (R.kind === 'gmwloan') { const D = await glLoadAll(); const x = D.txns.find(function (r) { return r.TxnID === id; }), ln = x && D.loans.find(function (l) { return l.LoanID === x.LoanID; }); if (!x || !ln || x.Status === 'Posted') return false; if (!confirm(t('পোস্ট করবেনঃ ', 'Post: ') + id + '?')) return false; await glPostTxn(ln, x); return true; }
+  if (R.kind === 'shoprent') { const D = await shrLoadAll(); const x = D.txns.find(function (r) { return r.TxnID === id; }); if (!x || x.Status === 'Posted') return false; if (!confirm(t('পোস্ট করবেনঃ ', 'Post: ') + id + '?')) return false; await shrPostTxn(x); return true; }
   if (!confirm(t('ভাউচার ', 'Post voucher ') + id + t(' পোস্ট করবেন?', '?'))) return;
   await postDocumentRecord(base, id);
 }
@@ -20846,6 +21987,7 @@ async function voucherDelete(base, id) {
   if (R.kind === 'asset') return assetVoucherDelete(base, id);
   if (R.kind === 'loan') return loanVoucherDelete(id);   // রেজিস্টার ও বিক্রিত পরিমাণও ঠিক করে
   if (R.kind === 'gmwloan') return glDeleteTxn(id);
+  if (R.kind === 'shoprent') return shrDeleteTxn(id);
   const h = R.table ? await voucherFetchHeader(base, id) : null;
   const posted = !h || h.Status === 'Posted';
   if (posted) { if (!(await voucherAskAdmin(t('পোস্ট করা/ভুল ভাউচার মুছতে এডমিন পাসওয়ার্ড দিন:', 'Admin password to delete a posted/broken voucher:')))) return false; }
@@ -24275,7 +25417,7 @@ const ALL_DATA_SHEETS = [
   'Attendance','LeaveRequests','Payroll','Payroll_Lines','Payroll_Details','SalaryIssue','EmployeeCategories','WorkRoles','SizeRates','TeamProduction','TeamProduction_Items','TeamProduction_Members','TeamProduction_Costs','DailyBonus',
   'SystemSettings',
   // পরে যোগ হওয়া টেবিল (খরচ/আয়/কালেকশন/মূলধন ভাউচার, স্থায়ী সম্পদ, খাত)
-  'ExpenseCategories','ExpenseVoucher','ExpenseVoucher_Lines','IncomeVoucher','IncomeVoucher_Lines','CollectionVoucher','CapitalVoucher','Loan','LoanTxn','LoanTxnType',
+  'ExpenseCategories','ExpenseVoucher','ExpenseVoucher_Lines','IncomeVoucher','IncomeVoucher_Lines','CollectionVoucher','CapitalVoucher','Loan','LoanTxn','LoanTxnType','Shop','ShopTenant','ShopTxn','ShopRentChange',
   'PayHeads','FixedAsset','AssetCategory','AssetMaster','AssetPurchase','AssetPurchase_Lines','AssetSale','AssetSale_Lines'
 ];
 
