@@ -15983,6 +15983,78 @@ async function itemCostRate(item, piece) {
   return Number(item.StandardCost) || 0;
 }
 function voucherIsPieceUnit(name) { const s = String(name || '').trim(); return /পিস|pcs|piece/i.test(s) || /^pc$/i.test(s); }
+/** একটা আইটেম×গুদামের স্টক ও স্টক দর — ইনভেন্টরির "স্টক ওভারভিউ" রিপোর্টের হুবহু একই নিয়মে, যাতে ভাউচার আর রিপোর্ট মেলে।
+ *  স্টক = স্টক লেজারের Σ(ইন − আউট), আজ পর্যন্ত (কেজি ও পিস আলাদা)। আগে current_stock টেবিল থেকে নেওয়া হতো —
+ *    সেটা কোনো কারণে লেজার থেকে সরে গেলে (দুই সারি, পুরনো ভুল) ভাউচারে ভুল স্টক দেখাত।
+ *  দর = সর্বশেষ পোস্ট করা প্রসেসিংয়ের কেজি-দর ও পিস-দর (উপজাত সহ) → না থাকলে সর্বশেষ পোস্ট করা ক্রয়ের দর → না থাকলে স্ট্যান্ডার্ড কস্ট;
+ *    একটা দর না থাকলে গড় ওজন (কেজি ÷ পিস) দিয়ে অন্যটা। আগে শুধু একটা দর নিয়ে অন্যটা গড় ওজনে ভাগ করা হতো — তাই কেজির দর মিলত না। */
+/** current_stock টেবিল (দ্রুত হিসাবের জন্য রাখা) লেজারের সাথে না মিললে ঠিক করে — একাধিক সারি থাকলে একটা রেখে বাকি মোছে।
+ *  লেজার হলো আসল হিসাব; এখানে শুধু সেই সংখ্যাটা current_stock-এ বসানো হয়। ভাউচারে আইটেম বাছাইয়ের সময় চুপচাপ চলে। */
+async function currentStockSync(itemId, wh, kg, pcs) {
+  try {
+    const r = await supabaseClient.from('current_stock').select('*').eq('ItemID', itemId).eq('WarehouseID', wh);
+    if (r.error) return;
+    const rows = r.data || [];
+    const same = function (a, b) { return Math.abs((Number(a) || 0) - (Number(b) || 0)) < 0.0005; };
+    if (rows.length === 1 && same(rows[0].QtyOnHand, kg) && same(rows[0].QtyPieces, pcs)) return;   // ঠিক আছে
+    if (rows.length > 1) await supabaseClient.from('current_stock').delete().eq('ItemID', itemId).eq('WarehouseID', wh);
+    if (rows.length === 1) await supabaseClient.from('current_stock').update({ QtyOnHand: kg, QtyPieces: pcs }).eq('ItemID', itemId).eq('WarehouseID', wh);
+    else await supabaseClient.from('current_stock').insert({ ItemID: itemId, WarehouseID: wh, QtyOnHand: kg, QtyPieces: pcs });
+  } catch (e) {}
+}
+async function voucherItemSnapshot(item, wh, piece) {
+  const safe = async function (q) { try { const r = await q; return (r && !r.error && r.data) || []; } catch (e) { return []; } };
+  const id = item.ItemID, today = ownToday();
+  const ledgerP = (async function () {
+    const o = { kg: 0, pcs: 0, inKg: 0, inPc: 0, n: 0 };
+    for (let from = 0; from < 200000; from += 1000) {
+      const r = await supabaseClient.from('stock_ledger').select('Date,QtyIn,QtyOut,PiecesIn,PiecesOut').eq('ItemID', id).eq('WarehouseID', wh).range(from, from + 999);
+      if (r.error) throw new Error(r.error.message);
+      const d = r.data || [];
+      d.forEach(function (l) {
+        if (String(l.Date || '').slice(0, 10) > today) return;   // আজকের পরের তারিখ নয় (রিপোর্টের মতোই)
+        o.kg += (Number(l.QtyIn) || 0) - (Number(l.QtyOut) || 0); o.pcs += (Number(l.PiecesIn) || 0) - (Number(l.PiecesOut) || 0);
+        o.inKg += Number(l.QtyIn) || 0; o.inPc += Number(l.PiecesIn) || 0; o.n++;
+      });
+      if (d.length < 1000) break;
+    }
+    return o;
+  })();
+  const ratesP = (async function () {
+    const [fg, bp1, bp2, pil] = await Promise.all([
+      safe(supabaseClient.from('ProcessingFG_Lines').select('*').eq('ItemID', id)),
+      safe(supabaseClient.from('ProcessingByProduct_Lines').select('*').eq('ItemID', id)),
+      item.ItemName ? safe(supabaseClient.from('ProcessingByProduct_Lines').select('*').eq('ByProductName', item.ItemName)) : Promise.resolve([]),
+      safe(supabaseClient.from('PI_Lines').select('*').eq('ItemID', id))]);
+    const all = fg.concat(byProductRateLines(bp1.concat(bp2.filter(function (l) { return !l.ItemID; })), [item]).filter(function (l) { return l.ItemID === id; }));
+    if (all.length) {
+      const pv = await safe(supabaseClient.from('ProcessingVoucher').select('ProcessingID,Date,Status').in('ProcessingID', Array.from(new Set(all.map(function (l) { return l.ProcessingID; })))));
+      const pm = {}; pv.forEach(function (h) { if (h.Status === 'Posted') pm[h.ProcessingID] = String(h.Date || ''); });
+      const last = all.filter(function (l) { return pm[l.ProcessingID] !== undefined; }).sort(function (a, b) { return pm[a.ProcessingID].localeCompare(pm[b.ProcessingID]); }).pop();
+      if (last) return { kg: Number(last.RatePerKg) || 0, pc: Number(last.RatePerPc) || 0, src: 'processing' };
+    }
+    const okl = pil.filter(function (l) { return Number(l.Quantity) > 0; });
+    if (okl.length) {
+      const ph = await safe(supabaseClient.from('PurchaseInvoice').select('PIID,InvoiceDate,Status').in('PIID', Array.from(new Set(okl.map(function (l) { return l.PIID; })))));
+      const hm = {}; ph.forEach(function (h) { if (h.Status === 'Posted') hm[h.PIID] = String(h.InvoiceDate || ''); });
+      const last = okl.filter(function (l) { return hm[l.PIID] !== undefined; }).sort(function (a, b) { return hm[a.PIID].localeCompare(hm[b.PIID]); }).pop();
+      if (last) {
+        const v = (last.NetAmount !== null && last.NetAmount !== undefined && last.NetAmount !== '') ? Number(last.NetAmount) : (last.Amount !== null && last.Amount !== undefined && last.Amount !== '') ? Number(last.Amount) : Number(last.Quantity) * Number(last.Rate);
+        const r = (Number(v) || 0) / Number(last.Quantity);
+        return { kg: piece ? 0 : r, pc: piece ? r : 0, src: 'purchase' };
+      }
+    }
+    const sc = Number(item.StandardCost) || 0;
+    return { kg: piece ? 0 : sc, pc: piece ? sc : 0, src: 'standard' };
+  })();
+  const [L, R] = await Promise.all([ledgerP, ratesP]);
+  const avg = (L.kg > 0 && L.pcs > 0) ? L.kg / L.pcs : ((L.inKg > 0 && L.inPc > 0) ? L.inKg / L.inPc : 0);   // গড় ওজন (কেজি/পিস)
+  let rKg = R.kg, rPc = R.pc;
+  if (!rKg && rPc && avg) rKg = rPc / avg;
+  if (!rPc && rKg && avg) rPc = rKg * avg;
+  return { has: L.n > 0, kg: L.kg, pcs: L.pcs, avg: avg, rKg: rKg, rPc: rPc, src: R.src };
+}
+
 async function voucherDualRefresh(p, kind) {
   const $ = function (id) { return document.getElementById(id); };
   if (!$(p + '_QtyKg')) return;
@@ -15998,22 +16070,19 @@ async function voucherDualRefresh(p, kind) {
   const kgOnly = !!item && !piece;
   [p + '_QtyPcs', p + '_RatePc', p + '_AvgRatePc'].forEach(function (id) { const el = $(id); if (!el) return; el.disabled = kgOnly; if (kgOnly) el.value = ''; el.placeholder = kgOnly ? '—' : ''; });
   $(p + '_LblKg').classList.toggle('vmain', !!item && !piece); $(p + '_LblPcs').classList.toggle('vmain', !!item && piece);
-  let kg = 0, pcs = 0, has = false;
+  let kg = 0, pcs = 0, has = false, snap = null;
   if (item && wh) {
-    try {
-      // একই আইটেম×গুদামের একাধিক সারি থাকলে maybeSingle ভুল দেয় (কখনো স্টক নেই) — তাই সব সারি এনে যোগ
-      const r = await supabaseClient.from('current_stock').select('QtyOnHand,QtyPieces').eq('ItemID', itemId).eq('WarehouseID', wh);
-      const rows = (r && !r.error && r.data) || [];
-      if (rows.length) { has = true; rows.forEach(function (x) { kg += Number(x.QtyOnHand) || 0; pcs += Number(x.QtyPieces) || 0; }); }
-    } catch (e) {}
+    // স্টক ও স্টক দর — "স্টক ওভারভিউ" রিপোর্টের নিয়মে (লেজার থেকে)
+    try { snap = await voucherItemSnapshot(item, wh, piece); has = snap.has; kg = snap.kg; pcs = snap.pcs; } catch (e) { snap = null; }
     if (stale()) return;
+    if (snap && snap.has) currentStockSync(itemId, wh, snap.kg, snap.pcs);   // current_stock লেজার থেকে সরে গেলে ঠিক করে নেয় (পোস্টিং যেন সঠিক থেকে শুরু করে)
   }
   const f3 = function (x) { return String(+(Number(x) || 0).toFixed(3)); };
   const txt = (!item || !wh) ? '' : (!has ? t('কোনো স্টক নেই', 'No stock') : f3(kg) + ' ' + t('কেজি', 'kg') + ((pcs || piece) ? ' / ' + f3(pcs) + ' ' + t('পিস', 'pcs') : ''));
   window['__' + p + 'LastStockQty'] = txt; $(p + '_PreviewStockQty').value = txt;
-  const avg = (kg > 0 && pcs > 0) ? kg / pcs : 0; window['__' + p + 'AvgKgPc'] = avg;
-  // স্টক জানা মাত্রই বসে (কোন আইটেম ও গুদামের তা লেখা থাকে) — দরের হিসাব (cost) পরে আসে
-  window['__' + p + 'LastStockKP'] = (!item || !wh) ? null : { item: itemId, wh: wh, has: has, kg: kg, pcs: pcs, piece: piece, avg: avg, cost: null };
+  const avg = snap ? snap.avg : ((kg > 0 && pcs > 0) ? kg / pcs : 0); window['__' + p + 'AvgKgPc'] = avg;   // পিস লিখলে কেজি = পিস × এই গড় ওজন
+  // স্টক ও দুই দর একসাথে বসে (কোন আইটেম ও গুদামের তা লেখা থাকে)
+  window['__' + p + 'LastStockKP'] = (!item || !wh) ? null : { item: itemId, wh: wh, has: has, kg: kg, pcs: pcs, piece: piece, avg: avg, rKg: snap ? snap.rKg : 0, rPc: snap ? snap.rPc : 0, cost: snap ? (piece ? snap.rPc : snap.rKg) : 0 };
   let main = 0;   // মূল এককের দর
   if (item) {
     if (kind === 'purchase') {   // পোস্ট করা ক্রয়ের গড় দর (না থাকলে স্ট্যান্ডার্ড কস্ট)
@@ -16030,7 +16099,12 @@ async function voucherDualRefresh(p, kind) {
           if (q > 0 && v > 0) main = v / q;
         }
       } catch (e) {}
-    } else { main = Number(item.SalesPrice) || 0; const cr = await itemCostRate(item, piece); if (stale()) return; window['__' + p + 'CostRate'] = cr; }   // বিক্রয়ঃ স্ট্যান্ডার্ড বিক্রয় দর; লাভের জন্য খরচ-দর
+    } else {   // বিক্রয়ঃ স্ট্যান্ডার্ড বিক্রয় দর; লাভের খরচ-দর = স্টক দর (স্টক ওভারভিউর মূল্যায়নের মতোই)
+      main = Number(item.SalesPrice) || 0;
+      let cr = snap ? (piece ? snap.rPc : snap.rKg) : 0;
+      if (!(cr > 0)) { cr = await itemCostRate(item, piece); if (stale()) return; }
+      window['__' + p + 'CostRate'] = cr;
+    }
     if (stale()) return;
   }
   const rKg = piece ? (avg ? main / avg : 0) : main, rPc = piece ? main : (avg ? main * avg : 0);
@@ -16039,7 +16113,7 @@ async function voucherDualRefresh(p, kind) {
   const hr = $(p + '_Rate'), rk0 = $(p + '_RateKg'), rp0 = $(p + '_RatePc');
   if (hr && rk0 && rp0 && hr.value && !rk0.value && !rp0.value) { if (piece) { rp0.value = hr.value; window['__' + p + 'RateBasis'] = 'pc'; } else { rk0.value = hr.value; window['__' + p + 'RateBasis'] = 'kg'; } }
   // স্টক ঘরের তথ্য — খরচ-দর (CostRate) হিসাব শেষ হওয়ার পরে বসে, যাতে আগের আইটেমের দর না দেখায়
-  window['__' + p + 'LastStockKP'] = (!item || !wh) ? null : { item: itemId, wh: wh, has: has, kg: kg, pcs: pcs, piece: piece, avg: avg, cost: kind === 'purchase' ? main : (Number(window['__' + p + 'CostRate']) || 0) };
+  if (window['__' + p + 'LastStockKP']) window['__' + p + 'LastStockKP'].done = true;
   voucherDualSync(p);
   if (p === 'sv3' || p === 'pv3') vfsApply(p);   // উপরে পিস/দর ঘর আবার চালু হতে পারে — সেটিং আবার প্রয়োগ
 }
@@ -16888,9 +16962,7 @@ function vfsStockVals(P) {
   if (!kp) return o;
   if (!kp.has) o.sKg = t('স্টক নেই', 'No stock');
   else { o.sKg = f3(kp.kg); o.sPc = (kp.pcs || kp.piece) ? f3(kp.pcs) : '—'; }
-  if (kp.cost === null) { o.rateLoading = true; return o; }   // দর এখনো হিসাব হচ্ছে
-  const main = Number(kp.cost) || Number(window['__' + P + 'LastStockRate']) || 0;
-  const rKg = kp.piece ? (kp.avg ? main / kp.avg : 0) : main, rPc = kp.piece ? main : (kp.avg ? main * kp.avg : 0);
+  const rKg = Number(kp.rKg) || 0, rPc = Number(kp.rPc) || 0;   // স্টক ওভারভিউর নিয়মে কেজি-দর ও পিস-দর
   o.rKgT = rKg ? rKg.toFixed(2) : '—'; o.rPcT = rPc ? rPc.toFixed(2) : ((kp.piece || kp.pcs) ? '—' : '');
   return o;
 }
@@ -16947,8 +17019,7 @@ function vfsStockDisplay(P, set) {
     if (!kp.has) sKg = t('স্টক নেই', 'No stock');
     else { sKg = f3(kp.kg); sPc = (kp.pcs || kp.piece) ? f3(kp.pcs) : '—'; }
     // স্টক দর (মূল এককে) — বিক্রয়ঃ খরচ-দর (প্রসেসিং → ক্রয়ের গড় → স্ট্যান্ডার্ড কস্ট); ক্রয়ঃ পোস্ট করা ক্রয়ের গড় দর
-    const main = Number(kp.cost) || Number(window['__' + P + 'LastStockRate']) || 0;
-    const rKg = kp.piece ? (kp.avg ? main / kp.avg : 0) : main, rPc = kp.piece ? main : (kp.avg ? main * kp.avg : 0);
+    const rKg = Number(kp.rKg) || 0, rPc = Number(kp.rPc) || 0;   // স্টক ওভারভিউর নিয়মে
     rKgT = rKg ? rKg.toFixed(2) : '—'; rPcT = rPc ? rPc.toFixed(2) : ((kp.piece || kp.pcs) ? '—' : '');
   }
   const put = function (id, v, on) { const el = g(id); if (!el) return; el.value = on ? v : ''; el.classList.toggle('vset-off', !on); };
