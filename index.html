@@ -24675,6 +24675,11 @@ async function renderProfitLossReport(content) {
       .pl-h2{font-size:12.5px;font-weight:700;margin:12px 0 4px;color:var(--text);}
       .pl-st tr.pl-row{cursor:pointer;} .pl-st tr.pl-row:hover td{background:#fff8e6;} .pl-st tr.pl-row.sel td{background:#ffe9b3;}
       .pl-dt td.lb{white-space:normal;}
+      /* একটাই স্ক্রল-ঘর (পর্দার নিচ পর্যন্ত) — উপরের শিরোনাম/কার্ড স্থির; প্রতিটা টেবিলের হেডার স্ক্রলের সময় উপরে আটকে থাকে */
+      .pl-scroll{position:relative;}
+      .pl-scroll .pl-h2{position:relative;z-index:1;background:var(--surface,#fff);margin:0;padding:10px 4px 4px;}
+      .pl-scroll table.sr-tbl thead th{position:sticky;top:0;z-index:3;}
+      .pl-scroll table.pl-st{border-top:1px solid #d5dae1;}
       @media (max-width:760px){ .pl-tbl .pl-act,.pl-st .pl-act{display:none;} .pl-tbl td.lb{min-width:0;white-space:normal;word-break:break-word;} .pl-tbl th,.pl-tbl td{padding:1px 3px !important;} .pl-tbl .pct{display:block;margin-left:0;} .pl-st .mh{display:none;} }
     </style>
     <div class="sr-head"><h1 class="i18n" data-bn="লাভ-ক্ষতি হিসাব" data-en="Profit &amp; Loss">${t('লাভ-ক্ষতি হিসাব', 'Profit & Loss')}</h1></div>
@@ -24692,13 +24697,13 @@ async function renderProfitLossReport(content) {
      <div class="sr-main panel">
       <div id="plCards"></div>
       <div id="plWarn"></div>
-      <div id="plOut"><div class="sr-hint">${t('লোড হচ্ছে…', 'Loading…')}</div></div>
-      <div id="plStock"></div>
+      <div class="sr-scroll pl-scroll" id="plScroll"><div id="plOut"><div class="sr-hint">${t('লোড হচ্ছে…', 'Loading…')}</div></div>
+      <div id="plStock"></div></div>
       <div class="sr-note">${t('শুধু পোস্ট করা ভাউচার ধরা হয়েছে। মজুদের মূল্য স্টক ওভারভিউর দরের নিয়মে (ওই তারিখ পর্যন্ত সর্বশেষ প্রসেসিং → ক্রয় → প্রারম্ভিক জের → স্ট্যান্ডার্ড কস্ট)। এক্সপেন্স ভাউচারের (P) খাত ও সেলারী ইস্যু হলো বকেয়া পরিশোধ — খরচ আগেই দৈনিক উৎপাদন থেকে ধরা, তাই আবার ধরা হয়নি। এক চাপে সারি বাছাই, দুই চাপে বিস্তারিত।', 'Only posted vouchers. Stock is valued with the Stock Overview rate rule as of each date. (P) heads in expense vouchers and salary issues are settlements — the cost is already taken from daily production. Tap once to select, twice for details.')}</div>
      </div>
     </div>`;
   wireDmyFields(content);
-  const side = wireReportSide(document.getElementById('plSide'), document.getElementById('plTog'), 'plSideCollapsed', function () { fitReportScroll(content); });
+  const side = wireReportSide(document.getElementById('plSide'), document.getElementById('plTog'), 'plSideCollapsed', function () { if (typeof fixPlHeads === 'function') fixPlHeads(); });
   const $ = function (id) { return document.getElementById(id); };
   const isMob = function () { return window.matchMedia('(max-width:760px)').matches; };
   const fmt = function (v, forPrint) {
@@ -24747,7 +24752,7 @@ async function renderProfitLossReport(content) {
         ${forPrint ? '' : `<td class="c pl-act"><button type="button" class="sr-ic" data-cat="${i}" title="${attr(t('আইটেমওয়ারি', 'By item'))}">👁️</button></td>`}</tr>`;
     }).join('');
     return `${forPrint ? '<h4 style="margin:10px 0 4px;font-size:12px;">মজুদ মূল্যায়ন — ক্যাটাগরিওয়ারি</h4>' : `<div class="pl-h2">📦 ${t('মজুদ মূল্যায়ন — ক্যাটাগরিওয়ারি', 'Stock valuation — by category')}</div>`}
-      <div class="${forPrint ? '' : 'sr-scroll'}" style="${forPrint ? '' : 'max-height:none;'}"><table class="${forPrint ? '' : 'sr-tbl pl-st'}">${head}<tbody>${body}</tbody>
+      <div><table class="${forPrint ? '' : 'sr-tbl pl-st'}" id="${forPrint ? '' : 'plStTable'}">${head}<tbody>${body}</tbody>
       <tfoot><tr><td></td><td>${t('সর্বমোট', 'Grand total')}</td><td class="mh">${q3(T.oKg)}</td><td class="mh">${q3(T.oPc)}</td><td>${fmt(T.oV, forPrint)}</td><td class="mh">${q3(T.cKg)}</td><td class="mh">${q3(T.cPc)}</td><td>${fmt(T.cV, forPrint)}</td>${forPrint ? '' : '<td class="pl-act"></td>'}</tr></tfoot></table></div>`;
   }
   function statementHtml(forPrint) {
@@ -24768,9 +24773,17 @@ async function renderProfitLossReport(content) {
     if (dl.length) w.push('⚠️ ' + t('পোস্ট না করা (খসড়া) ভাউচার হিসাবে ধরা হয়নি — ', 'Draft vouchers are not included — ') + dl.map(function (x) { return x[1] + ' ' + x[0] + t('টি', ''); }).join(', '));
     if (R.negCnt) w.push('⚠️ ' + R.negCnt + t('টি আইটেমের সমাপনী মজুদ মাইনাস — স্টক ওভারভিউতে যাচাই করুন (লাভ ভুল দেখাতে পারে)।', ' item(s) have negative closing stock — check Stock Overview.'));
     $('plWarn').innerHTML = w.map(function (x) { return `<div class="pl-warn">${escapeHtml(x)}</div>`; }).join('');
-    $('plOut').innerHTML = `<div class="sr-scroll">${statementHtml(false)}</div>`;
+    $('plOut').innerHTML = statementHtml(false);
     $('plStock').innerHTML = stockHtml(false);
+    fixPlHeads();
+  }
+  /** স্ক্রল-ঘর পর্দার নিচ পর্যন্ত + মজুদ টেবিলের ২য় হেডার সারি (কেজি/পিস/মূল্য) ১ম সারির ঠিক নিচে আটকে থাকে */
+  function fixPlHeads() {
     fitReportScroll(content);
+    const tb = document.getElementById('plStTable'); if (!tb) return;
+    const r1 = tb.querySelector('thead tr.r1'); if (!r1) return;
+    const h = r1.getBoundingClientRect().height;
+    tb.querySelectorAll('thead tr.r2 th').forEach(function (th) { th.style.top = h + 'px'; });
   }
   async function load(force) {
     const from = dmyIso('plFrom'), to = dmyIso('plTo');
@@ -24874,7 +24887,7 @@ async function renderProfitLossReport(content) {
   const onPlResize = function () {
     if (!nodeAlive(content)) { window.removeEventListener('resize', onPlResize); return; }
     if (!content.isConnected || !document.getElementById('plStock')) return;   // অন্য ট্যাবে সরিয়ে রাখা
-    if (R && isMob() !== lastMob) { lastMob = isMob(); render(); }
+    if (R && isMob() !== lastMob) { lastMob = isMob(); render(); } else fixPlHeads();
   };
   window.addEventListener('resize', onPlResize);
   if (!window.__plFitBound) { window.__plFitBound = true; window.addEventListener('resize', function () { const c = document.getElementById('plTable'); if (c) fitReportScroll(c.closest('.sr-main')); }); }
