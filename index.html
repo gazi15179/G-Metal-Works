@@ -17606,6 +17606,28 @@ function voucherViewPostedApply(P, kind, dt, id) {
    কোনো সেটিং না থাকলে সব ঘর চালু (আগের মতো)। প্রিন্ট/প্রিন্ট প্রিভিউতে কোনো প্রভাব নেই। ===== */
 /* ক্রয়/বিক্রয় ভাউচার — চিকন শিরোনাম ও উপরের অংশ, ডেস্কটপে উঁচু উইন্ডো (দর/মূল্য পর্যন্ত স্ক্রল ছাড়াই) */
 const SV_COMPACT_CSS = `
+  /* আইটেম | পরিমান / দর | মূল্য — মোটা ঘর */
+  .svt tr.vplate td select,.svt tr.vplate td input:not([type=checkbox]){height:31px !important;font-size:14px !important;font-weight:600;}
+  .svt .vcombo{position:relative;}
+  .svt .vcombo input{padding-right:52px !important;}
+  .svt .vcombo .vcu{position:absolute;right:6px;top:50%;transform:translateY(-50%);font-size:11.5px;font-weight:700;color:#9a5b06;background:rgba(194,122,18,.12);padding:2px 6px;border-radius:5px;pointer-events:none;}
+  .vcbar{display:flex;gap:6px;background:var(--surface,#fff);border:1.5px solid #c27a12;border-radius:9px;padding:5px;box-shadow:0 8px 22px rgba(0,0,0,.22);}
+  .vcbar button{flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;border:1px solid #d8b47a;background:var(--surface,#fff);color:inherit;border-radius:7px;padding:6px 4px;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+  .vcbar button b{font-size:14px;} .vcbar button small{font-size:11px;opacity:.8;white-space:nowrap;}
+  .vcbar button.on{background:#c27a12;border-color:#c27a12;color:#fff;}
+  .vcbar button:disabled{opacity:.35;cursor:default;}
+  .vpick-cats button.kf{outline:2px dashed #1f6f5c;outline-offset:1px;}
+  @media (max-width:760px){ .svt tr.vplate td select,.svt tr.vplate td input:not([type=checkbox]){height:30px !important;font-size:13.5px !important;} }
+  /* সেভ / বাতিল — লাইভ প্রিভিউর নিচে (পুরো ভাউচার দেখে সেভ) */
+  .modal:has(#sv3_TabEntryPanel) .modal-foot,.modal:has(#pv3_TabEntryPanel) .modal-foot{display:none !important;}
+  .vfootx{display:flex;justify-content:flex-end;gap:10px;margin:12px 0 4px;padding-top:10px;border-top:1px solid var(--border);}
+  .vfootx .btn{width:auto !important;min-width:110px;margin:0;padding:10px 18px;font-size:14px;}
+  @media (max-width:760px){ .vfootx{margin:10px 0 2px;} .vfootx .btn{flex:1;min-width:0;padding:11px 10px;} }
+  /* লাইভ প্রিভিউ — লেখা বড়, সারি উঁচু (ডবল টাচ সহজ) */
+  :is(#sv3_PanelBox,#pv3_PanelBox) .svp,:is(#sv3_PanelBox,#pv3_PanelBox) .svp thead th,:is(#sv3_PanelBox,#pv3_PanelBox) .svp tbody td{font-size:12.5px !important;}
+  :is(#sv3_PanelBox,#pv3_PanelBox) .svp th,:is(#sv3_PanelBox,#pv3_PanelBox) .svp td{height:27px;padding:3px 5px !important;}
+  :is(#sv3_PanelBox,#pv3_PanelBox) .svp td small{font-size:11px;}
+  @media (max-width:760px){ :is(#sv3_PanelBox,#pv3_PanelBox) .svp tbody td{height:32px;padding:3px 3px !important;} :is(#sv3_PanelBox,#pv3_PanelBox) .svp .pe-x{font-size:16px;padding:2px 5px;} }
   /* ===== সাইড প্যানেল (ডেমো) — ক্রয়/বিক্রয় ভাউচার ডান পাশ থেকে খোলে, বাঁয়ে তালিকা দেখা যায় ===== */
   body.vdrawer .modal-overlay:has(#sv3_TabEntryPanel),body.vdrawer .modal-overlay:has(#pv3_TabEntryPanel){justify-content:flex-end !important;align-items:stretch !important;padding:0 !important;background:rgba(10,12,16,.18) !important;}
   body.vdrawer .modal:not(.modal-max):has(#sv3_TabEntryPanel),body.vdrawer .modal:not(.modal-max):has(#pv3_TabEntryPanel){width:min(640px,100vw) !important;max-width:min(640px,100vw) !important;height:100vh !important;max-height:100vh !important;border-radius:14px 0 0 14px !important;margin:0 !important;box-shadow:-14px 0 34px rgba(0,0,0,.28);animation:vdrIn .22s ease-out;}
@@ -17661,11 +17683,94 @@ const SV_COMPACT_CSS = `
  *  মাউস/আঙুলে আগের মতোই সাধারণ তালিকা খোলে। */
 function voucherItemPickerWire(P) {
   voucherSelectPickerWire(P, '_ItemID');
-  voucherSelectPickerWire(P, P === 'sv3' ? '_CustomerID' : '_SupplierID');   // পার্টির নামও — চাপ দিলে বা লিখলেই খোঁজার তালিকা
+  voucherSelectPickerWire(P, P === 'sv3' ? '_CustomerID' : '_SupplierID');
+  voucherSelectPickerWire(P, '_ZoneFilter');   // পার্টি জোনও — লিখে খোঁজা যায়
+  voucherComboWire(P);   // পরিমাণ ও দর — পিস/কেজি বার   // পার্টির নামও — চাপ দিলে বা লিখলেই খোঁজার তালিকা
 }
+/** পরিমাণ ও দরের ঘর — একটাই মোটা ঘর, চাপ দিলে নিচে "পিস | কেজি" বার (সাথে স্টক বা স্টক দর)।
+ *  যে একক বাছাই করবেন, লেখা সেই এককের (লুকানো) পুরনো ঘরে যায় — তাই কেজি = পিস × গড় ওজন, মূল্য, দর ইত্যাদির আগের সব হিসাব হুবহু চলে।
+ *  ↑ ↓ (বা ঘর খালি থাকলে ← →) দিয়ে পিস/কেজি বদল; Enter = পরের ঘর (পরিমাণ → দর → মূল্য)। */
+function voucherComboWire(P) {
+  const $ = function (id) { return document.getElementById(P + id); };
+  if (!$('_QtyX')) return;
+  const defs = { Qty: { pc: '_QtyPcs', kg: '_QtyKg' }, Rate: { pc: '_RatePc', kg: '_RateKg' } };
+  const st = { Qty: { unit: null, item: null }, Rate: { unit: null, item: null } };
+  let bar = null, barFor = null, barT = 0;
+  const avail = function (k, u) { const o = $(defs[k][u]); return !!o && !o.disabled; };
+  const ensureUnit = function (k) {
+    const it = ($('_ItemID') || {}).value || '';
+    if (st[k].item !== it || !st[k].unit) { st[k].item = it; st[k].unit = window['__' + P + 'Piece'] ? 'pc' : 'kg'; }   // পিসের আইটেমে পিস, কেজির আইটেমে কেজি
+    if (!avail(k, st[k].unit)) { const o = st[k].unit === 'pc' ? 'kg' : 'pc'; if (avail(k, o)) st[k].unit = o; }
+    return st[k].unit;
+  };
+  const lbl = function (u) { return u === 'pc' ? t('পিস', 'pcs') : t('কেজি', 'kg'); };
+  const render = function (k, force) {
+    const x = $('_' + k + 'X'); if (!x) return;
+    const u = ensureUnit(k), o = $(defs[k][u]);
+    if (o && (force || document.activeElement !== x)) x.value = o.value || '';
+    const ul = $('_' + k + 'U'); if (ul) ul.textContent = (k === 'Rate' ? '৳/' : '') + lbl(u);
+    x.disabled = !avail(k, 'pc') && !avail(k, 'kg');
+  };
+  const info = function (k, u) {
+    const v = vfsStockVals(P);
+    if (v.loading) return t('লোড হচ্ছে…', 'Loading…');
+    if (!v.kp) return '';
+    const x = k === 'Qty' ? (u === 'pc' ? v.sPc : v.sKg) : (u === 'pc' ? v.rPcT : v.rKgT);
+    return (k === 'Qty' ? t('স্টক ', 'Stock ') : t('স্টক দর ', 'Stock rate ')) + (x || '—');
+  };
+  const hideBar = function () { if (bar) { bar.remove(); bar = null; } barFor = null; clearInterval(barT); };
+  const showBar = function (k) {
+    const x = $('_' + k + 'X'); if (!x || x.disabled) { hideBar(); return; }
+    if (!bar) {
+      bar = document.createElement('div'); bar.className = 'vcbar';
+      bar.addEventListener('mousedown', function (e) { e.preventDefault(); });   // ঘর থেকে কার্সর সরে না
+      bar.addEventListener('click', function (e) { const b = e.target.closest('button[data-u]'); if (!b || b.disabled || !barFor) return; setUnit(barFor, b.getAttribute('data-u')); const xx = $('_' + barFor + 'X'); if (xx) xx.focus(); });
+      document.body.appendChild(bar);
+    }
+    barFor = k;
+    const u = ensureUnit(k);
+    bar.innerHTML = ['pc', 'kg'].map(function (uu) {
+      const ok = avail(k, uu);
+      return `<button type="button" data-u="${uu}" class="${uu === u ? 'on' : ''}" ${ok ? '' : 'disabled'}><b>${escapeHtml(lbl(uu))}</b><small>${escapeHtml(ok ? info(k, uu) : t('প্রযোজ্য নয়', 'n/a'))}</small></button>`;
+    }).join('');
+    const r = x.closest('td').getBoundingClientRect();
+    // বার ঘরের উপরে (হেডারের জায়গায়) — নিচের দর/মূল্যের ঘর ঢাকা পড়ে না; উপরে জায়গা না থাকলে নিচে
+    const above = r.top, fr = document.getElementById(P + '_Freeze'), frB = fr ? fr.getBoundingClientRect().bottom : 0;
+    const w = Math.min(Math.max(220, r.width), window.innerWidth - 8), left = Math.max(4, Math.min(r.left, window.innerWidth - w - 4));
+    bar.style.cssText = `position:fixed;left:${left}px;width:${w}px;z-index:100003;` + (above - frB > 64 ? `bottom:${window.innerHeight - r.top + 2}px;` : `top:${r.bottom + 2}px;`);
+    clearInterval(barT); barT = setInterval(function () { if (!bar || !barFor || document.activeElement !== $('_' + barFor + 'X')) { hideBar(); return; } const k2 = barFor; bar.querySelectorAll('button[data-u]').forEach(function (b) { const uu = b.getAttribute('data-u'); const sm = b.querySelector('small'); if (sm && avail(k2, uu)) sm.textContent = info(k2, uu); }); }, 300);
+  };
+  const setUnit = function (k, u) { if (!avail(k, u)) return; st[k].unit = u; render(k, true); showBar(k); };
+  ['Qty', 'Rate'].forEach(function (k) {
+    const x = $('_' + k + 'X'); if (!x) return;
+    x.addEventListener('focus', function () { render(k, true); showBar(k); try { x.select(); } catch (e) {} });
+    x.addEventListener('click', function () { showBar(k); });
+    x.addEventListener('blur', function () { setTimeout(function () { if (document.activeElement !== x && barFor === k) hideBar(); }, 120); });
+    x.addEventListener('input', function () {
+      const clean = x.value.replace(/[০-৯]/g, function (d) { return String('০১২৩৪৫৬৭৮৯'.indexOf(d)); }).replace(/[^0-9.]/g, '');
+      if (clean !== x.value) x.value = clean;
+      const o = $(defs[k][ensureUnit(k)]); if (!o) return;
+      o.value = clean;
+      o.dispatchEvent(new Event('input', { bubbles: true }));   // পুরনো ঘরের হিসাব (কেজি, দর, মূল্য) চলে
+      setTimeout(function () { ['Qty', 'Rate'].forEach(function (k2) { if (k2 !== k) render(k2); }); }, 0);
+    });
+    x.addEventListener('keydown', function (e) {
+      const toggle = e.key === 'ArrowUp' || e.key === 'ArrowDown' || ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !x.value);
+      if (!toggle || e.altKey || e.ctrlKey) return;
+      e.preventDefault();
+      const o = ensureUnit(k) === 'pc' ? 'kg' : 'pc';
+      if (avail(k, o)) setUnit(k, o);
+    });
+  });
+  // পুরনো ঘরে প্রোগ্রাম থেকে বসা মান (আইটেম বদল, ডবল ক্লিকে এডিট, লাইন যোগের পর খালি) — মোটা ঘরেও দেখায়
+  const tick = setInterval(function () { if (!$('_QtyX')) { clearInterval(tick); hideBar(); return; } render('Qty'); render('Rate'); }, 300);
+  render('Qty', true); render('Rate', true);
+  const mb = document.getElementById('modalBody'); if (mb) mb.addEventListener('scroll', function () { if (barFor) showBar(barFor); }, { passive: true });
+}
+
 /** খোঁজার তালিকা (আইটেম / পার্টি): ঘরে চাপ দিলে, Enter দিলে, বা সরাসরি অক্ষর লিখলেই খোলে; লিখে খোঁজা, ↓ ↑ বাছাই, Enter বসান। */
 function voucherSelectPickerWire(P, suffix) {
-  const isItem = suffix === '_ItemID';
+  const isItem = suffix === '_ItemID', isZone = suffix === '_ZoneFilter';
   const sel = document.getElementById(P + suffix);
   const panel = document.getElementById(P + '_TabEntryPanel');
   if (!sel || !panel) return;
@@ -17695,7 +17800,7 @@ function voucherSelectPickerWire(P, suffix) {
       if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
       if (!isItem || !sel.value) return;   // পার্টিঃ শুধু বসানো; আইটেমঃ হিসাব শেষে পরিমাণের ঘরে
     } else sel.focus();
-    if (!sel.value) return;
+    if (!sel.value && !isZone) return;
     let n = 0;
     const go = function () {   // আইটেমের স্টক/একক হিসাব শেষ হলে (কোন ঘর চালু তা ঠিক হয়) পরের ঘরে
       if (!isPhone() && document.activeElement !== sel) return;   // এর মধ্যে নিজে অন্য ঘরে গেলে আর সরানো নয়
@@ -17709,7 +17814,7 @@ function voucherSelectPickerWire(P, suffix) {
     if (sel.disabled) return;
     // যা দেখা যায় শুধু তাই (জোন বাছাই করলে সেই জোনের নাম)
     const imap = window['__' + P + 'ItemMap'] || {};
-    const opts = Array.from(sel.options).filter(function (o) { return o.value && !o.disabled && !o.hidden && o.style.display !== 'none'; }).map(function (o) { return { v: o.value, t: o.textContent, c: isItem && imap[o.value] ? String(imap[o.value].CategoryID || '') : '' }; });
+    const opts = Array.from(sel.options).filter(function (o) { return (o.value || isZone) && !o.disabled && !o.hidden && o.style.display !== 'none'; }).map(function (o) { return { v: o.value, t: o.textContent, c: isItem && imap[o.value] ? String(imap[o.value].CategoryID || '') : '' }; });
     // আইটেমঃ উপরে ক্যাটাগরির বোতাম — আগে ক্যাটাগরি, তারপর আইটেম (তালিকায় যেসব ক্যাটাগরির আইটেম আছে শুধু সেগুলো)
     let cats = [];
     if (isItem) {
@@ -17744,7 +17849,7 @@ function voucherSelectPickerWire(P, suffix) {
       listEl.style.maxHeight = Math.max(120, maxH - 34 - ch) + 'px';
     };
     place();
-    let shown = [], hi = 0;
+    let shown = [], hi = 0, kfIdx = -1;
     const paint = function () {
       const term = q.value.trim().toLowerCase();
       shown = opts.filter(function (o) { return (!catPick || o.c === catPick) && (!term || o.t.toLowerCase().indexOf(term) !== -1); });
@@ -17773,6 +17878,24 @@ function voucherSelectPickerWire(P, suffix) {
       const onb = catsEl.querySelector('button.on'); if (onb && onb.scrollIntoView) onb.scrollIntoView({ block: 'nearest', inline: 'center' });
     }
     q.addEventListener('keydown', function (e) {
+      const cbar = box && box.querySelector('.vpick-cats');
+      if (cbar && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !q.value) {   // ক্যাটাগরির বারে ← → দিয়ে অন্য ঘরে
+        e.preventDefault();
+        const bs = Array.from(cbar.querySelectorAll('button[data-cat]'));
+        if (kfIdx < 0) kfIdx = Math.max(0, bs.findIndex(function (b) { return b.classList.contains('on'); }));
+        kfIdx = (kfIdx + (e.key === 'ArrowRight' ? 1 : -1) + bs.length) % bs.length;
+        bs.forEach(function (b, ix) { b.classList.toggle('kf', ix === kfIdx); });
+        if (bs[kfIdx].scrollIntoView) bs[kfIdx].scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        return;
+      }
+      if (cbar && kfIdx >= 0 && e.key === 'Enter') {   // Enter = সেই ক্যাটাগরি খোলে (নিচে তার আইটেম)
+        e.preventDefault(); e.stopPropagation();
+        const b = cbar.querySelectorAll('button[data-cat]')[kfIdx]; kfIdx = -1;
+        cbar.querySelectorAll('button').forEach(function (x) { x.classList.remove('kf'); });
+        if (b) b.click();
+        return;
+      }
+      if (cbar && kfIdx >= 0 && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { kfIdx = -1; cbar.querySelectorAll('button').forEach(function (x) { x.classList.remove('kf'); }); }
       if (e.key === 'ArrowDown') { e.preventDefault(); if (hi < shown.length - 1) { hi++; paint(); } }
       else if (e.key === 'ArrowUp') { e.preventDefault(); if (hi > 0) { hi--; paint(); } }
       else if (e.key === 'PageDown') { e.preventDefault(); hi = Math.min(shown.length - 1, hi + 8); paint(); }
@@ -17871,19 +17994,38 @@ function voucherDrawerWire() {
  *  ১) উপরের আটকানো অংশের নিচে ঘর লুকায় না (scroll-padding = আটকানো অংশের উচ্চতা)
  *  ২) পরিমাণ / দর / মূল্য / কমিশনের কোনো ঘরে গেলে পুরো "পরিমান থেকে মূল্য (+)" অংশ একসাথে চোখের সামনে আসে — টানাটানি লাগে না
  *  ৩) সংখ্যার ঘরে মাউস-চাকা ঘোরালে সংখ্যা বদলায় না, পাতা স্ক্রল হয় */
+function voucherFootWire(P) {
+  const body = document.getElementById('modalBody'), save = document.getElementById('modalSaveBtn'), cancel = document.getElementById('modalCancelBtn');
+  if (!body || !save || !cancel || document.getElementById(P + '_FootX')) return;
+  const f = document.createElement('div'); f.className = 'vfootx'; f.id = P + '_FootX';
+  f.innerHTML = `<button type="button" class="btn btn-outline" id="${P}_FootCancel">${escapeHtml(cancel.textContent || t('বাতিল', 'Cancel'))}</button><button type="button" class="btn btn-primary" id="${P}_FootSave">${escapeHtml(save.textContent || t('সেভ করুন', 'Save'))}</button>`;
+  body.appendChild(f);
+  document.getElementById(P + '_FootCancel').addEventListener('click', function () { cancel.click(); });
+  document.getElementById(P + '_FootSave').addEventListener('click', function () { save.click(); });
+  // আসল সেভ বোতামের অবস্থা (পোস্ট করা ভাউচারে লুকানো, সেভ চলাকালীন বন্ধ) — এখানেও একই
+  const fs = document.getElementById(P + '_FootSave');
+  const sync = setInterval(function () {
+    if (!document.body.contains(fs)) { clearInterval(sync); return; }
+    fs.style.display = save.style.display === 'none' ? 'none' : '';
+    fs.disabled = !!save.disabled;
+    fs.textContent = save.textContent;
+  }, 250);
+}
 function voucherSmoothWire(P) {
   voucherDrawerWire();
+  voucherFootWire(P);   // সেভ / বাতিল — লাইভ প্রিভিউর নিচে
   const body = document.getElementById('modalBody'), frz = document.getElementById(P + '_Freeze');
   const panel = document.getElementById(P + '_TabEntryPanel');
   if (!body || !frz || !panel) return;
   const setPad = function () { body.style.scrollPaddingTop = (frz.offsetHeight + 4) + 'px'; };
   setPad();
   if (window.ResizeObserver) { const ro = new ResizeObserver(setPad); ro.observe(frz); }
-  const blockIds = ['_QtyPcs', '_QtyKg', '_RatePc', '_RateKg', '_Amount', '_CommRate', '_AvgRatePc', '_AvgRateKg'];
-  const visibleRows = function () {   // পরিমান-হেডার থেকে মূল্য-(+) সারি পর্যন্ত (লুকানো সারি বাদ)
-    const lbl = document.getElementById(P + '_LblPcs'), amt = document.getElementById(P + '_Amount');
-    const startRow = lbl ? lbl.closest('tr').previousElementSibling : null, endRow = amt ? amt.closest('tr') : null;
-    return { start: startRow && startRow.style.display !== 'none' ? startRow : (lbl ? lbl.closest('tr') : null), end: endRow };
+  const blockIds = ['_QtyX', '_RateX', '_QtyPcs', '_QtyKg', '_RatePc', '_RateKg', '_Amount', '_CommRate', '_AvgRatePc', '_AvgRateKg'];
+  const visibleRows = function () {   // "আইটেম | পরিমান" থেকে "লাইন (+)" সারি পর্যন্ত
+    const q = document.getElementById(P + '_QtyX') || document.getElementById(P + '_QtyPcs'), btn = document.getElementById(P + (P === 'sv3' ? '_ConfirmSaleCheck' : '_ConfirmPurchaseCheck'));
+    const qtr = q ? q.closest('tr') : null, endRow = btn ? btn.closest('tr') : null;
+    const startRow = qtr ? (qtr.previousElementSibling && qtr.previousElementSibling.style.display !== 'none' ? qtr.previousElementSibling : qtr) : null;
+    return { start: startRow, end: endRow };
   };
   panel.addEventListener('focusin', function (e) {
     const el = e.target;
@@ -18569,35 +18711,30 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
           <td data-f="no"><input id="pv3_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো','Auto')}" readonly tabindex="-1" class="ro"></td>
           <td data-f="mdate"><input type="date" id="pv3_SupplierInvoiceDate" value="${attr(rec.SupplierInvoiceDate)}" ${rec.SupplierInvoiceDate?'':'disabled'}></td>
           <td data-f="mno"><input id="pv3_SupplierInvoiceNo" value="${attr(rec.SupplierInvoiceNo)}" ${rec.SupplierInvoiceNo?'':'disabled'}></td></tr>
-        <tr class="h"><th class="i" data-f="cat"><label><input type="checkbox" id="pv3_CatCheck"> ${t('ক্যাটাগরি','Category')}</label></th><th data-f="wh">${t('গুদাম','Warehouse')}</th><th class="i" data-f="group"><label><input type="checkbox" id="pv3_GroupCheck"> ${t('গ্রুপ','Group')}</label></th><th data-f="item">${t('আইটেম','Item')}</th></tr>
+        <tr class="h"><th class="i" data-f="cat"><label><input type="checkbox" id="pv3_CatCheck"> ${t('ক্যাটাগরি','Category')}</label></th><th data-f="wh">${t('গুদাম','Warehouse')}</th><th class="i" data-f="group" colspan="2"><label><input type="checkbox" id="pv3_GroupCheck"> ${t('গ্রুপ','Group')}</label></th></tr>
         <tr><td data-f="cat"><select id="pv3_CatSelect" disabled style="display:none;"><option value="">—</option>${optsHtml(window.__pv3Categories, 'CategoryID','CategoryName','')}</select></td>
           <td data-f="wh"><select id="pv3_WarehouseID"><option value="">—</option>${optsHtml(window.__pv3Warehouses, 'WarehouseID','WarehouseName', rec.WarehouseID)}</select></td>
-          <td data-f="group"><select id="pv3_GroupSelect" disabled style="display:none;"><option value="">—</option>${optsHtml(window.__pv3Groups, 'GroupID','GroupName','')}</select></td>
-          <td data-f="item"><select id="pv3_ItemID"><option value="">—</option></select></td></tr>
-        <tr class="h"><th colspan="2" data-f="qtyPcs qtyKg">${t('পরিমান','Quantity')}</th><th colspan="2" class="i" data-f="stkPcs stkKg">${t('স্টক পরিমান','Stock quantity')}</th></tr>
-        <tr class="h2"><th id="pv3_LblPcs" data-f="qtyPcs">${t('পিস','Pcs')}</th><th id="pv3_LblKg" data-f="qtyKg">${t('কেজি','Kg')}</th><th class="i" data-f="stkPcs">${t('পিস','Pcs')}</th><th class="i" data-f="stkKg">${t('কেজি','Kg')}</th></tr>
-        <tr><td data-f="qtyPcs"><input id="pv3_QtyPcs" type="number" step="any" min="0" inputmode="decimal"></td>
-          <td data-f="qtyKg"><input id="pv3_QtyKg" type="number" step="any" min="0" inputmode="decimal"></td>
-          <td data-f="stkPcs"><input id="pv3_StkPcs" readonly tabindex="-1" class="ro"></td>
-          <td data-f="stkKg"><input id="pv3_StkKg" readonly tabindex="-1" class="ro"></td></tr>
-        <tr class="h"><th colspan="2" data-f="ratePc rateKg">${t('দর','Rate')}</th><th colspan="2" class="i" data-f="stkRatePc stkRateKg">${t('স্টক দর','Stock rate')}</th></tr>
-        <tr class="h2"><th data-f="ratePc">${t('পিস','Pc')}</th><th data-f="rateKg">${t('কেজি','Kg')}</th><th class="i" data-f="stkRatePc">${t('পিস','Pc')}</th><th class="i" data-f="stkRateKg">${t('কেজি','Kg')}</th></tr>
-        <tr><td data-f="ratePc"><input id="pv3_RatePc" type="number" step="any" min="0" inputmode="decimal" title="${attr(t('এখানে দর লিখলে মূল্য = পিস × দর','Typing here: amount = pcs × rate'))}"></td>
-          <td data-f="rateKg"><input id="pv3_RateKg" type="number" step="any" min="0" inputmode="decimal" title="${attr(t('এখানে দর লিখলে মূল্য = কেজি × দর','Typing here: amount = kg × rate'))}"></td>
-          <td data-f="stkRatePc"><input id="pv3_StkRatePc" readonly tabindex="-1" class="ro"></td>
-          <td data-f="stkRateKg"><input id="pv3_StkRateKg" readonly tabindex="-1" class="ro"></td></tr>
+          <td data-f="group" colspan="2"><select id="pv3_GroupSelect" disabled style="display:none;"><option value="">—</option>${optsHtml(window.__pv3Groups, 'GroupID','GroupName','')}</select></td></tr>
+        <tr class="h"><th colspan="2" data-f="item">${t('আইটেম','Item')}</th><th colspan="2" data-f="qtyPcs qtyKg">${t('পরিমান','Quantity')}</th></tr>
+        <tr class="vplate"><td colspan="2" data-f="item" class="tl"><select id="pv3_ItemID"><option value="">—</option></select></td><td colspan="2" data-f="qtyPcs qtyKg"><div class="vcombo" id="pv3_QtyBox"><input id="pv3_QtyX" type="text" inputmode="decimal" autocomplete="off" class="vbig"><span class="vcu" id="pv3_QtyU"></span></div></td></tr>
+        <tr class="h"><th colspan="2" data-f="ratePc rateKg">${t('দর','Rate')}</th><th colspan="2" data-f="amount">${t('মূল্য','Amount')}</th></tr>
+        <tr class="vplate"><td colspan="2" data-f="ratePc rateKg"><div class="vcombo" id="pv3_RateBox"><input id="pv3_RateX" type="text" inputmode="decimal" autocomplete="off" class="vbig"><span class="vcu" id="pv3_RateU"></span></div></td><td colspan="2" data-f="amount"><input id="pv3_Amount" type="number" step="any" min="0" inputmode="decimal" class="vbold vbig" title="${attr(t('মোট মূল্য লিখলে কেজি ও পিসের দর নিজে বসে','Typing the total fills both rates'))}"></td></tr>
+        
+        <tr class="h"><th colspan="2" class="i" data-f="stkPcs stkKg">${t('স্টক পরিমান','Stock quantity')}</th><th colspan="2" class="i" data-f="stkRatePc stkRateKg">${t('স্টক দর','Stock rate')}</th></tr>
+        <tr class="h2"><th class="i" data-f="stkPcs">${t('পিস','Pcs')}</th><th class="i" data-f="stkKg">${t('কেজি','Kg')}</th><th class="i" data-f="stkRatePc">${t('পিস','Pc')}</th><th class="i" data-f="stkRateKg">${t('কেজি','Kg')}</th></tr>
+        <tr><td data-f="stkPcs"><input id="pv3_StkPcs" readonly tabindex="-1" class="ro"></td><td data-f="stkKg"><input id="pv3_StkKg" readonly tabindex="-1" class="ro"></td><td data-f="stkRatePc"><input id="pv3_StkRatePc" readonly tabindex="-1" class="ro"></td><td data-f="stkRateKg"><input id="pv3_StkRateKg" readonly tabindex="-1" class="ro"></td></tr>
         <tr class="h"><th colspan="2" class="i" data-f="stdRate">${t('আঃ ক্রয় দর','Avg. purchase rate')}</th><th colspan="2" class="i" data-f="comm">${t('কমিশন','Commission')}</th></tr>
         <tr class="h2"><th class="i" data-f="stdRate"><label><input type="checkbox" id="pv3_AvgPcCheck"> ${t('পিস','Pc')}</label></th><th class="i" data-f="stdRate"><label><input type="checkbox" id="pv3_AvgKgCheck"> ${t('কেজি','Kg')}</label></th><th class="i" data-f="comm"><label><input type="checkbox" id="pv3_CommCheck"> %</label></th><th class="i" data-f="comm">${t('(-) টাকা','(-) Amount')}</th></tr>
         <tr><td data-f="stdRate"><input id="pv3_AvgRatePc" readonly class="ro vtap" style="display:none;" title="${attr(t('চাপলে এই দর বসবে','Tap to use this rate'))}"></td>
           <td data-f="stdRate"><input id="pv3_AvgRateKg" readonly class="ro vtap" style="display:none;" title="${attr(t('চাপলে এই দর বসবে','Tap to use this rate'))}"></td>
           <td data-f="comm"><input id="pv3_CommRate" type="number" step="any" min="0" inputmode="decimal" placeholder="0" disabled></td>
           <td data-f="comm"><input id="pv3_CommAmount" readonly tabindex="-1" class="ro"></td></tr>
-        <tr class="h"><th data-f="amount">${t('মূল্য','Amount')}</th><th class="i" data-f="addLine">${t('ক্রয় লাইন','Purchase line')}</th><th class="i" data-f="addRet">${t('ক্রয় ফেরৎ','Purchase return')}</th><th class="i" data-f="addX">${t('বিক্রয় লাইন','Sale line')}</th></tr>
-        <tr><td data-f="amount"><input id="pv3_Amount" type="number" step="any" min="0" inputmode="decimal" class="vbold" title="${attr(t('মোট মূল্য লিখলে কেজি ও পিসের দর নিজে বসে','Typing the total fills both rates'))}"></td>
-          <td data-f="addLine"><label class="vbtn" title="${attr(t('ক্রয় লাইন যোগ','Add purchase line'))}"><input type="checkbox" id="pv3_ConfirmPurchaseCheck" class="vhide"> (+)</label></td>
+        <tr class="h"><th class="i" data-f="addLine" colspan="2">${t('ক্রয় লাইন','Purchase line')}</th><th class="i" data-f="addRet">${t('ক্রয় ফেরৎ','Purchase return')}</th><th class="i" data-f="addX">${t('বিক্রয় লাইন','Sale line')}</th></tr>
+        <tr><td data-f="addLine" colspan="2"><label class="vbtn" title="${attr(t('ক্রয় লাইন যোগ','Add purchase line'))}"><input type="checkbox" id="pv3_ConfirmPurchaseCheck" class="vhide"> (+)</label></td>
           <td data-f="addRet"><button type="button" id="pv3_AddReturnLineBtn" class="vbtn vret" title="${attr(t('ক্রয় ফেরৎ লাইন যোগ','Add purchase return line'))}">(+)</button></td>
           <td data-f="addX"><button type="button" id="pv3_AddXLineBtn" class="vbtn vxbtn" title="${attr(t('বিক্রয় লাইন যোগ (একই পার্টির সাথে বিনিময়)','Add sale line (exchange with the same party)'))}">(+)</button></td></tr>
       </table>
+      <span class="vorig" style="display:none;"><b id="pv3_LblPcs"></b><b id="pv3_LblKg"></b><input id="pv3_QtyPcs" type="number" step="any" min="0" inputmode="decimal"><input id="pv3_QtyKg" type="number" step="any" min="0" inputmode="decimal"><input id="pv3_RatePc" type="number" step="any" min="0" inputmode="decimal" title="${attr(t('এখানে দর লিখলে মূল্য = পিস × দর','Typing here: amount = pcs × rate'))}"><input id="pv3_RateKg" type="number" step="any" min="0" inputmode="decimal" title="${attr(t('এখানে দর লিখলে মূল্য = কেজি × দর','Typing here: amount = kg × rate'))}"></span>
       <div id="pv3_CommResultRow" style="display:none;"><input type="hidden" id="pv3_NetLineAmount"></div>
       <input type="hidden" id="pv3_PreviewStockQty"><input type="hidden" id="pv3_PreviewStockRate">
       <input type="hidden" id="pv3_Qty"><input type="hidden" id="pv3_Rate"><input type="hidden" id="pv3_Unit">
@@ -19199,7 +19336,7 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
     const rate = Number(val('pv3_Rate')) || 0;
     const byAmt = window.__pv3RateBasis === 'amt';   // মূল্যের ঘরে টোটাল লেখা হলে সেটাই থাকে
     const amount = byAmt ? Math.round((Number(val('pv3_Amount')) || 0) * 100) / 100 : Math.round(qty * rate);
-    if (!byAmt) document.getElementById('pv3_Amount').value = amount;
+    if (!byAmt) document.getElementById('pv3_Amount').value = amount ? amount : '';   // ফাঁকা থাকলে ০ নয়
     if (document.getElementById('pv3_CommCheck').checked) {
       const commRate = Number(val('pv3_CommRate')) || 0;
       const commAmount = amount * commRate / 100;
@@ -19295,7 +19432,7 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
     n = Number(n) || 0; if (!n) return '';
     return n.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: dec === undefined ? 2 : dec });
   }
-  function pv3Rate(v) { return pv3Fmt(v, Math.abs(Number(v) || 0) >= 1000 ? 0 : 2); }   // বড় দরে দশমিক বাদ — মোবাইলে ঘরে ধরে
+  function pv3Rate(v) { return pv3Fmt(v, Math.abs(Number(v) || 0) >= 100 ? 0 : 2); }   // বড় দরে দশমিক বাদ — ঘরে পুরো সংখ্যা ধরে   // বড় দরে দশমিক বাদ — মোবাইলে ঘরে ধরে
   function pv3LineView(l) {   // একটা লাইনের পিস/কেজি/দর — পুরনো লাইনে না থাকলে মূল একক থেকে
     const item = window.__pv3ItemMap[l.itemId] || {};
     const piece = voucherIsPieceUnit(((window.__pv3UnitMap || {})[item.UOMID] || {}).UOMName || '');
@@ -19432,7 +19569,7 @@ async function openPurchaseVoucherForm(defaultType, existingId, navOpts) {
     recalcAmount();
     renderRightSummary();   // সেটিং-এ বন্ধ ঘর আবার বন্ধ, পেনেল হালনাগাদ
     pv3PanelRender();
-    const first = ['pv3_QtyPcs', 'pv3_QtyKg', 'pv3_RatePc', 'pv3_RateKg', 'pv3_Amount'].map(pv3El).find(function (el) { return el && !el.disabled && el.offsetParent; });
+    const first = ['pv3_QtyX', 'pv3_RateX', 'pv3_Amount'].map(pv3El).find(function (el) { return el && !el.disabled && el.offsetParent; });
     if (first) { first.focus(); try { first.select(); } catch (e) {} }
     showToast(t('লাইন ', 'Line ') + (i + 1) + t(' এডিট হচ্ছে — বদলে (+) চাপুন', ' is being edited — change it and press (+)'), 'info');
   }
@@ -19863,35 +20000,30 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
           <td data-f="no"><input id="sv3_VoucherNo" value="${isEdit ? attr(existingId) : t('অটো','Auto')}" readonly tabindex="-1" class="ro"></td>
           <td data-f="mdate"><input type="date" id="sv3_ManualVoucherDate" value="${attr(rec.ManualVoucherDate)}" ${rec.ManualVoucherDate?'':'disabled'}></td>
           <td data-f="mno"><input id="sv3_ManualVoucherNo" value="${attr(rec.ManualVoucherNo)}" ${rec.ManualVoucherNo?'':'disabled'}></td></tr>
-        <tr class="h"><th class="i" data-f="cat"><label><input type="checkbox" id="sv3_CatCheck"> ${t('ক্যাটাগরি','Category')}</label></th><th data-f="wh">${t('গুদাম','Warehouse')}</th><th class="i" data-f="group"><label><input type="checkbox" id="sv3_GroupCheck"> ${t('গ্রুপ','Group')}</label></th><th data-f="item">${t('আইটেম','Item')}</th></tr>
+        <tr class="h"><th class="i" data-f="cat"><label><input type="checkbox" id="sv3_CatCheck"> ${t('ক্যাটাগরি','Category')}</label></th><th data-f="wh">${t('গুদাম','Warehouse')}</th><th class="i" data-f="group" colspan="2"><label><input type="checkbox" id="sv3_GroupCheck"> ${t('গ্রুপ','Group')}</label></th></tr>
         <tr><td data-f="cat"><select id="sv3_CatSelect" disabled style="display:none;"><option value="">—</option>${optsHtml(window.__sv3Categories, 'CategoryID','CategoryName','')}</select></td>
           <td data-f="wh"><select id="sv3_WarehouseID"><option value="">—</option>${optsHtml(window.__sv3Warehouses, 'WarehouseID','WarehouseName', rec.WarehouseID)}</select></td>
-          <td data-f="group"><select id="sv3_GroupSelect" disabled style="display:none;"><option value="">—</option>${optsHtml(window.__sv3Groups, 'GroupID','GroupName','')}</select></td>
-          <td data-f="item"><select id="sv3_ItemID"><option value="">—</option></select></td></tr>
-        <tr class="h"><th colspan="2" data-f="qtyPcs qtyKg">${t('পরিমান','Quantity')}</th><th colspan="2" class="i" data-f="stkPcs stkKg">${t('স্টক পরিমান','Stock quantity')}</th></tr>
-        <tr class="h2"><th id="sv3_LblPcs" data-f="qtyPcs">${t('পিস','Pcs')}</th><th id="sv3_LblKg" data-f="qtyKg">${t('কেজি','Kg')}</th><th class="i" data-f="stkPcs">${t('পিস','Pcs')}</th><th class="i" data-f="stkKg">${t('কেজি','Kg')}</th></tr>
-        <tr><td data-f="qtyPcs"><input id="sv3_QtyPcs" type="number" step="any" min="0" inputmode="decimal"></td>
-          <td data-f="qtyKg"><input id="sv3_QtyKg" type="number" step="any" min="0" inputmode="decimal"></td>
-          <td data-f="stkPcs"><input id="sv3_StkPcs" readonly tabindex="-1" class="ro"></td>
-          <td data-f="stkKg"><input id="sv3_StkKg" readonly tabindex="-1" class="ro"></td></tr>
-        <tr class="h"><th colspan="2" data-f="ratePc rateKg">${t('দর','Rate')}</th><th colspan="2" class="i" data-f="stkRatePc stkRateKg">${t('স্টক দর','Stock rate')}</th></tr>
-        <tr class="h2"><th data-f="ratePc">${t('পিস','Pc')}</th><th data-f="rateKg">${t('কেজি','Kg')}</th><th class="i" data-f="stkRatePc">${t('পিস','Pc')}</th><th class="i" data-f="stkRateKg">${t('কেজি','Kg')}</th></tr>
-        <tr><td data-f="ratePc"><input id="sv3_RatePc" type="number" step="any" min="0" inputmode="decimal" title="${attr(t('এখানে দর লিখলে মূল্য = পিস × দর','Typing here: amount = pcs × rate'))}"></td>
-          <td data-f="rateKg"><input id="sv3_RateKg" type="number" step="any" min="0" inputmode="decimal" title="${attr(t('এখানে দর লিখলে মূল্য = কেজি × দর','Typing here: amount = kg × rate'))}"></td>
-          <td data-f="stkRatePc"><input id="sv3_StkRatePc" readonly tabindex="-1" class="ro"></td>
-          <td data-f="stkRateKg"><input id="sv3_StkRateKg" readonly tabindex="-1" class="ro"></td></tr>
+          <td data-f="group" colspan="2"><select id="sv3_GroupSelect" disabled style="display:none;"><option value="">—</option>${optsHtml(window.__sv3Groups, 'GroupID','GroupName','')}</select></td></tr>
+        <tr class="h"><th colspan="2" data-f="item">${t('আইটেম','Item')}</th><th colspan="2" data-f="qtyPcs qtyKg">${t('পরিমান','Quantity')}</th></tr>
+        <tr class="vplate"><td colspan="2" data-f="item" class="tl"><select id="sv3_ItemID"><option value="">—</option></select></td><td colspan="2" data-f="qtyPcs qtyKg"><div class="vcombo" id="sv3_QtyBox"><input id="sv3_QtyX" type="text" inputmode="decimal" autocomplete="off" class="vbig"><span class="vcu" id="sv3_QtyU"></span></div></td></tr>
+        <tr class="h"><th colspan="2" data-f="ratePc rateKg">${t('দর','Rate')}</th><th colspan="2" data-f="amount">${t('মূল্য','Amount')}</th></tr>
+        <tr class="vplate"><td colspan="2" data-f="ratePc rateKg"><div class="vcombo" id="sv3_RateBox"><input id="sv3_RateX" type="text" inputmode="decimal" autocomplete="off" class="vbig"><span class="vcu" id="sv3_RateU"></span></div></td><td colspan="2" data-f="amount"><input id="sv3_Amount" type="number" step="any" min="0" inputmode="decimal" class="vbold vbig" title="${attr(t('মোট মূল্য লিখলে কেজি ও পিসের দর নিজে বসে','Typing the total fills both rates'))}"></td></tr>
+        
+        <tr class="h"><th colspan="2" class="i" data-f="stkPcs stkKg">${t('স্টক পরিমান','Stock quantity')}</th><th colspan="2" class="i" data-f="stkRatePc stkRateKg">${t('স্টক দর','Stock rate')}</th></tr>
+        <tr class="h2"><th class="i" data-f="stkPcs">${t('পিস','Pcs')}</th><th class="i" data-f="stkKg">${t('কেজি','Kg')}</th><th class="i" data-f="stkRatePc">${t('পিস','Pc')}</th><th class="i" data-f="stkRateKg">${t('কেজি','Kg')}</th></tr>
+        <tr><td data-f="stkPcs"><input id="sv3_StkPcs" readonly tabindex="-1" class="ro"></td><td data-f="stkKg"><input id="sv3_StkKg" readonly tabindex="-1" class="ro"></td><td data-f="stkRatePc"><input id="sv3_StkRatePc" readonly tabindex="-1" class="ro"></td><td data-f="stkRateKg"><input id="sv3_StkRateKg" readonly tabindex="-1" class="ro"></td></tr>
         <tr class="h"><th colspan="2" class="i" data-f="stdRate">${t('আঃ বিক্রয় দর','Std. sales rate')}</th><th colspan="2" class="i" data-f="comm">${t('কমিশন','Commission')}</th></tr>
         <tr class="h2"><th class="i" data-f="stdRate"><label><input type="checkbox" id="sv3_AvgPcCheck"> ${t('পিস','Pc')}</label></th><th class="i" data-f="stdRate"><label><input type="checkbox" id="sv3_AvgKgCheck"> ${t('কেজি','Kg')}</label></th><th class="i" data-f="comm"><label><input type="checkbox" id="sv3_CommCheck"> %</label></th><th class="i" data-f="comm">${t('(-) টাকা','(-) Amount')}</th></tr>
         <tr><td data-f="stdRate"><input id="sv3_AvgRatePc" readonly class="ro vtap" style="display:none;" title="${attr(t('চাপলে এই দর বসবে','Tap to use this rate'))}"></td>
           <td data-f="stdRate"><input id="sv3_AvgRateKg" readonly class="ro vtap" style="display:none;" title="${attr(t('চাপলে এই দর বসবে','Tap to use this rate'))}"></td>
           <td data-f="comm"><input id="sv3_CommRate" type="number" step="any" min="0" inputmode="decimal" placeholder="0" disabled></td>
           <td data-f="comm"><input id="sv3_CommAmount" readonly tabindex="-1" class="ro"></td></tr>
-        <tr class="h"><th data-f="amount">${t('মূল্য','Amount')}</th><th class="i" data-f="addLine">${t('বিক্রয় লাইন','Sale line')}</th><th class="i" data-f="addRet">${t('বিক্রয় ফেরৎ','Sale return')}</th><th class="i" data-f="addX">${t('ক্রয় লাইন','Purchase line')}</th></tr>
-        <tr><td data-f="amount"><input id="sv3_Amount" type="number" step="any" min="0" inputmode="decimal" class="vbold" title="${attr(t('মোট মূল্য লিখলে কেজি ও পিসের দর নিজে বসে','Typing the total fills both rates'))}"></td>
-          <td data-f="addLine"><label class="vbtn" title="${attr(t('বিক্রয় লাইন যোগ','Add sale line'))}"><input type="checkbox" id="sv3_ConfirmSaleCheck" class="vhide"> (+)</label></td>
+        <tr class="h"><th class="i" data-f="addLine" colspan="2">${t('বিক্রয় লাইন','Sale line')}</th><th class="i" data-f="addRet">${t('বিক্রয় ফেরৎ','Sale return')}</th><th class="i" data-f="addX">${t('ক্রয় লাইন','Purchase line')}</th></tr>
+        <tr><td data-f="addLine" colspan="2"><label class="vbtn" title="${attr(t('বিক্রয় লাইন যোগ','Add sale line'))}"><input type="checkbox" id="sv3_ConfirmSaleCheck" class="vhide"> (+)</label></td>
           <td data-f="addRet"><div class="vret2"><label class="vscrap" title="${attr(t('টিক দিলে এই ফেরত মাল ভাঙ্গাড়ী স্টকে যাবে (কেজি)','Tick: this returned item goes to scrap stock (kg)'))}"><input type="checkbox" id="sv3_ScrapCheck">${t('ভাঙ্গাড়ী','Scrap')}</label><button type="button" id="sv3_AddReturnLineBtn" class="vbtn vret" title="${attr(t('বিক্রয় ফেরৎ লাইন যোগ','Add sale return line'))}">(+)</button></div></td>
           <td data-f="addX"><button type="button" id="sv3_AddXLineBtn" class="vbtn vxbtn" title="${attr(t('ক্রয় লাইন যোগ (একই পার্টির সাথে বিনিময়)','Add purchase line (exchange with the same party)'))}">(+)</button></td></tr>
       </table>
+      <span class="vorig" style="display:none;"><b id="sv3_LblPcs"></b><b id="sv3_LblKg"></b><input id="sv3_QtyPcs" type="number" step="any" min="0" inputmode="decimal"><input id="sv3_QtyKg" type="number" step="any" min="0" inputmode="decimal"><input id="sv3_RatePc" type="number" step="any" min="0" inputmode="decimal" title="${attr(t('এখানে দর লিখলে মূল্য = পিস × দর','Typing here: amount = pcs × rate'))}"><input id="sv3_RateKg" type="number" step="any" min="0" inputmode="decimal" title="${attr(t('এখানে দর লিখলে মূল্য = কেজি × দর','Typing here: amount = kg × rate'))}"></span>
       <div id="sv3_CommResultRow" style="display:none;"><input type="hidden" id="sv3_NetLineAmount"></div>
       <input type="hidden" id="sv3_PreviewStockQty"><input type="hidden" id="sv3_PreviewStockRate">
       <input type="hidden" id="sv3_Qty"><input type="hidden" id="sv3_Rate"><input type="hidden" id="sv3_Unit">
@@ -20477,7 +20609,7 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
     const rate = Number(val('sv3_Rate')) || 0;
     const byAmt = window.__sv3RateBasis === 'amt';   // মূল্যের ঘরে টোটাল লেখা হলে সেটাই থাকে
     const amount = byAmt ? Math.round((Number(val('sv3_Amount')) || 0) * 100) / 100 : Math.round(qty * rate);
-    if (!byAmt) document.getElementById('sv3_Amount').value = amount;
+    if (!byAmt) document.getElementById('sv3_Amount').value = amount ? amount : '';   // ফাঁকা থাকলে ০ নয়
     if (document.getElementById('sv3_CommCheck').checked) {
       const commRate = Number(val('sv3_CommRate')) || 0;
       const commAmount = amount * commRate / 100;
@@ -20585,7 +20717,7 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
     n = Number(n) || 0; if (!n) return '';
     return n.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: dec === undefined ? 2 : dec });
   }
-  function sv3Rate(v) { return sv3Fmt(v, Math.abs(Number(v) || 0) >= 1000 ? 0 : 2); }   // বড় দরে দশমিক বাদ — মোবাইলে ঘরে ধরে
+  function sv3Rate(v) { return sv3Fmt(v, Math.abs(Number(v) || 0) >= 100 ? 0 : 2); }   // বড় দরে দশমিক বাদ — ঘরে পুরো সংখ্যা ধরে   // বড় দরে দশমিক বাদ — মোবাইলে ঘরে ধরে
   function sv3LineView(l) {   // একটা লাইনের পিস/কেজি/দর — পুরনো লাইনে না থাকলে মূল একক থেকে
     const item = window.__sv3ItemMap[l.itemId] || {};
     const piece = voucherIsPieceUnit(((window.__sv3UnitMap || {})[item.UOMID] || {}).UOMName || '');
@@ -20727,7 +20859,7 @@ async function openSalesVoucherForm(defaultType, existingId, navOpts) {
     recalcAmount();
     renderRightSummary();   // সেটিং-এ বন্ধ ঘর আবার বন্ধ, পেনেল হালনাগাদ
     sv3PanelRender();
-    const first = ['sv3_QtyPcs', 'sv3_QtyKg', 'sv3_RatePc', 'sv3_RateKg', 'sv3_Amount'].map(sv3El).find(function (el) { return el && !el.disabled && el.offsetParent; });
+    const first = ['sv3_QtyX', 'sv3_RateX', 'sv3_Amount'].map(sv3El).find(function (el) { return el && !el.disabled && el.offsetParent; });
     if (first) { first.focus(); try { first.select(); } catch (e) {} }
     showToast(t('লাইন ', 'Line ') + (i + 1) + t(' এডিট হচ্ছে — বদলে (+) চাপুন', ' is being edited — change it and press (+)'), 'info');
   }
